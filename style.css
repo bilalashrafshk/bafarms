@@ -272,6 +272,17 @@ section {
     height: 46px;
 }
 
+.logo-emblem {
+    height: 42px;
+    width: auto;
+    display: block;
+    transition: var(--transition-smooth);
+}
+
+.header.scrolled .logo-emblem {
+    height: 36px;
+}
+
 .nav-menu {
     display: flex;
     align-items: center;
