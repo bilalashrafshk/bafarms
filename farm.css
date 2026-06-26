@@ -7,22 +7,21 @@
     --bg-dark-base: hsl(210, 15%, 6%);
     --bg-dark-card: hsla(150, 16%, 10%, 0.75);
     --bg-dark-card-hover: hsla(150, 18%, 13%, 0.85);
-    --border-color: rgba(255, 255, 255, 0.08);
-    --border-color-hover: rgba(255, 255, 255, 0.15);
+    --border-color: rgba(25, 135, 84, 0.15);
+    --border-color-hover: rgba(255, 193, 7, 0.3);
     --border-subtle: rgba(255, 255, 255, 0.07);
 
-    --primary-green: hsl(143, 68%, 28%);
-    --primary-green-light: hsl(142, 55%, 42%);
-    --primary-green-glow: hsla(142, 55%, 42%, 0.3);
+    --primary-green: hsl(143, 68%, 20%);
+    --primary-green-light: hsl(142, 60%, 40%);
+    --primary-green-glow: hsla(142, 60%, 40%, 0.3);
 
-    --accent-gold: hsl(43, 80%, 50%);
-    --accent-gold-dark: hsl(43, 80%, 40%);
-    --accent-gold-glow: hsla(43, 80%, 50%, 0.35);
-    --accent-steel: hsl(210, 30%, 55%);
+    --accent-gold: hsl(43, 90%, 53%);
+    --accent-gold-dark: hsl(43, 90%, 40%);
+    --accent-gold-glow: hsla(43, 90%, 53%, 0.35);
 
     --text-pure: hsl(0, 0%, 100%);
     --text-main: hsl(210, 15%, 88%);
-    --text-muted: hsl(210, 10%, 62%);
+    --text-muted: hsl(210, 10%, 68%);
     --text-dark: hsl(210, 15%, 15%);
 
     --font-heading: 'Outfit', sans-serif;
@@ -110,8 +109,8 @@ a {
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 1.75rem;
+    border-radius: 16px;
+    padding: 2.5rem;
     box-shadow: var(--box-shadow-premium);
     transition: var(--transition-smooth);
     position: relative;
@@ -262,16 +261,15 @@ section {
 }
 
 .logo-img {
-    height: 64px;
+    height: 54px;
     width: auto;
     display: block;
     transition: var(--transition-smooth);
 }
 
 .header.scrolled .logo-img {
-    height: 52px;
+    height: 46px;
 }
-
 
 .nav-menu {
     display: flex;
@@ -341,11 +339,11 @@ section {
    HERO SECTION CSS
    ========================================== */
 .hero {
-    min-height: 65vh;
+    min-height: 100vh;
     display: flex;
     align-items: center;
-    padding-top: calc(var(--header-h) + 2rem);
-    padding-bottom: 3rem;
+    padding-top: calc(var(--header-h) + 4rem);
+    padding-bottom: 7rem;
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
@@ -477,89 +475,25 @@ section {
     font-weight: 500;
 }
 
-/* Clean Horizontal Rule Divider */
+/* Curve Divider Styling */
 .section-divider {
     position: absolute;
-    bottom: 0;
+    bottom: -1px;
     left: 0;
     width: 100%;
-    height: 1px;
-    background: var(--border-color);
+    overflow: hidden;
+    line-height: 0;
 }
 
-/* Spec Table Styling */
-.spec-table-container {
-    width: 100%;
-    overflow-x: auto;
-    margin-top: 2rem;
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    background: var(--bg-dark-card);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+.section-divider svg {
+    position: relative;
+    display: block;
+    width: calc(100% + 1.3px);
+    height: 50px;
 }
 
-.spec-table {
-    width: 100%;
-    border-collapse: collapse;
-    text-align: left;
-    font-size: 0.95rem;
-}
-
-.spec-table th {
-    background: rgba(255, 255, 255, 0.02);
-    padding: 1.2rem 1.5rem;
-    font-family: var(--font-heading);
-    font-weight: 700;
-    color: var(--text-pure);
-    border-bottom: 2px solid var(--border-color);
-    text-transform: uppercase;
-    font-size: 0.8rem;
-    letter-spacing: 0.08em;
-}
-
-.spec-table td {
-    padding: 1.2rem 1.5rem;
-    border-bottom: 1px solid var(--border-subtle);
-    color: var(--text-main);
-    vertical-align: middle;
-}
-
-.spec-table tr:last-child td {
-    border-bottom: none;
-}
-
-.spec-table tr:hover {
-    background: rgba(255, 255, 255, 0.01);
-}
-
-.spec-tag {
-    display: inline-block;
-    padding: 0.25rem 0.75rem;
-    border-radius: 50px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    font-family: var(--font-heading);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
-.spec-tag-steel {
-    background: hsla(210, 30%, 55%, 0.1);
-    color: var(--accent-steel);
-    border: 1px solid hsla(210, 30%, 55%, 0.2);
-}
-
-.spec-tag-gold {
-    background: hsla(43, 80%, 50%, 0.1);
-    color: var(--accent-gold);
-    border: 1px solid hsla(43, 80%, 50%, 0.2);
-}
-
-.spec-tag-green {
-    background: hsla(143, 68%, 28%, 0.1);
-    color: var(--primary-green-light);
-    border: 1px solid hsla(143, 68%, 28%, 0.2);
+.section-divider .shape-fill {
+    fill: var(--bg-dark-base);
 }
 
 /* ==========================================

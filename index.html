@@ -9,7 +9,7 @@
     <title>BA Foods | Precision Beef Export House | Division of BA Farms</title>
 
     <!-- Favicon -->
-    <link rel="icon" type="image/png" href="public/assets/favicon.png">
+    <link rel="icon" type="image/png" href="/assets/favicon.png">
 
     <!-- Premium Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -28,8 +28,7 @@
     <header class="header" id="header">
         <div class="nav-container">
             <a href="#home" class="logo" id="nav-logo">
-                <img src="public/assets/logo_emblem_white.png" alt="BA Foods Emblem" class="logo-emblem" style="height: 42px; width: auto; margin-right: 10px;">
-                BA <span class="logo-accent">FOODS</span>
+                <img src="/assets/logo_bafoods_white.png" alt="BA Foods Logo" class="logo-img">
             </a>
 
             <!-- Mobile Menu Toggle Button -->
@@ -51,7 +50,7 @@
 
     <main>
         <!-- Hero Section -->
-        <section class="hero" id="home" style="background-image: linear-gradient(rgba(10, 17, 13, 0.85), rgba(10, 17, 13, 0.95)), url('public/assets/hero_export.jpg');">
+        <section class="hero" id="home" style="background-image: linear-gradient(rgba(10, 17, 13, 0.85), rgba(10, 17, 13, 0.95)), url('/assets/hero_export.jpg');">
             <div class="hero-container">
                 <div class="hero-badge" id="hero-badge">
                     <span class="badge-gold"><i class="fa-solid fa-earth-americas"></i> Global B2B Export Only</span>
@@ -72,7 +71,7 @@
                     <a href="#enquiry" class="btn btn-primary" id="hero-cta-primary">
                         <i class="fa-solid fa-paper-plane"></i> Submit Export Enquiry
                     </a>
-                    <a href="public/assets/product_catalogue.pdf" target="_blank" class="btn btn-secondary" id="hero-cta-secondary">
+                    <a href="/assets/product_catalogue.pdf" target="_blank" class="btn btn-secondary" id="hero-cta-secondary">
                         <i class="fa-solid fa-file-pdf"></i> Download Product Catalogue
                     </a>
                 </div>
@@ -503,14 +502,11 @@
         <div class="container">
             <div style="display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 4rem; margin-bottom: 3.5rem;">
                 <!-- Column 1: Logo & Brand -->
-                <div>
-                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 1.25rem;">
-                        <img src="public/assets/logo_emblem_gold.png" alt="BA Foods Emblem" style="height: 48px; width: auto; display: block;">
-                        <h3 style="font-size: 1.6rem; color: var(--text-pure); font-family: var(--font-heading); font-weight: 800; margin: 0; letter-spacing: 0.05em;">
-                            BA <span style="color: var(--accent-gold);">FOODS</span>
-                        </h3>
+                <div style="display: flex; flex-direction: column; align-items: center; text-align: center;">
+                    <div style="margin-bottom: 1.5rem;">
+                        <img src="/assets/logo_bafoods_white.png" alt="BA Foods Logo" style="height: 120px; width: auto; display: block; margin: 0 auto;">
                     </div>
-                    <p style="color: var(--text-muted); font-size: 0.92rem; line-height: 1.6; margin-bottom: 1.5rem;">
+                    <p style="color: var(--text-muted); font-size: 0.92rem; line-height: 1.6; margin-bottom: 1.5rem; text-align: center;">
                         Export-Grade Halal Beef. Birth to Air & Sea Ports. The institutional B2B export division of BA Farms.
                     </p>
                     <span style="display: inline-block; font-size: 0.72rem; text-transform: uppercase; font-weight: 700; border: 1px solid var(--border-color); padding: 0.35rem 0.75rem; border-radius: 4px; color: var(--text-muted);">
@@ -564,6 +560,6 @@
     </footer>
 
     <!-- Main Javascript Module -->
-    <script src="foods.js"></script>
+    <script type="module" src="/foods.js"></script>
 </body>
 </html>

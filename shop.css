@@ -1,0 +1,1076 @@
+/* ==========================================
+   BA FARMS B2C EID QURBANI SHOP STYLING
+   ========================================== */
+
+/* 1. Header nav-actions-group (cart + hamburger always visible) */
+.nav-actions-group {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    flex-shrink: 0;
+}
+
+/* Hide hamburger by default on desktop (style.css handles .menu-toggle display) */
+/* Cart label hidden on narrow screens */
+@media (max-width: 768px) {
+    .cart-btn-label {
+        display: none;
+    }
+}
+
+/* Booking Desk Toggle button */
+.cart-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: var(--bg-dark-base);
+    border: 1px solid var(--accent-gold);
+    color: var(--accent-gold);
+    padding: 0.5rem 1.1rem;
+    border-radius: 50px;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(255, 193, 7, 0.1);
+    transition: var(--transition-quick);
+    position: relative;
+}
+
+.cart-toggle-btn:hover {
+    background: var(--accent-gold);
+    color: var(--text-dark);
+    box-shadow: 0 4px 18px var(--accent-gold-glow);
+    transform: translateY(-2px);
+}
+
+.cart-count-badge {
+    background-color: var(--primary-green-light);
+    color: var(--text-pure);
+    font-size: 0.75rem;
+    font-weight: 700;
+    min-width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--text-pure);
+    padding: 0 4px;
+}
+
+/* 2. Shop Hero section */
+.shop-hero-features span {
+    background: rgba(25, 33, 29, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 0.4rem 1rem;
+    border-radius: 4px;
+}
+
+/* 3. Catalog Filtering Tabs */
+.catalog-filters {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin-bottom: 3.5rem;
+    flex-wrap: wrap;
+}
+
+.filter-tab {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 0.95rem;
+    padding: 0.65rem 1.8rem;
+    border-radius: 50px;
+    cursor: pointer;
+    transition: var(--transition-quick);
+}
+
+.filter-tab:hover, .filter-tab.active {
+    color: var(--text-pure);
+    background: var(--primary-green);
+    border-color: var(--primary-green-light);
+    box-shadow: 0 4px 15px rgba(25, 135, 84, 0.25);
+}
+
+/* 4. Product Catalog Grid & Card */
+.product-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+    gap: 2rem;
+}
+
+.product-card {
+    display: flex;
+    flex-direction: column;
+    padding: 1.5rem !important;
+}
+
+.product-image-container {
+    height: 220px;
+    border-radius: 10px;
+    background: radial-gradient(circle at center, hsla(143, 68%, 20%, 0.45) 0%, rgba(10, 15, 12, 0.8) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 1.2rem;
+}
+
+.product-graphic-icon {
+    font-size: 5rem;
+    color: var(--accent-gold);
+    opacity: 0.85;
+    filter: drop-shadow(0 0 10px var(--accent-gold-glow));
+}
+
+.product-ribbon {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    background: var(--accent-gold);
+    color: var(--text-dark);
+    font-family: var(--font-heading);
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.3rem 0.8rem;
+    border-radius: 4px;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.3);
+}
+
+.product-rfid-badge {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background: rgba(0, 0, 0, 0.75);
+    border: 1px solid rgba(25, 135, 84, 0.4);
+    padding: 0.25rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    color: var(--primary-green-light);
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.product-title {
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin-bottom: 0.4rem;
+}
+
+.product-meta-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    padding-bottom: 0.8rem;
+    margin-bottom: 0.8rem;
+}
+
+.product-meta-item i {
+    color: var(--accent-gold);
+    margin-right: 3px;
+}
+
+.product-desc {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin-bottom: 1.2rem;
+    flex-grow: 1;
+}
+
+.product-price-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: auto;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 1rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.price-box {
+    display: flex;
+    flex-direction: column;
+}
+
+.price-box span {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.price-box strong {
+    font-family: var(--font-heading);
+    font-size: 1.45rem;
+    color: var(--accent-gold);
+    font-weight: 800;
+}
+
+.product-actions-btn-group {
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.btn-icon-only {
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border-radius: 8px;
+    font-size: 0.9rem;
+}
+
+/* On narrow cards, Buy button uses compact padding */
+.btn-add-to-cart-action {
+    padding: 0.6rem 1.1rem;
+    font-size: 0.9rem;
+}
+
+/* 5. RFID Traceability lookup Desk */
+.traceability-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.1fr;
+    gap: 3rem;
+}
+
+.trace-search-panel h3 {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.panel-sub {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+}
+
+.trace-suggestions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.trace-suggestions button {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-main);
+    padding: 0.25rem 0.6rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: var(--transition-quick);
+}
+
+.trace-suggestions button:hover {
+    background: rgba(255, 193, 7, 0.1);
+    border-color: var(--accent-gold);
+    color: var(--accent-gold);
+}
+
+.search-field-icon {
+    font-size: 1rem;
+}
+
+#trace-input:focus {
+    border-color: var(--accent-gold);
+    box-shadow: 0 0 10px var(--accent-gold-glow);
+    background: rgba(0,0,0,0.5);
+}
+
+.trace-result-panel {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 380px;
+    padding: 2rem !important;
+}
+
+.trace-placeholder {
+    text-align: center;
+    padding: 2rem 0;
+}
+
+.cattle-passport {
+    animation: fadeInUp 0.5s ease-out;
+}
+
+.diagnostic-timeline div {
+    transition: var(--transition-quick);
+}
+
+.diagnostic-timeline div:hover {
+    transform: translateX(5px);
+    background: rgba(25, 135, 84, 0.05);
+}
+
+/* 6. Shopping Cart Slide-out Drawer */
+.cart-drawer-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    z-index: 10000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+}
+
+.cart-drawer-overlay.active {
+    opacity: 1;
+    pointer-events: all;
+}
+
+.cart-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 100%;
+    max-width: 440px;
+    height: 100%;
+    background: hsl(210, 15%, 8%);
+    border-left: 1px solid var(--border-color);
+    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.6);
+    z-index: 10001;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cart-drawer.active {
+    transform: translateX(0);
+}
+
+.cart-drawer-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.cart-drawer-header h3 {
+    font-size: 1.3rem;
+}
+
+.cart-drawer-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.3rem;
+    cursor: pointer;
+    transition: var(--transition-quick);
+}
+
+.cart-drawer-close:hover {
+    color: var(--text-pure);
+    transform: rotate(90deg);
+}
+
+.cart-drawer-body {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 1.5rem;
+}
+
+.cart-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.cart-empty-state i {
+    font-size: 3.5rem;
+    margin-bottom: 1rem;
+    color: var(--border-color);
+}
+
+.cart-empty-state p {
+    font-size: 0.95rem;
+    margin-bottom: 1.5rem;
+}
+
+/* Cart item lists entries */
+.cart-items-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+}
+
+.cart-item-card {
+    display: grid;
+    grid-template-columns: 50px 1fr 90px;
+    gap: 1rem;
+    align-items: center;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.04);
+    padding: 0.8rem;
+    border-radius: 8px;
+    position: relative;
+    transition: var(--transition-quick);
+}
+
+.cart-item-card:hover {
+    border-color: var(--border-color);
+    background: rgba(25, 135, 84, 0.03);
+}
+
+.cart-item-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 6px;
+    background: rgba(255, 193, 7, 0.05);
+    border: 1px solid var(--accent-gold-glow);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-gold);
+    font-size: 1.3rem;
+}
+
+.cart-item-details h4 {
+    font-size: 0.95rem;
+    color: var(--text-pure);
+    margin-bottom: 0.15rem;
+}
+
+.cart-item-details span {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+.cart-item-qty-price {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.4rem;
+}
+
+.qty-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(0,0,0,0.4);
+    border-radius: 4px;
+    padding: 0.2rem 0.4rem;
+    border: 1px solid rgba(255,255,255,0.06);
+}
+
+.qty-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.qty-btn:hover {
+    color: var(--text-pure);
+}
+
+.qty-val {
+    font-size: 0.85rem;
+    color: var(--text-pure);
+    font-weight: 600;
+    min-width: 14px;
+    text-align: center;
+}
+
+.item-price {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--accent-gold);
+}
+
+.cart-item-remove-btn {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #dc3545;
+    color: var(--text-pure);
+    border: none;
+    font-size: 0.6rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: var(--transition-quick);
+}
+
+.cart-item-card:hover .cart-item-remove-btn {
+    opacity: 1;
+}
+
+/* Cart footer calculations */
+.cart-drawer-footer {
+    padding: 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(10, 17, 13, 0.95);
+}
+
+.cart-pricing-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.price-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.price-row strong {
+    color: var(--text-pure);
+}
+
+/* 7. Checkout Wizard Modal */
+.checkout-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.85);
+    backdrop-filter: blur(8px);
+    z-index: 20000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+    padding: 1rem;
+}
+
+.checkout-modal-overlay.active {
+    opacity: 1;
+    pointer-events: all;
+}
+
+.checkout-modal-card {
+    width: 100%;
+    max-width: 820px;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 2.5rem !important;
+    animation: scaleUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    background: rgba(10, 25, 17, 0.75) !important;
+    backdrop-filter: blur(20px) !important;
+    -webkit-backdrop-filter: blur(20px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.5), 0 0 30px rgba(25, 135, 84, 0.1) !important;
+    transform: none !important;
+    transition: var(--transition-smooth);
+}
+
+.checkout-modal-card:hover {
+    transform: none !important;
+    border-color: rgba(255, 255, 255, 0.15) !important;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.6), 0 0 40px rgba(255, 193, 7, 0.08) !important;
+}
+
+.checkout-modal-close {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.3rem;
+    cursor: pointer;
+    transition: var(--transition-quick);
+}
+
+.checkout-modal-close:hover {
+    color: var(--text-pure);
+    transform: rotate(90deg);
+}
+
+.checkout-wizard-header {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    padding-bottom: 0.6rem;
+    margin-bottom: 1rem;
+}
+
+.checkout-wizard-header h2 {
+    font-size: 1.6rem;
+    margin-bottom: 0.3rem;
+    text-align: center;
+}
+
+/* Progress Step Indicator circles */
+.checkout-steps-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 520px;
+    margin: 0 auto;
+}
+
+.step-indicator {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+    position: relative;
+    z-index: 10;
+}
+
+.step-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.05);
+    border: 2px solid var(--border-color);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-weight: 700;
+    transition: var(--transition-quick);
+}
+
+.step-text {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.step-line {
+    flex-grow: 1;
+    height: 2px;
+    background: rgba(255,255,255,0.05);
+    margin-bottom: 0.8rem;
+    transition: var(--transition-quick);
+}
+
+.step-indicator.active .step-icon {
+    border-color: var(--accent-gold);
+    background: var(--bg-dark-base);
+    color: var(--accent-gold);
+    box-shadow: 0 0 10px var(--accent-gold-glow);
+}
+
+.step-indicator.active .step-text {
+    color: var(--text-pure);
+}
+
+.step-indicator.completed .step-icon {
+    border-color: var(--primary-green-light);
+    background: var(--primary-green-light);
+    color: var(--text-pure);
+}
+
+.step-indicator.completed .step-text {
+    color: var(--primary-green-light);
+}
+
+.step-line.completed {
+    background: var(--primary-green-light);
+}
+
+/* Form Steps management */
+.checkout-step-pane {
+    display: none;
+    animation: fadeIn 0.4s ease-out;
+}
+
+.checkout-step-pane.active {
+    display: block;
+}
+
+.payment-tabs label, .qurbani-service-tabs label {
+    transition: var(--transition-quick);
+}
+
+.payment-tabs label:hover, .qurbani-service-tabs label:hover {
+    background: rgba(255, 193, 7, 0.03) !important;
+    border-color: var(--accent-gold-glow);
+}
+
+.payment-tabs label.active, .qurbani-service-tabs label.active {
+    border-color: var(--accent-gold) !important;
+    background: rgba(255, 193, 7, 0.06) !important;
+}
+
+.payment-tabs label.active i, .qurbani-service-tabs label.active i {
+    color: var(--accent-gold) !important;
+}
+
+/* 8. GPS simulated Order Tracker */
+.track-step {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.3rem 0;
+    position: relative;
+    transition: var(--transition-quick);
+}
+
+.track-step::before {
+    content: '';
+    position: absolute;
+    left: 7px;
+    top: 24px;
+    width: 1px;
+    height: 15px;
+    background: rgba(255,255,255,0.08);
+}
+
+.track-step:last-child::before {
+    display: none;
+}
+
+.track-step i {
+    font-size: 0.95rem;
+    color: var(--text-muted);
+    width: 16px;
+    text-align: center;
+}
+
+.track-step.active {
+    color: var(--text-pure);
+    font-weight: 600;
+}
+
+.track-step.active i {
+    color: var(--accent-gold);
+    filter: drop-shadow(0 0 4px var(--accent-gold-glow));
+}
+
+.track-step.completed {
+    color: var(--primary-green-light);
+}
+
+.track-step.completed i {
+    color: var(--primary-green-light);
+}
+
+.city-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    display: block;
+    box-shadow: 0 0 5px rgba(255,255,255,0.3);
+}
+
+.pulse-gold {
+    background: var(--accent-gold);
+    animation: pulseGold 1.5s infinite;
+}
+
+/* Canvas map positioning */
+.map-viewport {
+    background-image: 
+        radial-gradient(rgba(25, 135, 84, 0.06) 1px, transparent 0),
+        radial-gradient(rgba(25, 135, 84, 0.06) 1px, transparent 0);
+    background-size: 20px 20px;
+    background-position: 0 0, 10px 10px;
+}
+
+/* Form element modifications */
+.form-control {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--border-color);
+    color: var(--text-pure);
+    font-family: var(--font-body);
+    font-size: 1rem;
+    border-radius: 6px;
+    padding: 0.8rem 1rem;
+    width: 100%;
+    outline: none;
+    transition: var(--transition-quick);
+}
+
+.form-control:focus {
+    border-color: var(--accent-gold);
+    background: rgba(0,0,0,0.5);
+    box-shadow: 0 0 10px var(--accent-gold-glow);
+}
+
+.form-group label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-main);
+    margin-bottom: 0.4rem;
+    display: block;
+}
+
+.form-group-row {
+    display: flex;
+    gap: 1rem;
+}
+
+.form-group-row > .form-group {
+    flex: 1;
+}
+
+.form-grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+}
+
+@media (max-width: 480px) {
+    /* Compact button padding on small phones */
+    .btn {
+        padding: 0.75rem 1.2rem;
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .form-group-row {
+        flex-direction: column;
+    }
+    .form-grid-3 {
+        grid-template-columns: 1fr;
+    }
+}
+
+.validation-msg {
+    color: #dc3545;
+    font-size: 0.75rem;
+    margin-top: 0.3rem;
+    display: none;
+}
+
+.form-group.invalid .form-control {
+    border-color: #dc3545;
+}
+
+.form-group.valid .form-control {
+    border-color: var(--primary-green-light);
+}
+
+/* Animations */
+@keyframes pulseGold {
+    0% {
+        box-shadow: 0 0 0 0 hsla(43, 90%, 53%, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 8px hsla(43, 90%, 53%, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 hsla(43, 90%, 53%, 0);
+    }
+}
+
+@keyframes scaleUp {
+    from {
+        transform: scale(0.9);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Responsive Overrides */
+@media (max-width: 992px) {
+    .traceability-grid {
+        grid-template-columns: 1fr;
+        gap: 2rem;
+    }
+    
+    .trace-result-panel {
+        min-height: 300px;
+    }
+}
+
+@media (max-width: 480px) {
+    .cart-drawer {
+        max-width: 100%;
+        border-left: none;
+    }
+}
+
+.order-tracker-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+}
+
+@media (max-width: 768px) {
+    .order-tracker-grid {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+    }
+
+    .checkout-modal-card {
+        padding: 1.5rem !important;
+    }
+    
+    .checkout-steps-indicator {
+        max-width: 320px;
+    }
+    
+    .step-text {
+        display: none;
+    }
+    
+    .checkout-steps-indicator {
+        margin-bottom: 1rem;
+    }
+}
+
+/* ==========================================
+   CHECKOUT WIZARD SCREENHEIGHT-FIT OVERRIDES
+   ========================================== */
+.checkout-modal-card {
+    overflow-y: auto !important; /* backup fallback for ultra-small screens */
+}
+
+/* Hide scrollbar on desktop inside modal cards */
+.checkout-modal-card::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+.checkout-modal-card::-webkit-scrollbar-thumb {
+    background: rgba(255, 193, 7, 0.15);
+    border-radius: 4px;
+}
+
+@media (max-height: 840px), (max-width: 768px) {
+    .checkout-modal-card {
+        padding: 1.2rem 1.8rem !important;
+    }
+
+    .checkout-modal-card .form-group {
+        margin-bottom: 0.8rem !important;
+    }
+
+    .checkout-modal-card .form-group label {
+        margin-bottom: 0.25rem !important;
+        font-size: 0.82rem !important;
+    }
+
+    .checkout-modal-card .form-control {
+        padding: 0.5rem 0.8rem !important;
+        font-size: 0.9rem !important;
+    }
+
+    .checkout-modal-card textarea.form-control {
+        min-height: 50px !important;
+        height: 55px !important;
+        resize: none;
+    }
+
+    .checkout-modal-card h3 {
+        margin-bottom: 0.4rem !important;
+        font-size: 1.15rem !important;
+    }
+
+    .checkout-modal-card p {
+        margin-bottom: 0.75rem !important;
+        font-size: 0.82rem !important;
+        line-height: 1.4 !important;
+    }
+
+    .checkout-modal-card .qurbani-service-tabs {
+        margin-bottom: 0.8rem !important;
+    }
+
+    .checkout-modal-card .qurbani-service-tabs label {
+        padding: 0.6rem 0.8rem !important;
+    }
+
+    .checkout-modal-card .payment-tabs {
+        margin-bottom: 0.8rem !important;
+    }
+
+    .checkout-modal-card .payment-tabs label {
+        padding: 0.6rem 0.8rem !important;
+    }
+
+    .checkout-modal-card .order-tracker-grid {
+        gap: 1rem !important;
+        margin-top: 1rem !important;
+    }
+
+    .checkout-modal-card .map-viewport {
+        min-height: 140px !important;
+        height: 140px !important;
+    }
+
+    .checkout-modal-card .live-status-card {
+        padding: 0.6rem 0.8rem !important;
+        margin-bottom: 0.6rem !important;
+    }
+
+    .checkout-modal-card .tracker-steps {
+        gap: 0.5rem !important;
+    }
+
+    .checkout-modal-card .order-success-header {
+        margin-bottom: 1rem !important;
+    }
+
+    .checkout-modal-card .order-success-header div {
+        width: 45px !important;
+        height: 45px !important;
+        font-size: 1.3rem !important;
+        margin-bottom: 0.5rem !important;
+    }
+
+    .checkout-modal-card .order-success-header h3 {
+        font-size: 1.3rem !important;
+        margin-bottom: 0.15rem !important;
+    }
+
+    .checkout-modal-card .checkout-actions {
+        margin-top: 1rem !important;
+    }
+
+    .checkout-modal-card .btn {
+        padding: 0.6rem 1.4rem !important;
+        font-size: 0.9rem !important;
+    }
+
+    .checkout-modal-card .cod-payment-details {
+        padding: 1rem !important;
+        margin-bottom: 1rem !important;
+    }
+}
+

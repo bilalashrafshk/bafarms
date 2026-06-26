@@ -136,57 +136,72 @@ const initApp = () => {
         if (t.includes('shank') || t.includes('bong')) return '30 MT / Month';
         return '20 MT / Month';
     }
+    function populateCuts(cuts) {
+        // Clear loading state
+        tableBody.innerHTML = '';
+        
+        // Clear selection dropdown but keep default disabled option
+        cutSelect.innerHTML = '<option value="" disabled selected>Select meat product requirement...</option>';
+
+        cuts.forEach(cut => {
+            // Populate Table Row
+            const row = document.createElement('tr');
+            
+            const primal = getPrimalSource(cut.title, cut.marbling);
+            const packaging = getPackagingType(cut.title, cut.fat_ratio);
+            const shelf = getShelfLife(cut.title);
+            const volume = getAvailableVolume(cut.title);
+            
+            row.innerHTML = `
+                <td><strong>${cut.title}</strong></td>
+                <td><span class="spec-tag spec-tag-steel">${primal}</span></td>
+                <td>${packaging}</td>
+                <td><span class="spec-tag spec-tag-green">${shelf}</span></td>
+                <td>${cut.weight || '1.0 kg Pack'}</td>
+                <td><span class="spec-tag spec-tag-gold">${volume}</span></td>
+            `;
+            tableBody.appendChild(row);
+
+            // Populate Dropdown Selection Option
+            const option = document.createElement('option');
+            option.value = cut.title;
+            option.textContent = `${cut.title} (${cut.weight || '1.0 kg Pack'})`;
+            cutSelect.appendChild(option);
+        });
+
+        // Add an option for bulk container/primal sides
+        const generalOption = document.createElement('option');
+        generalOption.value = "Custom / Primal Sides";
+        generalOption.textContent = "Custom Primal Sides / FCL Halal Beef Sides";
+        cutSelect.appendChild(generalOption);
+    }
 
     const loadExportCuts = async () => {
         try {
             const response = await fetch('/api/enquiry');
+            const contentType = response.headers.get('content-type');
+            if (!response.ok || (contentType && contentType.includes('text/html'))) {
+                throw new Error('API server returned invalid response');
+            }
             const data = await response.json();
 
             if (data.success && data.cuts) {
-                // Clear loading state
-                tableBody.innerHTML = '';
-                
-                // Clear selection dropdown but keep default disabled option
-                cutSelect.innerHTML = '<option value="" disabled selected>Select meat product requirement...</option>';
-
-                data.cuts.forEach(cut => {
-                    // Populate Table Row
-                    const row = document.createElement('tr');
-                    
-                    const primal = getPrimalSource(cut.title, cut.marbling);
-                    const packaging = getPackagingType(cut.title, cut.fat_ratio);
-                    const shelf = getShelfLife(cut.title);
-                    const volume = getAvailableVolume(cut.title);
-                    
-                    row.innerHTML = `
-                        <td><strong>${cut.title}</strong></td>
-                        <td><span class="spec-tag spec-tag-steel">${primal}</span></td>
-                        <td>${packaging}</td>
-                        <td><span class="spec-tag spec-tag-green">${shelf}</span></td>
-                        <td>${cut.weight || '1.0 kg Pack'}</td>
-                        <td><span class="spec-tag spec-tag-gold">${volume}</span></td>
-                    `;
-                    tableBody.appendChild(row);
-
-                    // Populate Dropdown Selection Option
-                    const option = document.createElement('option');
-                    option.value = cut.title;
-                    option.textContent = `${cut.title} (${cut.weight || '1.0 kg Pack'})`;
-                    cutSelect.appendChild(option);
-                });
-
-                // Add an option for bulk container/primal sides
-                const generalOption = document.createElement('option');
-                generalOption.value = "Custom / Primal Sides";
-                generalOption.textContent = "Custom Primal Sides / FCL Halal Beef Sides";
-                cutSelect.appendChild(generalOption);
-
+                populateCuts(data.cuts);
             } else {
                 throw new Error(data.error || 'Failed to parse cuts database');
             }
         } catch (e) {
-            console.error('Specs loading failed:', e);
-            tableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 3rem;"><i class="fa-solid fa-triangle-exclamation" style="color: var(--accent-gold); margin-right: 10px;"></i> Failed to retrieve product specs from DB. Please refresh or contact support.</td></tr>`;
+            console.warn('API fetch failed, falling back to static specifications:', e);
+            // Fallback to static specifications
+            const defaultCuts = [
+                { id: 'ribeye', title: 'Sahiwal Prime Ribeye Steak', price: 2850, weight: '1.0 kg Pack (2 Steaks)', marbling: 'Grade 4+ (Aged)', fat_ratio: '18% Fat Cap' },
+                { id: 'tbone', title: 'Cholistani Gourmet T-Bone', price: 2650, weight: '1.2 kg Pack (2 Steaks)', marbling: 'Grade 3+ (Premium)', fat_ratio: '14%' },
+                { id: 'striploin', title: 'Premium Angus Cross Striploin', price: 3100, weight: '1.0 kg Pack (3 Steaks)', marbling: 'Grade 5 (Supreme)', fat_ratio: '20%' },
+                { id: 'minced', title: 'Organic Grass-Fed Minced Beef', price: 1850, weight: '1.0 kg Pack (Fine Ground)', marbling: 'Standard Lean', fat_ratio: '8%' },
+                { id: 'bong', title: 'Premium Beef Shank (Bong Cut)', price: 1950, weight: '1.5 kg Pack (Bone-in)', marbling: 'Lean & Marrow', fat_ratio: '10%' },
+                { id: 'patties', title: 'Gourmet Chuck Burger Patties', price: 1600, weight: '6 Patties (900g Total)', marbling: 'Burger Ratio 80/20', fat_ratio: '20%' }
+            ];
+            populateCuts(defaultCuts);
         }
     };
 

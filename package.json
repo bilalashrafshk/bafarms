@@ -4,7 +4,7 @@
   "description": "B2B Export Portal for BA Foods, a division of BA Farms.",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && cd smartherd-portal && npm install && npm run build && mkdir -p ../dist/smartherd-portal && cp -r dist/* ../dist/smartherd-portal",
     "preview": "vite preview"
   },
   "devDependencies": {

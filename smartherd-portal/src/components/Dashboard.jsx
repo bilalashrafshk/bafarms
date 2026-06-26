@@ -1,0 +1,393 @@
+import React, { useContext } from 'react';
+import { FarmContext } from '../context/FarmContext';
+
+export default function Dashboard({ onNavigate }) {
+    const { animals, weightLogs, treatments, feedIngredients, transitionAnimalStatus, systemParams, orders } = useContext(FarmContext);
+
+    // 1. DYNAMIC CALCULATIONS
+
+    // A. Calculate Current Feed Cost per Animal (PKR/Day)
+    // Formula: Sum of (DM Target * Wet Factor * PKR Price per wet kg)
+    const incorporateMoisture = (() => {
+        try {
+            const stored = localStorage.getItem('ba_tmr_incorporate_moisture');
+            return stored !== null ? JSON.parse(stored) : true;
+        } catch (e) {
+            return true;
+        }
+    })();
+
+    const dailyCostPerAnimal = feedIngredients ? feedIngredients.reduce((total, ing) => {
+        const moisture = incorporateMoisture ? (ing.moisture ?? 0) : 0;
+        const wetFactor = moisture < 100 ? (100 / (100 - moisture)) : 1.0;
+        const wetWt = ing.dmTarget * wetFactor;
+        return total + (wetWt * ing.price);
+    }, 0) : 0;
+
+    // B. Calculate Herd Average ADG
+    const logsWithAdg = weightLogs.filter(w => w.adg > 0);
+    const avgHerdAdg = logsWithAdg.length > 0
+        ? parseFloat((logsWithAdg.reduce((sum, log) => sum + log.adg, 0) / logsWithAdg.length).toFixed(2))
+        : 1.25;
+
+    // C. Trigger Alerts for Underperforming Calves (ADG < 1.0 kg/day)
+    const alertCalves = [];
+    animals.forEach(animal => {
+        const animalLogs = weightLogs.filter(w => w.animalId === animal.id)
+                                     .sort((a, b) => new Date(b.date) - new Date(a.date));
+        if (animalLogs.length > 0 && animalLogs[0].adg > 0 && animalLogs[0].adg < (systemParams.adgAlertThreshold ?? 1.0)) {
+            alertCalves.push({
+                rfid: animal.rfid,
+                adg: animalLogs[0].adg,
+                breed: animal.breed
+            });
+        }
+    });
+
+    // D. Safe Withdrawal Warnings
+    const activeWithholdings = [];
+    treatments.forEach(t => {
+        const msDiff = new Date() - new Date(t.date);
+        const daysPassed = Math.round(msDiff / (1000 * 60 * 60 * 24));
+        if (daysPassed < t.withholding) {
+            const animal = animals.find(a => a.id === t.animalId);
+            activeWithholdings.push({
+                rfid: animal ? animal.rfid : `Animal #${t.animalId}`,
+                medicine: t.medicine,
+                daysRemaining: t.withholding - daysPassed
+            });
+        }
+    });
+
+    // E. ACTION REQUIRED COMPUTATIONS
+    const today = new Date();
+    const WEIGH_INTERVAL_DAYS = systemParams.weighIntervalDays ?? 14;
+
+    const overdueWeighing = animals.filter(a => {
+        if (a.status === 'Sold' || a.status === 'Deceased') return false;
+        const animalLogs = weightLogs.filter(w => w.animalId === a.id).sort((x, y) => new Date(y.date) - new Date(x.date));
+        const lastDate = animalLogs.length > 0 ? new Date(animalLogs[0].date) : new Date(a.entryDate);
+        const daysSince = Math.round((today - lastDate) / 86400000);
+        return daysSince > WEIGH_INTERVAL_DAYS;
+    });
+
+    const quarantineReady = animals.filter(a => {
+        if (a.status !== 'Quarantined') return false;
+        const dof = Math.round((today - new Date(a.entryDate)) / 86400000);
+        return dof >= (systemParams.quarantineDays ?? 14);
+    });
+
+    const marketReady = animals.filter(a => {
+        if (a.status === 'Sold' || a.status === 'Deceased') return false;
+        if (a.currentWeight < a.targetWeight) return false;
+        const activeWH = treatments.filter(t => {
+            if (t.animalId !== a.id) return false;
+            const days = Math.round((today - new Date(t.date)) / 86400000);
+            return days < t.withholding;
+        });
+        return activeWH.length === 0;
+    });
+
+    // Sick animals with no treatment logged in last 7 days — need vet attention
+    const sickUntreated = animals.filter(a => {
+        if (a.status !== 'Sick') return false;
+        const recent = treatments.filter(t => {
+            if (t.animalId !== a.id) return false;
+            const days = Math.round((today - new Date(t.date)) / 86400000);
+            return days <= 7;
+        });
+        return recent.length === 0;
+    });
+
+    // Build unified task list — ordered by urgency
+    const taskItems = [
+        ...sickUntreated.map(a => ({
+            type: 'sick',
+            rfid: a.rfid,
+            animalId: a.id,
+            msg: `${a.rfid} — Sick, no treatment logged`,
+            desc: 'Needs vet attention',
+            color: 'hsl(0,75%,55%)',
+            icon: 'fa-stethoscope',
+            action: { label: 'Log Treatment', tab: 'vet' }
+        })),
+        ...alertCalves.map(c => ({
+            type: 'adg',
+            rfid: c.rfid,
+            msg: `${c.rfid} — Low gain`,
+            desc: `ADG ${c.adg} kg/d — below ${(systemParams.adgAlertThreshold ?? 1.0).toFixed(1)} target`,
+            color: 'hsl(0,75%,55%)',
+            icon: 'fa-arrow-trend-down',
+            action: null
+        })),
+        ...activeWithholdings.map(w => ({
+            type: 'withholding',
+            rfid: w.rfid,
+            msg: `${w.rfid} — Med lock`,
+            desc: `${w.medicine} · ${w.daysRemaining}d remaining`,
+            color: 'var(--accent-gold)',
+            icon: 'fa-ban',
+            action: null
+        })),
+        ...overdueWeighing.map(a => ({
+            type: 'weigh',
+            rfid: a.rfid,
+            animalId: a.id,
+            msg: `${a.rfid} — Overdue weigh-in`,
+            desc: 'Last weighed >14 days ago',
+            color: 'var(--accent-gold)',
+            icon: 'fa-weight-scale',
+            action: { label: 'Log Weight', tab: 'weights' }
+        })),
+        ...quarantineReady.map(a => ({
+            type: 'quarantine',
+            rfid: a.rfid,
+            animalId: a.id,
+            msg: `${a.rfid} — Quarantine cleared`,
+            desc: `${Math.round((today - new Date(a.entryDate)) / 86400000)}d in quarantine`,
+            color: 'hsl(200,70%,60%)',
+            icon: 'fa-shield-virus',
+            action: { label: '→ Fattening', inline: true }
+        })),
+        ...marketReady.map(a => ({
+            type: 'market',
+            rfid: a.rfid,
+            animalId: a.id,
+            msg: `${a.rfid} — Ready for sale`,
+            desc: `${a.currentWeight}kg / ${a.targetWeight}kg target — withholding clear`,
+            color: 'var(--primary-green-light)',
+            icon: 'fa-award',
+            action: { label: 'Dispatch', tab: 'rotation' }
+        })),
+    ];
+
+    // 2. ADG TREND CHART — average daily gain across all animals, grouped by weigh date
+    const adgByDate = (() => {
+        if (!weightLogs || weightLogs.length === 0) return [];
+        const groups = {};
+        weightLogs.filter(w => w.adg > 0).forEach(w => {
+            if (!groups[w.date]) groups[w.date] = { sum: 0, count: 0 };
+            groups[w.date].sum += w.adg;
+            groups[w.date].count += 1;
+        });
+        return Object.keys(groups)
+            .map(date => ({ date, avgAdg: parseFloat((groups[date].sum / groups[date].count).toFixed(2)) }))
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
+    })();
+
+    const hasChartData = adgByDate.length > 0;
+    let chartPoints = [];
+    let adgMin = 0;
+    let adgMax = 2;
+    let pathD = '';
+    let yGridLines = [];
+
+    if (hasChartData) {
+        const vals = adgByDate.map(pt => pt.avgAdg);
+        adgMin = Math.max(0, Math.min(...vals) - 0.2);
+        adgMax = Math.max(...vals) + 0.2;
+        if (adgMax === adgMin) { adgMin = 0; adgMax = 2; }
+
+        const count = adgByDate.length;
+        chartPoints = adgByDate.map((pt, idx) => {
+            const x = count > 1 ? 60 + (idx / (count - 1)) * 390 : 250;
+            const y = 170 - ((pt.avgAdg - adgMin) / (adgMax - adgMin)) * 140;
+            let label = pt.date;
+            try { label = new Date(pt.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch (e) {}
+            return { label, val: pt.avgAdg, x, y };
+        });
+
+        pathD = chartPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+
+        for (let i = 0; i <= 3; i++) {
+            const v = parseFloat((adgMin + (i / 3) * (adgMax - adgMin)).toFixed(2));
+            const y = 170 - (i / 3) * 140;
+            yGridLines.push({ val: v, y });
+        }
+    }
+
+    // Target ADG line position (1.3 kg/day)
+    const TARGET_ADG = 1.3;
+    const targetY = hasChartData ? 170 - ((TARGET_ADG - adgMin) / (adgMax - adgMin)) * 140 : null;
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, minHeight: 0 }}>
+
+            {/* Top Stat widgets */}
+            <div class="dashboard-grid">
+
+                {/* Herd Size */}
+                <div class="glass-panel stat-box">
+                    <div class="stat-header">
+                        <h3>Herd Enrollment</h3>
+                        <div class="stat-icon"><i class="fa-solid fa-cow"></i></div>
+                    </div>
+                    <div class="stat-val">{animals.length} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>Calves</small></div>
+                    <span class="stat-lbl"><i class="fa-solid fa-microchip"></i> {animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased').length} active</span>
+                </div>
+
+                {/* Avg ADG */}
+                <div class="glass-panel stat-box">
+                    <div class="stat-header">
+                        <h3>Average Daily Gain</h3>
+                        <div class="stat-icon"><i class="fa-solid fa-weight-scale"></i></div>
+                    </div>
+                    <div class="stat-val" style={{ color: avgHerdAdg >= 1.2 ? 'var(--primary-green-light)' : 'var(--accent-gold)' }}>
+                        {animals.length > 0 ? avgHerdAdg : '0.00'} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>kg/day</small>
+                    </div>
+                    <span class="stat-lbl">Target: 1.30 kg/day</span>
+                </div>
+
+                {/* Feed Cost */}
+                <div class="glass-panel stat-box">
+                    <div class="stat-header">
+                        <h3>Daily Feed Cost</h3>
+                        <div class="stat-icon"><i class="fa-solid fa-scale-balanced"></i></div>
+                    </div>
+                    <div class="stat-val" style={{ color: dailyCostPerAnimal <= 300 ? 'var(--text-pure)' : 'hsl(0, 75%, 55%)' }}>
+                        {animals.length > 0 ? Math.round(dailyCostPerAnimal) : 0} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR/day</small>
+                    </div>
+
+                    {/* Live Dials */}
+                    <div class="budget-gauge-box">
+                        <div class="gauge-track">
+                            <div
+                                class={`gauge-bar ${dailyCostPerAnimal > 300 ? 'danger' : ''}`}
+                                style={{ width: `${animals.length > 0 ? Math.min(100, (dailyCostPerAnimal / 350) * 100) : 0}%` }}
+                            ></div>
+                        </div>
+                        <div class="gauge-labels">
+                            <span>Target: 300 PKR</span>
+                            <span>Max: 350 PKR</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            {/* E-Commerce Sales Overview */}
+            {orders && orders.length > 0 && (
+                <div className="dashboard-grid" style={{ marginTop: '0.2rem' }}>
+                    <div className="glass-panel stat-box" style={{ borderLeft: '3px solid var(--accent-gold)' }}>
+                        <div className="stat-header">
+                            <h3>E-Commerce Revenue</h3>
+                            <div className="stat-icon"><i className="fa-solid fa-cart-shopping"></i></div>
+                        </div>
+                        <div className="stat-val">PKR {orders.reduce((sum, o) => sum + (o.netTotal || 0), 0).toLocaleString()}</div>
+                        <span className="stat-lbl" style={{ color: 'var(--text-muted)' }}><i className="fa-solid fa-receipt"></i> {orders.length} orders total</span>
+                    </div>
+                    <div className="glass-panel stat-box" style={{ borderLeft: '3px solid var(--accent-gold)' }}>
+                        <div className="stat-header">
+                            <h3>Active Live Bookings</h3>
+                            <div className="stat-icon"><i className="fa-solid fa-cow"></i></div>
+                        </div>
+                        <div className="stat-val">{orders.filter(o => o.hasLive && o.status !== 'Delivered').length} Bookings</div>
+                        <span className="stat-lbl" style={{ color: 'var(--text-muted)' }}>Awaiting dispatch/slaughter</span>
+                    </div>
+                    <div className="glass-panel stat-box" style={{ borderLeft: '3px solid var(--accent-gold)' }}>
+                        <div className="stat-header">
+                            <h3>Cold-Chain Queue</h3>
+                            <div className="stat-icon"><i className="fa-solid fa-truck-snowflake"></i></div>
+                        </div>
+                        <div className="stat-val">{orders.filter(o => !o.hasLive && o.status !== 'Delivered').length} Shipments</div>
+                        <span className="stat-lbl" style={{ color: 'var(--text-muted)' }}>Chilled reefer deliveries</span>
+                    </div>
+                </div>
+            )}
+
+            {/* Bottom Section splits */}
+            <div class="dashboard-bottom-grid">
+
+                {/* ADG Trend Chart */}
+                <div class="glass-panel">
+                    <h3 class="panel-title">
+                        <i class="fa-solid fa-chart-line"></i> Herd ADG Trend
+                        <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '500' }}>avg daily gain per weigh session</span>
+                    </h3>
+
+                    {!hasChartData ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '200px', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '12px' }}>
+                            <i class="fa-solid fa-chart-area" style={{ fontSize: '2rem', color: 'var(--text-muted)', marginBottom: '0.6rem' }}></i>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Log weights on 2+ dates to see trend.</p>
+                        </div>
+                    ) : (
+                        <div class="chart-container">
+                            <svg class="chart-svg" viewBox="0 0 500 220" preserveAspectRatio="none">
+                                {yGridLines.map((line, idx) => (
+                                    <line key={idx} x1="50" y1={line.y} x2="450" y2={line.y} class="chart-grid-line" />
+                                ))}
+                                <line x1="50" y1="20" x2="50" y2="190" class="chart-axis-line" />
+                                <line x1="50" y1="190" x2="480" y2="190" class="chart-axis-line" />
+
+                                {/* Target 1.3 kg/day line */}
+                                {targetY !== null && targetY >= 20 && targetY <= 190 && (
+                                    <g>
+                                        <line x1="50" y1={targetY} x2="450" y2={targetY} stroke="rgba(255,193,7,0.4)" strokeWidth="1.5" strokeDasharray="5 3" />
+                                        <text x="455" y={targetY + 4} class="chart-axis-text" style={{ fill: 'var(--accent-gold)' }}>1.3</text>
+                                    </g>
+                                )}
+
+                                {pathD && <path d={pathD} class="chart-curve" fill="none" />}
+
+                                {chartPoints.map((pt, idx) => (
+                                    <g key={idx}>
+                                        <circle cx={pt.x} cy={pt.y} r="5.5" class="chart-point" />
+                                        <text x={pt.x} y={pt.y - 10} text-anchor="middle" class="chart-axis-text" style={{ fill: pt.val >= TARGET_ADG ? 'var(--primary-green-light)' : 'hsl(0,75%,60%)' }}>{pt.val}</text>
+                                        <text x={pt.x} y="205" text-anchor="middle" class="chart-axis-text">{pt.label}</text>
+                                    </g>
+                                ))}
+
+                                {yGridLines.map((line, idx) => (
+                                    <text key={idx} x="44" y={line.y + 4} text-anchor="end" class="chart-axis-text">{line.val}</text>
+                                ))}
+                            </svg>
+                        </div>
+                    )}
+                </div>
+
+                {/* Unified Tasks Panel */}
+                <div class="glass-panel" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                    <h3 class="panel-title" style={{ flexShrink: 0 }}>
+                        <i class="fa-solid fa-list-check"></i> Today's Tasks
+                        {taskItems.length > 0 && <span style={{ marginLeft: 'auto', background: 'rgba(220,53,69,0.15)', color: 'hsl(0,75%,60%)', borderRadius: '50px', padding: '0.1rem 0.55rem', fontSize: '0.78rem', fontWeight: '700' }}>{taskItems.length}</span>}
+                    </h3>
+
+                    <div class="alarms-list">
+                        {taskItems.map((item, idx) => (
+                            <div key={idx} class={`alarm-card ${item.type === 'sick' || item.type === 'adg' ? 'danger' : item.type === 'market' ? '' : 'warning'}`}
+                                style={item.type === 'market' ? { borderLeft: '4px solid var(--primary-green-light)', background: 'rgba(25,135,84,0.02)' } : item.type === 'quarantine' ? { borderLeft: '4px solid hsl(200,70%,60%)', background: 'rgba(0,120,200,0.02)' } : {}}>
+                                <div class="alarm-icon"><i class={`fa-solid ${item.icon}`} style={{ color: item.color }}></i></div>
+                                <div class="alarm-text" style={{ flex: 1, minWidth: 0 }}>
+                                    <span class="alarm-msg" style={{ color: 'var(--text-pure)' }}>{item.msg}</span>
+                                    <span class="alarm-desc">{item.desc}</span>
+                                </div>
+                                {item.action && item.action.inline && (
+                                    <button class="btn btn-secondary" style={{ minHeight: '28px', padding: '0.15rem 0.5rem', fontSize: '0.72rem', flexShrink: 0, borderColor: 'rgba(0,150,200,0.3)', color: 'hsl(200,70%,60%)' }}
+                                        onClick={() => transitionAnimalStatus(item.animalId, 'Fattening')}>
+                                        → Fattening
+                                    </button>
+                                )}
+                                {item.action && item.action.tab && (
+                                    <button class="btn btn-secondary" style={{ minHeight: '28px', padding: '0.15rem 0.5rem', fontSize: '0.72rem', flexShrink: 0 }}
+                                        onClick={() => onNavigate && onNavigate(item.action.tab)}>
+                                        {item.action.label}
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+
+                        {taskItems.length === 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: '0.4rem', minHeight: '120px', color: 'var(--text-muted)' }}>
+                                <i class="fa-solid fa-circle-check" style={{ fontSize: '1.8rem', color: 'var(--primary-green-light)' }}></i>
+                                <span style={{ fontFamily: 'var(--font-heading)', fontWeight: '600', color: 'var(--text-pure)', fontSize: '0.92rem' }}>All Clear</span>
+                                <span style={{ fontSize: '0.78rem' }}>No tasks across the herd.</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+    );
+}

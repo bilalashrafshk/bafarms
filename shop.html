@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="BA Farms Gourmet & Qurbani Shop - Order certified live Qurbani animals or premium portioned meat cuts online. 100% RFID-tracked.">
+    <meta name="author" content="BA Farms">
+    <title>BA Farms Gourmet & Qurbani Shop | Premium Live Animals & Cuts</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="/assets/favicon.png">
+    <link rel="shortcut icon" href="/assets/favicon.ico" type="image/x-icon">
+    
+    <!-- Premium Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome for Premium Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Main and Shop Stylesheets -->
+    <link rel="stylesheet" href="farm.css">
+    <link rel="stylesheet" href="shop.css">
+</head>
+<body class="shop-body">
+
+    <!-- Header & Navigation -->
+    <header class="header scrolled" id="shop-header">
+        <div class="nav-container">
+            <a href="/" class="logo" id="nav-logo">
+                <img src="/assets/logo_white.png" alt="BA Farms Logo" class="logo-img">
+            </a>
+            
+            <nav class="nav-menu" id="shop-nav-menu">
+                <a href="/" class="nav-link">Corporate Site</a>
+                <a href="#catalog" class="nav-link active" data-sec="catalog">Products Catalog</a>
+                <a href="#traceability" class="nav-link" data-sec="traceability">RFID Verification</a>
+            </nav>
+
+            <!-- Cart & Hamburger always visible in header -->
+            <div class="nav-actions-group">
+                <button class="cart-toggle-btn" id="cart-toggle-btn">
+                    <i class="fa-solid fa-shopping-basket"></i>
+                    <span class="cart-btn-label">Shopping Cart</span>
+                    <span class="cart-count-badge" id="cart-count-badge">0</span>
+                </button>
+                <button class="menu-toggle" id="shop-menu-toggle" aria-label="Toggle Navigation Menu">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main style="padding-top: var(--header-h);">
+        
+        <!-- Shop Hero Banner -->
+        <section class="shop-hero" style="background-image: linear-gradient(rgba(10, 17, 13, 0.88), rgba(10, 17, 13, 0.95)), url('/assets/hero_cattle.png'); min-height: 40vh; padding: 5rem 0; display: flex; align-items: center;">
+            <div class="container" style="text-align: center;">
+                <span class="section-tag"><i class="fa-solid fa-circle-check"></i> Direct-to-Consumer Portal</span>
+                <h1 style="font-size: 3.2rem; font-weight: 800; margin-bottom: 1.25rem;" class="text-gradient-green">Gourmet & Qurbani Shop</h1>
+                <p style="color: var(--text-muted); max-width: 800px; margin: 0 auto 2.5rem auto; font-size: 1.15rem; line-height: 1.6;">
+                    Order export-grade, vacuum-skin packed meat cuts or book certified live Qurbani animals online. 100% RFID traced for age, health, and biosecurity parameters.
+                </p>
+                <div style="display: flex; justify-content: center; gap: 2.5rem; flex-wrap: wrap;" class="shop-hero-features">
+                    <span style="display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.95rem; color: var(--text-pure);"><i class="fa-solid fa-truck" style="color: var(--accent-gold);"></i> Standard & Live Transit</span>
+                    <span style="display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.95rem; color: var(--text-pure);"><i class="fa-solid fa-dna" style="color: var(--accent-gold);"></i> RFID Birth-to-Plate Traceability</span>
+                    <span style="display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.95rem; color: var(--text-pure);"><i class="fa-solid fa-shield-halved" style="color: var(--accent-gold);"></i> Certified Bio-Safety holding</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Product Catalog Section -->
+        <section class="catalog-section" id="catalog" style="background-color: var(--bg-dark-base);">
+            <div class="container">
+                <div class="section-header">
+                    <span class="section-tag">Direct Catalog</span>
+                    <h2 class="section-title">Browse Our Offerings</h2>
+                    <p class="section-desc">Select premium portioned meat cuts for your kitchen or choose individual live animals for Eid sacrifice. Every catalog item features birth-to-plate RFID tracking records.</p>
+                </div>
+
+                <!-- Catalog Filtering Tabs -->
+                <div class="catalog-filters">
+                    <button class="filter-tab active" data-filter="all">All Products</button>
+                    <button class="filter-tab" data-filter="live">Qurbani Live Animals</button>
+                    <button class="filter-tab" data-filter="cuts">Gourmet Meat Cuts</button>
+                </div>
+
+                <!-- Product Grid -->
+                <div class="product-grid" id="product-grid">
+                    <!-- Products dynamically rendered by JS -->
+                </div>
+            </div>
+        </section>
+
+        <!-- RFID Traceability Search & Passport Section -->
+        <section class="traceability-section" id="traceability" style="background-color: hsl(210, 15%, 5%); border-top: 1px solid rgba(25, 135, 84, 0.1);">
+            <div class="container">
+                <div class="section-header" style="margin-bottom: 3rem;">
+                    <span class="section-tag">Digital Cattle Passport</span>
+                    <h2 class="section-title">Scan RFID Product Passport</h2>
+                    <p class="section-desc">Every animal and packaged cut features a unique RFID barcode. Search the ID code below to view breed records, teeth counts, vaccinations, and cryogenic packing temperatures.</p>
+                </div>
+
+                <div class="traceability-grid">
+                    <!-- Left Side: Interactive Search Desk -->
+                    <div class="glass-card trace-search-panel">
+                        <h3>Traceability Retrieval Desk</h3>
+                        <p class="panel-sub" style="margin-bottom: 1.5rem;">Select an RFID code below or type one in to load the animal's certified health, nutrition, and compliance history from our Faisalabad database.</p>
+                        
+                        <!-- Suggestion Tags -->
+                        <div class="trace-suggestions">
+                            <span>Quick Select:</span>
+                            <button class="tag-btn" data-tag="BA-BULL-101">BA-BULL-101 (Live Bull)</button>
+                            <button class="tag-btn" data-tag="BA-RIB-901">BA-RIB-901 (Ribeye Cut)</button>
+                            <button class="tag-btn" data-tag="BA-GOAT-303">BA-GOAT-303 (Live Goat)</button>
+                        </div>
+
+                        <!-- Search Form -->
+                        <form id="trace-search-form" class="trace-search-form" style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                            <div style="flex-grow: 1; position: relative;">
+                                <i class="fa-solid fa-microchip search-field-icon" style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--accent-gold);"></i>
+                                <input type="text" id="trace-input" placeholder="Enter RFID Tag ID (e.g. BA-BULL-101)" required style="width: 100%; padding: 1rem 1rem 1rem 3rem; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-pure); font-family: var(--font-heading); font-size: 1rem; outline: none; transition: var(--transition-quick);">
+                            </div>
+                            <button type="submit" class="btn btn-primary" style="padding: 0.5rem 1.8rem; font-size: 0.95rem;">
+                                <i class="fa-solid fa-magnifying-glass"></i> Trace
+                            </button>
+                        </form>
+
+                        <div class="trace-status-message" id="trace-status-message" style="margin-top: 1rem; display: none;"></div>
+                    </div>
+
+                    <!-- Right Side: Digital Cattle Passport Result -->
+                    <div class="glass-card trace-result-panel" id="trace-result-panel">
+                        <div class="trace-placeholder" id="trace-placeholder">
+                            <i class="fa-solid fa-radar animate-pulse" style="font-size: 4.5rem; color: var(--accent-gold); margin-bottom: 1.5rem;"></i>
+                            <h3>Awaiting RFID Identifier</h3>
+                            <p style="color: var(--text-muted); max-width: 380px; margin: 0 auto;">Enter or click an RFID collar tag ID on the left to pull live diagnostics, veterinary logs, and teeth age compliance data.</p>
+                        </div>
+                        
+                        <!-- Cattle Passport Card (Hidden initially) -->
+                        <div class="cattle-passport" id="cattle-passport" style="display: none;">
+                            <div class="passport-header" style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 1rem; margin-bottom: 1.5rem;">
+                                <div>
+                                    <h4 style="font-size: 1.4rem; color: var(--text-pure); margin-bottom: 0.15rem;" id="pass-tag-id">BA-BULL-101</h4>
+                                    <span style="font-size: 0.75rem; color: var(--accent-gold); font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;">Verified Cattle Passport</span>
+                                </div>
+                                <div class="passport-stamp" style="background: rgba(25, 135, 84, 0.1); border: 1px solid var(--primary-green-light); color: var(--primary-green-light); padding: 0.3rem 0.8rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem; display: flex; align-items: center; gap: 0.3rem;">
+                                    <i class="fa-solid fa-shield-check"></i> VERIFIED APPROVED
+                                </div>
+                            </div>
+
+                            <div class="passport-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.2rem; margin-bottom: 1.5rem;">
+                                <div class="pass-info-item">
+                                    <span style="font-size: 0.75rem; color: var(--text-muted); display: block;">Breed / Genetic Origin:</span>
+                                    <strong style="color: var(--text-pure); font-size: 0.95rem;" id="pass-breed">Sahiwal Red Bull</strong>
+                                </div>
+                                <div class="pass-info-item">
+                                    <span style="font-size: 0.75rem; color: var(--text-muted); display: block;">Teeth / Compliance check:</span>
+                                    <strong style="color: var(--text-pure); font-size: 0.95rem;" id="pass-age">2 Teeth (Dandaan) - Eligible</strong>
+                                </div>
+                                <div class="pass-info-item">
+                                    <span style="font-size: 0.75rem; color: var(--text-muted); display: block;">Agro-Complex Paddock:</span>
+                                    <strong style="color: var(--text-pure); font-size: 0.95rem;" id="pass-division">Rearing Area - Pen B-4</strong>
+                                </div>
+                                <div class="pass-info-item">
+                                    <span style="font-size: 0.75rem; color: var(--text-muted); display: block;">Nutrition Intake:</span>
+                                    <strong style="color: var(--text-pure); font-size: 0.95rem;" id="pass-nutrition">Organic Silage & Grains</strong>
+                                </div>
+                            </div>
+
+                            <!-- Diagnostic Accordion/Tabs -->
+                            <div class="passport-diagnostics" style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1.2rem;">
+                                <h5 style="font-size: 0.95rem; margin-bottom: 0.8rem; color: var(--text-pure); display: flex; align-items: center; gap: 0.5rem;"><i class="fa-solid fa-stethoscope" style="color: var(--accent-gold);"></i> Clinical & Bio-Security Health Log</h5>
+                                <div class="diagnostic-timeline" style="display: flex; flex-direction: column; gap: 0.8rem;">
+                                    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; background: rgba(0,0,0,0.2); padding: 0.6rem 1rem; border-radius: 6px; border-left: 3px solid var(--accent-gold);">
+                                        <span>Viral Defenses (FMD & Black Quarter)</span>
+                                        <strong style="color: var(--primary-green-light);" id="pass-vacc">100% Vaccinated</strong>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; background: rgba(0,0,0,0.2); padding: 0.6rem 1rem; border-radius: 6px; border-left: 3px solid var(--accent-gold);">
+                                        <span>Clinical Bio-Security Check</span>
+                                        <strong style="color: var(--primary-green-light);">Cleared (Active Health Status)</strong>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; background: rgba(0,0,0,0.2); padding: 0.6rem 1rem; border-radius: 6px; border-left: 3px solid var(--accent-gold);">
+                                        <span>Withholding Period (No Medicines)</span>
+                                        <strong style="color: var(--primary-green-light);">Cleared (100% Compliant)</strong>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; background: rgba(0,0,0,0.2); padding: 0.6rem 1rem; border-radius: 6px; border-left: 3px solid var(--accent-gold);">
+                                        <span>Logistical Temp / Safety Check</span>
+                                        <strong style="color: var(--primary-green-light);" id="pass-temp">Active - Bio-Safety Passed</strong>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Slide-Out Cart Drawer -->
+    <div class="cart-drawer-overlay" id="cart-drawer-overlay"></div>
+    <div class="cart-drawer" id="cart-drawer">
+        <div class="cart-drawer-header">
+            <h3>Your Shopping Cart</h3>
+            <button class="cart-drawer-close" id="cart-drawer-close">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <div class="cart-drawer-body" id="cart-drawer-body">
+            <div class="cart-empty-state" id="cart-empty-state">
+                <i class="fa-solid fa-shopping-basket" style="font-size: 3.5rem; color: var(--border-color); margin-bottom: 1rem;"></i>
+                <p>Your cart is empty.</p>
+                <button class="btn btn-secondary btn-close-cart" id="btn-cart-continue">Browse Shop Catalog</button>
+            </div>
+            
+            <div class="cart-items-list" id="cart-items-list" style="display: none;">
+                <!-- Cart list entries will be generated here -->
+            </div>
+        </div>
+
+        <div class="cart-drawer-footer" id="cart-drawer-footer" style="display: none;">
+            <div class="coupon-section" style="margin-bottom: 1rem;">
+                <div style="display: flex; gap: 0.5rem;">
+                    <input type="text" id="coupon-input" placeholder="Promo Code (e.g. BAFARMS20)" style="flex-grow: 1; padding: 0.6rem; border-radius: 6px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: var(--text-pure); font-size: 0.85rem;">
+                    <button class="btn btn-secondary" id="coupon-apply-btn" style="padding: 0.4rem 1.2rem; font-size: 0.85rem;">Apply</button>
+                </div>
+                <span id="coupon-message" style="display: none; font-size: 0.75rem; margin-top: 0.3rem; display: block;"></span>
+            </div>
+
+            <div class="cart-pricing-summary">
+                <div class="price-row">
+                    <span>Products Subtotal:</span>
+                    <strong id="cart-subtotal">PKR 0</strong>
+                </div>
+                <div class="price-row" id="cart-discount-row" style="display: none; color: var(--accent-gold);">
+                    <span>Discount (20%):</span>
+                    <strong id="cart-discount">-PKR 0</strong>
+                </div>
+                <div class="price-row">
+                    <span>Delivery Shipping:</span>
+                    <strong id="cart-shipping">PKR 350</strong>
+                </div>
+                <div class="price-row total-row" style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.8rem; margin-top: 0.5rem;">
+                    <span>Net Order Value:</span>
+                    <strong id="cart-total" style="color: var(--accent-gold); font-size: 1.3rem;">PKR 0</strong>
+                </div>
+                <div class="price-row deposit-row" id="cart-deposit-row" style="background: rgba(255,193,7,0.05); padding: 0.6rem; border-radius: 6px; border: 1px solid rgba(255,193,7,0.15); margin-top: 0.6rem; display: none;">
+                    <span style="color: var(--accent-gold); font-weight: 600;">50% Booking Deposit Due:</span>
+                    <strong id="cart-deposit" style="color: var(--accent-gold); font-size: 1.15rem;">PKR 0</strong>
+                </div>
+            </div>
+
+            <button class="btn btn-primary btn-block" id="cart-checkout-btn" style="margin-top: 1.5rem;">
+                <i class="fa-solid fa-credit-card"></i> Proceed to Checkout
+            </button>
+        </div>
+    </div>
+
+    <!-- Multi-Step Checkout Modal Wizard -->
+    <div class="checkout-modal-overlay" id="checkout-modal-overlay">
+        <div class="checkout-modal-card glass-card">
+            
+            <button class="checkout-modal-close" id="checkout-modal-close">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+
+            <!-- Checkout Wizard Header -->
+            <div class="checkout-wizard-header" id="checkout-wizard-header">
+                <h2 id="checkout-wizard-title">Secure Checkout</h2>
+                
+                <!-- Wizard Steps Tracker -->
+                <div class="checkout-steps-indicator">
+                    <div class="step-indicator active" id="indicator-step-1">
+                        <span class="step-icon">1</span>
+                        <span class="step-text">Rearing & Service</span>
+                    </div>
+                    <div class="step-line" id="line-step-1"></div>
+                    <div class="step-indicator" id="indicator-step-2">
+                        <span class="step-icon">2</span>
+                        <span class="step-text">Payment Details</span>
+                    </div>
+                    <div class="step-line" id="line-step-2"></div>
+                    <div class="step-indicator" id="indicator-step-3">
+                        <span class="step-icon">3</span>
+                        <span class="step-text">Live GPS Tracker</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="checkout-wizard-body">
+                
+                <!-- Form Step 1: Delivery Details & Qurbani Services -->
+                <form id="checkout-form-step-1" class="checkout-step-pane active">
+                    <h3 style="font-size: 1.3rem; margin-bottom: 1rem; color: var(--text-pure); display: flex; align-items: center; gap: 0.5rem;"><i class="fa-solid fa-truck" style="color: var(--accent-gold);"></i> Delivery & Processing Options</h3>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">Fill out recipient shipping details. For Qurbani live animals, select live transport or partner-facility slaughter.</p>
+                    
+                    <!-- Qurbani Service Tabs (Shown only if live animals are in cart) -->
+                    <div class="form-group" id="qurbani-service-group" style="display: none;">
+                        <label>Select Qurbani Processing Service *</label>
+                        <div class="qurbani-service-tabs" style="display: flex; gap: 1rem; margin-top: 0.5rem; margin-bottom: 1.5rem;">
+                            <label class="service-tab active" id="service-tab-live" style="flex: 1; padding: 1rem; border: 1px solid var(--accent-gold); border-radius: 8px; cursor: pointer; text-align: center; background: rgba(0,0,0,0.2); display: flex; flex-direction: column; gap: 0.3rem; align-items: center;">
+                                <input type="radio" name="qurbani_service" value="LiveDelivery" checked style="display: none;">
+                                <i class="fa-solid fa-truck-ramp-box" style="font-size: 1.5rem; color: var(--accent-gold); margin-bottom: 0.3rem;"></i>
+                                <strong style="font-size: 0.9rem; color: var(--text-pure);">Live Home Delivery</strong>
+                                <span style="font-size: 0.7rem; color: var(--text-muted);">Animal shipped alive to your doorstep</span>
+                            </label>
+                            <label class="service-tab" id="service-tab-slaughter" style="flex: 1; padding: 1rem; border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; text-align: center; background: rgba(0,0,0,0.2); display: flex; flex-direction: column; gap: 0.3rem; align-items: center;">
+                                <input type="radio" name="qurbani_service" value="OnFarmSlaughter" style="display: none;">
+                                <i class="fa-solid fa-mosque" style="font-size: 1.5rem; color: var(--text-muted); margin-bottom: 0.3rem;"></i>
+                                <strong style="font-size: 0.9rem; color: var(--text-pure);">Partner-Facility Qurbani</strong>
+                                <span style="font-size: 0.7rem; color: var(--text-muted);">Slaughtered & portioned meat delivered chilled</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-group-row">
+                        <div class="form-group">
+                            <label for="checkout-name">Recipient Full Name *</label>
+                            <input type="text" id="checkout-name" placeholder="John Doe" required class="form-control">
+                            <span class="validation-msg" id="checkout-msg-name"></span>
+                        </div>
+                        <div class="form-group">
+                            <label for="checkout-phone">Contact Number (Mobile) *</label>
+                            <input type="tel" id="checkout-phone" placeholder="03XXXXXXXXX" required class="form-control">
+                            <span class="validation-msg" id="checkout-msg-phone"></span>
+                        </div>
+                    </div>
+
+                    <div class="form-group-row">
+                        <div class="form-group">
+                            <label for="checkout-email">Email Address *</label>
+                            <input type="email" id="checkout-email" placeholder="customer@email.com" required class="form-control">
+                            <span class="validation-msg" id="checkout-msg-email"></span>
+                        </div>
+                        <div class="form-group">
+                            <label for="checkout-city">Delivery Destination City *</label>
+                            <select id="checkout-city" required class="form-control">
+                                <option value="" disabled selected>Select Destination City</option>
+                                <option value="Faisalabad">Faisalabad (Local - Same Day)</option>
+                                <option value="Lahore">Lahore (Next Day Reefer/Livestock Transit)</option>
+                                <option value="Karachi">Karachi (48hr Cold-Chain/Livestock Transit)</option>
+                            </select>
+                            <span class="validation-msg" id="checkout-msg-city"></span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="checkout-address">Detailed Shipping Address *</label>
+                        <textarea id="checkout-address" rows="3" placeholder="Apartment / Villa Number, Street, Sector, Area Name..." required class="form-control"></textarea>
+                        <span class="validation-msg" id="checkout-msg-address"></span>
+                    </div>
+
+                    <div class="checkout-actions" style="display: flex; justify-content: flex-end; margin-top: 1.5rem;">
+                        <button type="submit" class="btn btn-primary">Proceed to Payment <i class="fa-solid fa-arrow-right"></i></button>
+                    </div>
+                </form>
+
+                <!-- Form Step 2: Payment Details -->
+                <form id="checkout-form-step-2" class="checkout-step-pane">
+                    <h3 style="font-size: 1.3rem; margin-bottom: 1rem; color: var(--text-pure); display: flex; align-items: center; gap: 0.5rem;"><i class="fa-solid fa-vault" style="color: var(--accent-gold);"></i> Secure Payment Options</h3>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;" id="checkout-payment-instructions">Provide payment details to secure your booking. Settle remaining values on delivery.</p>
+                    
+                    <!-- Payment Methods radio -->
+                    <div class="payment-tabs" style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+                        <label class="pay-tab active" id="pay-tab-card" style="flex: 1; padding: 1rem; border: 1px solid var(--accent-gold); border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem; background: rgba(0,0,0,0.2);">
+                            <input type="radio" name="payment_method" value="Card" checked style="display: none;">
+                            <i class="fa-solid fa-credit-card" style="color: var(--accent-gold);"></i>
+                            <span>Credit/Debit Card</span>
+                        </label>
+                        <label class="pay-tab" id="pay-tab-cod" style="flex: 1; padding: 1rem; border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem; background: rgba(0,0,0,0.2);">
+                            <input type="radio" name="payment_method" value="COD" style="display: none;">
+                            <i class="fa-solid fa-building-columns" style="color: var(--text-muted);"></i>
+                            <span id="pay-tab-cod-text">COD / Bank Transfer</span>
+                        </label>
+                    </div>
+
+                    <!-- Card Form inputs -->
+                    <div class="card-payment-details" id="card-payment-details">
+                        <div class="form-group">
+                            <label for="card-holder">Card Holder Name *</label>
+                            <input type="text" id="card-holder" placeholder="John Doe" class="form-control">
+                            <span class="validation-msg" id="checkout-msg-holder"></span>
+                        </div>
+                        <div class="form-group">
+                            <label for="card-number">Debit / Credit Card Number *</label>
+                            <div style="position: relative;">
+                                <input type="text" id="card-number" placeholder="4000 1234 5678 9010" maxlength="19" class="form-control" style="padding-right: 3rem;">
+                                <i class="fa-brands fa-cc-visa" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); font-size: 1.5rem; color: var(--text-muted);" id="card-brand-icon"></i>
+                            </div>
+                            <span class="validation-msg" id="checkout-msg-cardno"></span>
+                        </div>
+                        <div class="form-group-row">
+                            <div class="form-group">
+                                <label for="card-expiry">Expiry Date (MM/YY) *</label>
+                                <input type="text" id="card-expiry" placeholder="MM/YY" maxlength="5" class="form-control">
+                                <span class="validation-msg" id="checkout-msg-expiry"></span>
+                            </div>
+                            <div class="form-group">
+                                <label for="card-cvv">Security Code (CVC/CVV) *</label>
+                                <input type="password" id="card-cvv" placeholder="123" maxlength="4" class="form-control">
+                                <span class="validation-msg" id="checkout-msg-cvv"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cod-payment-details" id="cod-payment-details" style="display: none; background: rgba(25, 135, 84, 0.05); padding: 1.5rem; border-radius: 8px; border: 1px dashed var(--border-color); text-align: center; margin-bottom: 1.5rem;">
+                        <i class="fa-solid fa-university" style="font-size: 2.5rem; color: var(--accent-gold); margin-bottom: 0.8rem;" id="cod-gateway-icon"></i>
+                        <h4 style="color: var(--text-pure); margin-bottom: 0.3rem;" id="cod-gateway-title">Bank Transfer Required</h4>
+                        <p style="color: var(--text-muted); font-size: 0.9rem;" id="cod-gateway-desc">Submit deposit payment to BA Farms MCB Account: 0982-14029-2194 to secure booking.</p>
+                    </div>
+
+                    <div class="checkout-actions" style="display: flex; justify-content: space-between; margin-top: 1.5rem;">
+                        <button type="button" class="btn btn-secondary" id="btn-back-to-step-1"><i class="fa-solid fa-arrow-left"></i> Back to Details</button>
+                        <button type="submit" class="btn btn-primary" id="btn-submit-order">Confirm Order & Place Booking <i class="fa-solid fa-circle-check"></i></button>
+                    </div>
+                </form>
+
+                <!-- Step 3: Receipt, Success & Live Motorway Delivery Tracking Simulation -->
+                <div id="checkout-step-pane-3" class="checkout-step-pane">
+                    
+                    <div class="success-screen-wrapper" id="success-screen-wrapper">
+                        
+                        <!-- Confirmation stamp -->
+                        <div class="order-success-header" style="text-align: center; margin-bottom: 2rem;">
+                            <div style="background: rgba(25, 135, 84, 0.1); border: 1px solid var(--primary-green-light); width: 65px; height: 65px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--primary-green-light); font-size: 2rem; margin: 0 auto 1rem auto; box-shadow: var(--box-shadow-glow);">
+                                <i class="fa-solid fa-check"></i>
+                            </div>
+                            <h3 style="font-size: 1.6rem; color: var(--text-pure); margin-bottom: 0.3rem;" id="success-header-title">Order Received Successfully!</h3>
+                            <p style="color: var(--text-muted); font-size: 0.95rem;">Reference Code: <strong id="receipt-order-ref" style="color: var(--accent-gold);">BA-ORD-8940</strong>. Invoice sent to email.</p>
+                        </div>
+
+                        <!-- Live Order Tracker Desk Grid -->
+                        <div class="order-tracker-grid" style="margin-top: 1.5rem;">
+                            
+                            <!-- Left Grid Item: Transit Progress details -->
+                            <div class="glass-card tracker-details" style="padding: 1.5rem;">
+                                <h4 style="font-size: 1.1rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.6rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;"><i class="fa-solid fa-truck" style="color: var(--accent-gold);"></i> Dispatch Status Console</h4>
+                                
+                                <div class="live-status-card" style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 1rem; border-left: 3px solid var(--accent-gold); margin-bottom: 1.2rem;">
+                                    <span style="font-size: 0.75rem; color: var(--accent-gold); text-transform: uppercase; font-weight: 700; display: block; letter-spacing: 0.05em;">Current Phase</span>
+                                    <strong style="color: var(--text-pure); font-size: 1rem; display: block; margin: 0.1rem 0;" id="live-tracker-status">Initializing loading...</strong>
+                                    <span style="font-size: 0.75rem; color: var(--text-muted); display: block;" id="live-tracker-time">Faisalabad Complex Pens</span>
+                                </div>
+
+                                <div class="tracker-steps" id="tracker-steps-container" style="display: flex; flex-direction: column; gap: 0.8rem; font-size: 0.85rem; color: var(--text-muted);">
+                                    <!-- Populated dynamically based on service -->
+                                </div>
+                            </div>
+
+                            <!-- Right Grid Item: Simulated GPS Motorway Map -->
+                            <div class="glass-card tracker-map-panel" style="padding: 1.5rem; display: flex; flex-direction: column;">
+                                <h4 style="font-size: 1.1rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.6rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;"><i class="fa-solid fa-map-location-dot" style="color: var(--accent-gold);"></i> Real-Time Transit GPS Map</h4>
+                                
+                                <div class="map-viewport" style="background: #06090c; border: 1px solid var(--border-color); border-radius: 8px; flex-grow: 1; min-height: 200px; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                                    
+                                    <!-- Drawing Canvas for highway and van movement -->
+                                    <canvas id="tracker-canvas" width="300" height="180" style="position: absolute; top:0; left:0; width:100%; height:100%;"></canvas>
+                                    
+                                    <!-- Glow marks for cities -->
+                                    <div class="map-city-tag tag-origin" style="position: absolute; left: 15px; top: 125px; text-align: center;">
+                                        <span class="city-dot pulse-gold"></span>
+                                        <span style="font-size: 0.6rem; color: var(--text-muted); display: block; margin-top: 0.2rem;">BA Complex</span>
+                                    </div>
+                                    <div class="map-city-tag tag-destination" id="map-dest-tag" style="position: absolute; right: 25px; top: 25px; text-align: center;">
+                                        <span class="city-dot" id="dest-city-dot"></span>
+                                        <span style="font-size: 0.6rem; color: var(--text-muted); display: block; margin-top: 0.2rem;" id="map-dest-name">Lahore Hub</span>
+                                    </div>
+                                    
+                                    <!-- Progress indicator -->
+                                    <div class="live-progress-overlay" style="position: absolute; bottom: 10px; right: 10px; padding: 0.3rem 0.6rem; background: rgba(0,0,0,0.8); border: 1px solid rgba(255,193,7,0.2); border-radius: 4px; font-size: 0.75rem; font-family: var(--font-heading);">
+                                        GPS Trace: <strong id="live-gps-pct" style="color: var(--accent-gold);">0%</strong>
+                                    </div>
+                                </div>
+                                
+                                <button class="btn btn-secondary btn-block" id="btn-tracker-reset" style="margin-top: 1rem; min-height: 40px; padding: 0.5rem;">Close and Reset Demo</button>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                
+                <div class="footer-brand" style="display: flex; flex-direction: column; align-items: center; text-align: center;">
+                    <div style="margin-bottom: 1.5rem;">
+                        <img src="/assets/logo_white.png" alt="BA Farms Logo" style="height: 120px; width: auto; display: block; margin: 0 auto;">
+                    </div>
+                    <p class="footer-pitch" style="margin: 0 auto 1.8rem auto;">Setting the standard in international halal beef exportation through modern genetics, computerized bio-security, and seamless cold-chain delivery.</p>
+                    <p class="footer-subsidiary" style="justify-content: center;"><i class="fa-solid fa-circle-nodes"></i> A Corporate Subsidiary of <strong>Ashraf Zia Textile Mills PVT LTD</strong></p>
+                </div>
+                
+                <div class="footer-links">
+                    <h4>B2C Direct</h4>
+                    <ul>
+                        <li><a href="#catalog">Shop Catalog</a></li>
+                        <li><a href="#traceability">RFID Product Passport</a></li>
+                        <li><a href="/#facilities">Khurrianwala Agro-Complex</a></li>
+                        <li><a href="/#export">Pasture to Port Pipeline</a></li>
+                        <li><a href="https://bafoods.pk/" target="_blank" style="color: var(--accent-gold); font-weight: 600;">Export Division</a></li>
+                    </ul>
+                </div>
+                
+                <div class="footer-contact">
+                    <h4>Gourmet & Qurbani Support</h4>
+                    <p><i class="fa-solid fa-location-dot"></i> Khurrianwala Industrial Zone, Faisalabad, Pakistan</p>
+                    <p><i class="fa-solid fa-envelope"></i> direct@bafarms.com.pk</p>
+                    <p><i class="fa-solid fa-phone"></i> +92 (41) 111-AZ-MILLS <span class="tag-parent">Parent Corp</span></p>
+                </div>
+
+            </div>
+
+            <div class="footer-bottom" style="flex-direction: column; align-items: center; text-align: center; gap: 0.5rem; justify-content: center;">
+                <p style="margin: 0; color: var(--text-pure); font-weight: 500;">&copy; 2026 BA Farms. All rights reserved. Registered under Sunnah Rearing Protocols.</p>
+                <p style="margin: 0; color: var(--text-muted); font-size: 0.85rem;">A Subsidiary of Ashraf Zia Textile Mills PVT LTD. Khurrianwala Industrial Complex, Faisalabad.</p>
+                <div class="footer-legal-links" style="margin-top: 0.5rem; justify-content: center;">
+                    <a href="#">Privacy Protocol</a>
+                    <a href="#">Shop Agreement & Terms</a>
+                </div>
+                <p style="margin: 0.75rem 0 0; font-size: 0.72rem; color: var(--text-muted); opacity: 0.45;"><a href="/smartherd-portal" style="color: inherit; text-decoration: none;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.45'">Employee Login</a></p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Shop Application JavaScript -->
+    <script type="module" src="/shop.js"></script>
+</body>
+</html>

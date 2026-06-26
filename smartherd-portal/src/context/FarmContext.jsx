@@ -1,0 +1,939 @@
+import React, { createContext, useState, useEffect } from 'react';
+
+export const FarmContext = createContext();
+
+const loadStoredData = (key, defaultVal) => {
+    try {
+        const stored = localStorage.getItem(key);
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            if (false) { // seed detection removed — no more demo data
+                localStorage.removeItem(key);
+                return defaultVal;
+            }
+            return parsed;
+        }
+        return defaultVal;
+    } catch (e) {
+        console.error("Error loading LocalStorage key: " + key, e);
+        return defaultVal;
+    }
+};
+
+const defaultBreeds = [
+    { name: 'Sahiwal', defaultTargetWeight: 360 },
+    { name: 'Cholistani', defaultTargetWeight: 360 },
+    { name: 'Beetal', defaultTargetWeight: 75 },
+    { name: 'Kajla', defaultTargetWeight: 65 },
+    { name: 'Teddy', defaultTargetWeight: 45 },
+    { name: 'Angus Cross', defaultTargetWeight: 450 },
+    { name: 'Brahman Cross', defaultTargetWeight: 420 }
+];
+
+const defaultMedCategories = ['Vaccination', 'Deworming', 'Antibiotic', 'Supplement', 'Injury'];
+
+const defaultSystemParams = {
+    weighIntervalDays: 14,
+    quarantineDays: 14,
+    adgAlertThreshold: 1.0
+};
+
+const defaultQuarantineProtocols = [
+    { id: 'deworm', label: 'Deworm',      dueDay: 1,  type: 'Deworming',   medicine: 'Ivermectin',   dosage: '5ml',   withholding: 21 },
+    { id: 'fmd1',   label: 'FMD',         dueDay: 1,  type: 'Vaccination', medicine: 'FMD Vaccine',  dosage: '2ml',   withholding: 0  },
+    { id: 'vitb12', label: 'Vit B12',     dueDay: 1,  type: 'Vaccination', medicine: 'Vitamin B12',  dosage: '3ml',   withholding: 0  },
+    { id: 'tick',   label: 'Tick Spray',  dueDay: 1,  type: 'Injury',      medicine: 'Cypermethrin', dosage: 'Spray', withholding: 7  },
+    { id: 'fmd2',   label: 'FMD Boost',   dueDay: 7,  type: 'Vaccination', medicine: 'FMD Vaccine',  dosage: '2ml',   withholding: 0  },
+];
+
+const defaultMeatCuts = [
+    {
+        id: 'ribeye',
+        title: 'Sahiwal Prime Ribeye Steak',
+        category: 'cuts',
+        price: 2850,
+        weight: '1.0 kg Pack (2 Steaks)',
+        desc: 'Portion-cut from premium grain-finished Sahiwal cattle. Dry-aged for 21 days for supreme marbling, tenderness, and rich flavor.',
+        ribbon: 'Gourmet Cut',
+        rfid: 'BA-RIB-901',
+        marbling: 'Grade 4+ (Aged)',
+        fatRatio: '18% Fat Cap',
+        images: ['assets/ribeye_steak.png', 'assets/tbone_steak.png', 'assets/striploin_steak.png']
+    },
+    {
+        id: 'tbone',
+        title: 'Cholistani Gourmet T-Bone',
+        category: 'cuts',
+        price: 2650,
+        weight: '1.2 kg Pack (2 Steaks)',
+        desc: 'Classic cut combining robust strip loin and tender tenderloin. Sourced from grass-fed Cholistani steers raised under medical surveillance.',
+        ribbon: 'Gourmet Cut',
+        rfid: 'BA-TBN-902',
+        marbling: 'Grade 3+ (Premium)',
+        fatRatio: '14%',
+        images: ['assets/tbone_steak.png', 'assets/ribeye_steak.png', 'assets/striploin_steak.png']
+    },
+    {
+        id: 'striploin',
+        title: 'Premium Angus Cross Striploin',
+        category: 'cuts',
+        price: 3100,
+        weight: '1.0 kg Pack (3 Steaks)',
+        desc: 'Angus cross cattle reared at Faisalabad. Offers unmatched juicy texture and a thick fat cap that renders beautifully on the grill.',
+        ribbon: 'Gourmet Cut',
+        rfid: 'BA-STR-903',
+        marbling: 'Grade 5 (Supreme)',
+        fatRatio: '20%',
+        images: ['assets/striploin_steak.png', 'assets/ribeye_steak.png', 'assets/tbone_steak.png']
+    },
+    {
+        id: 'minced',
+        title: 'Organic Grass-Fed Minced Beef',
+        category: 'cuts',
+        price: 1850,
+        weight: '1.0 kg Pack (Fine Ground)',
+        desc: 'Extra lean minced beef processed daily under strict sterile cold room conditions. Zero additives, pure organic ground chuck.',
+        ribbon: 'Fresh Minced',
+        rfid: 'BA-MIN-904',
+        marbling: 'Standard Lean',
+        fatRatio: '8%',
+        images: ['assets/minced_beef.png', 'assets/burger_patties.png']
+    },
+    {
+        id: 'bong',
+        title: 'Premium Beef Shank (Bong Cut)',
+        category: 'cuts',
+        price: 1950,
+        weight: '1.5 kg Pack (Bone-in)',
+        desc: 'Traditional cross-cut shank featuring rich marrow bone. Ideal for slow cooking, stews, and traditional Nihari preparations.',
+        ribbon: 'Fresh Cut',
+        rfid: 'BA-BNG-905',
+        marbling: 'Lean & Marrow',
+        fatRatio: '10%',
+        images: ['assets/bong_cut.png', 'assets/minced_beef.png']
+    },
+    {
+        id: 'patties',
+        title: 'Gourmet Chuck Burger Patties',
+        category: 'cuts',
+        price: 1600,
+        weight: '6 Patties (900g Total)',
+        desc: 'House blend of 80% lean chuck and 20% premium brisket. Lightly seasoned and vacuum packed for instant grilling.',
+        ribbon: 'Ready to Grill',
+        rfid: 'BA-PAT-906',
+        marbling: 'Burger Ratio 80/20',
+        fatRatio: '20%',
+        images: ['assets/burger_patties.png', 'assets/minced_beef.png']
+    }
+];
+
+export const FarmProvider = ({ children }) => {
+    // Auth States
+    const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('ba_staff_logged_in') === 'true');
+    const [staffUser, setStaffUser] = useState(() => {
+        const stored = localStorage.getItem('ba_staff_user');
+        return stored ? JSON.parse(stored) : null;
+    });
+
+    const handleLoginSuccess = (userSession) => {
+        localStorage.setItem('ba_staff_logged_in', 'true');
+        localStorage.setItem('ba_staff_user', JSON.stringify(userSession));
+        setIsLoggedIn(true);
+        setStaffUser(userSession);
+    };
+
+    const handleLogout = () => {
+        try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (AudioContext) {
+                const audioCtx = new AudioContext();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5 note
+                osc.frequency.setValueAtTime(440, audioCtx.currentTime + 0.1); // A4 note
+                gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.25);
+            }
+        } catch (e) {}
+
+        localStorage.removeItem('ba_staff_logged_in');
+        localStorage.removeItem('ba_staff_user');
+        setIsLoggedIn(false);
+        setStaffUser(null);
+    };
+
+    // Custom Configurations
+    const [breedsConfig, setBreedsConfig] = useState(() => loadStoredData('ba_breeds_config', defaultBreeds));
+    const [medCategories, setMedCategories] = useState(() => loadStoredData('ba_med_categories', defaultMedCategories));
+    const [systemParams, setSystemParams] = useState(() => loadStoredData('ba_system_params', defaultSystemParams));
+    const [quarantineProtocols, setQuarantineProtocols] = useState(() => loadStoredData('ba_quarantine_protocols', defaultQuarantineProtocols));
+
+    const updateBreedsConfig = (newBreeds) => {
+        setBreedsConfig(newBreeds);
+        localStorage.setItem('ba_breeds_config', JSON.stringify(newBreeds));
+    };
+
+    const updateMedCategories = (newCategories) => {
+        setMedCategories(newCategories);
+        localStorage.setItem('ba_med_categories', JSON.stringify(newCategories));
+    };
+
+    const updateSystemParams = (newParams) => {
+        setSystemParams(newParams);
+        localStorage.setItem('ba_system_params', JSON.stringify(newParams));
+    };
+
+    const updateQuarantineProtocols = (newProtocols) => {
+        setQuarantineProtocols(newProtocols);
+        localStorage.setItem('ba_quarantine_protocols', JSON.stringify(newProtocols));
+    };
+
+    // ─── INITIAL LOCAL SEEDS ───
+    const initialAnimals = [
+        {
+            id: 1,
+            rfid: 'BA-BULL-101',
+            breed: 'Sahiwal',
+            entryDate: '2026-04-10',
+            entryWeight: 380,
+            currentWeight: 420,
+            targetWeight: 420,
+            purchasePrice: 150000,
+            source: 'Ashraf Zia Agro-Complex',
+            status: 'Ready',
+            pen: 'B-4',
+            price: 285000,
+            desc: 'Purebred Sahiwal bull with excellent physical structure, deep red coat, and verified teeth age compliance. Raised on organic feeds.',
+            images: ['assets/sahiwal_bull.png']
+        },
+        {
+            id: 2,
+            rfid: 'BA-COW-202',
+            breed: 'Cholistani',
+            entryDate: '2026-04-15',
+            entryWeight: 320,
+            currentWeight: 360,
+            targetWeight: 360,
+            purchasePrice: 130000,
+            source: 'Ashraf Zia Agro-Complex',
+            status: 'Ready',
+            pen: 'C-1',
+            price: 245000,
+            desc: 'Beautiful Cholistani heifer featuring signature spot markings. Active health log, fully vaccinated against FMD.',
+            images: ['assets/cholistani_cow.png']
+        },
+        {
+            id: 3,
+            rfid: 'BA-BULL-505',
+            breed: 'Sahiwal',
+            entryDate: '2026-03-20',
+            entryWeight: 500,
+            currentWeight: 580,
+            targetWeight: 580,
+            purchasePrice: 280000,
+            source: 'Ashraf Zia Agro-Complex',
+            status: 'Ready',
+            pen: 'F-2',
+            price: 480000,
+            desc: 'Heavyweight Sahiwal show bull. Unmatched muscle mass, clean posture, and active veterinary passport. Ideal for family shared booking.',
+            images: ['assets/sahiwal_bull.png']
+        },
+        {
+            id: 4,
+            rfid: 'BA-GOAT-303',
+            breed: 'Beetal',
+            entryDate: '2026-05-01',
+            entryWeight: 60,
+            currentWeight: 75,
+            targetWeight: 75,
+            purchasePrice: 65000,
+            source: 'Ashraf Zia Agro-Complex',
+            status: 'Ready',
+            pen: 'G-2',
+            price: 95000,
+            desc: 'Purebred Rajanpuri Beetal goat with long floppy ears and clean pink nose. Complies with Islamic Qurbani requirements.',
+            images: ['assets/beetal_goat.png']
+        },
+        {
+            id: 5,
+            rfid: 'BA-SHP-404',
+            breed: 'Kajla',
+            entryDate: '2026-05-05',
+            entryWeight: 55,
+            currentWeight: 65,
+            targetWeight: 65,
+            purchasePrice: 55000,
+            source: 'Ashraf Zia Agro-Complex',
+            status: 'Ready',
+            pen: 'S-1',
+            price: 85000,
+            desc: 'Signature Kajla sheep with deep dark circle eye markings. Reared in Faisalabad complex with automated grain rations.',
+            images: ['assets/kajla_sheep.png']
+        },
+        {
+            id: 6,
+            rfid: 'BA-GOAT-606',
+            breed: 'Teddy',
+            entryDate: '2026-05-10',
+            entryWeight: 35,
+            currentWeight: 45,
+            targetWeight: 45,
+            purchasePrice: 35000,
+            source: 'Ashraf Zia Agro-Complex',
+            status: 'Ready',
+            pen: 'G-1',
+            price: 55000,
+            desc: 'Healthy and active compact Teddy goat. Raised on natural grain feeds. Islamic compliance verified.',
+            images: ['assets/teddy_goat.png']
+        }
+    ];
+
+    const initialWeights = [
+        { id: 1, animalId: 1, date: '2026-04-10', weight: 380, adg: 0 },
+        { id: 2, animalId: 1, date: '2026-06-10', weight: 420, adg: 0.66 },
+        { id: 3, animalId: 2, date: '2026-04-15', weight: 320, adg: 0 },
+        { id: 4, animalId: 2, date: '2026-06-15', weight: 360, adg: 0.66 },
+        { id: 5, animalId: 3, date: '2026-03-20', weight: 500, adg: 0 },
+        { id: 6, animalId: 3, date: '2026-06-20', weight: 580, adg: 0.87 },
+        { id: 7, animalId: 4, date: '2026-05-01', weight: 60, adg: 0 },
+        { id: 8, animalId: 4, date: '2026-06-01', weight: 75, adg: 0.48 },
+        { id: 9, animalId: 5, date: '2026-05-05', weight: 55, adg: 0 },
+        { id: 10, animalId: 5, date: '2026-06-05', weight: 65, adg: 0.32 },
+        { id: 11, animalId: 6, date: '2026-05-10', weight: 35, adg: 0 },
+        { id: 12, animalId: 6, date: '2026-06-10', weight: 45, adg: 0.32 }
+    ];
+
+    const initialTreatments = [];
+
+    const initialEvents = [
+        { id: 1, animalId: 1, date: '2026-04-10', eventType: 'registered', note: 'Registered — Sahiwal, 380kg, Ready' },
+        { id: 2, animalId: 2, date: '2026-04-15', eventType: 'registered', note: 'Registered — Cholistani, 320kg, Ready' },
+        { id: 3, animalId: 3, date: '2026-03-20', eventType: 'registered', note: 'Registered — Sahiwal, 500kg, Ready' },
+        { id: 4, animalId: 4, date: '2026-05-01', eventType: 'registered', note: 'Registered — Beetal, 60kg, Ready' },
+        { id: 5, animalId: 5, date: '2026-05-05', eventType: 'registered', note: 'Registered — Kajla, 55kg, Ready' },
+        { id: 6, animalId: 6, date: '2026-05-10', eventType: 'registered', note: 'Registered — Teddy, 35kg, Ready' }
+    ];
+
+    // Core state pools loaded first from LocalStorage (animals/weights/treatments/events as cache)
+    const [animals, setAnimals] = useState(() => loadStoredData('ba_animals', initialAnimals));
+    const [weightLogs, setWeightLogs] = useState(() => loadStoredData('ba_weights', initialWeights));
+    const [treatments, setTreatments] = useState(() => loadStoredData('ba_treatments', initialTreatments));
+    const [events, setEvents] = useState(() => loadStoredData('ba_events', initialEvents));
+    // Orders, enquiries and meatCuts start empty — authoritative source is DB
+    const [orders, setOrders] = useState([]);
+    const [meatCuts, setMeatCuts] = useState(defaultMeatCuts);
+    const [enquiries, setEnquiries] = useState([]);
+
+    // Database load and sync metrics
+    const [fetchLoading, setFetchLoading] = useState(true);
+    const [dbUnconfigured, setDbUnconfigured] = useState(false);
+
+    // Feed optimized data
+    const [feedIngredients, setFeedIngredients] = useState(() => {
+        const stored = localStorage.getItem('ba_feed_ingredients');
+        if (stored) {
+            try {
+                return JSON.parse(stored);
+            } catch (e) {
+                console.error("Error parsing ba_feed_ingredients", e);
+            }
+        }
+
+        // Migrate legacy settings
+        const recipe = loadStoredData('ba_feed_recipe', {
+            silageDM: 4.5,
+            cottonseedDM: 1.5,
+            strawDM: 1.0,
+            mineralsDM: 0.15
+        });
+        const prices = loadStoredData('ba_feed_prices', {
+            silagePrice: 12.5,
+            cottonseedPrice: 95.0,
+            strawPrice: 16.0,
+            mineralsPrice: 150.0
+        });
+
+        return [
+            { id: 'silage', name: 'Maize Silage', dmTarget: recipe.silageDM ?? 4.5, price: prices.silagePrice ?? 12.5, moisture: 65, isDefault: true },
+            { id: 'cottonseed', name: 'Cottonseed Cake', dmTarget: recipe.cottonseedDM ?? 1.5, price: prices.cottonseedPrice ?? 95.0, moisture: 10, isDefault: true },
+            { id: 'straw', name: 'Wheat Straw (Toori)', dmTarget: recipe.strawDM ?? 1.0, price: prices.strawPrice ?? 16.0, moisture: 10, isDefault: true },
+            { id: 'minerals', name: 'Limestone / Minerals', dmTarget: recipe.mineralsDM ?? 0.15, price: prices.mineralsPrice ?? 150.0, moisture: 5, isDefault: true }
+        ];
+    });
+
+    const feedRecipe = {
+        silageDM: feedIngredients.find(i => i.id === 'silage')?.dmTarget ?? 4.5,
+        cottonseedDM: feedIngredients.find(i => i.id === 'cottonseed')?.dmTarget ?? 1.5,
+        strawDM: feedIngredients.find(i => i.id === 'straw')?.dmTarget ?? 1.0,
+        mineralsDM: feedIngredients.find(i => i.id === 'minerals')?.dmTarget ?? 0.15
+    };
+    const feedPrices = {
+        silagePrice: feedIngredients.find(i => i.id === 'silage')?.price ?? 12.5,
+        cottonseedPrice: feedIngredients.find(i => i.id === 'cottonseed')?.price ?? 95.0,
+        strawPrice: feedIngredients.find(i => i.id === 'straw')?.price ?? 16.0,
+        mineralsPrice: feedIngredients.find(i => i.id === 'minerals')?.price ?? 150.0
+    };
+
+    // localStorage cache sync for animals/weights/treatments/events (portal reads these on init before DB loads)
+    useEffect(() => {
+        localStorage.setItem('ba_animals', JSON.stringify(animals));
+    }, [animals]);
+
+    useEffect(() => {
+        localStorage.setItem('ba_weights', JSON.stringify(weightLogs));
+    }, [weightLogs]);
+
+    useEffect(() => {
+        localStorage.setItem('ba_treatments', JSON.stringify(treatments));
+    }, [treatments]);
+
+    useEffect(() => {
+        localStorage.setItem('ba_events', JSON.stringify(events));
+    }, [events]);
+
+    useEffect(() => {
+        localStorage.setItem('ba_feed_ingredients', JSON.stringify(feedIngredients));
+    }, [feedIngredients]);
+
+    // ─── NEON DB GET SYNC RUNNER ───
+    useEffect(() => {
+        const syncState = async () => {
+            try {
+                const res = await fetch('/api/farm');
+                const data = await res.json();
+
+                if (data.success) {
+                    setAnimals(data.animals);
+                    setWeightLogs(data.weightLogs);
+                    setTreatments(data.treatments);
+                    if (data.events) setEvents(data.events);
+                    if (data.orders) setOrders(data.orders);
+                    if (data.meatCuts) setMeatCuts(data.meatCuts);
+                    if (data.enquiries) setEnquiries(data.enquiries);
+                } else if (data.unconfigured) {
+                    setDbUnconfigured(true);
+                    console.warn("Neon Database connection string unconfigured. Utilizing offline localStorage backup.");
+                }
+            } catch (err) {
+                console.error("Neon API unreachable, preserving localStorage backup states:", err);
+            } finally {
+                setFetchLoading(false);
+            }
+        };
+        syncState();
+    }, []);
+
+    // ─── STATE TRANSACTIONS TRIGGER SYNCS ───
+
+    const addAnimal = async (newAnimal) => {
+        const id = animals.length > 0 ? Math.max(...animals.map(a => a.id)) + 1 : 1;
+
+        const matched = breedsConfig.find(b => b.name === newAnimal.breed);
+        const defaultTarget = matched ? matched.defaultTargetWeight : 360;
+
+        const animal = {
+            id,
+            rfid: newAnimal.rfid || String(id).padStart(3, '0'),
+            breed: newAnimal.breed || 'Sahiwal',
+            entryDate: newAnimal.entryDate || new Date().toISOString().split('T')[0],
+            entryWeight: parseFloat(newAnimal.entryWeight) || 120,
+            currentWeight: parseFloat(newAnimal.entryWeight) || 120,
+            targetWeight: parseFloat(newAnimal.targetWeight) || defaultTarget,
+            purchasePrice: parseFloat(newAnimal.purchasePrice) || 150000,
+            source: newAnimal.source || 'Local Mandi',
+            status: newAnimal.status || 'Quarantined',
+            pen: newAnimal.pen || null
+        };
+
+        // 1. Sync UI locally immediately for zero-lag response
+        setAnimals(prev => [...prev, animal]);
+        setEvents(prev => [...prev, { id: Date.now(), animalId: id, date: animal.entryDate, eventType: 'registered', note: `Registered — ${animal.breed}, ${animal.entryWeight}kg, ${animal.status}` }]);
+
+        const weightId = weightLogs.length > 0 ? Math.max(...weightLogs.map(w => w.id)) + 1 : 1;
+        const initialLog = {
+            id: weightId,
+            animalId: id,
+            date: animal.entryDate,
+            weight: animal.entryWeight,
+            adg: 0
+        };
+        setWeightLogs(prev => [...prev, initialLog]);
+
+        // 2. Dispatch async database transaction to Neon
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'ADD_ANIMAL',
+                    payload: animal
+                })
+            });
+        } catch (err) {
+            console.error("DB post failed for addAnimal:", err);
+        }
+    };
+
+    const logWeight = async (animalId, date, weight) => {
+        const targetWeight = parseFloat(weight);
+        const animalLogs = weightLogs.filter(w => w.animalId === parseInt(animalId))
+                                     .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        let calculatedAdg = 0;
+        if (animalLogs.length > 0) {
+            const lastLog = animalLogs[animalLogs.length - 1];
+            const msDiff = new Date(date) - new Date(lastLog.date);
+            const daysElapsed = Math.max(1, Math.round(msDiff / (1000 * 60 * 60 * 24)));
+            const weightDiff = targetWeight - lastLog.weight;
+            calculatedAdg = parseFloat((weightDiff / daysElapsed).toFixed(2));
+        }
+
+        const id = weightLogs.length > 0 ? Math.max(...weightLogs.map(w => w.id)) + 1 : 1;
+        const newLog = {
+            id,
+            animalId: parseInt(animalId),
+            date,
+            weight: targetWeight,
+            adg: calculatedAdg
+        };
+
+        // 1. Sync UI locally
+        setWeightLogs(prev => [...prev, newLog]);
+        setAnimals(prev => prev.map(animal => {
+            if (animal.id === parseInt(animalId)) {
+                return { ...animal, currentWeight: targetWeight };
+            }
+            return animal;
+        }));
+
+        // 2. Sync database remote
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'LOG_WEIGHT',
+                    payload: { animalId: parseInt(animalId), date, weight: targetWeight, adg: calculatedAdg }
+                })
+            });
+        } catch (err) {
+            console.error("DB post failed for logWeight:", err);
+        }
+    };
+
+    const addTreatment = async (animalId, date, type, medicine, dosage, withholding) => {
+        const id = treatments.length > 0 ? Math.max(...treatments.map(t => t.id)) + 1 : 1;
+        const newTreatment = {
+            id,
+            animalId: parseInt(animalId),
+            date,
+            type,
+            medicine,
+            dosage,
+            withholding: parseInt(withholding) || 0
+        };
+
+        // 1. Sync UI locally
+        setTreatments(prev => [...prev, newTreatment]);
+
+        // 2. Sync database remote
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'LOG_TREATMENT',
+                    payload: { animalId: parseInt(animalId), date, type, medicine, dosage, withholding: parseInt(withholding) || 0 }
+                })
+            });
+        } catch (err) {
+            console.error("DB post failed for addTreatment:", err);
+        }
+    };
+
+    const transitionAnimalStatus = async (animalId, nextStatus) => {
+        const today = new Date().toISOString().split('T')[0];
+        // 1. Sync UI locally
+        setAnimals(prev => prev.map(animal => {
+            if (animal.id === parseInt(animalId)) {
+                return { ...animal, status: nextStatus };
+            }
+            return animal;
+        }));
+        setEvents(prev => [...prev, { id: Date.now(), animalId: parseInt(animalId), date: today, eventType: 'status_change', note: `→ ${nextStatus}` }]);
+
+        // 2. Sync database remote
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'TRANSITION_STATUS',
+                    payload: { animalId: parseInt(animalId), status: nextStatus, date: today, note: `→ ${nextStatus}` }
+                })
+            });
+        } catch (err) {
+            console.error("DB post failed for transitionAnimalStatus:", err);
+        }
+    };
+
+    const deleteAnimal = async (animalId) => {
+        // 1. Sync UI locally
+        setAnimals(prev => prev.filter(a => a.id !== animalId));
+        setWeightLogs(prev => prev.filter(w => w.animalId !== animalId));
+        setTreatments(prev => prev.filter(t => t.animalId !== animalId));
+
+        // 2. Sync DB remote
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'DELETE_ANIMAL',
+                    payload: { animalId }
+                })
+            });
+        } catch (err) {
+            console.error("DB post failed for deleteAnimal:", err);
+        }
+    };
+
+    const updateAnimal = async (updatedAnimal) => {
+        // 1. Sync UI locally
+        setAnimals(prev => prev.map(a => a.id === updatedAnimal.id ? { ...a, ...updatedAnimal } : a));
+
+        // 2. Sync DB remote
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'UPDATE_ANIMAL',
+                    payload: updatedAnimal
+                })
+            });
+        } catch (err) {
+            console.error("DB post failed for updateAnimal:", err);
+        }
+    };
+
+    const deleteWeightLog = async (logId) => {
+        // 1. Sync UI locally
+        setWeightLogs(prev => prev.filter(w => w.id !== logId));
+
+        // 2. Sync DB remote
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'DELETE_WEIGHT_LOG',
+                    payload: { logId }
+                })
+            });
+        } catch (err) {
+            console.error("DB post failed for deleteWeightLog:", err);
+        }
+    };
+
+    const deleteTreatment = async (treatmentId) => {
+        // 1. Sync UI locally
+        setTreatments(prev => prev.filter(t => t.id !== treatmentId));
+
+        // 2. Sync DB remote
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'DELETE_TREATMENT',
+                    payload: { treatmentId }
+                })
+            });
+        } catch (err) {
+            console.error("DB post failed for deleteTreatment:", err);
+        }
+    };
+
+    const recordSale = async (animalId, salePrice, buyerName, saleDate) => {
+        // 1. Sync UI locally
+        setAnimals(prev => prev.map(a => a.id === parseInt(animalId)
+            ? { ...a, status: 'Sold', salePrice: parseFloat(salePrice), buyerName, saleDate }
+            : a
+        ));
+        setEvents(prev => [...prev, { id: Date.now(), animalId: parseInt(animalId), date: saleDate, eventType: 'sold', note: `Sold to ${buyerName} — PKR ${parseFloat(salePrice).toLocaleString()}` }]);
+
+        // 2. Sync database remote
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'RECORD_SALE',
+                    payload: { animalId: parseInt(animalId), salePrice: parseFloat(salePrice), buyerName, saleDate }
+                })
+            });
+        } catch (err) {
+            console.error("DB post failed for recordSale:", err);
+        }
+    };
+
+    const recordDeath = async (animalId, deceasedDate, deceasedCause) => {
+        // 1. Sync UI locally
+        setAnimals(prev => prev.map(a => a.id === parseInt(animalId)
+            ? { ...a, status: 'Deceased', deceasedDate, deceasedCause }
+            : a
+        ));
+        setEvents(prev => [...prev, { id: Date.now(), animalId: parseInt(animalId), date: deceasedDate, eventType: 'deceased', note: `Deceased — ${deceasedCause}` }]);
+
+        // 2. Sync database remote
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'RECORD_DEATH',
+                    payload: { animalId: parseInt(animalId), deceasedDate, deceasedCause }
+                })
+            });
+        } catch (err) {
+            console.error("DB post failed for recordDeath:", err);
+        }
+    };
+
+    const updateTMRPrices = (prices) => {
+        setFeedIngredients(prev => prev.map(ing => {
+            if (ing.id === 'silage' && prices.silagePrice !== undefined) return { ...ing, price: prices.silagePrice };
+            if (ing.id === 'cottonseed' && prices.cottonseedPrice !== undefined) return { ...ing, price: prices.cottonseedPrice };
+            if (ing.id === 'straw' && prices.strawPrice !== undefined) return { ...ing, price: prices.strawPrice };
+            if (ing.id === 'minerals' && prices.mineralsPrice !== undefined) return { ...ing, price: prices.mineralsPrice };
+            return ing;
+        }));
+    };
+
+    const updateFeedRecipe = (recipe) => {
+        setFeedIngredients(prev => prev.map(ing => {
+            if (ing.id === 'silage' && recipe.silageDM !== undefined) return { ...ing, dmTarget: recipe.silageDM };
+            if (ing.id === 'cottonseed' && recipe.cottonseedDM !== undefined) return { ...ing, dmTarget: recipe.cottonseedDM };
+            if (ing.id === 'straw' && recipe.strawDM !== undefined) return { ...ing, dmTarget: recipe.strawDM };
+            if (ing.id === 'minerals' && recipe.mineralsDM !== undefined) return { ...ing, dmTarget: recipe.mineralsDM };
+            return ing;
+        }));
+    };
+
+    const updateFeedIngredients = (newIngredients) => {
+        setFeedIngredients(newIngredients);
+    };
+
+    // Cross-tab real-time sync via Storage API (cart and config only)
+    useEffect(() => {
+        const handleStorageChange = (e) => {
+            if (e.key === 'ba_animals') {
+                try {
+                    setAnimals(JSON.parse(e.newValue || '[]'));
+                } catch (err) {}
+            }
+        };
+        window.addEventListener('storage', handleStorageChange);
+        return () => window.removeEventListener('storage', handleStorageChange);
+    }, []);
+
+    const addOrder = async (order) => {
+        // Optimistic update
+        setOrders(prev => [...prev, order]);
+
+        // Mark live animals as sold in register and Neon DB
+        if (order.items) {
+            order.items.forEach(item => {
+                const animal = animals.find(a => a.rfid === item.rfid);
+                if (animal) {
+                    recordSale(animal.id, item.price * item.quantity, order.customerName, order.date);
+                }
+            });
+        }
+
+        // Persist to DB
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'ADD_ORDER', payload: order })
+            });
+        } catch (err) {
+            console.error('ADD_ORDER failed:', err);
+        }
+    };
+
+    const updateOrderStatus = async (orderId, nextStatus) => {
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: nextStatus } : o));
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'UPDATE_ORDER_STATUS', payload: { orderId, status: nextStatus } })
+            });
+        } catch (err) {
+            console.error('UPDATE_ORDER_STATUS failed:', err);
+        }
+    };
+
+    const deleteOrder = async (orderId) => {
+        setOrders(prev => prev.filter(o => o.id !== orderId));
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'DELETE_ORDER', payload: { orderId } })
+            });
+        } catch (err) {
+            console.error('DELETE_ORDER failed:', err);
+        }
+    };
+
+    const addMeatCut = async (newCut) => {
+        const id = newCut.id || newCut.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        const cut = { id, ...newCut };
+        setMeatCuts(prev => [...prev, cut]);
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'ADD_MEAT_CUT', payload: cut })
+            });
+        } catch (err) {
+            console.error('ADD_MEAT_CUT failed:', err);
+        }
+    };
+
+    const updateMeatCut = async (updatedCut) => {
+        setMeatCuts(prev => prev.map(c => c.id === updatedCut.id ? updatedCut : c));
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'UPDATE_MEAT_CUT', payload: updatedCut })
+            });
+        } catch (err) {
+            console.error('UPDATE_MEAT_CUT failed:', err);
+        }
+    };
+
+    const deleteMeatCut = async (cutId) => {
+        setMeatCuts(prev => prev.filter(c => c.id !== cutId));
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'DELETE_MEAT_CUT', payload: { cutId } })
+            });
+        } catch (err) {
+            console.error('DELETE_MEAT_CUT failed:', err);
+        }
+    };
+
+    const resetSystem = async () => {
+        localStorage.removeItem('ba_animals');
+        localStorage.removeItem('ba_weights');
+        localStorage.removeItem('ba_treatments');
+
+        setAnimals([]);
+        setWeightLogs([]);
+        setTreatments([]);
+        setOrders([]);
+        setMeatCuts([]);
+
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'RESET_DATABASE' })
+            });
+        } catch (err) {
+            console.error("DB reset transaction failed:", err);
+        }
+    };
+
+    const updateEnquiryStatus = async (enquiryId, nextStatus) => {
+        setEnquiries(prev => prev.map(e => e.id === enquiryId ? { ...e, status: nextStatus } : e));
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'UPDATE_ENQUIRY_STATUS', payload: { enquiryId, status: nextStatus } })
+            });
+        } catch (err) {
+            console.error('UPDATE_ENQUIRY_STATUS failed:', err);
+        }
+    };
+
+    const deleteEnquiry = async (enquiryId) => {
+        setEnquiries(prev => prev.filter(e => e.id !== enquiryId));
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'DELETE_ENQUIRY', payload: { enquiryId } })
+            });
+        } catch (err) {
+            console.error('DELETE_ENQUIRY failed:', err);
+        }
+    };
+
+    return (
+        <FarmContext.Provider value={{
+            animals,
+            weightLogs,
+            treatments,
+            events,
+            feedRecipe,
+            feedPrices,
+            feedIngredients,
+            fetchLoading,
+            dbUnconfigured,
+            orders,
+            addOrder,
+            updateOrderStatus,
+            deleteOrder,
+            enquiries,
+            updateEnquiryStatus,
+            deleteEnquiry,
+            meatCuts,
+            addMeatCut,
+            updateMeatCut,
+            deleteMeatCut,
+            addAnimal,
+            logWeight,
+            addTreatment,
+            updateTMRPrices,
+            updateFeedRecipe,
+            updateFeedIngredients,
+            transitionAnimalStatus,
+            recordSale,
+            recordDeath,
+            deleteAnimal,
+            updateAnimal,
+            deleteWeightLog,
+            deleteTreatment,
+            resetSystem,
+            isLoggedIn,
+            staffUser,
+            handleLoginSuccess,
+            handleLogout,
+            breedsConfig,
+            medCategories,
+            systemParams,
+            quarantineProtocols,
+            updateBreedsConfig,
+            updateMedCategories,
+            updateSystemParams,
+            updateQuarantineProtocols
+        }}>
+            {children}
+        </FarmContext.Provider>
+    );
+};

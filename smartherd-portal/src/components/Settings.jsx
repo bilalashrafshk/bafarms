@@ -1,0 +1,561 @@
+import React, { useContext, useState } from 'react';
+import { FarmContext } from '../context/FarmContext';
+
+export default function Settings() {
+    const {
+        breedsConfig, updateBreedsConfig,
+        medCategories, updateMedCategories,
+        systemParams, updateSystemParams,
+        quarantineProtocols, updateQuarantineProtocols,
+        staffUser
+    } = useContext(FarmContext);
+
+    const isAdmin = staffUser?.role === 'Internal Corporate Staff';
+
+    // Local state for General Params
+    const [weighIntervalDays, setWeighIntervalDays] = useState(systemParams.weighIntervalDays ?? 14);
+    const [quarantineDays, setQuarantineDays] = useState(systemParams.quarantineDays ?? 14);
+    const [adgAlertThreshold, setAdgAlertThreshold] = useState(systemParams.adgAlertThreshold ?? 1.0);
+    const [generalSaved, setGeneralSaved] = useState(false);
+
+    // Local state for Breeds Form
+    const [newBreedName, setNewBreedName] = useState('');
+    const [newBreedWeight, setNewBreedWeight] = useState('');
+    const [breedError, setBreedError] = useState('');
+
+    // Local state for Medical Categories Form
+    const [newMedCat, setNewMedCat] = useState('');
+    const [medCatError, setMedCatError] = useState('');
+
+    // Local state for Quarantine Protocol Form
+    const [protoLabel, setProtoLabel] = useState('');
+    const [protoDueDay, setProtoDueDay] = useState('1');
+    const [protoType, setProtoType] = useState('');
+    const [protoMedicine, setProtoMedicine] = useState('');
+    const [protoDosage, setProtoDosage] = useState('');
+    const [protoWithholding, setProtoWithholding] = useState('0');
+    const [protoError, setProtoError] = useState('');
+
+    // Tabs inside settings
+    const [activeSettingsTab, setActiveSettingsTab] = useState('general');
+
+    // General params submission
+    const handleSaveParams = (e) => {
+        e.preventDefault();
+        if (!isAdmin) return;
+        updateSystemParams({
+            weighIntervalDays: parseInt(weighIntervalDays) || 14,
+            quarantineDays: parseInt(quarantineDays) || 14,
+            adgAlertThreshold: parseFloat(adgAlertThreshold) || 1.0
+        });
+        setGeneralSaved(true);
+        setTimeout(() => setGeneralSaved(false), 2500);
+    };
+
+    // Breed Addition
+    const handleAddBreed = (e) => {
+        e.preventDefault();
+        if (!isAdmin) return;
+        setBreedError('');
+        const name = newBreedName.trim();
+        const weight = parseInt(newBreedWeight);
+
+        if (!name || isNaN(weight)) {
+            setBreedError('Please fill in both fields correctly.');
+            return;
+        }
+
+        if (breedsConfig.some(b => b.name.toLowerCase() === name.toLowerCase())) {
+            setBreedError('This breed name already exists.');
+            return;
+        }
+
+        const updated = [...breedsConfig, { name, defaultTargetWeight: weight }];
+        updateBreedsConfig(updated);
+        setNewBreedName('');
+        setNewBreedWeight('');
+    };
+
+    // Breed Deletion
+    const handleDeleteBreed = (nameToDelete) => {
+        if (!isAdmin) return;
+        if (breedsConfig.length <= 1) {
+            alert("At least one breed must remain in the configuration registry.");
+            return;
+        }
+        if (window.confirm(`Are you sure you want to delete breed "${nameToDelete}"? New registrations of this breed will revert to standard default weights.`)) {
+            const updated = breedsConfig.filter(b => b.name !== nameToDelete);
+            updateBreedsConfig(updated);
+        }
+    };
+
+    // Medical Category Addition
+    const handleAddMedCat = (e) => {
+        e.preventDefault();
+        if (!isAdmin) return;
+        setMedCatError('');
+        const cat = newMedCat.trim();
+
+        if (!cat) {
+            setMedCatError('Category name cannot be empty.');
+            return;
+        }
+
+        if (medCategories.some(c => c.toLowerCase() === cat.toLowerCase())) {
+            setMedCatError('This category already exists.');
+            return;
+        }
+
+        const updated = [...medCategories, cat];
+        updateMedCategories(updated);
+        setNewMedCat('');
+    };
+
+    // Medical Category Deletion
+    const handleDeleteMedCat = (catToDelete) => {
+        if (!isAdmin) return;
+        if (medCategories.length <= 1) {
+            alert("At least one treatment category must remain in system configuration.");
+            return;
+        }
+        if (window.confirm(`Are you sure you want to delete medical category "${catToDelete}"?`)) {
+            const updated = medCategories.filter(c => c !== catToDelete);
+            updateMedCategories(updated);
+        }
+    };
+
+    // Protocol Addition
+    const handleAddProtocol = (e) => {
+        e.preventDefault();
+        if (!isAdmin) return;
+        setProtoError('');
+        const label = protoLabel.trim();
+        const medicine = protoMedicine.trim();
+        const dosage = protoDosage.trim();
+        const type = protoType || (medCategories[0] || 'Vaccination');
+        const dueDay = parseInt(protoDueDay);
+        const withholding = parseInt(protoWithholding);
+
+        if (!label || !medicine || !dosage || isNaN(dueDay) || isNaN(withholding)) {
+            setProtoError('Please enter all required fields.');
+            return;
+        }
+
+        const id = 'proto_' + Date.now();
+        const newProto = { id, label, dueDay, type, medicine, dosage, withholding };
+
+        const updated = [...quarantineProtocols, newProto];
+        updateQuarantineProtocols(updated);
+
+        // Reset
+        setProtoLabel('');
+        setProtoDueDay('1');
+        setProtoType('');
+        setProtoMedicine('');
+        setProtoDosage('');
+        setProtoWithholding('0');
+    };
+
+    // Protocol Deletion
+    const handleDeleteProtocol = (idToDelete) => {
+        if (!isAdmin) return;
+        if (window.confirm("Are you sure you want to delete this quarantine checklist item?")) {
+            const updated = quarantineProtocols.filter(p => p.id !== idToDelete);
+            updateQuarantineProtocols(updated);
+        }
+    };
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            
+            {/* Authenticated Role Info Card */}
+            {!isAdmin && (
+                <div style={{ background: 'rgba(255, 193, 7, 0.05)', border: '1px solid rgba(255, 193, 7, 0.15)', borderRadius: '8px', padding: '1rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                    <i class="fa-solid fa-triangle-exclamation" style={{ color: 'var(--accent-gold)', fontSize: '1.4rem' }}></i>
+                    <div>
+                        <strong style={{ color: 'var(--text-pure)', display: 'block', fontSize: '0.92rem' }}>Read-only Access Alert</strong>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                            You are authenticated as <strong>{staffUser?.name || 'Guest'}</strong> ({staffUser?.role || 'Guest'}). Only Admin level accounts can adjust operational limits, breeds, categories, or quarantine checklists.
+                        </span>
+                    </div>
+                </div>
+            )}
+
+            {/* settings internal tab switcher */}
+            <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '0.75rem', flexWrap: 'wrap' }}>
+                <button 
+                    class={`filter-btn ${activeSettingsTab === 'general' ? 'active' : ''}`} 
+                    onClick={() => setActiveSettingsTab('general')}
+                >
+                    ⚙️ General Limits
+                </button>
+                <button 
+                    class={`filter-btn ${activeSettingsTab === 'breeds' ? 'active' : ''}`} 
+                    onClick={() => setActiveSettingsTab('breeds')}
+                >
+                    🐂 Breeds & Weights
+                </button>
+                <button 
+                    class={`filter-btn ${activeSettingsTab === 'medicals' ? 'active' : ''}`} 
+                    onClick={() => setActiveSettingsTab('medicals')}
+                >
+                    💊 Vet Categories
+                </button>
+                <button 
+                    class={`filter-btn ${activeSettingsTab === 'protocols' ? 'active' : ''}`} 
+                    onClick={() => setActiveSettingsTab('protocols')}
+                >
+                    ☣️ Quarantine Protocols
+                </button>
+            </div>
+
+            {/* TAB CONTENT: GENERAL PARAMETERS */}
+            {activeSettingsTab === 'general' && (
+                <div class="glass-panel animate-scale-up">
+                    <h3 class="panel-title"><i class="fa-solid fa-sliders"></i> Operational General Thresholds</h3>
+                    <form onSubmit={handleSaveParams}>
+                        <div class="form-grid-3">
+                            <div class="form-group">
+                                <label>Weighing Frequency Interval (Days)</label>
+                                <input 
+                                    type="number" 
+                                    class="form-control" 
+                                    value={weighIntervalDays}
+                                    onChange={e => setWeighIntervalDays(e.target.value)}
+                                    disabled={!isAdmin}
+                                    required
+                                />
+                                <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.3rem' }}>Alerts on dashboard if an animal is not weighed within this interval.</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Quarantine Duration (Days)</label>
+                                <input 
+                                    type="number" 
+                                    class="form-control" 
+                                    value={quarantineDays}
+                                    onChange={e => setQuarantineDays(e.target.value)}
+                                    disabled={!isAdmin}
+                                    required
+                                />
+                                <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.3rem' }}>Minimum days required in isolation before calves can be transitioned.</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Alert Target ADG Threshold (kg/day)</label>
+                                <input 
+                                    type="number" 
+                                    step="0.05"
+                                    class="form-control" 
+                                    value={adgAlertThreshold}
+                                    onChange={e => setAdgAlertThreshold(e.target.value)}
+                                    disabled={!isAdmin}
+                                    required
+                                />
+                                <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.3rem' }}>Triggers warning indicator if average daily gain falls below this value.</small>
+                            </div>
+                        </div>
+                        
+                        {isAdmin && (
+                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginTop: '1rem' }}>
+                                <button type="submit" class="btn btn-secondary"><i class="fa-solid fa-floppy-disk"></i> Save General Settings</button>
+                                {generalSaved && (
+                                    <span style={{ fontSize: '0.85rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
+                                        <i class="fa-solid fa-circle-check"></i> Threshold values updated.
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                    </form>
+                </div>
+            )}
+
+            {/* TAB CONTENT: BREEDS & TARGET WEIGHTS */}
+            {activeSettingsTab === 'breeds' && (
+                <div class="tmr-grid">
+                    
+                    {/* Add Breed Form (Admin Only) */}
+                    <div class="glass-panel animate-scale-up" style={{ alignSelf: 'flex-start' }}>
+                        <h3 class="panel-title"><i class="fa-solid fa-plus-circle"></i> Register Breed</h3>
+                        {isAdmin ? (
+                            <form onSubmit={handleAddBreed} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                                {breedError && <p style={{ color: 'hsl(0,75%,60%)', fontSize: '0.8rem', margin: 0 }}>{breedError}</p>}
+                                <div class="form-group">
+                                    <label>Breed Identifier</label>
+                                    <input 
+                                        type="text" 
+                                        class="form-control" 
+                                        placeholder="e.g. Sahiwal Cross, Holstein" 
+                                        value={newBreedName}
+                                        onChange={e => setNewBreedName(e.target.value)}
+                                        required
+                                    />
+                                </div>
+                                <div class="form-group">
+                                    <label>Default Target Weight (kg)</label>
+                                    <input 
+                                        type="number" 
+                                        class="form-control" 
+                                        placeholder="e.g. 380" 
+                                        value={newBreedWeight}
+                                        onChange={e => setNewBreedWeight(e.target.value)}
+                                        required
+                                    />
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-block"><i class="fa-solid fa-circle-plus"></i> Add Breed Registry</button>
+                            </form>
+                        ) : (
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                                Add breed forms are disabled in read-only Guest mode.
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Breed List */}
+                    <div class="glass-panel animate-scale-up">
+                        <h3 class="panel-title"><i class="fa-solid fa-cow"></i> Active Breed Configurations</h3>
+                        <div class="table-wrapper">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>BREED NAME</th>
+                                        <th>DEFAULT TARGET WT</th>
+                                        {isAdmin && <th style={{ textAlign: 'center', width: '80px' }}>REMOVE</th>}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {breedsConfig.map(b => (
+                                        <tr key={b.name}>
+                                            <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>{b.name}</td>
+                                            <td><strong style={{ color: 'var(--accent-gold)' }}>{b.defaultTargetWeight} kg</strong></td>
+                                            {isAdmin && (
+                                                <td style={{ textAlign: 'center' }}>
+                                                    <button 
+                                                        type="button" 
+                                                        class="btn btn-secondary" 
+                                                        style={{ padding: '0.2rem 0.5rem', minHeight: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
+                                                        onClick={() => handleDeleteBreed(b.name)}
+                                                    >
+                                                        <i class="fa-solid fa-trash-can"></i>
+                                                    </button>
+                                                </td>
+                                            )}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* TAB CONTENT: MEDICAL CATEGORIES */}
+            {activeSettingsTab === 'medicals' && (
+                <div class="tmr-grid">
+                    
+                    {/* Add Category Form (Admin Only) */}
+                    <div class="glass-panel animate-scale-up" style={{ alignSelf: 'flex-start' }}>
+                        <h3 class="panel-title"><i class="fa-solid fa-plus-circle"></i> Add Category</h3>
+                        {isAdmin ? (
+                            <form onSubmit={handleAddMedCat} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                                {medCatError && <p style={{ color: 'hsl(0,75%,60%)', fontSize: '0.8rem', margin: 0 }}>{medCatError}</p>}
+                                <div class="form-group">
+                                    <label>Treatment Category Name</label>
+                                    <input 
+                                        type="text" 
+                                        class="form-control" 
+                                        placeholder="e.g. Antibiotic, Supplement" 
+                                        value={newMedCat}
+                                        onChange={e => setNewMedCat(e.target.value)}
+                                        required
+                                    />
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-block"><i class="fa-solid fa-circle-plus"></i> Add Category</button>
+                            </form>
+                        ) : (
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                                Add category forms are disabled in read-only Guest mode.
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Category List */}
+                    <div class="glass-panel animate-scale-up">
+                        <h3 class="panel-title"><i class="fa-solid fa-prescription-bottle-medical"></i> Treatment Category Ledgers</h3>
+                        <div class="table-wrapper">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>CATEGORY NAME</th>
+                                        {isAdmin && <th style={{ textAlign: 'center', width: '80px' }}>REMOVE</th>}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {medCategories.map(cat => (
+                                        <tr key={cat}>
+                                            <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>{cat}</td>
+                                            {isAdmin && (
+                                                <td style={{ textAlign: 'center' }}>
+                                                    <button 
+                                                        type="button" 
+                                                        class="btn btn-secondary" 
+                                                        style={{ padding: '0.2rem 0.5rem', minHeight: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
+                                                        onClick={() => handleDeleteMedCat(cat)}
+                                                    >
+                                                        <i class="fa-solid fa-trash-can"></i>
+                                                    </button>
+                                                </td>
+                                            )}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* TAB CONTENT: QUARANTINE PROTOCOLS */}
+            {activeSettingsTab === 'protocols' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                    
+                    {/* Add Checklist Item Form (Admin Only) */}
+                    <div class="glass-panel animate-scale-up">
+                        <h3 class="panel-title"><i class="fa-solid fa-circle-plus"></i> Configure Protocol Task Checklist</h3>
+                        {isAdmin ? (
+                            <form onSubmit={handleAddProtocol}>
+                                {protoError && <p style={{ color: 'hsl(0,75%,60%)', fontSize: '0.8rem', marginBottom: '1rem' }}>{protoError}</p>}
+                                <div class="form-grid-3">
+                                    <div class="form-group">
+                                        <label>Task Display Label *</label>
+                                        <input 
+                                            type="text" 
+                                            class="form-control" 
+                                            placeholder="e.g. Deworm, FMD Booster" 
+                                            value={protoLabel}
+                                            onChange={e => setProtoLabel(e.target.value)}
+                                            required
+                                        />
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Due On Day *</label>
+                                        <input 
+                                            type="number" 
+                                            class="form-control" 
+                                            min="1"
+                                            value={protoDueDay}
+                                            onChange={e => setProtoDueDay(e.target.value)}
+                                            required
+                                        />
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Treatment Category</label>
+                                        <select 
+                                            class="form-control" 
+                                            value={protoType} 
+                                            onChange={e => setProtoType(e.target.value)}
+                                        >
+                                            {medCategories.map(cat => (
+                                                <option key={cat} value={cat}>{cat}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-grid-3" style={{ marginTop: '0.8rem' }}>
+                                    <div class="form-group">
+                                        <label>Medicine / Drug Name *</label>
+                                        <input 
+                                            type="text" 
+                                            class="form-control" 
+                                            placeholder="e.g. Ivermectin" 
+                                            value={protoMedicine}
+                                            onChange={e => setProtoMedicine(e.target.value)}
+                                            required
+                                        />
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Dosage *</label>
+                                        <input 
+                                            type="text" 
+                                            class="form-control" 
+                                            placeholder="e.g. 5ml" 
+                                            value={protoDosage}
+                                            onChange={e => setProtoDosage(e.target.value)}
+                                            required
+                                        />
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Withholding (Days)</label>
+                                        <input 
+                                            type="number" 
+                                            class="form-control" 
+                                            value={protoWithholding}
+                                            onChange={e => setProtoWithholding(e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.2rem' }}>
+                                    <button type="submit" class="btn btn-primary" style={{ minWidth: '180px' }}><i class="fa-solid fa-plus-circle"></i> Add Checklist Step</button>
+                                </div>
+                            </form>
+                        ) : (
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic', margin: 0 }}>
+                                Protocol checklist creation is restricted to Admin staff.
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Protocol Checklist Listing */}
+                    <div class="glass-panel animate-scale-up">
+                        <h3 class="panel-title"><i class="fa-solid fa-list-check"></i> Operational Quarantine Protocol Steps</h3>
+                        <div class="table-wrapper">
+                            <table class="data-table" style={{ fontSize: '0.85rem' }}>
+                                <thead>
+                                    <tr>
+                                        <th>LABEL</th>
+                                        <th>DUE DAY</th>
+                                        <th>CATEGORY</th>
+                                        <th>MEDICINE</th>
+                                        <th>DOSAGE</th>
+                                        <th>WITHHOLDING</th>
+                                        {isAdmin && <th style={{ textAlign: 'center', width: '80px' }}>REMOVE</th>}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {quarantineProtocols.map(p => (
+                                        <tr key={p.id}>
+                                            <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>{p.label}</td>
+                                            <td>Day <strong style={{ color: 'var(--accent-gold)' }}>{p.dueDay}</strong></td>
+                                            <td>{p.type}</td>
+                                            <td>{p.medicine}</td>
+                                            <td>{p.dosage}</td>
+                                            <td>{p.withholding > 0 ? `${p.withholding} Days` : '0 (None)'}</td>
+                                            {isAdmin && (
+                                                <td style={{ textAlign: 'center' }}>
+                                                    <button 
+                                                        type="button" 
+                                                        class="btn btn-secondary" 
+                                                        style={{ padding: '0.2rem 0.5rem', minHeight: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
+                                                        onClick={() => handleDeleteProtocol(p.id)}
+                                                    >
+                                                        <i class="fa-solid fa-trash-can"></i>
+                                                    </button>
+                                                </td>
+                                            )}
+                                        </tr>
+                                    ))}
+                                    {quarantineProtocols.length === 0 && (
+                                        <tr>
+                                            <td colSpan={isAdmin ? 7 : 6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                                No quarantine protocol checklist steps configured. Calves can be cleared immediately.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+        </div>
+    );
+}
