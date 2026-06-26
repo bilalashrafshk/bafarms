@@ -36,7 +36,7 @@
     --box-shadow-gold-glow: 0 0 25px rgba(255, 193, 7, 0.2);
 
     /* Header height token — used for scroll-padding and page offsets */
-    --header-h: 82px;
+    --header-h: 110px;
 }
 
 /* Base Reset & Styling */
@@ -262,14 +262,14 @@ section {
 }
 
 .logo-img {
-    height: 64px;
+    height: 90px;
     width: auto;
     display: block;
     transition: var(--transition-smooth);
 }
 
 .header.scrolled .logo-img {
-    height: 52px;
+    height: 70px;
 }
 
 
