@@ -2023,15 +2023,28 @@ section {
 
 /* Nav collapses to hamburger at 992px (enough links to overflow at tablet) */
 @media (max-width: 992px) {
+    :root {
+        --header-h: 80px;
+    }
+
+    .logo-img {
+        height: 60px;
+    }
+
+    .header.scrolled .logo-img {
+        height: 50px;
+    }
+
     .menu-toggle {
         display: block;
     }
 
     .nav-menu {
-        position: absolute;
+        position: fixed;
         top: var(--header-h);
         left: 0;
         width: 100%;
+        height: calc(100vh - var(--header-h));
         background: rgba(8, 14, 10, 0.98);
         backdrop-filter: blur(24px);
         -webkit-backdrop-filter: blur(24px);
@@ -2042,8 +2055,8 @@ section {
         border-bottom: 1px solid rgba(25, 135, 84, 0.2);
         display: none;
         z-index: 999;
-        /* Prevent it from pushing page content */
-        overflow: hidden;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
     }
 
     .nav-menu.mobile-active {
@@ -2186,4 +2199,42 @@ section {
     right: 50% !important;
     transform: translateX(50%) translateY(20px) !important;
     bottom: -20px !important;
+}
+
+/* ==========================================
+   RESPONSIVE GRID HELPER CLASSES
+   ========================================== */
+.grid-4-cols {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+}
+.grid-2-cols {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+}
+.form-grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+@media (max-width: 1024px) {
+    .grid-4-cols {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+@media (max-width: 768px) {
+    .grid-2-cols {
+        grid-template-columns: 1fr;
+    }
+    .form-grid-2 {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+}
+@media (max-width: 576px) {
+    .grid-4-cols {
+        grid-template-columns: 1fr;
+    }
 }

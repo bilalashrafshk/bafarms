@@ -68,6 +68,9 @@
                 grid-template-columns: 1fr;
                 gap: 1.5rem;
             }
+            .main-image-viewport {
+                height: 320px;
+            }
         }
         .gallery-container {
             display: flex;
@@ -174,6 +177,33 @@
         .trace-item-val {
             color: var(--text-pure);
             font-weight: 600;
+        }
+        .product-action-group {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 0.5rem;
+        }
+        @media (max-width: 576px) {
+            .product-action-group {
+                flex-direction: column;
+                gap: 0.6rem;
+            }
+            .product-action-group button {
+                width: 100%;
+            }
+            .traceability-card-grid {
+                grid-template-columns: 1fr;
+                gap: 0.3rem;
+            }
+            .trace-item-label {
+                align-self: flex-start;
+                font-size: 0.78rem;
+            }
+            .trace-item-val {
+                margin-bottom: 0.4rem;
+                border-bottom: 1px dashed rgba(255,255,255,0.05);
+                padding-bottom: 0.3rem;
+            }
         }
     </style>
 </head>
@@ -346,7 +376,7 @@
                         </div>
                     </div>
 
-                    <div style="display: flex; gap: 0.75rem; margin-top: 0.5rem;">
+                    <div class="product-action-group">
                         <button class="btn btn-secondary" id="product-add-to-cart-btn" style="flex: 1; min-height: 46px;">
                             <i class="fa-solid fa-basket-shopping"></i> Add to Basket
                         </button>

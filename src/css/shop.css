@@ -1074,3 +1074,37 @@
     }
 }
 
+/* ==========================================
+   SHOP & PASSPORT RESPONSIVE STYLING
+   ========================================== */
+.passport-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.2rem;
+    margin-bottom: 1.5rem;
+}
+
+@media (max-width: 576px) {
+    .passport-grid {
+        grid-template-columns: 1fr;
+        gap: 0.8rem;
+    }
+
+    .qurbani-service-tabs {
+        flex-direction: column;
+    }
+}
+
+@media (max-width: 360px) {
+    .cart-item-card {
+        grid-template-columns: 40px 1fr 75px;
+        gap: 0.5rem;
+        padding: 0.6rem;
+    }
+    .cart-item-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 1.1rem;
+    }
+}
+
