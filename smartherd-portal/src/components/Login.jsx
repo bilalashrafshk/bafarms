@@ -78,8 +78,8 @@ export default function Login({ onLoginSuccess }) {
     const verifyAndAuthorizeEmail = (email) => {
         const cleaned = email.toLowerCase().trim();
         
-        // 1. Grant immediate access to all corporate BA Farms domain emails
-        if (cleaned.endsWith('@bafarms.com.pk')) {
+        // 1. Grant immediate access to all corporate BA Farms/BA Foods domain emails
+        if (cleaned.endsWith('@bafarms.com.pk') || cleaned.endsWith('@bafoods.pk')) {
             return { authorized: true, role: 'Internal Corporate Staff' };
         }
 
