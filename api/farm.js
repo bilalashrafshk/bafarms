@@ -1,4 +1,171 @@
 const { Client } = require('pg');
+const nodemailer = require('nodemailer');
+const fs = require('fs');
+const path = require('path');
+
+// Load local .env file manually if process.env values are not set (useful for local development)
+if (!process.env.SMTP_HOST) {
+    try {
+        const envPath = path.resolve(process.cwd(), '.env');
+        if (fs.existsSync(envPath)) {
+            const envConfig = fs.readFileSync(envPath, 'utf8');
+            envConfig.split('\n').forEach(line => {
+                const parts = line.split('=');
+                if (parts.length >= 2) {
+                    const key = parts[0].trim();
+                    const val = parts.slice(1).join('=').trim().replace(/^['"]|['"]$/g, '');
+                    if (key && !process.env[key]) {
+                        process.env[key] = val;
+                    }
+                }
+            });
+        }
+    } catch (e) {
+        console.warn("Unable to load local .env file manually in farm api:", e);
+    }
+}
+
+// SMTP Order Email Sender Helper
+async function sendOrderEmail(details) {
+    const smtpHost = process.env.SMTP_HOST;
+    const smtpPort = process.env.SMTP_PORT || 587;
+    const smtpUser = process.env.SMTP_USER;
+    const smtpPass = process.env.SMTP_PASS;
+    const smtpSecure = process.env.SMTP_SECURE === 'true' || smtpPort == 465;
+    const smtpFrom = process.env.SMTP_FROM || smtpUser || 'no-reply@bafoods.pk';
+
+    if (!smtpHost || !smtpUser || !smtpPass) {
+        console.warn("⚠️ SMTP credentials not fully configured for orders. Email sending simulated.");
+        console.log("Simulated Order Email details:", {
+            to: 'sales@bafoods.pk',
+            replyTo: details.customerEmail,
+            subject: `[BA Farm Order] New Order from ${details.customerName} - Ref: ${details.id}`,
+            details
+        });
+        return { simulated: true };
+    }
+
+    const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: parseInt(smtpPort),
+        secure: smtpSecure,
+        auth: {
+            user: smtpUser,
+            pass: smtpPass
+        }
+    });
+
+    // Generate HTML items list
+    let itemsHtml = '';
+    if (Array.isArray(details.items)) {
+        details.items.forEach(item => {
+            const itemSubtotal = (item.price * item.quantity).toLocaleString();
+            const formattedPrice = item.price.toLocaleString();
+            itemsHtml += `
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #eeeeee; color: #333;">
+                        <strong>${item.title}</strong><br>
+                        <span style="font-size: 11px; color: #777;">RFID: ${item.rfid || 'N/A'}</span>
+                    </td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eeeeee; color: #333; text-align: center;">${item.quantity}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eeeeee; color: #333; text-align: right;">Rs. ${formattedPrice}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eeeeee; color: #333; text-align: right; font-weight: bold;">Rs. ${itemSubtotal}</td>
+                </tr>
+            `;
+        });
+    }
+
+    const htmlContent = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; background-color: #fcfcfc;">
+            <div style="text-align: center; border-bottom: 2px solid #1e3d2f; padding-bottom: 15px; margin-bottom: 20px;">
+                <h2 style="color: #1e3d2f; margin: 0; font-size: 24px;">BA Farms</h2>
+                <p style="color: #8c763e; margin: 5px 0 0 0; font-size: 14px; letter-spacing: 1px; text-transform: uppercase; font-weight: bold;">New Order / Inquiry Received</p>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <p style="font-size: 16px; color: #333; line-height: 1.5;">A new order/inquiry has been received from the farm website.</p>
+            </div>
+            
+            <h3 style="color: #1e3d2f; border-bottom: 1px solid #1e3d2f; padding-bottom: 5px; margin-top: 25px;">Customer & Delivery Details</h3>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 25px;">
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-weight: bold; color: #1e3d2f; width: 40%;">Order Reference ID</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; color: #333;"><strong>${details.id}</strong></td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-weight: bold; color: #1e3d2f;">Customer Name</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; color: #333;">${details.customerName}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-weight: bold; color: #1e3d2f;">Phone Number</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; color: #333;">${details.customerPhone}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-weight: bold; color: #1e3d2f;">Email Address</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; color: #333;">
+                        ${details.customerEmail ? `<a href="mailto:${details.customerEmail}" style="color: #8c763e; text-decoration: none;">${details.customerEmail}</a>` : 'Not Provided'}
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-weight: bold; color: #1e3d2f;">City</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; color: #333;">${details.customerCity}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-weight: bold; color: #1e3d2f;">Delivery Address</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; color: #333;">${details.customerAddress}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-weight: bold; color: #1e3d2f;">Payment Method</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; color: #333;">${details.paymentMethod}</td>
+                </tr>
+                ${details.qurbaniService ? `
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-weight: bold; color: #1e3d2f;">Qurbani Service Option</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; color: #333;">${details.qurbaniService}</td>
+                </tr>
+                ` : ''}
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; font-weight: bold; color: #1e3d2f;">Date</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eeeeee; color: #333;">${details.date}</td>
+                </tr>
+            </table>
+
+            <h3 style="color: #1e3d2f; border-bottom: 1px solid #1e3d2f; padding-bottom: 5px;">Ordered Items</h3>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 25px;">
+                <thead>
+                    <tr style="background-color: #f7f9f8;">
+                        <th style="padding: 10px; border-bottom: 2px solid #ddd; text-align: left; color: #1e3d2f;">Product</th>
+                        <th style="padding: 10px; border-bottom: 2px solid #ddd; text-align: center; color: #1e3d2f;">Qty</th>
+                        <th style="padding: 10px; border-bottom: 2px solid #ddd; text-align: right; color: #1e3d2f;">Price</th>
+                        <th style="padding: 10px; border-bottom: 2px solid #ddd; text-align: right; color: #1e3d2f;">Subtotal</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsHtml}
+                    <tr style="background-color: #fcfcfc;">
+                        <td colspan="3" style="padding: 10px; font-weight: bold; text-align: right; border-top: 2px solid #ddd; color: #1e3d2f;">Net Total:</td>
+                        <td style="padding: 10px; font-weight: bold; text-align: right; border-top: 2px solid #ddd; color: #1e3d2f; font-size: 16px;">Rs. ${details.netTotal.toLocaleString()}</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div style="text-align: center; color: #777; font-size: 12px; border-top: 1px solid #eee; padding-top: 15px; margin-top: 25px;">
+                <p style="margin: 0;">This email was sent automatically from the BA Farms Portal.</p>
+                <p style="margin: 5px 0 0 0;">&copy; ${new Date().getFullYear()} BA Farms. All rights reserved.</p>
+            </div>
+        </div>
+    `;
+
+    await transporter.sendMail({
+        from: `"${details.customerName} via BA Farms" <${smtpFrom}>`,
+        to: 'sales@bafoods.pk',
+        replyTo: details.customerEmail ? `"${details.customerName}" <${details.customerEmail}>` : undefined,
+        subject: `[BA Farm Order] ${details.customerName} - Ref: ${details.id}`,
+        html: htmlContent
+    });
+
+    return { sent: true };
+}
 
 // Add sale columns to ba_animals if they don't exist yet (safe to run on every request)
 async function ensureColumns(client) {
@@ -286,6 +453,28 @@ module.exports = async (req, res) => {
     const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
 
     if (!connectionString) {
+        if (req.method === 'POST' && req.body && req.body.action === 'ADD_ORDER') {
+            const { payload } = req.body;
+            let emailSent = false;
+            let emailError = null;
+
+            try {
+                const mailRes = await sendOrderEmail(payload);
+                emailSent = !mailRes.simulated;
+            } catch (mailErr) {
+                console.error("Order email sending failure in unconfigured DB mode:", mailErr);
+                emailError = mailErr.message;
+            }
+
+            return res.status(200).json({
+                success: true,
+                message: "Neon Database unconfigured. Order email processed.",
+                emailSent,
+                emailError,
+                unconfigured: true
+            });
+        }
+
         return res.status(200).json({
             success: false,
             error: "Neon Database unconfigured. Falling back to local storage.",
@@ -587,7 +776,22 @@ module.exports = async (req, res) => {
                     qurbaniService || null, paymentMethod || null, date
                 ]);
 
-                return res.status(200).json({ success: true });
+                let emailSent = false;
+                let emailError = null;
+
+                try {
+                    const mailRes = await sendOrderEmail({
+                        id, customerName, customerPhone, customerEmail, customerCity,
+                        customerAddress, items, netTotal, status, hasLive,
+                        qurbaniService, paymentMethod, date
+                    });
+                    emailSent = !mailRes.simulated;
+                } catch (mailErr) {
+                    console.error("Order email sending failure:", mailErr);
+                    emailError = mailErr.message;
+                }
+
+                return res.status(200).json({ success: true, emailSent, emailError });
             }
 
             if (action === 'UPDATE_ORDER_STATUS') {
