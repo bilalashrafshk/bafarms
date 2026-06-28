@@ -376,7 +376,7 @@ const initApp = () => {
         });
     });
 
-    // Form submission simulation
+    // Form submission
     form.addEventListener('submit', (e) => {
         e.preventDefault();
 
@@ -400,22 +400,50 @@ const initApp = () => {
         submitBtn.classList.add('submitting');
         submitBtn.setAttribute('disabled', 'disabled');
 
-        // Simulate modern API network round-trip of 1.5s
-        setTimeout(() => {
+        const isExport = document.querySelector('input[name="inquiry_type"]:checked').value === 'Export';
+        const payload = {
+            company: fields.company.element.value,
+            contact: fields.name.element.value,
+            email: fields.email.element.value,
+            phone: fields.phone.element.value,
+            country: isExport ? fields.port.element.value : 'Domestic Supply',
+            cut_type: fields.beef.element.value,
+            volume_mt: 0,
+            frequency: 'One-time',
+            notes: document.getElementById('textarea-requirements').value
+        };
+
+        fetch('/api/enquiry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(data => {
+                    throw new Error(data.error || 'Failed to submit corporate inquiry');
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
             submitBtn.classList.remove('submitting');
             submitBtn.removeAttribute('disabled');
 
-            // Generate unique corporate B2B inquiry reference code
-            const isExport = document.querySelector('input[name="inquiry_type"]:checked').value === 'Export';
-            const prefix = isExport ? 'BA-EX' : 'BA-DOM';
-            const randomCode = Math.floor(10000 + Math.random() * 90000);
-            
-            refIdSpan.textContent = `${prefix}-${randomCode}`;
-            successOverlay.classList.add('active');
-            
-            // Scroll success view into focus
-            successOverlay.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 1500);
+            if (data.success && data.id) {
+                refIdSpan.textContent = data.id;
+                successOverlay.classList.add('active');
+                successOverlay.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } else {
+                throw new Error(data.error || 'Failed to submit corporate inquiry');
+            }
+        })
+        .catch(err => {
+            submitBtn.classList.remove('submitting');
+            submitBtn.removeAttribute('disabled');
+            console.error('Form submission failed:', err);
+            alert(`Submission Error: ${err.message}. Please try again later.`);
+        });
     });
 
     // Reset Form button action from success state
