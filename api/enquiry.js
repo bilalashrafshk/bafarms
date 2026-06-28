@@ -180,7 +180,11 @@ module.exports = async (req, res) => {
         
         if (req.method === 'POST') {
             const { company, contact, email, phone, country, cut_type, volume_mt, frequency, notes } = req.body;
-            if (!company || !contact || !email || !phone || !country || !cut_type) {
+            
+            const finalCountry = country ? country.trim() : 'Not Specified';
+            const finalCutType = cut_type ? cut_type.trim() : 'General Inquiry';
+            
+            if (!company || !contact || !email || !phone) {
                 return res.status(400).json({ success: false, error: "Missing required fields" });
             }
             
@@ -198,8 +202,8 @@ module.exports = async (req, res) => {
                     contact: contact.trim(),
                     email: email.trim(),
                     phone: phone.trim(),
-                    country: country.trim(),
-                    cut_type,
+                    country: finalCountry,
+                    cut_type: finalCutType,
                     volume_mt: parsedVolume,
                     frequency: finalFrequency,
                     notes: notes ? notes.trim() : null
@@ -259,8 +263,11 @@ module.exports = async (req, res) => {
         if (req.method === 'POST') {
             const { company, contact, email, phone, country, cut_type, volume_mt, frequency, notes } = req.body;
 
-            // Validate mandatory fields (volume_mt is optional here, defaults to 0)
-            if (!company || !contact || !email || !phone || !country || !cut_type) {
+            const finalCountry = country ? country.trim() : 'Not Specified';
+            const finalCutType = cut_type ? cut_type.trim() : 'General Inquiry';
+
+            // Validate mandatory fields
+            if (!company || !contact || !email || !phone) {
                 return res.status(400).json({ success: false, error: "Missing required fields" });
             }
 
@@ -278,8 +285,8 @@ module.exports = async (req, res) => {
                 contact.trim(),
                 email.trim(),
                 phone.trim(),
-                country.trim(),
-                cut_type,
+                finalCountry,
+                finalCutType,
                 parsedVolume,
                 finalFrequency,
                 notes ? notes.trim() : null
@@ -295,8 +302,8 @@ module.exports = async (req, res) => {
                     contact: contact.trim(),
                     email: email.trim(),
                     phone: phone.trim(),
-                    country: country.trim(),
-                    cut_type,
+                    country: finalCountry,
+                    cut_type: finalCutType,
                     volume_mt: parsedVolume,
                     frequency: finalFrequency,
                     notes: notes ? notes.trim() : null

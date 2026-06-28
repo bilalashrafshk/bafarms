@@ -141,7 +141,9 @@ const initApp = () => {
         tableBody.innerHTML = '';
         
         // Clear selection dropdown but keep default disabled option
-        cutSelect.innerHTML = '<option value="" disabled selected>Select meat product requirement...</option>';
+        if (cutSelect) {
+            cutSelect.innerHTML = '<option value="" disabled selected>Select meat product requirement...</option>';
+        }
 
         cuts.forEach(cut => {
             // Populate Table Row
@@ -163,17 +165,21 @@ const initApp = () => {
             tableBody.appendChild(row);
 
             // Populate Dropdown Selection Option
-            const option = document.createElement('option');
-            option.value = cut.title;
-            option.textContent = `${cut.title} (${cut.weight || '1.0 kg Pack'})`;
-            cutSelect.appendChild(option);
+            if (cutSelect) {
+                const option = document.createElement('option');
+                option.value = cut.title;
+                option.textContent = `${cut.title} (${cut.weight || '1.0 kg Pack'})`;
+                cutSelect.appendChild(option);
+            }
         });
 
         // Add an option for bulk container/primal sides
-        const generalOption = document.createElement('option');
-        generalOption.value = "Custom / Primal Sides";
-        generalOption.textContent = "Custom Primal Sides / FCL Halal Beef Sides";
-        cutSelect.appendChild(generalOption);
+        if (cutSelect) {
+            const generalOption = document.createElement('option');
+            generalOption.value = "Custom / Primal Sides";
+            generalOption.textContent = "Custom Primal Sides / FCL Halal Beef Sides";
+            cutSelect.appendChild(generalOption);
+        }
     }
 
     const loadExportCuts = async () => {
@@ -221,9 +227,7 @@ const initApp = () => {
         contact: { element: document.getElementById('input-contact'), msg: document.getElementById('msg-contact') },
         email: { element: document.getElementById('input-email'), msg: document.getElementById('msg-email') },
         phone: { element: document.getElementById('input-phone'), msg: document.getElementById('msg-phone') },
-        country: { element: document.getElementById('input-country'), msg: document.getElementById('msg-country') },
-        cut: { element: document.getElementById('select-cut'), msg: document.getElementById('msg-cut') },
-        volume: { element: document.getElementById('input-volume'), msg: document.getElementById('msg-volume') }
+        notes: { element: document.getElementById('textarea-notes'), msg: document.getElementById('msg-notes') }
     };
 
     function setValidity(fieldObj, isValid, errorText = '') {
@@ -320,28 +324,13 @@ const initApp = () => {
             return true;
         }
 
-        if (fieldName === 'country') {
+        if (fieldName === 'notes') {
             if (!val) {
-                setValidity(field, false, 'Destination port / country is required.');
+                setValidity(field, false, 'Please specify your requirements or enquiry details.');
                 return false;
             }
-            setValidity(field, true);
-            return true;
-        }
-
-        if (fieldName === 'cut') {
-            if (!val) {
-                setValidity(field, false, 'Please select your cut requirement.');
-                return false;
-            }
-            setValidity(field, true);
-            return true;
-        }
-
-        if (fieldName === 'volume') {
-            const num = parseFloat(val);
-            if (isNaN(num) || num <= 0) {
-                setValidity(field, false, 'Please enter a positive estimated volume.');
+            if (val.length < 10) {
+                setValidity(field, false, 'Please describe your requirements in more detail (at least 10 characters).');
                 return false;
             }
             setValidity(field, true);
@@ -386,15 +375,15 @@ const initApp = () => {
         submitBtn.querySelector('span').textContent = 'Lodging B2B Enquiry...';
 
         const payload = {
-            company: fields.company.element.value,
-            contact: fields.contact.element.value,
-            email: fields.email.element.value,
-            phone: fields.phone.element.value,
-            country: fields.country.element.value,
-            cut_type: fields.cut.element.value,
-            volume_mt: fields.volume.element.value,
-            frequency: document.getElementById('select-frequency').value,
-            notes: document.getElementById('textarea-notes').value
+            company: fields.company.element.value.trim(),
+            contact: fields.contact.element.value.trim(),
+            email: fields.email.element.value.trim(),
+            phone: fields.phone.element.value.trim(),
+            country: 'Not Specified',
+            cut_type: 'General Inquiry',
+            volume_mt: 0,
+            frequency: 'One-time',
+            notes: fields.notes.element.value.trim()
         };
 
         try {

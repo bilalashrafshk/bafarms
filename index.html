@@ -424,48 +424,11 @@
                             </div>
                         </div>
 
-                        <div class="form-grid-2">
-                            <!-- Country / Port of Destination -->
-                            <div class="form-group">
-                                <label for="input-country" style="display: block; margin-bottom: 0.5rem; font-size: 0.88rem; color: var(--text-main); font-weight: 600;">Country & Destination Port *</label>
-                                <input type="text" id="input-country" name="country" placeholder="e.g. UAE (Port Jebel Ali)" style="width: 100%; padding: 0.8rem 1rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 6px; color: #fff; font-family: var(--font-body); font-size: 0.95rem; outline: none; transition: border-color 0.2s;" required>
-                                <span class="validation-msg" id="msg-country" style="display: none; color: #d9534f; font-size: 0.78rem; margin-top: 0.25rem;"></span>
-                            </div>
-
-                            <!-- Cut Type Dropdown -->
-                            <div class="form-group">
-                                <label for="select-cut" style="display: block; margin-bottom: 0.5rem; font-size: 0.88rem; color: var(--text-main); font-weight: 600;">Cut / Product Requirements *</label>
-                                <select id="select-cut" name="cut_type" style="width: 100%; padding: 0.8rem 1rem; background: rgba(10,15,12,0.95); border: 1px solid var(--border-color); border-radius: 6px; color: #fff; font-family: var(--font-body); font-size: 0.95rem; outline: none; cursor: pointer; transition: border-color 0.2s;" required>
-                                    <option value="" disabled selected>Select meat product requirement...</option>
-                                    <!-- Options populated dynamically from Neon DB cuts, fallback to static cuts -->
-                                </select>
-                                <span class="validation-msg" id="msg-cut" style="display: none; color: #d9534f; font-size: 0.78rem; margin-top: 0.25rem;"></span>
-                            </div>
-                        </div>
-
-                        <div class="form-grid-2">
-                            <!-- Volume per shipment -->
-                            <div class="form-group">
-                                <label for="input-volume" style="display: block; margin-bottom: 0.5rem; font-size: 0.88rem; color: var(--text-main); font-weight: 600;">Estimated Volume per Shipment (MT) *</label>
-                                <input type="number" step="0.1" min="0.1" id="input-volume" name="volume_mt" placeholder="e.g. 15.5" style="width: 100%; padding: 0.8rem 1rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 6px; color: #fff; font-family: var(--font-body); font-size: 0.95rem; outline: none; transition: border-color 0.2s;" required>
-                                <span class="validation-msg" id="msg-volume" style="display: none; color: #d9534f; font-size: 0.78rem; margin-top: 0.25rem;"></span>
-                            </div>
-
-                            <!-- Frequency -->
-                            <div class="form-group">
-                                <label for="select-frequency" style="display: block; margin-bottom: 0.5rem; font-size: 0.88rem; color: var(--text-main); font-weight: 600;">Shipment Frequency *</label>
-                                <select id="select-frequency" name="frequency" style="width: 100%; padding: 0.8rem 1rem; background: rgba(10,15,12,0.95); border: 1px solid var(--border-color); border-radius: 6px; color: #fff; font-family: var(--font-body); font-size: 0.95rem; outline: none; cursor: pointer; transition: border-color 0.2s;" required>
-                                    <option value="One-time">One-time shipment</option>
-                                    <option value="Monthly" selected>Monthly contract</option>
-                                    <option value="Quarterly">Quarterly contract</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <!-- Requirements textarea -->
+                        <!-- Message & Meat Requirements textarea -->
                         <div class="form-group" style="margin-bottom: 2rem;">
-                            <label for="textarea-notes" style="display: block; margin-bottom: 0.5rem; font-size: 0.88rem; color: var(--text-main); font-weight: 600;">Additional Requirements / Specifications</label>
-                            <textarea id="textarea-notes" name="notes" placeholder="Specify age constraints, micro-biological certifications, custom portion packaging sizes, etc." style="width: 100%; height: 100px; padding: 0.8rem 1rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 6px; color: #fff; font-family: var(--font-body); font-size: 0.95rem; resize: none; outline: none; transition: border-color 0.2s;"></textarea>
+                            <label for="textarea-notes" style="display: block; margin-bottom: 0.5rem; font-size: 0.88rem; color: var(--text-main); font-weight: 600;">Message & Meat Requirements *</label>
+                            <textarea id="textarea-notes" name="notes" placeholder="Specify your desired meat cuts, volume requirements, destination port, or any other specifications here..." style="width: 100%; height: 120px; padding: 0.8rem 1rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 6px; color: #fff; font-family: var(--font-body); font-size: 0.95rem; resize: none; outline: none; transition: border-color 0.2s;" required></textarea>
+                            <span class="validation-msg" id="msg-notes" style="display: none; color: #d9534f; font-size: 0.78rem; margin-top: 0.25rem;"></span>
                         </div>
 
                         <!-- Submit Button -->
