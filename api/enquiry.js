@@ -199,6 +199,15 @@ module.exports = async (req, res) => {
             shelf_life: 'Up to 12 Months (Frozen) / 90 Days Chilled',
             weight: 'Carton weights to buyer spec',
             capacity: 'Allocated per contract'
+        },
+        {
+            id: 'beef_offal',
+            title: 'Beef Offal & Variety Meats',
+            spec: 'Export-grade beef offal & constituents',
+            packaging: 'Vacuum packed / poly cartons',
+            shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+            weight: 'Carton weights to buyer spec',
+            capacity: 'Dispatched to high-value markets (e.g. China)'
         }
     ];
 

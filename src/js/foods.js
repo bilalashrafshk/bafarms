@@ -103,6 +103,7 @@ const initApp = () => {
         if (t.includes('carcass')) return 'Halal slaughtered, chilled/frozen';
         if (t.includes('quarter')) return 'Forequarters & Hindquarters';
         if (t.includes('primal') && !t.includes('ribeye') && !t.includes('striploin')) return 'Custom specifications on request';
+        if (t.includes('offal')) return 'Export-grade beef offal & constituents';
 
         if (t.includes('ribeye')) return 'Primal Short Loin (Rib)';
         if (t.includes('t-bone') || t.includes('tbone')) return 'Short Loin / T-Bone';
@@ -119,6 +120,7 @@ const initApp = () => {
         if (t.includes('carcass')) return 'Stockinette wrapped';
         if (t.includes('quarter')) return 'Stockinette wrapped / poly';
         if (t.includes('primal') && !t.includes('ribeye') && !t.includes('striploin')) return 'Vacuum Packed in cartons';
+        if (t.includes('offal')) return 'Vacuum packed / poly cartons';
 
         if (t.includes('mince') || t.includes('burger') || t.includes('patty') || t.includes('patties')) {
             return 'Modified Atmosphere (MAP)';
@@ -132,6 +134,7 @@ const initApp = () => {
         if (t.includes('carcass')) return 'Up to 12 Mos Frozen / 14 Days Chilled';
         if (t.includes('quarter')) return 'Up to 12 Mos Frozen / 14 Days Chilled';
         if (t.includes('primal') && !t.includes('ribeye') && !t.includes('striploin')) return 'Up to 12 Mos Frozen / 90 Days Chilled';
+        if (t.includes('offal')) return 'Up to 12 Months (Frozen at -18°C)';
 
         if (t.includes('burger') || t.includes('patty') || t.includes('patties')) {
             return '12 Months (Frozen)';
@@ -148,6 +151,7 @@ const initApp = () => {
         if (t.includes('carcass')) return 'Scaled to demand / Sea';
         if (t.includes('quarter')) return 'Scaled to demand / Sea';
         if (t.includes('primal') && !t.includes('ribeye') && !t.includes('striploin')) return 'Allocated per contract';
+        if (t.includes('offal')) return 'Dispatched to high-value markets (e.g. China)';
 
         if (t.includes('ribeye')) return '15 MT / Month';
         if (t.includes('t-bone') || t.includes('tbone')) return '12 MT / Month';
@@ -255,6 +259,15 @@ const initApp = () => {
                     shelf_life: 'Up to 12 Months (Frozen) / 90 Days Chilled',
                     weight: 'Carton weights to buyer spec',
                     capacity: 'Allocated per contract'
+                },
+                {
+                    id: 'beef_offal',
+                    title: 'Beef Offal & Variety Meats',
+                    spec: 'Export-grade beef offal & constituents',
+                    packaging: 'Vacuum packed / poly cartons',
+                    shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+                    weight: 'Carton weights to buyer spec',
+                    capacity: 'Dispatched to high-value markets (e.g. China)'
                 }
             ];
             populateCuts(defaultCuts);
