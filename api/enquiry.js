@@ -164,12 +164,42 @@ module.exports = async (req, res) => {
 
     // Fallback cuts if database is not configured
     const defaultCuts = [
-        { id: 'ribeye', title: 'Sahiwal Prime Ribeye Steak', category: 'cuts', price: 2850, weight: '1.0 kg Pack (2 Steaks)', marbling: 'Grade 4+ (Aged)', fat_ratio: '18% Fat Cap' },
-        { id: 'tbone', title: 'Cholistani Gourmet T-Bone', category: 'cuts', price: 2650, weight: '1.2 kg Pack (2 Steaks)', marbling: 'Grade 3+ (Premium)', fat_ratio: '14%' },
-        { id: 'striploin', title: 'Premium Angus Cross Striploin', category: 'cuts', price: 3100, weight: '1.0 kg Pack (3 Steaks)', marbling: 'Grade 5 (Supreme)', fat_ratio: '20%' },
-        { id: 'minced', title: 'Organic Grass-Fed Minced Beef', category: 'cuts', price: 1850, weight: '1.0 kg Pack (Fine Ground)', marbling: 'Standard Lean', fat_ratio: '8%' },
-        { id: 'bong', title: 'Premium Beef Shank (Bong Cut)', category: 'cuts', price: 1950, weight: '1.5 kg Pack (Bone-in)', marbling: 'Lean & Marrow', fat_ratio: '10%' },
-        { id: 'patties', title: 'Gourmet Chuck Burger Patties', category: 'cuts', price: 1600, weight: '6 Patties (900g Total)', marbling: 'Burger Ratio 80/20', fat_ratio: '20%' }
+        {
+            id: 'chilled_beef',
+            title: 'Chilled Beef (Gulf Air Freight)',
+            spec: 'Sahiwal x Friesian (Grain-Finished)',
+            packaging: 'Vacuum Packed; carton weights to buyer spec',
+            shelf_life: 'Up to 21 Days Chilled (0-2°C)',
+            weight: 'Carton weights to buyer spec',
+            capacity: '1–2 tons/week, scaling with demand'
+        },
+        {
+            id: 'whole_carcass',
+            title: 'Whole Carcass (Chilled or Frozen)',
+            spec: 'Halal slaughtered, chilled or frozen',
+            packaging: 'Stockinette wrapped / custom wrapping',
+            shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+            weight: '120 - 180 kg per carcass side',
+            capacity: 'Scaled with demand / Sea Freight'
+        },
+        {
+            id: 'bone_in_quarters',
+            title: 'Bone-in Quarters (Fore & Hind)',
+            spec: 'Forequarters & Hindquarters',
+            packaging: 'Stockinette wrapped / heavy poly',
+            shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+            weight: '30 - 45 kg per quarter',
+            capacity: 'Scaled with demand / Sea Freight'
+        },
+        {
+            id: 'primal_cuts',
+            title: 'Primal Cuts (On Request)',
+            spec: 'Custom specifications on request',
+            packaging: 'Vacuum Packed in cartons',
+            shelf_life: 'Up to 12 Months (Frozen) / 90 Days Chilled',
+            weight: 'Carton weights to buyer spec',
+            capacity: 'Allocated per contract'
+        }
     ];
 
     // If database connection is not configured, we still want to support the POST endpoint for sending email
@@ -236,27 +266,8 @@ module.exports = async (req, res) => {
 
         // ─── GET ENDPOINT: FETCH ACTIVE CUTS FOR B2B PORTFOLIO ───
         if (req.method === 'GET') {
-            const cutsRes = await client.query('SELECT * FROM ba_meat_cuts ORDER BY created_at ASC');
-            
-            let cuts = cutsRes.rows.map(row => ({
-                id: row.id,
-                title: row.title,
-                category: row.category,
-                price: parseFloat(row.price),
-                weight: row.weight,
-                desc: row.description,
-                ribbon: row.ribbon,
-                rfid: row.rfid,
-                marbling: row.marbling,
-                fat_ratio: row.fat_ratio
-            }));
-
-            // Fallback if no cuts seeded yet
-            if (cuts.length === 0) {
-                cuts = defaultCuts;
-            }
-
-            return res.status(200).json({ success: true, cuts });
+            // Return B2B export capability forms for the corporate page
+            return res.status(200).json({ success: true, cuts: defaultCuts });
         }
 
         // ─── POST ENDPOINT: SUBMIT B2B EXPORT ENQUIRY ───

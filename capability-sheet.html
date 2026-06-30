@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="BA Foods - Interim Halal Beef Export Capability Sheet. Download official corporate capabilities document for B2B export contracts.">
+    <title>Halal Beef Export Capability Sheet | BA Foods Pvt Ltd</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="/assets/favicon.png">
+
+    <!-- Premium Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        :root {
+            --primary-green: #1e3d2f;
+            --primary-green-light: #295741;
+            --accent-gold: #8c763e;
+            --accent-gold-light: #a48e56;
+            --bg-page: #f3f4f6;
+            --bg-sheet: #ffffff;
+            --text-dark: #1f2937;
+            --text-medium: #4b5563;
+            --text-light: #9ca3af;
+            --border-color: #e5e7eb;
+            --font-heading: 'Outfit', sans-serif;
+            --font-body: 'Inter', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-page);
+            color: var(--text-dark);
+            font-family: var(--font-body);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            padding: 2rem 0;
+        }
+
+        /* Action Bar (Top Navigation) */
+        .action-bar {
+            max-width: 800px;
+            margin: 0 auto 1.5rem auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 1rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            font-family: var(--font-heading);
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border: none;
+            outline: none;
+        }
+
+        .btn-back {
+            background-color: transparent;
+            color: var(--text-medium);
+            border: 1px solid #d1d5db;
+        }
+
+        .btn-back:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+            color: var(--text-dark);
+        }
+
+        .btn-print {
+            background: linear-gradient(135deg, var(--primary-green-light) 0%, var(--primary-green) 100%);
+            color: white;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-print:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 8px -1px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Letterhead Sheet Layout */
+        .letterhead-sheet {
+            background-color: var(--bg-sheet);
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem;
+            border-radius: 8px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            position: relative;
+            border-top: 10px solid var(--primary-green);
+            min-height: 1050px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* Sheet Header (Corporate Info) */
+        .sheet-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 2px solid var(--accent-gold);
+            padding-bottom: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .logo-area {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-img {
+            height: 70px;
+            width: auto;
+        }
+
+        .brand-title {
+            font-family: var(--font-heading);
+            color: var(--primary-green);
+        }
+
+        .brand-title h1 {
+            font-size: 1.8rem;
+            font-weight: 800;
+            line-height: 1;
+            letter-spacing: 0.02em;
+        }
+
+        .brand-title p {
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--accent-gold);
+            font-weight: 700;
+            margin-top: 0.2rem;
+        }
+
+        .corporate-info {
+            text-align: right;
+            font-size: 0.72rem;
+            color: var(--text-medium);
+            line-height: 1.4;
+        }
+
+        .corporate-info strong {
+            color: var(--primary-green);
+            font-size: 0.8rem;
+        }
+
+        .corporate-info .sep {
+            color: var(--accent-gold);
+            margin: 0 0.25rem;
+        }
+
+        /* Document Title Section */
+        .doc-title-section {
+            text-align: center;
+            margin-bottom: 2.2rem;
+        }
+
+        .doc-tag {
+            font-family: var(--font-heading);
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent-gold);
+            border: 1px solid var(--accent-gold);
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            display: inline-block;
+            margin-bottom: 0.5rem;
+        }
+
+        .doc-title {
+            font-family: var(--font-heading);
+            color: var(--primary-green);
+            font-size: 1.65rem;
+            font-weight: 700;
+        }
+
+        /* Document Body / Sections */
+        .doc-content {
+            flex-grow: 1;
+        }
+
+        .section {
+            margin-bottom: 2rem;
+        }
+
+        .section-heading {
+            font-family: var(--font-heading);
+            color: var(--primary-green);
+            font-size: 1.1rem;
+            font-weight: 700;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.4rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .section-heading i {
+            color: var(--accent-gold);
+            font-size: 0.95rem;
+        }
+
+        /* Grid layouts */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+
+        .info-card {
+            background-color: #fafbfc;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+        }
+
+        .info-item {
+            margin-bottom: 0.75rem;
+            font-size: 0.88rem;
+        }
+
+        .info-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .info-item label {
+            display: block;
+            font-weight: 700;
+            color: var(--primary-green);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.15rem;
+        }
+
+        .info-item span {
+            color: var(--text-dark);
+            font-weight: 500;
+        }
+
+        /* Product Forms List */
+        .product-forms-list {
+            list-style: none;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .product-form-item {
+            border-left: 3px solid var(--accent-gold);
+            background-color: #fafbfc;
+            padding: 0.8rem 1rem;
+            border-radius: 0 6px 6px 0;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+        }
+
+        .product-form-item i {
+            color: var(--primary-green);
+            margin-top: 0.2rem;
+            font-size: 0.9rem;
+        }
+
+        .product-form-item div h4 {
+            font-family: var(--font-heading);
+            color: var(--primary-green);
+            font-size: 0.95rem;
+            font-weight: 700;
+            margin-bottom: 0.15rem;
+        }
+
+        .product-form-item div p {
+            font-size: 0.82rem;
+            color: var(--text-medium);
+        }
+
+        /* Specs Table */
+        .specs-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.82rem;
+            margin-top: 0.5rem;
+        }
+
+        .specs-table th {
+            background-color: var(--primary-green);
+            color: white;
+            font-family: var(--font-heading);
+            font-weight: 600;
+            text-align: left;
+            padding: 0.6rem 0.8rem;
+            border: 1px solid var(--primary-green);
+        }
+
+        .specs-table td {
+            padding: 0.6rem 0.8rem;
+            border: 1px solid var(--border-color);
+            color: var(--text-dark);
+        }
+
+        .specs-table tr:nth-child(even) {
+            background-color: #fafbfc;
+        }
+
+        /* Documentation badging */
+        .doc-badges-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.6rem;
+            margin-top: 0.5rem;
+        }
+
+        .doc-badge {
+            background-color: rgba(30, 61, 47, 0.05);
+            border: 1px solid rgba(30, 61, 47, 0.15);
+            color: var(--primary-green);
+            padding: 0.4rem 0.8rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .doc-badge i {
+            color: var(--accent-gold);
+        }
+
+        /* Footer Stamp & Signatures */
+        .sheet-footer {
+            border-top: 1px dashed var(--accent-gold);
+            padding-top: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .footer-stamp-area {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .stamp-badge {
+            border: 2px double var(--primary-green);
+            color: var(--primary-green);
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            font-family: var(--font-heading);
+            font-weight: 800;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            line-height: 1.1;
+            transform: rotate(-3deg);
+            background: rgba(30, 61, 47, 0.02);
+        }
+
+        .stamp-badge span:first-child {
+            font-size: 0.65rem;
+            color: var(--accent-gold);
+        }
+
+        .stamp-text {
+            font-size: 0.72rem;
+            color: var(--text-medium);
+            max-width: 250px;
+        }
+
+        .signature-area {
+            text-align: right;
+            font-size: 0.78rem;
+        }
+
+        .signature-line {
+            width: 150px;
+            border-bottom: 1px solid var(--text-dark);
+            margin-bottom: 0.3rem;
+            margin-left: auto;
+        }
+
+        .signature-title {
+            font-weight: 700;
+            color: var(--primary-green);
+        }
+
+        .signature-subtitle {
+            font-size: 0.7rem;
+            color: var(--text-medium);
+        }
+
+        /* Page indicator for printing */
+        .bottom-border-graphics {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 5px;
+            background: linear-gradient(to right, var(--primary-green) 70%, var(--accent-gold) 30%);
+            border-radius: 0 0 8px 8px;
+        }
+
+        /* PRINT STYLES - CRITICAL FOR CLEAN PDF EXPORT */
+        @media print {
+            body {
+                background-color: #ffffff;
+                color: #000000;
+                padding: 0;
+            }
+
+            .action-bar {
+                display: none !important;
+            }
+
+            .letterhead-sheet {
+                box-shadow: none !important;
+                border-radius: 0 !important;
+                border-top: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                max-width: 100% !important;
+                min-height: auto !important;
+            }
+
+            /* Custom print-color settings */
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
+            .sheet-header {
+                border-bottom: 2px solid var(--accent-gold) !important;
+            }
+
+            .specs-table th {
+                background-color: var(--primary-green) !important;
+                color: white !important;
+            }
+
+            .product-form-item, .info-card {
+                background-color: #f9fafb !important;
+                border: 1px solid #e5e7eb !important;
+            }
+
+            .doc-badge {
+                background-color: rgba(30, 61, 47, 0.05) !important;
+                border: 1px solid rgba(30, 61, 47, 0.15) !important;
+            }
+
+            .stamp-badge {
+                border: 2px double var(--primary-green) !important;
+                background-color: white !important;
+            }
+
+            .bottom-border-graphics {
+                display: none !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Action Bar -->
+    <div class="action-bar">
+        <a href="/" class="btn btn-back">
+            <i class="fa-solid fa-arrow-left"></i> Back to Home
+        </a>
+        <button onclick="window.print()" class="btn btn-print">
+            <i class="fa-solid fa-file-pdf"></i> Print / Export as PDF
+        </button>
+    </div>
+
+    <!-- Letterhead Sheet -->
+    <div class="letterhead-sheet">
+        <div class="doc-content">
+            
+            <!-- Corporate Letterhead Header -->
+            <header class="sheet-header">
+                <div class="logo-area">
+                    <img src="/assets/logo_bafoods_dark_green.png" alt="BA Foods Logo" class="logo-img">
+                    <div class="brand-title">
+                        <h1>BA FOODS</h1>
+                        <p>Halal Beef Export House</p>
+                    </div>
+                </div>
+                <div class="corporate-info">
+                    <strong>BA FOODS PVT LTD</strong><br>
+                    Division of BA Farms Agro-Complex<br>
+                    Parent: Ashraf Zia Textile Mills Pvt Ltd<br>
+                    Khurrianwala, Faisalabad, Punjab, Pakistan<br>
+                    <a href="mailto:sales@bafoods.pk" style="color: var(--primary-green); text-decoration: none;">sales@bafoods.pk</a><span class="sep">|</span><a href="https://bafoods.pk" style="color: var(--primary-green); text-decoration: none;">www.bafoods.pk</a>
+                </div>
+            </header>
+
+            <!-- Document Title -->
+            <div class="doc-title-section">
+                <span class="doc-tag">Interim Capability Sheet</span>
+                <h2 class="doc-title">Halal Beef Export Capability Statement</h2>
+            </div>
+
+            <!-- Section 1: Origin and Supply Base -->
+            <section class="section">
+                <h3 class="section-heading"><i class="fa-solid fa-cow"></i> Origin & Supply Base</h3>
+                <div class="grid-2">
+                    <div class="info-card">
+                        <div class="info-item">
+                            <label>Geographic Origin</label>
+                            <span>Punjab, Pakistan</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Feedlot Operations</label>
+                            <span>Own 1,000-head dedicated cattle fattening farm in Khurrianwala</span>
+                        </div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-item">
+                            <label>Livestock Breed</label>
+                            <span>Crossbred (Sahiwal x Friesian)</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Nutrition / Finish Protocol</label>
+                            <span>Scientific grain-finished ration for premium carcass quality</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section 2: Product Forms Supplied -->
+            <section class="section">
+                <h3 class="section-heading"><i class="fa-solid fa-boxes-packing"></i> Product Forms We Will Supply</h3>
+                <div class="product-forms-list">
+                    <div class="product-form-item">
+                        <i class="fa-solid fa-plane-departure"></i>
+                        <div>
+                            <h4>Chilled Beef</h4>
+                            <p>Primary supply channel for the Gulf region via rapid air freight.</p>
+                        </div>
+                    </div>
+                    <div class="product-form-item">
+                        <i class="fa-solid fa-snowflake"></i>
+                        <div>
+                            <h4>Whole Carcass</h4>
+                            <p>Standard Halal slaughtered carcass sides, available chilled or frozen.</p>
+                        </div>
+                    </div>
+                    <div class="product-form-item">
+                        <i class="fa-solid fa-percent"></i>
+                        <div>
+                            <h4>Bone-in Quarters</h4>
+                            <p>Halal quarters cleanly divided into forequarters and hindquarters.</p>
+                        </div>
+                    </div>
+                    <div class="product-form-item">
+                        <i class="fa-solid fa-bezier-curve"></i>
+                        <div>
+                            <h4>Primal Cuts</h4>
+                            <p>Custom primal cut specifications supplied on request as catalogue finalises.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section 3: Technical Specifications & Quality Standards -->
+            <section class="section">
+                <h3 class="section-heading"><i class="fa-solid fa-shield-halved"></i> Processing & Quality Standards</h3>
+                <table class="specs-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 25%;">Quality Parameter</th>
+                            <th style="width: 75%;">Verification & Specifications</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <strong><td>Processing Facility</td></strong>
+                            <td>Processed exclusively through certified, export-approved abattoirs matching international sanitary protocols.</td>
+                        </tr>
+                        <tr>
+                            <strong><td>Halal Compliance</td></strong>
+                            <td>100% Hand-slaughtered (Shariah compliant) with verified Halal certification issued per consignment.</td>
+                        </tr>
+                        <tr>
+                            <strong><td>Packaging System</td></strong>
+                            <td>High-barrier vacuum packed for freshness. Carton weights configured strictly to buyer specification.</td>
+                        </tr>
+                        <tr>
+                            <strong><td>Frozen Shelf Life</td></strong>
+                            <td>Up to 12 months when stored and maintained at or below -18°C.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- Section 4: Logistical Capacity & Documentation -->
+            <section class="section">
+                <h3 class="section-heading"><i class="fa-solid fa-truck-ramp-box"></i> Logistical Capacity & Documentation</h3>
+                <div class="grid-2">
+                    <div class="info-card" style="height: 100%;">
+                        <div class="info-item">
+                            <label>Supply Capacity</label>
+                            <span style="font-size: 0.85rem; display: block; margin-top: 0.15rem; color: var(--text-dark); line-height: 1.4;">
+                                <strong>Chilled Air Freight</strong>: 1–2 tons per week to the Gulf region, scaling with buyer demand schedules.<br>
+                                <strong>Frozen Sea Freight</strong>: Container-load reefers dispatched via Port of Karachi where volume justifies.
+                            </span>
+                        </div>
+                    </div>
+                    <div class="info-card" style="height: 100%;">
+                        <div class="info-item" style="margin-bottom: 0;">
+                            <label>Documentation Suite (Per Shipment)</label>
+                            <div class="doc-badges-list">
+                                <span class="doc-badge"><i class="fa-solid fa-mosque"></i> Halal Cert</span>
+                                <span class="doc-badge"><i class="fa-solid fa-file-medical"></i> Health Cert</span>
+                                <span class="doc-badge"><i class="fa-solid fa-globe"></i> Origin Cert</span>
+                                <span class="doc-badge"><i class="fa-solid fa-list-check"></i> Packing List</span>
+                                <span class="doc-badge"><i class="fa-solid fa-file-invoice-dollar"></i> Invoice</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+
+        <!-- Sheet Footer (Liaison & Authentication) -->
+        <footer class="sheet-footer">
+            <div class="footer-stamp-area">
+                <div class="stamp-badge">
+                    <span>BA FOODS</span>
+                    <span>HALAL EXPORT</span>
+                    <span>APPROVED</span>
+                </div>
+                <div class="stamp-text">
+                    This document certifies the current B2B supply capabilities and logistical protocols of BA Foods Pvt Ltd.
+                </div>
+            </div>
+            
+            <div class="signature-area">
+                <div class="signature-line"></div>
+                <div class="signature-title">Liaison Officer</div>
+                <div class="signature-subtitle">Export Desk, BA Foods Pvt Ltd</div>
+            </div>
+        </footer>
+
+        <!-- Bottom Border Graphic Line -->
+        <div class="bottom-border-graphics"></div>
+    </div>
+
+</body>
+</html>

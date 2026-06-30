@@ -9,6 +9,7 @@ export default defineConfig({
         farm: resolve(__dirname, 'farm.html'),
         shop: resolve(__dirname, 'shop.html'),
         product: resolve(__dirname, 'product.html'),
+        capability: resolve(__dirname, 'capability-sheet.html'),
       },
     },
   },

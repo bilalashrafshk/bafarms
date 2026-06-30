@@ -99,6 +99,11 @@ const initApp = () => {
     // Helper: Map cut characteristics dynamically
     function getPrimalSource(title, marbling) {
         const t = title.toLowerCase();
+        if (t.includes('chilled')) return 'Sahiwal x Friesian (Grain-Finished)';
+        if (t.includes('carcass')) return 'Halal slaughtered, chilled/frozen';
+        if (t.includes('quarter')) return 'Forequarters & Hindquarters';
+        if (t.includes('primal') && !t.includes('ribeye') && !t.includes('striploin')) return 'Custom specifications on request';
+
         if (t.includes('ribeye')) return 'Primal Short Loin (Rib)';
         if (t.includes('t-bone') || t.includes('tbone')) return 'Short Loin / T-Bone';
         if (t.includes('striploin')) return 'Primal Loin (Striploin)';
@@ -110,6 +115,11 @@ const initApp = () => {
 
     function getPackagingType(title, fatRatio) {
         const t = title.toLowerCase();
+        if (t.includes('chilled')) return 'Vacuum Packed / buyer spec';
+        if (t.includes('carcass')) return 'Stockinette wrapped';
+        if (t.includes('quarter')) return 'Stockinette wrapped / poly';
+        if (t.includes('primal') && !t.includes('ribeye') && !t.includes('striploin')) return 'Vacuum Packed in cartons';
+
         if (t.includes('mince') || t.includes('burger') || t.includes('patty') || t.includes('patties')) {
             return 'Modified Atmosphere (MAP)';
         }
@@ -118,6 +128,11 @@ const initApp = () => {
 
     function getShelfLife(title) {
         const t = title.toLowerCase();
+        if (t.includes('chilled')) return 'Up to 21 Days Chilled (0-2°C)';
+        if (t.includes('carcass')) return 'Up to 12 Mos Frozen / 14 Days Chilled';
+        if (t.includes('quarter')) return 'Up to 12 Mos Frozen / 14 Days Chilled';
+        if (t.includes('primal') && !t.includes('ribeye') && !t.includes('striploin')) return 'Up to 12 Mos Frozen / 90 Days Chilled';
+
         if (t.includes('burger') || t.includes('patty') || t.includes('patties')) {
             return '12 Months (Frozen)';
         }
@@ -129,6 +144,11 @@ const initApp = () => {
 
     function getAvailableVolume(title) {
         const t = title.toLowerCase();
+        if (t.includes('chilled')) return '1–2 tons/week Air Freight';
+        if (t.includes('carcass')) return 'Scaled to demand / Sea';
+        if (t.includes('quarter')) return 'Scaled to demand / Sea';
+        if (t.includes('primal') && !t.includes('ribeye') && !t.includes('striploin')) return 'Allocated per contract';
+
         if (t.includes('ribeye')) return '15 MT / Month';
         if (t.includes('t-bone') || t.includes('tbone')) return '12 MT / Month';
         if (t.includes('striploin')) return '10 MT / Month';
@@ -149,17 +169,17 @@ const initApp = () => {
             // Populate Table Row
             const row = document.createElement('tr');
             
-            const primal = getPrimalSource(cut.title, cut.marbling);
-            const packaging = getPackagingType(cut.title, cut.fat_ratio);
-            const shelf = getShelfLife(cut.title);
-            const volume = getAvailableVolume(cut.title);
+            const primal = cut.spec || getPrimalSource(cut.title, cut.marbling);
+            const packaging = cut.packaging || getPackagingType(cut.title, cut.fat_ratio);
+            const shelf = cut.shelf_life || getShelfLife(cut.title);
+            const volume = cut.capacity || getAvailableVolume(cut.title);
             
             row.innerHTML = `
                 <td><strong>${cut.title}</strong></td>
                 <td><span class="spec-tag spec-tag-steel">${primal}</span></td>
                 <td>${packaging}</td>
                 <td><span class="spec-tag spec-tag-green">${shelf}</span></td>
-                <td>${cut.weight || '1.0 kg Pack'}</td>
+                <td>${cut.weight || 'Carton weights to buyer spec'}</td>
                 <td><span class="spec-tag spec-tag-gold">${volume}</span></td>
             `;
             tableBody.appendChild(row);
@@ -168,7 +188,7 @@ const initApp = () => {
             if (cutSelect) {
                 const option = document.createElement('option');
                 option.value = cut.title;
-                option.textContent = `${cut.title} (${cut.weight || '1.0 kg Pack'})`;
+                option.textContent = `${cut.title} (${cut.weight || 'Custom Spec'})`;
                 cutSelect.appendChild(option);
             }
         });
@@ -177,7 +197,7 @@ const initApp = () => {
         if (cutSelect) {
             const generalOption = document.createElement('option');
             generalOption.value = "Custom / Primal Sides";
-            generalOption.textContent = "Custom Primal Sides / FCL Halal Beef Sides";
+            generalOption.textContent = "Custom Primal Cuts / Whole Carcass sides";
             cutSelect.appendChild(generalOption);
         }
     }
@@ -198,14 +218,44 @@ const initApp = () => {
             }
         } catch (e) {
             console.warn('API fetch failed, falling back to static specifications:', e);
-            // Fallback to static specifications
+            // Fallback to static B2B export specifications
             const defaultCuts = [
-                { id: 'ribeye', title: 'Sahiwal Prime Ribeye Steak', price: 2850, weight: '1.0 kg Pack (2 Steaks)', marbling: 'Grade 4+ (Aged)', fat_ratio: '18% Fat Cap' },
-                { id: 'tbone', title: 'Cholistani Gourmet T-Bone', price: 2650, weight: '1.2 kg Pack (2 Steaks)', marbling: 'Grade 3+ (Premium)', fat_ratio: '14%' },
-                { id: 'striploin', title: 'Premium Angus Cross Striploin', price: 3100, weight: '1.0 kg Pack (3 Steaks)', marbling: 'Grade 5 (Supreme)', fat_ratio: '20%' },
-                { id: 'minced', title: 'Organic Grass-Fed Minced Beef', price: 1850, weight: '1.0 kg Pack (Fine Ground)', marbling: 'Standard Lean', fat_ratio: '8%' },
-                { id: 'bong', title: 'Premium Beef Shank (Bong Cut)', price: 1950, weight: '1.5 kg Pack (Bone-in)', marbling: 'Lean & Marrow', fat_ratio: '10%' },
-                { id: 'patties', title: 'Gourmet Chuck Burger Patties', price: 1600, weight: '6 Patties (900g Total)', marbling: 'Burger Ratio 80/20', fat_ratio: '20%' }
+                {
+                    id: 'chilled_beef',
+                    title: 'Chilled Beef (Gulf Air Freight)',
+                    spec: 'Sahiwal x Friesian (Grain-Finished)',
+                    packaging: 'Vacuum Packed; carton weights to buyer spec',
+                    shelf_life: 'Up to 21 Days Chilled (0-2°C)',
+                    weight: 'Carton weights to buyer spec',
+                    capacity: '1–2 tons/week, scaling with demand'
+                },
+                {
+                    id: 'whole_carcass',
+                    title: 'Whole Carcass (Chilled or Frozen)',
+                    spec: 'Halal slaughtered, chilled or frozen',
+                    packaging: 'Stockinette wrapped / custom wrapping',
+                    shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+                    weight: '120 - 180 kg per carcass side',
+                    capacity: 'Scaled with demand / Sea Freight'
+                },
+                {
+                    id: 'bone_in_quarters',
+                    title: 'Bone-in Quarters (Fore & Hind)',
+                    spec: 'Forequarters & Hindquarters',
+                    packaging: 'Stockinette wrapped / heavy poly',
+                    shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+                    weight: '30 - 45 kg per quarter',
+                    capacity: 'Scaled with demand / Sea Freight'
+                },
+                {
+                    id: 'primal_cuts',
+                    title: 'Primal Cuts (On Request)',
+                    spec: 'Custom specifications on request',
+                    packaging: 'Vacuum Packed in cartons',
+                    shelf_life: 'Up to 12 Months (Frozen) / 90 Days Chilled',
+                    weight: 'Carton weights to buyer spec',
+                    capacity: 'Allocated per contract'
+                }
             ];
             populateCuts(defaultCuts);
         }
