@@ -251,7 +251,7 @@ function AppContent() {
 
                 <div class="sidebar-footer">
                     <p>Agro-Complex:<br/><strong>Khurrianwala, Faisalabad</strong></p>
-                    <p style={{ marginTop: '0.4rem', fontSize: '0.7rem' }}>Subsidiary of Ashraf Zia Textile Mills PVT LTD</p>
+                    <p style={{ marginTop: '0.4rem', fontSize: '0.7rem' }}>Subsidiary of Ashraf Zia Textile Mills</p>
                 </div>
             </aside>
 
