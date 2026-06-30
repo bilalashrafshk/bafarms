@@ -147,7 +147,7 @@ const initApp = () => {
 
     function getAvailableVolume(title) {
         const t = title.toLowerCase();
-        if (t.includes('chilled')) return '1–2 tons/week Air Freight';
+        if (t.includes('chilled')) return '5–10 tons/week Air Freight';
         if (t.includes('carcass')) return 'Scaled to demand / Sea';
         if (t.includes('quarter')) return 'Scaled to demand / Sea';
         if (t.includes('primal') && !t.includes('ribeye') && !t.includes('striploin')) return 'Allocated per contract';
@@ -231,7 +231,7 @@ const initApp = () => {
                     packaging: 'Vacuum Packed; carton weights to buyer spec',
                     shelf_life: 'Up to 21 Days Chilled (0-2°C)',
                     weight: 'Carton weights to buyer spec',
-                    capacity: '1–2 tons/week, scaling with demand'
+                    capacity: '5–10 tons/week, scaling with requirement'
                 },
                 {
                     id: 'whole_carcass',

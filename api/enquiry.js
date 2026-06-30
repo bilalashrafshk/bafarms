@@ -171,7 +171,7 @@ module.exports = async (req, res) => {
             packaging: 'Vacuum Packed; carton weights to buyer spec',
             shelf_life: 'Up to 21 Days Chilled (0-2°C)',
             weight: 'Carton weights to buyer spec',
-            capacity: '1–2 tons/week, scaling with demand'
+            capacity: '5–10 tons/week, scaling with requirement'
         },
         {
             id: 'whole_carcass',
