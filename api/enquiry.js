@@ -179,7 +179,7 @@ module.exports = async (req, res) => {
             spec: 'Halal slaughtered, chilled or frozen',
             packaging: 'Stockinette wrapped / custom wrapping',
             shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
-            weight: '120 - 180 kg per carcass side',
+            weight: '120 - 180 kg per whole carcass',
             capacity: 'Scaled with demand / Sea Freight'
         },
         {
