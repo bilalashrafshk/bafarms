@@ -99,10 +99,10 @@ const initApp = () => {
     // Helper: Map cut characteristics dynamically
     function getPrimalSource(title, marbling) {
         const t = title.toLowerCase();
-        if (t.includes('chilled')) return 'Sahiwal x Friesian (Grain-Finished)';
-        if (t.includes('carcass')) return 'Halal slaughtered, chilled/frozen';
-        if (t.includes('quarter')) return 'Forequarters & Hindquarters';
-        if (t.includes('primal') && !t.includes('ribeye') && !t.includes('striploin')) return 'Custom specifications on request';
+        if (t.includes('chilled') && (t.includes('carcass') || t.includes('quarter'))) return 'Halal slaughtered chilled carcass / quarters';
+        if (t.includes('frozen') && (t.includes('carcass') || t.includes('quarter'))) return 'Halal slaughtered frozen carcass / quarters';
+        if (t.includes('chilled') && t.includes('primal')) return 'Sahiwal x Friesian (Grain-Finished)';
+        if (t.includes('frozen') && t.includes('primal')) return 'Custom specifications on request';
         if (t.includes('offal')) return 'Export-grade beef offal & constituents';
 
         if (t.includes('ribeye')) return 'Primal Short Loin (Rib)';
@@ -116,10 +116,10 @@ const initApp = () => {
 
     function getPackagingType(title, fatRatio) {
         const t = title.toLowerCase();
-        if (t.includes('chilled')) return 'Vacuum Packed / buyer spec';
-        if (t.includes('carcass')) return 'Stockinette wrapped';
-        if (t.includes('quarter')) return 'Stockinette wrapped / poly';
-        if (t.includes('primal') && !t.includes('ribeye') && !t.includes('striploin')) return 'Vacuum Packed in cartons';
+        if (t.includes('chilled') && (t.includes('carcass') || t.includes('quarter'))) return 'High-barrier vacuum packed (UAE/GCC compliant)';
+        if (t.includes('frozen') && (t.includes('carcass') || t.includes('quarter'))) return 'Stockinette wrapped / custom wrapping';
+        if (t.includes('chilled') && t.includes('primal')) return 'Vacuum packed; carton weights to spec';
+        if (t.includes('frozen') && t.includes('primal')) return 'Vacuum packed in heavy shipping cartons';
         if (t.includes('offal')) return 'Vacuum packed / poly cartons';
 
         if (t.includes('mince') || t.includes('burger') || t.includes('patty') || t.includes('patties')) {
@@ -130,28 +130,26 @@ const initApp = () => {
 
     function getShelfLife(title) {
         const t = title.toLowerCase();
-        if (t.includes('chilled')) return 'Up to 120 Days Chilled (0-2°C)';
-        if (t.includes('carcass')) return 'Chilled: Up to 120 Days / Frozen: Up to 12 Mos';
-        if (t.includes('quarter')) return 'Chilled: Up to 120 Days / Frozen: Up to 12 Mos';
-        if (t.includes('primal') && !t.includes('ribeye') && !t.includes('striploin')) return 'Chilled: Up to 120 Days / Frozen: Up to 12 Mos';
-        if (t.includes('offal')) return 'Chilled: Up to 120 Days / Frozen: Up to 12 Mos';
+        if (t.includes('chilled')) return 'Up to 120 Days Chilled (0-4°C)';
+        if (t.includes('frozen')) return 'Up to 12 Months (Frozen at -18°C)';
+        if (t.includes('offal')) return 'Up to 12 Months (Frozen at -18°C)';
 
         if (t.includes('burger') || t.includes('patty') || t.includes('patties')) {
             return '12 Months (Frozen)';
         }
         if (t.includes('mince') || t.includes('ground')) {
-            return '21 Days Chilled (0-2°C)';
+            return '21 Days Chilled (0-4°C)';
         }
-        return '90 Days Chilled (0-2°C)';
+        return '90 Days Chilled (0-4°C)';
     }
 
     function getAvailableVolume(title) {
         const t = title.toLowerCase();
-        if (t.includes('chilled')) return '5–10 tons/week Air Freight';
-        if (t.includes('carcass')) return 'Scaled to demand / Sea';
-        if (t.includes('quarter')) return 'Scaled to demand / Sea';
-        if (t.includes('primal') && !t.includes('ribeye') && !t.includes('striploin')) return 'Allocated per contract';
-        if (t.includes('offal')) return 'Dispatched to high-value markets (e.g. China)';
+        if (t.includes('chilled') && t.includes('primal')) return '5–10 tons/week Air Freight';
+        if (t.includes('chilled') && (t.includes('carcass') || t.includes('quarter'))) return 'Air Freight, scaling with demand';
+        if (t.includes('frozen') && (t.includes('carcass') || t.includes('quarter'))) return 'Container reefers / Sea Freight';
+        if (t.includes('frozen') && t.includes('primal')) return 'Container reefers / Sea Freight';
+        if (t.includes('offal')) return 'Dispatched to high-value international markets';
 
         if (t.includes('ribeye')) return '15 MT / Month';
         if (t.includes('t-bone') || t.includes('tbone')) return '12 MT / Month';
@@ -206,6 +204,58 @@ const initApp = () => {
         }
     }
 
+    // Fallback static B2B export specifications (loaded immediately for progressive rendering)
+    const defaultCuts = [
+        {
+            id: 'chilled_primal_cuts',
+            title: 'Chilled Beef Primal Cuts',
+            spec: 'Sahiwal x Friesian (Grain-Finished)',
+            packaging: 'Vacuum packed; carton weights to buyer spec',
+            shelf_life: 'Up to 120 Days Chilled (0-4°C)',
+            weight: 'Carton weights to buyer spec',
+            capacity: '5–10 tons/week, scaling with requirement'
+        },
+        {
+            id: 'chilled_carcasses_quarters',
+            title: 'Chilled Carcasses & Quarters',
+            spec: 'Halal slaughtered chilled carcasses/quarters',
+            packaging: 'High-barrier vacuum packed (UAE/GCC compliant)',
+            shelf_life: 'Up to 120 Days Chilled (0-4°C)',
+            weight: '30-45 kg quarter / 120-180 kg carcass',
+            capacity: 'Air freighted, scaling with requirement'
+        },
+        {
+            id: 'frozen_carcasses_quarters',
+            title: 'Frozen Carcasses & Quarters',
+            spec: 'Halal slaughtered frozen carcasses/quarters',
+            packaging: 'Stockinette wrapped / custom wrapping',
+            shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+            weight: '30-45 kg quarter / 120-180 kg carcass',
+            capacity: 'Sea freight container reefers where volume justifies'
+        },
+        {
+            id: 'frozen_primal_cuts',
+            title: 'Frozen Primal Cuts',
+            spec: 'Custom specifications on request',
+            packaging: 'Vacuum packed in heavy shipping cartons',
+            shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+            weight: 'Carton weights to buyer spec',
+            capacity: 'Sea freight container reefers where volume justifies'
+        },
+        {
+            id: 'beef_offal',
+            title: 'Beef Offal & Variety Meats',
+            spec: 'Export-grade beef offal & constituents',
+            packaging: 'Vacuum packed / poly cartons',
+            shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+            weight: 'Carton weights to buyer spec',
+            capacity: 'Dispatched to high-value international markets'
+        }
+    ];
+
+    // Populate table instantly for progressive rendering, avoiding any loading blank state
+    populateCuts(defaultCuts);
+
     const loadExportCuts = async () => {
         try {
             const response = await fetch('/api/enquiry');
@@ -216,61 +266,11 @@ const initApp = () => {
             const data = await response.json();
 
             if (data.success && data.cuts) {
+                // Background refresh only if API resolves successfully
                 populateCuts(data.cuts);
-            } else {
-                throw new Error(data.error || 'Failed to parse cuts database');
             }
         } catch (e) {
-            console.warn('API fetch failed, falling back to static specifications:', e);
-            // Fallback to static B2B export specifications
-            const defaultCuts = [
-                {
-                    id: 'chilled_beef',
-                    title: 'Chilled Beef (Gulf Air Freight)',
-                    spec: 'Sahiwal x Friesian (Grain-Finished)',
-                    packaging: 'Vacuum Packed; carton weights to buyer spec',
-                    shelf_life: 'Up to 120 Days Chilled (0-2°C)',
-                    weight: 'Carton weights to buyer spec',
-                    capacity: '5–10 tons/week, scaling with requirement'
-                },
-                {
-                    id: 'whole_carcass',
-                    title: 'Whole Carcass (Chilled or Frozen)',
-                    spec: 'Halal slaughtered, chilled or frozen',
-                    packaging: 'Stockinette wrapped / custom wrapping',
-                    shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
-                    weight: '120 - 180 kg per whole carcass',
-                    capacity: 'Scaled with demand / Sea Freight'
-                },
-                {
-                    id: 'bone_in_quarters',
-                    title: 'Bone-in Quarters (Fore & Hind)',
-                    spec: 'Forequarters & Hindquarters',
-                    packaging: 'Stockinette wrapped / heavy poly',
-                    shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
-                    weight: '30 - 45 kg per quarter',
-                    capacity: 'Scaled with demand / Sea Freight'
-                },
-                {
-                    id: 'primal_cuts',
-                    title: 'Primal Cuts (On Request)',
-                    spec: 'Custom specifications on request',
-                    packaging: 'Vacuum Packed in cartons',
-                    shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
-                    weight: 'Carton weights to buyer spec',
-                    capacity: 'Allocated per contract'
-                },
-                {
-                    id: 'beef_offal',
-                    title: 'Beef Offal & Variety Meats',
-                    spec: 'Export-grade beef offal & constituents',
-                    packaging: 'Vacuum packed / poly cartons',
-                    shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
-                    weight: 'Carton weights to buyer spec',
-                    capacity: 'Dispatched to high-value markets (e.g. China)'
-                }
-            ];
-            populateCuts(defaultCuts);
+            console.warn('API fetch bypassed, utilizing static B2B specifications:', e);
         }
     };
 

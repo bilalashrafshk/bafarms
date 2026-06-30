@@ -165,49 +165,49 @@ module.exports = async (req, res) => {
     // Fallback cuts if database is not configured
     const defaultCuts = [
         {
-            id: 'chilled_beef',
-            title: 'Chilled Beef (Gulf Air Freight)',
+            id: 'chilled_primal_cuts',
+            title: 'Chilled Beef Primal Cuts',
             spec: 'Sahiwal x Friesian (Grain-Finished)',
-            packaging: 'Vacuum Packed; carton weights to buyer spec',
-            shelf_life: 'Up to 120 Days Chilled (0-2°C)',
+            packaging: 'Vacuum packed; carton weights to buyer spec',
+            shelf_life: 'Up to 120 Days Chilled (0-4°C)',
             weight: 'Carton weights to buyer spec',
             capacity: '5–10 tons/week, scaling with requirement'
         },
         {
-            id: 'whole_carcass',
-            title: 'Whole Carcass (Chilled or Frozen)',
-            spec: 'Halal slaughtered, chilled or frozen',
+            id: 'chilled_carcasses_quarters',
+            title: 'Chilled Carcasses & Quarters',
+            spec: 'Halal slaughtered chilled carcasses/quarters',
+            packaging: 'High-barrier vacuum packed (UAE/GCC compliant)',
+            shelf_life: 'Up to 120 Days Chilled (0-4°C)',
+            weight: '30-45 kg quarter / 120-180 kg carcass',
+            capacity: 'Air freighted, scaling with requirement'
+        },
+        {
+            id: 'frozen_carcasses_quarters',
+            title: 'Frozen Carcasses & Quarters',
+            spec: 'Halal slaughtered frozen carcasses/quarters',
             packaging: 'Stockinette wrapped / custom wrapping',
-            shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
-            weight: '120 - 180 kg per whole carcass',
-            capacity: 'Scaled with demand / Sea Freight'
+            shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+            weight: '30-45 kg quarter / 120-180 kg carcass',
+            capacity: 'Sea freight container reefers where volume justifies'
         },
         {
-            id: 'bone_in_quarters',
-            title: 'Bone-in Quarters (Fore & Hind)',
-            spec: 'Forequarters & Hindquarters',
-            packaging: 'Stockinette wrapped / heavy poly',
-            shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
-            weight: '30 - 45 kg per quarter',
-            capacity: 'Scaled with demand / Sea Freight'
-        },
-        {
-            id: 'primal_cuts',
-            title: 'Primal Cuts (On Request)',
+            id: 'frozen_primal_cuts',
+            title: 'Frozen Primal Cuts',
             spec: 'Custom specifications on request',
-            packaging: 'Vacuum Packed in cartons',
-            shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
+            packaging: 'Vacuum packed in heavy shipping cartons',
+            shelf_life: 'Up to 12 Months (Frozen at -18°C)',
             weight: 'Carton weights to buyer spec',
-            capacity: 'Allocated per contract'
+            capacity: 'Sea freight container reefers where volume justifies'
         },
         {
             id: 'beef_offal',
             title: 'Beef Offal & Variety Meats',
             spec: 'Export-grade beef offal & constituents',
             packaging: 'Vacuum packed / poly cartons',
-            shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
+            shelf_life: 'Up to 12 Months (Frozen at -18°C)',
             weight: 'Carton weights to buyer spec',
-            capacity: 'Dispatched to high-value markets (e.g. China)'
+            capacity: 'Dispatched to high-value international markets'
         }
     ];
 
