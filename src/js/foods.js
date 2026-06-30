@@ -130,11 +130,11 @@ const initApp = () => {
 
     function getShelfLife(title) {
         const t = title.toLowerCase();
-        if (t.includes('chilled')) return 'Up to 21 Days Chilled (0-2°C)';
-        if (t.includes('carcass')) return 'Up to 12 Mos Frozen / 14 Days Chilled';
-        if (t.includes('quarter')) return 'Up to 12 Mos Frozen / 14 Days Chilled';
-        if (t.includes('primal') && !t.includes('ribeye') && !t.includes('striploin')) return 'Up to 12 Mos Frozen / 90 Days Chilled';
-        if (t.includes('offal')) return 'Up to 12 Months (Frozen at -18°C)';
+        if (t.includes('chilled')) return 'Up to 120 Days Chilled (0-2°C)';
+        if (t.includes('carcass')) return 'Chilled: Up to 120 Days / Frozen: Up to 12 Mos';
+        if (t.includes('quarter')) return 'Chilled: Up to 120 Days / Frozen: Up to 12 Mos';
+        if (t.includes('primal') && !t.includes('ribeye') && !t.includes('striploin')) return 'Chilled: Up to 120 Days / Frozen: Up to 12 Mos';
+        if (t.includes('offal')) return 'Chilled: Up to 120 Days / Frozen: Up to 12 Mos';
 
         if (t.includes('burger') || t.includes('patty') || t.includes('patties')) {
             return '12 Months (Frozen)';
@@ -229,7 +229,7 @@ const initApp = () => {
                     title: 'Chilled Beef (Gulf Air Freight)',
                     spec: 'Sahiwal x Friesian (Grain-Finished)',
                     packaging: 'Vacuum Packed; carton weights to buyer spec',
-                    shelf_life: 'Up to 21 Days Chilled (0-2°C)',
+                    shelf_life: 'Up to 120 Days Chilled (0-2°C)',
                     weight: 'Carton weights to buyer spec',
                     capacity: '5–10 tons/week, scaling with requirement'
                 },
@@ -238,7 +238,7 @@ const initApp = () => {
                     title: 'Whole Carcass (Chilled or Frozen)',
                     spec: 'Halal slaughtered, chilled or frozen',
                     packaging: 'Stockinette wrapped / custom wrapping',
-                    shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+                    shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
                     weight: '120 - 180 kg per carcass side',
                     capacity: 'Scaled with demand / Sea Freight'
                 },
@@ -247,7 +247,7 @@ const initApp = () => {
                     title: 'Bone-in Quarters (Fore & Hind)',
                     spec: 'Forequarters & Hindquarters',
                     packaging: 'Stockinette wrapped / heavy poly',
-                    shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+                    shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
                     weight: '30 - 45 kg per quarter',
                     capacity: 'Scaled with demand / Sea Freight'
                 },
@@ -256,7 +256,7 @@ const initApp = () => {
                     title: 'Primal Cuts (On Request)',
                     spec: 'Custom specifications on request',
                     packaging: 'Vacuum Packed in cartons',
-                    shelf_life: 'Up to 12 Months (Frozen) / 90 Days Chilled',
+                    shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
                     weight: 'Carton weights to buyer spec',
                     capacity: 'Allocated per contract'
                 },
@@ -265,7 +265,7 @@ const initApp = () => {
                     title: 'Beef Offal & Variety Meats',
                     spec: 'Export-grade beef offal & constituents',
                     packaging: 'Vacuum packed / poly cartons',
-                    shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+                    shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
                     weight: 'Carton weights to buyer spec',
                     capacity: 'Dispatched to high-value markets (e.g. China)'
                 }

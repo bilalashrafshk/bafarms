@@ -169,7 +169,7 @@ module.exports = async (req, res) => {
             title: 'Chilled Beef (Gulf Air Freight)',
             spec: 'Sahiwal x Friesian (Grain-Finished)',
             packaging: 'Vacuum Packed; carton weights to buyer spec',
-            shelf_life: 'Up to 21 Days Chilled (0-2°C)',
+            shelf_life: 'Up to 120 Days Chilled (0-2°C)',
             weight: 'Carton weights to buyer spec',
             capacity: '5–10 tons/week, scaling with requirement'
         },
@@ -178,7 +178,7 @@ module.exports = async (req, res) => {
             title: 'Whole Carcass (Chilled or Frozen)',
             spec: 'Halal slaughtered, chilled or frozen',
             packaging: 'Stockinette wrapped / custom wrapping',
-            shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+            shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
             weight: '120 - 180 kg per carcass side',
             capacity: 'Scaled with demand / Sea Freight'
         },
@@ -187,7 +187,7 @@ module.exports = async (req, res) => {
             title: 'Bone-in Quarters (Fore & Hind)',
             spec: 'Forequarters & Hindquarters',
             packaging: 'Stockinette wrapped / heavy poly',
-            shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+            shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
             weight: '30 - 45 kg per quarter',
             capacity: 'Scaled with demand / Sea Freight'
         },
@@ -196,7 +196,7 @@ module.exports = async (req, res) => {
             title: 'Primal Cuts (On Request)',
             spec: 'Custom specifications on request',
             packaging: 'Vacuum Packed in cartons',
-            shelf_life: 'Up to 12 Months (Frozen) / 90 Days Chilled',
+            shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
             weight: 'Carton weights to buyer spec',
             capacity: 'Allocated per contract'
         },
@@ -205,7 +205,7 @@ module.exports = async (req, res) => {
             title: 'Beef Offal & Variety Meats',
             spec: 'Export-grade beef offal & constituents',
             packaging: 'Vacuum packed / poly cartons',
-            shelf_life: 'Up to 12 Months (Frozen at -18°C)',
+            shelf_life: 'Chilled: Up to 120 Days (0-2°C) / Frozen: Up to 12 Mos (-18°C)',
             weight: 'Carton weights to buyer spec',
             capacity: 'Dispatched to high-value markets (e.g. China)'
         }
