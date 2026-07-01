@@ -169,18 +169,18 @@ module.exports = async (req, res) => {
             title: 'Chilled Carcasses & Quarters',
             spec: 'Halal slaughtered chilled carcasses/quarters (4-quarters cut)',
             packaging: 'High-barrier vacuum packed (UAE/GCC compliant)',
-            shelf_life: 'Up to 120 Days Chilled (0-2°C)',
+            shelf_life: '60–90 Days Chilled (0-2°C)',
             weight: '30-45 kg quarter / 120-180 kg carcass',
-            capacity: 'Air freighted, scaling with requirement'
+            capacity: 'Air freighted, scaling with demand'
         },
         {
             id: 'chilled_primal_cuts',
             title: 'Chilled Beef Primal Cuts',
             spec: 'Sahiwal x Friesian (Grain-Finished)',
             packaging: 'Vacuum packed; carton weights to buyer spec',
-            shelf_life: 'Up to 120 Days Chilled (0-2°C)',
+            shelf_life: '60–90 Days Chilled (0-2°C)',
             weight: 'Carton weights to buyer spec',
-            capacity: '5–10 tons/week, scaling with requirement'
+            capacity: 'from 1–2 tons/week, scaling with demand'
         },
         {
             id: 'frozen_carcasses_quarters',

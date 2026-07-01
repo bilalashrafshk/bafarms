@@ -130,7 +130,7 @@ const initApp = () => {
 
     function getShelfLife(title) {
         const t = title.toLowerCase();
-        if (t.includes('chilled')) return 'Up to 120 Days Chilled (0-2°C)';
+        if (t.includes('chilled')) return '60–90 Days Chilled (0-2°C)';
         if (t.includes('frozen')) return 'Up to 12 Months (Frozen at -18°C)';
         if (t.includes('offal')) return 'Up to 12 Months (Frozen at -18°C)';
 
@@ -145,7 +145,7 @@ const initApp = () => {
 
     function getAvailableVolume(title) {
         const t = title.toLowerCase();
-        if (t.includes('chilled') && t.includes('primal')) return '5–10 tons/week Air Freight';
+        if (t.includes('chilled') && t.includes('primal')) return '1–2 tons/week Air Freight, scaling with demand';
         if (t.includes('chilled') && (t.includes('carcass') || t.includes('quarter'))) return 'Air Freight, scaling with demand';
         if (t.includes('frozen') && (t.includes('carcass') || t.includes('quarter'))) return 'Container reefers / Sea Freight';
         if (t.includes('frozen') && t.includes('primal')) return 'Container reefers / Sea Freight';
@@ -211,18 +211,18 @@ const initApp = () => {
             title: 'Chilled Carcasses & Quarters',
             spec: 'Halal slaughtered chilled carcasses/quarters (4-quarters cut)',
             packaging: 'High-barrier vacuum packed (UAE/GCC compliant)',
-            shelf_life: 'Up to 120 Days Chilled (0-2°C)',
+            shelf_life: '60–90 Days Chilled (0-2°C)',
             weight: '30-45 kg quarter / 120-180 kg carcass',
-            capacity: 'Air freighted, scaling with requirement'
+            capacity: 'Air freighted, scaling with demand'
         },
         {
             id: 'chilled_primal_cuts',
             title: 'Chilled Beef Primal Cuts',
             spec: 'Sahiwal x Friesian (Grain-Finished)',
             packaging: 'Vacuum packed; carton weights to buyer spec',
-            shelf_life: 'Up to 120 Days Chilled (0-2°C)',
+            shelf_life: '60–90 Days Chilled (0-2°C)',
             weight: 'Carton weights to buyer spec',
-            capacity: '5–10 tons/week, scaling with requirement'
+            capacity: 'from 1–2 tons/week, scaling with demand'
         },
         {
             id: 'frozen_carcasses_quarters',
