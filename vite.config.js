@@ -10,6 +10,7 @@ export default defineConfig({
         shop: resolve(__dirname, 'shop.html'),
         product: resolve(__dirname, 'product.html'),
         capability: resolve(__dirname, 'capability-sheet.html'),
+        quotation: resolve(__dirname, 'quotation.html'),
       },
     },
   },
