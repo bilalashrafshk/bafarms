@@ -183,7 +183,7 @@ function ImageUploadZone({ id, images, setImages }) {
                         type="text" 
                         className="form-control" 
                         style={{ marginTop: '0.4rem', fontSize: '0.8rem' }}
-                        placeholder="e.g. assets/ribeye_steak.png, https://example.com/pic.jpg"
+                        placeholder="e.g. /assets/ribeye_steak.png, https://example.com/pic.jpg"
                         value={images.join(', ')}
                         onChange={(e) => handleManualChange(e.target.value)}
                     />
@@ -274,7 +274,7 @@ export default function ListingsManager() {
             rfid: cutRfid || 'BA-GEN-' + Math.floor(100 + Math.random() * 900),
             marbling: cutMarbling,
             fatRatio: cutFatRatio,
-            images: cutImages.length > 0 ? cutImages : ['assets/ribeye_steak.png']
+            images: cutImages.length > 0 ? cutImages : ['/assets/ribeye_steak.png']
         };
 
         if (editingCut) {

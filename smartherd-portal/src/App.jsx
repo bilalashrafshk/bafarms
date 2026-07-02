@@ -202,7 +202,7 @@ function AppContent() {
             <aside class="sidebar">
                 <div class="sidebar-header" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center', textAlign: 'center' }}>
                     <div className="sidebar-logo">
-                        <img src="logo_white.png?v=2" alt="BA Farms Logo" style={{ height: '120px', width: 'auto', display: 'block', margin: '0 auto' }} />
+                        <img src="/smartherd-portal/logo_white.png?v=2" alt="BA Farms Logo" style={{ height: '120px', width: 'auto', display: 'block', margin: '0 auto' }} />
                     </div>
                     <div>
                         <span className="portal-tag" style={{ marginLeft: 0 }}>PORTAL OPERATIONS</span>

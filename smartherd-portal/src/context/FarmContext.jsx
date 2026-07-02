@@ -58,7 +58,7 @@ const defaultMeatCuts = [
         rfid: 'BA-RIB-901',
         marbling: 'Grade 4+ (Aged)',
         fatRatio: '18% Fat Cap',
-        images: ['assets/ribeye_steak.png', 'assets/tbone_steak.png', 'assets/striploin_steak.png']
+        images: ['/assets/ribeye_steak.png', '/assets/tbone_steak.png', '/assets/striploin_steak.png']
     },
     {
         id: 'tbone',
@@ -71,7 +71,7 @@ const defaultMeatCuts = [
         rfid: 'BA-TBN-902',
         marbling: 'Grade 3+ (Premium)',
         fatRatio: '14%',
-        images: ['assets/tbone_steak.png', 'assets/ribeye_steak.png', 'assets/striploin_steak.png']
+        images: ['/assets/tbone_steak.png', '/assets/ribeye_steak.png', '/assets/striploin_steak.png']
     },
     {
         id: 'striploin',
@@ -84,7 +84,7 @@ const defaultMeatCuts = [
         rfid: 'BA-STR-903',
         marbling: 'Grade 5 (Supreme)',
         fatRatio: '20%',
-        images: ['assets/striploin_steak.png', 'assets/ribeye_steak.png', 'assets/tbone_steak.png']
+        images: ['/assets/striploin_steak.png', '/assets/ribeye_steak.png', '/assets/tbone_steak.png']
     },
     {
         id: 'minced',
@@ -97,7 +97,7 @@ const defaultMeatCuts = [
         rfid: 'BA-MIN-904',
         marbling: 'Standard Lean',
         fatRatio: '8%',
-        images: ['assets/minced_beef.png', 'assets/burger_patties.png']
+        images: ['/assets/minced_beef.png', '/assets/burger_patties.png']
     },
     {
         id: 'bong',
@@ -110,7 +110,7 @@ const defaultMeatCuts = [
         rfid: 'BA-BNG-905',
         marbling: 'Lean & Marrow',
         fatRatio: '10%',
-        images: ['assets/bong_cut.png', 'assets/minced_beef.png']
+        images: ['/assets/bong_cut.png', '/assets/minced_beef.png']
     },
     {
         id: 'patties',
@@ -123,7 +123,7 @@ const defaultMeatCuts = [
         rfid: 'BA-PAT-906',
         marbling: 'Burger Ratio 80/20',
         fatRatio: '20%',
-        images: ['assets/burger_patties.png', 'assets/minced_beef.png']
+        images: ['/assets/burger_patties.png', '/assets/minced_beef.png']
     }
 ];
 
@@ -209,7 +209,7 @@ export const FarmProvider = ({ children }) => {
             pen: 'B-4',
             price: 285000,
             desc: 'Purebred Sahiwal bull with excellent physical structure, deep red coat, and verified teeth age compliance. Raised on organic feeds.',
-            images: ['assets/sahiwal_bull.png']
+            images: ['/assets/sahiwal_bull.png']
         },
         {
             id: 2,
@@ -225,7 +225,7 @@ export const FarmProvider = ({ children }) => {
             pen: 'C-1',
             price: 245000,
             desc: 'Beautiful Cholistani heifer featuring signature spot markings. Active health log, fully vaccinated against FMD.',
-            images: ['assets/cholistani_cow.png']
+            images: ['/assets/cholistani_cow.png']
         },
         {
             id: 3,
@@ -241,7 +241,7 @@ export const FarmProvider = ({ children }) => {
             pen: 'F-2',
             price: 480000,
             desc: 'Heavyweight Sahiwal show bull. Unmatched muscle mass, clean posture, and active veterinary passport. Ideal for family shared booking.',
-            images: ['assets/sahiwal_bull.png']
+            images: ['/assets/sahiwal_bull.png']
         },
         {
             id: 4,
@@ -257,7 +257,7 @@ export const FarmProvider = ({ children }) => {
             pen: 'G-2',
             price: 95000,
             desc: 'Purebred Rajanpuri Beetal goat with long floppy ears and clean pink nose. Complies with Islamic Qurbani requirements.',
-            images: ['assets/beetal_goat.png']
+            images: ['/assets/beetal_goat.png']
         },
         {
             id: 5,
@@ -273,7 +273,7 @@ export const FarmProvider = ({ children }) => {
             pen: 'S-1',
             price: 85000,
             desc: 'Signature Kajla sheep with deep dark circle eye markings. Reared in Faisalabad complex with automated grain rations.',
-            images: ['assets/kajla_sheep.png']
+            images: ['/assets/kajla_sheep.png']
         },
         {
             id: 6,
@@ -289,7 +289,7 @@ export const FarmProvider = ({ children }) => {
             pen: 'G-1',
             price: 55000,
             desc: 'Healthy and active compact Teddy goat. Raised on natural grain feeds. Islamic compliance verified.',
-            images: ['assets/teddy_goat.png']
+            images: ['/assets/teddy_goat.png']
         }
     ];
 

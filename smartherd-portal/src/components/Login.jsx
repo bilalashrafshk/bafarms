@@ -182,7 +182,7 @@ export default function Login({ onLoginSuccess }) {
                 
                 {/* Brand Branding Header */}
                 <div className="login-logo-header" style={{ marginBottom: '2.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <img src="logo_white.png?v=2" alt="BA Farms Logo" style={{ height: '220px', width: 'auto', display: 'block', margin: '0 auto 1rem auto' }} />
+                    <img src="/smartherd-portal/logo_white.png?v=2" alt="BA Farms Logo" style={{ height: '220px', width: 'auto', display: 'block', margin: '0 auto 1rem auto' }} />
                     <span className="portal-tag">STAFF OPERATIONS</span>
                 </div>
 
