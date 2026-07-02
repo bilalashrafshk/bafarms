@@ -204,17 +204,27 @@ export default function EnquiriesManager() {
                                                 </div>
                                             </td>
                                             <td>
-                                                <button
-                                                    onClick={() => {
-                                                        if (window.confirm(`Delete enquiry ${enq.id}? This cannot be undone.`)) {
-                                                            deleteEnquiry(enq.id);
-                                                        }
-                                                    }}
-                                                    style={{ background: 'rgba(220,53,69,0.12)', border: '1px solid rgba(220,53,69,0.25)', color: '#e05260', borderRadius: '6px', padding: '0.25rem 0.55rem', fontSize: '0.8rem', cursor: 'pointer', lineHeight: 1 }}
-                                                    title="Delete enquiry"
-                                                >
-                                                    <i className="fa-solid fa-trash-can"></i>
-                                                </button>
+                                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                    <a 
+                                                        href={`/quotation.html?client=${encodeURIComponent(enq.company)}&ref=${encodeURIComponent(enq.id)}&destination=${encodeURIComponent(enq.country)}&product=${encodeURIComponent(enq.cutType)}&volume=${encodeURIComponent(enq.volumeMt)}`}
+                                                        target="_blank"
+                                                        style={{ background: 'rgba(140,118,62,0.15)', border: '1px solid rgba(140,118,62,0.3)', color: '#a48e56', borderRadius: '6px', padding: '0.25rem 0.55rem', fontSize: '0.8rem', cursor: 'pointer', lineHeight: 1, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                                        title="Generate Quotation"
+                                                    >
+                                                        <i className="fa-solid fa-file-invoice-dollar"></i> Quote
+                                                    </a>
+                                                    <button
+                                                        onClick={() => {
+                                                            if (window.confirm(`Delete enquiry ${enq.id}? This cannot be undone.`)) {
+                                                                deleteEnquiry(enq.id);
+                                                            }
+                                                        }}
+                                                        style={{ background: 'rgba(220,53,69,0.12)', border: '1px solid rgba(220,53,69,0.25)', color: '#e05260', borderRadius: '6px', padding: '0.25rem 0.55rem', fontSize: '0.8rem', cursor: 'pointer', lineHeight: 1 }}
+                                                        title="Delete enquiry"
+                                                    >
+                                                        <i className="fa-solid fa-trash-can"></i>
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     );

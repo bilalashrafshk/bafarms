@@ -1,6 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <script>
+        // Auth Guard: redirect to portal if not logged in
+        if (localStorage.getItem('ba_staff_logged_in') !== 'true') {
+            window.location.replace('/smartherd-portal/');
+        }
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="BA Foods - B2B Export Quotation Creator. Create official corporate quotation documents with custom freight calculations.">
@@ -1053,13 +1059,79 @@
         if (mm < 10) mm = '0' + mm;
         quoteDateInput.value = `${yyyy}-${mm}-${dd}`;
 
+        // Parse URL query parameters to auto-load lead details from the enquiries portal
+        function parseQueryParams() {
+            const params = new URLSearchParams(window.location.search);
+            if (!params.has('client') && !params.has('ref')) return null;
+
+            const client = params.get('client') || '';
+            const ref = params.get('ref') || '';
+            const dest = params.get('destination') || '';
+            const product = params.get('product') || '';
+            const weight = params.get('weight') || '—';
+
+            // Map full country name to standard code/abbreviation
+            let resolvedDest = dest;
+            const destLower = dest.toLowerCase();
+            if (destLower.includes('united arab emirates') || destLower.includes('uae')) {
+                resolvedDest = "UAE";
+            } else if (destLower.includes('saudi') || destLower.includes('jeddah')) {
+                resolvedDest = "Jeddah";
+            } else if (destLower.includes('riyadh')) {
+                resolvedDest = "Riyadh";
+            } else if (destLower.includes('dammam')) {
+                resolvedDest = "Dammam";
+            } else if (destLower.includes('qatar') || destLower.includes('doha')) {
+                resolvedDest = "Qatar";
+            } else if (destLower.includes('bahrain') || destLower.includes('manama')) {
+                resolvedDest = "Bahrain";
+            } else if (destLower.includes('uzbekistan') || destLower.includes('tashkent')) {
+                resolvedDest = "Uzbekistan";
+            } else if (destLower.includes('tajikistan') || destLower.includes('dushanbe')) {
+                resolvedDest = "Tajikistan";
+            }
+
+            // Find matching standard B2B product structure to carry default FOB & freight configs
+            const matchingProduct = demoData.products.find(p => 
+                p.title.toLowerCase().includes(product.toLowerCase()) || 
+                product.toLowerCase().includes(p.title.toLowerCase())
+            );
+
+            const activeProd = {
+                title: matchingProduct ? matchingProduct.title : (product || "Custom Product"),
+                weight: matchingProduct ? matchingProduct.weight : weight,
+                fob: matchingProduct ? matchingProduct.fob : 6.50,
+                freights: matchingProduct ? JSON.parse(JSON.stringify(matchingProduct.freights)) : {}
+            };
+
+            return {
+                clientName: client,
+                quoteRefId: ref,
+                incotermBasis: "CNF",
+                scope: resolvedDest ? "single" : "multiple",
+                targetDestination: resolvedDest || "Jeddah",
+                targetDestinations: "Jeddah, Riyadh, Dammam, Qatar, Bahrain, UAE, Uzbekistan, Tajikistan",
+                validity: "7 Days from Date of Issue",
+                terms: JSON.parse(JSON.stringify(demoData.terms)),
+                preparerName: demoData.preparerName,
+                preparerTitle: demoData.preparerTitle,
+                preparerPhone: demoData.preparerPhone,
+                products: [activeProd]
+            };
+        }
+
         // Initialize App
         function init() {
             // Load toggles handlers
             setupToggles();
             
-            // Prepopulate demo data on startup
-            loadData(demoData);
+            // Auto-populate from URL query params (if coming from leads manager)
+            const urlData = parseQueryParams();
+            if (urlData) {
+                loadData(urlData);
+            } else {
+                loadData(demoData);
+            }
 
             // Register global live sync listeners
             [clientNameInput, quoteRefInput, quoteDateInput, validityInput, targetDestInput, targetDestsInput, termsTextarea, preparerNameInput, preparerTitleInput, preparerPhoneInput].forEach(input => {
