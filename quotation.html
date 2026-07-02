@@ -698,11 +698,19 @@
 
         /* PRINT STYLES - FOR CLEAN A4 EXPORT */
         @media print {
-            body {
+            html, body {
                 background-color: #ffffff !important;
                 color: #000000 !important;
                 padding: 0 !important;
                 margin: 0 !important;
+                height: auto !important;
+                min-height: auto !important;
+                overflow: visible !important;
+            }
+
+            .app-container {
+                display: block !important;
+                min-height: auto !important;
             }
 
             .editor-panel, .action-bar, .mobile-tabs {
@@ -710,9 +718,13 @@
             }
 
             .preview-panel {
+                display: block !important;
                 margin-left: 0 !important;
                 padding: 0 !important;
                 width: 100% !important;
+                height: auto !important;
+                min-height: auto !important;
+                overflow: visible !important;
             }
 
             .letterhead-sheet {
