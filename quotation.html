@@ -845,8 +845,11 @@
                 </div>
             </div>
 
+            <!-- Tracker Action -->
+            <button class="btn-action btn-primary-action" id="btn-save-tracker" style="margin-top: 1rem; background-color: #059669; border: none;"><i class="fa-solid fa-floppy-disk"></i> Save Quote to Tracker</button>
+
             <!-- Reset Actions -->
-            <button class="btn-action btn-danger-action" id="btn-clear-all" style="margin-top: auto;"><i class="fa-solid fa-trash-can"></i> Clear All Data</button>
+            <button class="btn-action btn-danger-action" id="btn-clear-all" style="margin-top: auto; margin-bottom: 0.5rem;"><i class="fa-solid fa-trash-can"></i> Clear All Data</button>
         </aside>
 
         <!-- Preview Panel (Right Column) -->
@@ -1044,6 +1047,7 @@
         const btnAddItem = document.getElementById('btn-add-item');
         const btnQuickPreload = document.getElementById('btn-quick-preload');
         const btnClearAll = document.getElementById('btn-clear-all');
+        const btnSaveTracker = document.getElementById('btn-save-tracker');
 
         // App state
         let currentIncoterm = "CNF"; // CNF or FOB
@@ -1062,6 +1066,37 @@
         // Parse URL query parameters to auto-load lead details from the enquiries portal
         function parseQueryParams() {
             const params = new URLSearchParams(window.location.search);
+            
+            // Check if we are loading a previously saved quotation from localStorage
+            const loadSavedId = params.get('load_saved_id');
+            if (loadSavedId) {
+                const stored = localStorage.getItem('ba_quotations');
+                if (stored) {
+                    try {
+                        const storedQuotes = JSON.parse(stored);
+                        const matched = storedQuotes.find(q => q.id === loadSavedId);
+                        if (matched) {
+                            return {
+                                clientName: matched.clientName,
+                                quoteRefId: matched.id,
+                                incotermBasis: matched.incotermBasis,
+                                scope: matched.scope,
+                                targetDestination: matched.targetDestination,
+                                targetDestinations: matched.targetDestinations,
+                                validity: matched.validity,
+                                terms: matched.terms,
+                                preparerName: matched.preparerName,
+                                preparerTitle: matched.preparerTitle,
+                                preparerPhone: matched.preparerPhone,
+                                products: matched.products
+                            };
+                        }
+                    } catch(e) {
+                        console.error("Failed to parse saved quote config", e);
+                    }
+                }
+            }
+
             if (!params.has('client') && !params.has('ref')) return null;
 
             const client = params.get('client') || '';
@@ -1152,6 +1187,56 @@
                     renderProductEditor();
                     updatePreview();
                 }
+            });
+
+            btnSaveTracker.addEventListener('click', () => {
+                const quoteId = quoteRefInput.value.trim();
+                if (!quoteId) {
+                    alert("Please enter a valid Reference Number before saving.");
+                    return;
+                }
+
+                // Gather current state
+                const currentQuote = {
+                    id: quoteId,
+                    clientName: clientNameInput.value.trim(),
+                    incotermBasis: currentIncoterm,
+                    scope: currentScope,
+                    targetDestination: targetDestInput.value.trim(),
+                    targetDestinations: targetDestsInput.value.trim(),
+                    validity: validityInput.value.trim(),
+                    terms: termsTextarea.value.split('\n').map(t => t.trim()).filter(Boolean),
+                    preparerName: preparerNameInput.value.trim(),
+                    preparerTitle: preparerTitleInput.value.trim(),
+                    preparerPhone: preparerPhoneInput.value.trim(),
+                    products: JSON.parse(JSON.stringify(activeProducts)),
+                    createdAt: quoteDateInput.value,
+                    status: "Sent" // default initial status when saved
+                };
+
+                // Get existing list of quotes from localStorage
+                let storedQuotes = [];
+                const stored = localStorage.getItem('ba_quotations');
+                if (stored) {
+                    try {
+                        storedQuotes = JSON.parse(stored);
+                    } catch(e) {
+                        console.error("Failed to parse stored quotations", e);
+                    }
+                }
+
+                // Check if quote reference already exists, if so overwrite, else prepend
+                const existingIndex = storedQuotes.findIndex(q => q.id === quoteId);
+                if (existingIndex !== -1) {
+                    currentQuote.status = storedQuotes[existingIndex].status || "Sent";
+                    storedQuotes[existingIndex] = currentQuote;
+                    alert(`Quotation ${quoteId} updated successfully in the tracker!`);
+                } else {
+                    storedQuotes.unshift(currentQuote);
+                    alert(`Quotation ${quoteId} saved successfully to the tracker!`);
+                }
+
+                localStorage.setItem('ba_quotations', JSON.stringify(storedQuotes));
             });
 
             // Mobile Tabs
