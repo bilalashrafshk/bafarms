@@ -5,9 +5,13 @@ export default function EnquiriesManager() {
     const { enquiries, updateEnquiryStatus, deleteEnquiry } = useContext(FarmContext);
     const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'New' | 'Contacted' | 'Closed'
     const [searchQuery, setSearchQuery] = useState('');
-    const [activeSubTab, setActiveSubTab] = useState('leads'); // 'leads' | 'quotes'
+    const [activeSubTab, setActiveSubTab] = useState('leads'); // 'leads' | 'quotes' | 'specs'
     const [quotations, setQuotations] = useState(() => {
         const stored = localStorage.getItem('ba_quotations');
+        return stored ? JSON.parse(stored) : [];
+    });
+    const [specSheets, setSpecSheets] = useState(() => {
+        const stored = localStorage.getItem('ba_spec_sheets');
         return stored ? JSON.parse(stored) : [];
     });
 
@@ -25,6 +29,14 @@ export default function EnquiriesManager() {
         }
     };
 
+    const deleteSpecSheet = (refId) => {
+        if (window.confirm(`Delete spec sheet ${refId}? This cannot be undone.`)) {
+            const updated = specSheets.filter(s => s.docRef !== refId);
+            localStorage.setItem('ba_spec_sheets', JSON.stringify(updated));
+            setSpecSheets(updated);
+        }
+    };
+
     useEffect(() => {
         const handleFocus = () => {
             const stored = localStorage.getItem('ba_quotations');
@@ -33,6 +45,14 @@ export default function EnquiriesManager() {
                     setQuotations(JSON.parse(stored));
                 } catch(e) {
                     console.error("Failed to parse quotations on focus", e);
+                }
+            }
+            const storedSpecs = localStorage.getItem('ba_spec_sheets');
+            if (storedSpecs) {
+                try {
+                    setSpecSheets(JSON.parse(storedSpecs));
+                } catch(e) {
+                    console.error("Failed to parse spec sheets on focus", e);
                 }
             }
         };
@@ -137,6 +157,13 @@ export default function EnquiriesManager() {
                     style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '38px', fontSize: '0.85rem' }}
                 >
                     <i className="fa-solid fa-file-invoice-dollar"></i> Saved Quotations Tracker ({quotations.length})
+                </button>
+                <button 
+                    className={`btn ${activeSubTab === 'specs' ? 'btn-primary' : 'btn-secondary'}`} 
+                    onClick={() => setActiveSubTab('specs')}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '38px', fontSize: '0.85rem' }}
+                >
+                    <i className="fa-solid fa-file-shield"></i> Saved Spec Sheets ({specSheets.length})
                 </button>
             </div>
 
@@ -258,7 +285,7 @@ export default function EnquiriesManager() {
                                                     </div>
                                                 </td>
                                                 <td>
-                                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
                                                         <a 
                                                             href={`/quotation.html?client=${encodeURIComponent(enq.company)}&ref=${encodeURIComponent(enq.id)}&destination=${encodeURIComponent(enq.country)}&product=${encodeURIComponent(enq.cutType)}&volume=${encodeURIComponent(enq.volumeMt)}`}
                                                             target="_blank"
@@ -266,6 +293,14 @@ export default function EnquiriesManager() {
                                                             title="Generate Quotation"
                                                         >
                                                             <i className="fa-solid fa-file-invoice-dollar"></i> Quote
+                                                        </a>
+                                                        <a 
+                                                            href={`/spec-sheet.html?product=${encodeURIComponent(enq.cutType)}&client=${encodeURIComponent(enq.contact)}&ref=${encodeURIComponent(enq.id)}`}
+                                                            target="_blank"
+                                                            style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', color: '#60a5fa', borderRadius: '6px', padding: '0.25rem 0.55rem', fontSize: '0.8rem', cursor: 'pointer', lineHeight: 1, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                                            title="Generate Spec Sheet"
+                                                        >
+                                                            <i className="fa-solid fa-file-shield"></i> Spec
                                                         </a>
                                                         <button
                                                             onClick={() => {
@@ -288,7 +323,7 @@ export default function EnquiriesManager() {
                         )}
                     </div>
                 </div>
-            ) : (
+            ) : activeSubTab === 'quotes' ? (
                 /* Saved Quotations Tracker list view */
                 <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
                     
@@ -403,6 +438,98 @@ export default function EnquiriesManager() {
                                             </tr>
                                         );
                                     })}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                </div>
+            ) : (
+                /* Saved Spec Sheets Tracker list view */
+                <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+                    
+                    <div className="table-filters" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '1rem', marginBottom: '1rem' }}>
+                        
+                        <h3 style={{ fontSize: '1.05rem', color: 'var(--accent-gold)', display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0 }}>
+                            <i className="fa-solid fa-file-shield"></i> Active Product Spec Sheets
+                        </h3>
+
+                        <a 
+                            href="/spec-sheet.html" 
+                            target="_blank" 
+                            className="btn btn-primary"
+                            style={{ minHeight: '36px', fontSize: '0.85rem', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+                        >
+                            <i className="fa-solid fa-plus"></i> Create Blank Spec
+                        </a>
+
+                    </div>
+
+                    <div className="table-wrapper" style={{ overflowY: 'auto', flex: 1 }}>
+                        {specSheets.length === 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem 1rem', color: 'var(--text-muted)' }}>
+                                <i className="fa-solid fa-file-shield" style={{ fontSize: '3rem', marginBottom: '1rem', color: 'rgba(255,255,255,0.05)' }}></i>
+                                <h3>No saved spec sheets</h3>
+                                <p style={{ fontSize: '0.85rem' }}>Save spec sheets from the Spec Sheet Creator to track them here.</p>
+                            </div>
+                        ) : (
+                            <table className="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Ref / Date</th>
+                                        <th>Product Name</th>
+                                        <th>Client Buyer</th>
+                                        <th>Category</th>
+                                        <th>Form / State</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {specSheets.map(spec => (
+                                        <tr key={spec.docRef}>
+                                            <td>
+                                                <strong style={{ color: 'var(--accent-gold)' }}>{spec.docRef}</strong>
+                                                <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                                                    {formatDate(spec.createdAt)}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <strong>{spec.idName}</strong>
+                                                <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                                                    SKU: {spec.idSku || '—'}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <strong>{spec.clientName || 'N/A'}</strong>
+                                            </td>
+                                            <td>
+                                                {spec.idCategory || '—'}
+                                            </td>
+                                            <td>
+                                                <span className="badge-pen" style={{ background: 'rgba(59,130,246,0.05)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.1)' }}>
+                                                    {spec.specForm || '—'}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                    <a 
+                                                        href={`/spec-sheet.html?load_saved_id=${encodeURIComponent(spec.docRef)}`}
+                                                        target="_blank"
+                                                        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-pure)', borderRadius: '6px', padding: '0.25rem 0.55rem', fontSize: '0.8rem', cursor: 'pointer', lineHeight: 1, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                                        title="Edit/View Spec Sheet"
+                                                    >
+                                                        <i className="fa-solid fa-pen-to-square"></i> Open
+                                                    </a>
+                                                    <button
+                                                        onClick={() => deleteSpecSheet(spec.docRef)}
+                                                        style={{ background: 'rgba(220,53,69,0.12)', border: '1px solid rgba(220,53,69,0.25)', color: '#e05260', borderRadius: '6px', padding: '0.25rem 0.55rem', fontSize: '0.8rem', cursor: 'pointer', lineHeight: 1 }}
+                                                        title="Delete spec sheet record"
+                                                    >
+                                                        <i className="fa-solid fa-trash-can"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
                                 </tbody>
                             </table>
                         )}

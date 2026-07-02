@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+        // Auth Guard: redirect to portal if not logged in
+        if (localStorage.getItem('ba_staff_logged_in') !== 'true') {
+            window.location.replace('/smartherd-portal/');
+        }
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="BA Foods - B2B Product Specification Sheet Creator. Create and print official halal beef and meat product spec sheets.">
+    <title>Product Specification Sheet Creator | BA Foods</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="/assets/favicon.png">
+
+    <!-- Premium Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        :root {
+            --primary-green: #1e3d2f;
+            --primary-green-light: #295741;
+            --accent-gold: #8c763e;
+            --accent-gold-light: #a48e56;
+            --bg-page: #f0f2f5;
+            --bg-sheet: #ffffff;
+            --text-dark: #1f2937;
+            --text-medium: #4b5563;
+            --text-light: #9ca3af;
+            --border-color: #e5e7eb;
+            --font-heading: 'Outfit', sans-serif;
+            --font-body: 'Inter', sans-serif;
+            
+            /* Creator App Specific Colors */
+            --sidebar-width: 420px;
+            --sidebar-bg: #111827;
+            --sidebar-text: #f3f4f6;
+            --sidebar-border: #374151;
+            --sidebar-accent: #3b82f6;
+            --sidebar-accent-hover: #2563eb;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-page);
+            color: var(--text-dark);
+            font-family: var(--font-body);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            min-height: 100vh;
+        }
+
+        /* App Container Layout */
+        .app-container {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar Editor Panel (Left Column) */
+        .editor-panel {
+            width: var(--sidebar-width);
+            background-color: var(--sidebar-bg);
+            color: var(--sidebar-text);
+            border-right: 1px solid var(--sidebar-border);
+            padding: 1.75rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            height: 100vh;
+            overflow-y: auto;
+            position: fixed;
+            left: 0;
+            top: 0;
+            z-index: 100;
+        }
+
+        .editor-header {
+            border-bottom: 1px solid var(--sidebar-border);
+            padding-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .editor-header i {
+            color: var(--accent-gold);
+            font-size: 1.5rem;
+        }
+
+        .editor-header h2 {
+            font-family: var(--font-heading);
+            font-size: 1.3rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        /* Sidebar Forms and Cards */
+        .form-card {
+            background-color: #1f2937;
+            border: 1px solid var(--sidebar-border);
+            border-radius: 8px;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .form-card-title {
+            font-family: var(--font-heading);
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--accent-gold-light);
+            border-bottom: 1px solid var(--sidebar-border);
+            padding-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        .form-group label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #9ca3af;
+        }
+
+        .form-control {
+            background-color: #111827;
+            border: 1px solid var(--sidebar-border);
+            border-radius: 6px;
+            color: white;
+            padding: 0.55rem 0.75rem;
+            font-size: 0.85rem;
+            font-family: var(--font-body);
+            width: 100%;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .form-control:focus {
+            border-color: var(--accent-gold);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+        }
+
+        /* Buttons styling */
+        .btn-action {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.6rem 1rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+
+        .btn-primary-action {
+            background-color: var(--accent-gold);
+            color: white;
+        }
+
+        .btn-primary-action:hover {
+            background-color: var(--accent-gold-light);
+        }
+
+        .btn-secondary-action {
+            background-color: #374151;
+            color: var(--sidebar-text);
+            border: 1px solid var(--sidebar-border);
+        }
+
+        .btn-secondary-action:hover {
+            background-color: #4b5563;
+        }
+
+        .btn-danger-action {
+            background-color: #991b1b;
+            color: white;
+        }
+
+        .btn-danger-action:hover {
+            background-color: #b91c1c;
+        }
+
+        /* Preview Area (Right Column) */
+        .preview-panel {
+            flex-grow: 1;
+            margin-left: var(--sidebar-width);
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        /* Action Bar (Top Navigation) */
+        .action-bar {
+            width: 100%;
+            max-width: 800px;
+            margin-bottom: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Letterhead Sheet Layout (Capability Sheet Style) */
+        .letterhead-sheet {
+            background-color: var(--bg-sheet);
+            width: 100%;
+            max-width: 800px;
+            min-height: 1120px; /* A4 Ratio approximate */
+            padding: 3rem;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+            position: relative;
+            border-top: 10px solid var(--primary-green);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* Solid Colored Corporate Header Banner */
+        .spec-banner {
+            background-color: var(--primary-green);
+            color: white;
+            text-align: center;
+            padding: 1.5rem;
+            border-radius: 4px;
+            margin-bottom: 0.75rem;
+        }
+
+        .spec-banner h1 {
+            font-family: var(--font-heading);
+            font-size: 1.8rem;
+            font-weight: 800;
+            letter-spacing: 0.03em;
+            line-height: 1.1;
+        }
+
+        .spec-banner p.sub-brand {
+            font-family: var(--font-heading);
+            font-size: 0.85rem;
+            color: var(--accent-gold-light);
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            margin-top: 0.25rem;
+        }
+
+        .spec-banner h2.title-doc {
+            font-family: var(--font-heading);
+            font-size: 1.2rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            margin-top: 0.6rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            padding-top: 0.5rem;
+        }
+
+        .banner-footer-info {
+            text-align: center;
+            font-size: 0.7rem;
+            color: var(--text-medium);
+            margin-bottom: 1.25rem;
+            line-height: 1.4;
+        }
+
+        .banner-footer-info .sep {
+            color: var(--accent-gold);
+            margin: 0 0.35rem;
+            font-weight: bold;
+        }
+
+        .fill-instruction {
+            font-size: 0.72rem;
+            font-style: italic;
+            color: var(--text-light);
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+
+        /* Metadata Box */
+        .spec-meta-box {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            background-color: #fafbfc;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.78rem;
+        }
+
+        .meta-item {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px dashed var(--border-color);
+            padding-bottom: 0.25rem;
+        }
+
+        .meta-item:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .meta-item label {
+            font-weight: 700;
+            color: var(--primary-green);
+            text-transform: uppercase;
+            font-size: 0.72rem;
+        }
+
+        .meta-item span {
+            color: var(--text-dark);
+            font-weight: 500;
+        }
+
+        /* Specifications Tables */
+        .specs-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            flex-grow: 1;
+            margin-bottom: 1.5rem;
+        }
+
+        .spec-block {
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .spec-block-title {
+            background-color: #f3f4f6;
+            color: var(--primary-green);
+            font-family: var(--font-heading);
+            font-size: 0.82rem;
+            font-weight: 700;
+            padding: 0.4rem 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+
+        .spec-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.76rem;
+        }
+
+        .spec-table tr {
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        .spec-table tr:last-child {
+            border-bottom: none;
+        }
+
+        .spec-table td {
+            padding: 0.45rem 0.75rem;
+            vertical-align: middle;
+        }
+
+        .spec-table td.label-col {
+            font-weight: 700;
+            color: var(--text-medium);
+            width: 32%;
+            background-color: #fafbfc;
+            border-right: 1px solid #f3f4f6;
+        }
+
+        .spec-table td.value-col {
+            color: var(--text-dark);
+            font-weight: 500;
+        }
+
+        /* Stamps and footers */
+        .sheet-footer {
+            border-top: 1px dashed var(--accent-gold);
+            padding-top: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .footer-stamp-area {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .stamp-badge {
+            border: 2px double var(--primary-green);
+            color: var(--primary-green);
+            padding: 0.35rem 0.65rem;
+            border-radius: 6px;
+            font-family: var(--font-heading);
+            font-weight: 800;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            line-height: 1.1;
+            transform: rotate(-3deg);
+            background: rgba(30, 61, 47, 0.02);
+        }
+
+        .stamp-badge span:first-child {
+            font-size: 0.55rem;
+            color: var(--accent-gold);
+        }
+
+        .stamp-text {
+            font-size: 0.65rem;
+            color: var(--text-medium);
+            max-width: 250px;
+            line-height: 1.3;
+        }
+
+        .signature-area {
+            text-align: right;
+            font-size: 0.7rem;
+        }
+
+        .signature-line {
+            width: 140px;
+            border-bottom: 1px solid var(--text-dark);
+            margin-bottom: 0.3rem;
+            margin-left: auto;
+        }
+
+        .signature-title {
+            font-weight: 700;
+            color: var(--primary-green);
+            font-size: 0.75rem;
+        }
+
+        .signature-subtitle {
+            font-size: 0.65rem;
+            color: var(--text-medium);
+        }
+
+        .bottom-border-graphics {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 5px;
+            background: linear-gradient(to right, var(--primary-green) 70%, var(--accent-gold) 30%);
+            border-radius: 0 0 8px 8px;
+        }
+
+        /* Mobile View Toggle bar */
+        .mobile-tabs {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: #111827;
+            border-top: 1px solid var(--sidebar-border);
+            z-index: 1000;
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .mobile-tab-btn {
+            background: none;
+            border: none;
+            color: #9ca3af;
+            padding: 0.9rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .mobile-tab-btn.active {
+            color: white;
+            background-color: #1f2937;
+            border-top: 3px solid var(--accent-gold);
+        }
+
+        /* PRINT STYLES */
+        @media print {
+            html, body {
+                background-color: #ffffff !important;
+                color: #000000 !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                height: auto !important;
+                min-height: auto !important;
+                overflow: visible !important;
+            }
+
+            .editor-panel, .action-bar, .mobile-tabs {
+                display: none !important;
+            }
+
+            .preview-panel {
+                display: block !important;
+                margin-left: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+                height: auto !important;
+                min-height: auto !important;
+                overflow: visible !important;
+            }
+
+            .letterhead-sheet {
+                box-shadow: none !important;
+                border-radius: 0 !important;
+                border-top: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                max-width: 100% !important;
+                min-height: auto !important;
+            }
+
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
+            .spec-banner {
+                background-color: var(--primary-green) !important;
+                color: white !important;
+            }
+
+            .spec-block-title {
+                background-color: #f3f4f6 !important;
+            }
+
+            .bottom-border-graphics {
+                display: none !important;
+            }
+        }
+
+        /* Responsive Layouts */
+        @media (max-width: 1024px) {
+            .app-container {
+                flex-direction: column;
+            }
+            .editor-panel {
+                width: 100%;
+                height: auto;
+                position: relative;
+                padding-bottom: 4.5rem;
+            }
+            .preview-panel {
+                margin-left: 0;
+                width: 100%;
+                padding: 1rem;
+                padding-bottom: 5rem;
+            }
+            .editor-panel.hidden-mobile {
+                display: none;
+            }
+            .preview-panel.hidden-mobile {
+                display: none;
+            }
+            .mobile-tabs {
+                display: grid;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+
+        <!-- Editor Panel -->
+        <aside class="editor-panel" id="editor-panel">
+            <div class="editor-header">
+                <i class="fa-solid fa-file-shield"></i>
+                <h2>Spec Sheet Engine</h2>
+            </div>
+
+            <!-- Card 1: Meta Details -->
+            <div class="form-card">
+                <div class="form-card-title">Document & Client Info</div>
+                <div class="form-group">
+                    <label for="client-name">Prepared For (Client)</label>
+                    <input type="text" id="client-name" class="form-control" value="Mazhar Shaikh">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="doc-ref">Reference #</label>
+                        <input type="text" id="doc-ref" class="form-control" value="BAS-20260703-01">
+                    </div>
+                    <div class="form-group">
+                        <label for="doc-date">Date of Issue</label>
+                        <input type="date" id="doc-date" class="form-control">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 2: Product Identification -->
+            <div class="form-card">
+                <div class="form-card-title">1. Product Identification</div>
+                <div class="form-group">
+                    <label for="id-name">Product Name</label>
+                    <input type="text" id="id-name" class="form-control" value="Beef Striploin, Boneless">
+                </div>
+                <div class="form-group">
+                    <label for="id-category">Product Category</label>
+                    <input type="text" id="id-category" class="form-control" value="Primal Cut">
+                </div>
+                <div class="form-group">
+                    <label for="id-spec">Cut Specification</label>
+                    <input type="text" id="id-spec" class="form-control" value="Boneless, denuded, 0-3mm trim">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="id-hs">HS Code</label>
+                        <input type="text" id="id-hs" class="form-control" value="0201 chilled">
+                    </div>
+                    <div class="form-group">
+                        <label for="id-sku">Product Code / SKU</label>
+                        <input type="text" id="id-sku" class="form-control" value="BAF-SL-01">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 3: Origin & Source -->
+            <div class="form-card">
+                <div class="form-card-title">2. Origin & Source</div>
+                <div class="form-group">
+                    <label for="origin-country">Country of Origin</label>
+                    <input type="text" id="origin-country" class="form-control" value="Pakistan (Punjab)">
+                </div>
+                <div class="form-group">
+                    <label for="origin-supply">Supply Base</label>
+                    <input type="text" id="origin-supply" class="form-control" value="Own 1,000-head fattening farm, Khurrianwala">
+                </div>
+                <div class="form-group">
+                    <label for="origin-breed">Breed</label>
+                    <input type="text" id="origin-breed" class="form-control" value="Crossbred (Sahiwal x Friesian)">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="origin-feed">Feed / Finish</label>
+                        <input type="text" id="origin-feed" class="form-control" value="Grain-finished ration">
+                    </div>
+                    <div class="form-group">
+                        <label for="origin-age">Animal Age Range</label>
+                        <input type="text" id="origin-age" class="form-control" value="18–24 months">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 4: Product Specification -->
+            <div class="form-card">
+                <div class="form-card-title">3. Product Specification</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="spec-form">Form / State</label>
+                        <input type="text" id="spec-form" class="form-control" value="Chilled">
+                    </div>
+                    <div class="form-group">
+                        <label for="spec-weight">Weight Range per Piece</label>
+                        <input type="text" id="spec-weight" class="form-control" value="3.5–5.0 kg">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="spec-color">Colour</label>
+                    <input type="text" id="spec-color" class="form-control" value="Bright cherry red">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="spec-ph">pH (if measured)</label>
+                        <input type="text" id="spec-ph" class="form-control" value="5.4–5.8">
+                    </div>
+                    <div class="form-group">
+                        <label for="spec-bone">Bone-in / Boneless</label>
+                        <input type="text" id="spec-bone" class="form-control" value="Boneless">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="spec-trim">Fat / Trim Level</label>
+                    <input type="text" id="spec-trim" class="form-control" value="≤ 5mm surface fat">
+                </div>
+            </div>
+
+            <!-- Card 5: Packaging -->
+            <div class="form-card">
+                <div class="form-card-title">4. Packaging</div>
+                <div class="form-group">
+                    <label for="pack-primary">Primary Packaging</label>
+                    <input type="text" id="pack-primary" class="form-control" value="High-barrier vacuum skin packing (VSP)">
+                </div>
+                <div class="form-group">
+                    <label for="pack-secondary">Secondary Packaging</label>
+                    <input type="text" id="pack-secondary" class="form-control" value="Heavy-duty export-worthy carton">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="pack-pieces">Pieces per Carton</label>
+                        <input type="text" id="pack-pieces" class="form-control" value="4–6 pieces">
+                    </div>
+                    <div class="form-group">
+                        <label for="pack-weight">Carton Net Weight</label>
+                        <input type="text" id="pack-weight" class="form-control" value="20 kg — to buyer spec">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="pack-labelling">Labelling</label>
+                    <input type="text" id="pack-labelling" class="form-control" value="Product, weight, batch, halal mark, origin">
+                </div>
+            </div>
+
+            <!-- Card 6: Storage & Shelf Life -->
+            <div class="form-card">
+                <div class="form-card-title">5. Storage & Shelf Life</div>
+                <div class="form-group">
+                    <label for="store-temp">Storage Temp</label>
+                    <input type="text" id="store-temp" class="form-control" value="Chilled (0 to 2 °C) / Frozen (-18 °C or below)">
+                </div>
+                <div class="form-group">
+                    <label for="store-life">Shelf Life</label>
+                    <input type="text" id="store-life" class="form-control" value="Chilled: 90 days vacuum packed / Frozen: 1 year">
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <button class="btn-action btn-primary-action" id="btn-save-spec" style="margin-top: 1rem; background-color: #059669; border: none;"><i class="fa-solid fa-floppy-disk"></i> Save Spec Sheet</button>
+            <button class="btn-action btn-danger-action" id="btn-clear-spec" style="margin-top: auto; margin-bottom: 0.5rem;"><i class="fa-solid fa-trash-can"></i> Reset Sheet</button>
+        </aside>
+
+        <!-- Preview Panel -->
+        <main class="preview-panel hidden-mobile" id="preview-panel">
+            <!-- Action Bar -->
+            <div class="action-bar">
+                <a href="/" class="btn-action btn-secondary-action" style="padding: 0.5rem 1rem;">
+                    <i class="fa-solid fa-arrow-left"></i> Back to Home
+                </a>
+                <button onclick="window.print()" class="btn-action btn-primary-action" style="padding: 0.5rem 1.25rem;">
+                    <i class="fa-solid fa-file-pdf"></i> Print / Save PDF
+                </button>
+            </div>
+
+            <!-- Document Sheet -->
+            <div class="letterhead-sheet">
+                <div class="doc-content">
+                    <!-- Banner -->
+                    <div class="spec-banner">
+                        <h1>BA FOODS</h1>
+                        <p class="sub-brand">Halal Beef Export House</p>
+                        <h2 class="title-doc">PRODUCT SPECIFICATION SHEET</h2>
+                    </div>
+
+                    <!-- Banner Info -->
+                    <div class="banner-footer-info">
+                        Division of BA Farms Agro-Complex <span class="sep">•</span> Khurrianwala, Faisalabad, Punjab, Pakistan<br>
+                        sales@bafoods.pk <span class="sep">•</span> +92-327-8585556 <span class="sep">•</span> www.bafoods.pk
+                    </div>
+
+                    <!-- Instruction -->
+                    <div class="fill-instruction">Official technical specifications sheet per product/cut.</div>
+
+                    <!-- Meta Data -->
+                    <div class="spec-meta-box">
+                        <div>
+                            <div class="meta-item">
+                                <label>Client / Buyer:</label>
+                                <span id="preview-client">Mazhar Shaikh</span>
+                            </div>
+                            <div class="meta-item" style="margin-top: 0.25rem;">
+                                <label>Reference #:</label>
+                                <span id="preview-ref">BAS-20260703-01</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="meta-item">
+                                <label>Date of Issue:</label>
+                                <span id="preview-date">03/07/2026</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Specs Sections -->
+                    <div class="specs-container">
+                        <!-- Section 1 -->
+                        <div class="spec-block">
+                            <div class="spec-block-title">1. Product Identification</div>
+                            <table class="spec-table">
+                                <tr>
+                                    <td class="label-col">Product Name</td>
+                                    <td class="value-col" id="preview-id-name">Beef Striploin, Boneless</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Product Category</td>
+                                    <td class="value-col" id="preview-id-category">Primal Cut</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Cut Specification</td>
+                                    <td class="value-col" id="preview-id-spec">Boneless, denuded, 0-3mm trim</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">HS Code</td>
+                                    <td class="value-col" id="preview-id-hs">0201 chilled</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Product Code / SKU</td>
+                                    <td class="value-col" id="preview-id-sku">BAF-SL-01</td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <!-- Section 2 -->
+                        <div class="spec-block">
+                            <div class="spec-block-title">2. Origin & Source</div>
+                            <table class="spec-table">
+                                <tr>
+                                    <td class="label-col">Country of Origin</td>
+                                    <td class="value-col" id="preview-origin-country">Pakistan (Punjab)</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Supply Base</td>
+                                    <td class="value-col" id="preview-origin-supply">Own 1,000-head fattening farm, Khurrianwala</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Breed</td>
+                                    <td class="value-col" id="preview-origin-breed">Crossbred (Sahiwal x Friesian)</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Feed / Finish</td>
+                                    <td class="value-col" id="preview-origin-feed">Grain-finished ration</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Animal Age Range</td>
+                                    <td class="value-col" id="preview-origin-age">18–24 months</td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <!-- Section 3 -->
+                        <div class="spec-block">
+                            <div class="spec-block-title">3. Product Specification</div>
+                            <table class="spec-table">
+                                <tr>
+                                    <td class="label-col">Form / State</td>
+                                    <td class="value-col" id="preview-spec-form">Chilled</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Weight Range per Piece</td>
+                                    <td class="value-col" id="preview-spec-weight">3.5–5.0 kg</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Colour</td>
+                                    <td class="value-col" id="preview-spec-color">Bright cherry red</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">pH (if measured)</td>
+                                    <td class="value-col" id="preview-spec-ph">5.4–5.8</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Fat / Trim Level</td>
+                                    <td class="value-col" id="preview-spec-trim">≤ 5mm surface fat</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Bone-in / Boneless</td>
+                                    <td class="value-col" id="preview-spec-bone">Boneless</td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <!-- Section 4 -->
+                        <div class="spec-block">
+                            <div class="spec-block-title">4. Packaging</div>
+                            <table class="spec-table">
+                                <tr>
+                                    <td class="label-col">Primary Packaging</td>
+                                    <td class="value-col" id="preview-pack-primary">High-barrier vacuum skin packing (VSP)</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Secondary Packaging</td>
+                                    <td class="value-col" id="preview-pack-secondary">Heavy-duty export-worthy carton</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Pieces per Carton</td>
+                                    <td class="value-col" id="preview-pack-pieces">4–6 pieces</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Carton Net Weight</td>
+                                    <td class="value-col" id="preview-pack-weight">20 kg — to buyer spec</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Labelling</td>
+                                    <td class="value-col" id="preview-pack-labelling">Product, weight, batch, halal mark, origin</td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <!-- Section 5 -->
+                        <div class="spec-block">
+                            <div class="spec-block-title">5. Storage & Shelf Life</div>
+                            <table class="spec-table">
+                                <tr>
+                                    <td class="label-col">Storage Temp</td>
+                                    <td class="value-col" id="preview-store-temp">Chilled (0 to 2 °C) / Frozen (-18 °C or below)</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Shelf Life</td>
+                                    <td class="value-col" id="preview-store-life">Chilled: 90 days vacuum packed / Frozen: 1 year</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer Stamp & Signatures -->
+                <footer class="sheet-footer">
+                    <div class="footer-stamp-area">
+                        <div class="stamp-badge">
+                            <span>BA FOODS</span>
+                            <span>OFFICIAL SPEC</span>
+                            <span>CERTIFIED</span>
+                        </div>
+                        <div class="stamp-text">
+                            Produced under strict veterinary supervision at government-licensed export facilities in Pakistan.
+                        </div>
+                    </div>
+                    
+                    <div class="signature-area">
+                        <div class="signature-line"></div>
+                        <div class="signature-title">Bilal Ashraf</div>
+                        <div class="signature-subtitle">Managing Director / Export Desk</div>
+                        <div class="signature-subtitle" style="color: var(--primary-green); font-weight: 600; margin-top: 0.1rem;">
+                            <i class="fa-brands fa-whatsapp"></i> +92-327-8585556
+                        </div>
+                    </div>
+                </footer>
+
+                <!-- Graphic bottom border -->
+                <div class="bottom-border-graphics"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Mobile Tabs -->
+    <div class="mobile-tabs">
+        <button class="mobile-tab-btn active" id="btn-tab-edit"><i class="fa-solid fa-pen-to-square"></i> Settings</button>
+        <button class="mobile-tab-btn" id="btn-tab-preview"><i class="fa-solid fa-file-lines"></i> View Preview</button>
+    </div>
+
+    <script>
+        const inputs = {
+            clientName: document.getElementById('client-name'),
+            docRef: document.getElementById('doc-ref'),
+            docDate: document.getElementById('doc-date'),
+            idName: document.getElementById('id-name'),
+            idCategory: document.getElementById('id-category'),
+            idSpec: document.getElementById('id-spec'),
+            idHs: document.getElementById('id-hs'),
+            idSku: document.getElementById('id-sku'),
+            originCountry: document.getElementById('origin-country'),
+            originSupply: document.getElementById('origin-supply'),
+            originBreed: document.getElementById('origin-breed'),
+            originFeed: document.getElementById('origin-feed'),
+            originAge: document.getElementById('origin-age'),
+            specForm: document.getElementById('spec-form'),
+            specWeight: document.getElementById('spec-weight'),
+            specColor: document.getElementById('spec-color'),
+            specPh: document.getElementById('spec-ph'),
+            specTrim: document.getElementById('spec-trim'),
+            specBone: document.getElementById('spec-bone'),
+            packPrimary: document.getElementById('pack-primary'),
+            packSecondary: document.getElementById('pack-secondary'),
+            packPieces: document.getElementById('pack-pieces'),
+            packWeight: document.getElementById('pack-weight'),
+            packLabelling: document.getElementById('pack-labelling'),
+            storeTemp: document.getElementById('store-temp'),
+            storeLife: document.getElementById('store-life')
+        };
+
+        const previews = {
+            clientName: document.getElementById('preview-client'),
+            docRef: document.getElementById('preview-ref'),
+            docDate: document.getElementById('preview-date'),
+            idName: document.getElementById('preview-id-name'),
+            idCategory: document.getElementById('preview-id-category'),
+            idSpec: document.getElementById('preview-id-spec'),
+            idHs: document.getElementById('preview-id-hs'),
+            idSku: document.getElementById('preview-id-sku'),
+            originCountry: document.getElementById('preview-origin-country'),
+            originSupply: document.getElementById('preview-origin-supply'),
+            originBreed: document.getElementById('preview-origin-breed'),
+            originFeed: document.getElementById('preview-origin-feed'),
+            originAge: document.getElementById('preview-origin-age'),
+            specForm: document.getElementById('preview-spec-form'),
+            specWeight: document.getElementById('preview-spec-weight'),
+            specColor: document.getElementById('preview-spec-color'),
+            specPh: document.getElementById('preview-spec-ph'),
+            specTrim: document.getElementById('preview-spec-trim'),
+            specBone: document.getElementById('preview-spec-bone'),
+            packPrimary: document.getElementById('preview-pack-primary'),
+            packSecondary: document.getElementById('preview-pack-secondary'),
+            packPieces: document.getElementById('preview-pack-pieces'),
+            packWeight: document.getElementById('preview-pack-weight'),
+            packLabelling: document.getElementById('preview-pack-labelling'),
+            storeTemp: document.getElementById('preview-store-temp'),
+            storeLife: document.getElementById('preview-store-life')
+        };
+
+        const defaultData = {
+            clientName: "Mazhar Shaikh",
+            docRef: "BAS-20260703-01",
+            idName: "Beef Striploin, Boneless",
+            idCategory: "Primal Cut",
+            idSpec: "Boneless, denuded, 0-3mm trim",
+            idHs: "0201 chilled",
+            idSku: "BAF-SL-01",
+            originCountry: "Pakistan (Punjab)",
+            originSupply: "Own 1,000-head fattening farm, Khurrianwala",
+            originBreed: "Crossbred (Sahiwal x Friesian)",
+            originFeed: "Grain-finished ration",
+            originAge: "18–24 months",
+            specForm: "Chilled",
+            specWeight: "3.5–5.0 kg",
+            specColor: "Bright cherry red",
+            specPh: "5.4–5.8",
+            specTrim: "≤ 5mm surface fat",
+            specBone: "Boneless",
+            packPrimary: "High-barrier vacuum skin packing (VSP)",
+            packSecondary: "Heavy-duty export-worthy carton",
+            packPieces: "4–6 pieces",
+            packWeight: "20 kg — to buyer spec",
+            packLabelling: "Product, weight, batch, halal mark, origin",
+            storeTemp: "Chilled (0 to 2 °C) / Frozen (-18 °C or below)",
+            storeLife: "Chilled: 90 days vacuum packed / Frozen: 1 year"
+        };
+
+        // Set default date
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        let mm = today.getMonth() + 1;
+        let dd = today.getDate();
+        if (dd < 10) dd = '0' + dd;
+        if (mm < 10) mm = '0' + mm;
+        inputs.docDate.value = `${yyyy}-${mm}-${dd}`;
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '';
+            const parts = dateStr.split('-');
+            if (parts.length === 3) {
+                return `${parts[2]}/${parts[1]}/${parts[0]}`;
+            }
+            return dateStr;
+        }
+
+        function updatePreview() {
+            Object.keys(inputs).forEach(key => {
+                let val = inputs[key].value;
+                if (key === 'docDate') val = formatDate(val);
+                if (previews[key]) {
+                    previews[key].textContent = val || '—';
+                }
+            });
+        }
+
+        function loadData(data) {
+            Object.keys(data).forEach(key => {
+                if (inputs[key]) inputs[key].value = data[key];
+            });
+            if (data.docDate) inputs.docDate.value = data.docDate;
+            else inputs.docDate.value = `${yyyy}-${mm}-${dd}`;
+            updatePreview();
+        }
+
+        function parseQueryParams() {
+            const params = new URLSearchParams(window.location.search);
+            const loadSavedId = params.get('load_saved_id');
+            if (loadSavedId) {
+                const stored = localStorage.getItem('ba_spec_sheets');
+                if (stored) {
+                    try {
+                        const storedSpecs = JSON.parse(stored);
+                        const matched = storedSpecs.find(s => s.docRef === loadSavedId);
+                        if (matched) return matched;
+                    } catch(e) {
+                        console.error("Failed to parse saved spec", e);
+                    }
+                }
+            }
+
+            if (!params.has('product')) return null;
+
+            const product = params.get('product') || '';
+            const client = params.get('client') || 'Mazhar Shaikh';
+            const ref = params.get('ref') ? `BAS-${params.get('ref').split('-').slice(1).join('-')}` : `BAS-${yyyy}${mm}${dd}-${Math.floor(10 + Math.random() * 90)}`;
+
+            return {
+                ...defaultData,
+                clientName: client,
+                docRef: ref,
+                idName: product
+            };
+        }
+
+        function init() {
+            // Live preview binding
+            Object.keys(inputs).forEach(key => {
+                inputs[key].addEventListener('input', updatePreview);
+            });
+
+            // Parse URL parameters
+            const urlData = parseQueryParams();
+            if (urlData) {
+                loadData(urlData);
+            } else {
+                loadData(defaultData);
+            }
+
+            // Save handler
+            document.getElementById('btn-save-spec').addEventListener('click', () => {
+                const specId = inputs.docRef.value.trim();
+                if (!specId) {
+                    alert("Please enter a valid Reference Number.");
+                    return;
+                }
+
+                const specData = {};
+                Object.keys(inputs).forEach(key => {
+                    specData[key] = inputs[key].value.trim();
+                });
+                specData.createdAt = inputs.docDate.value;
+
+                let storedSpecs = [];
+                const stored = localStorage.getItem('ba_spec_sheets');
+                if (stored) {
+                    try {
+                        storedSpecs = JSON.parse(stored);
+                    } catch(e) {
+                        console.error(e);
+                    }
+                }
+
+                const existingIndex = storedSpecs.findIndex(s => s.docRef === specId);
+                if (existingIndex !== -1) {
+                    storedSpecs[existingIndex] = specData;
+                    alert(`Spec Sheet ${specId} updated successfully!`);
+                } else {
+                    storedSpecs.unshift(specData);
+                    alert(`Spec Sheet ${specId} saved successfully!`);
+                }
+
+                localStorage.setItem('ba_spec_sheets', JSON.stringify(storedSpecs));
+            });
+
+            // Reset handler
+            document.getElementById('btn-clear-spec').addEventListener('click', () => {
+                if (confirm("Reset to default values?")) {
+                    loadData(defaultData);
+                }
+            });
+
+            // Mobile Tabs
+            document.getElementById('btn-tab-edit').addEventListener('click', (e) => {
+                document.getElementById('editor-panel').classList.remove('hidden-mobile');
+                document.getElementById('preview-panel').classList.add('hidden-mobile');
+                e.target.classList.add('active');
+                document.getElementById('btn-tab-preview').classList.remove('active');
+            });
+
+            document.getElementById('btn-tab-preview').addEventListener('click', (e) => {
+                document.getElementById('editor-panel').classList.add('hidden-mobile');
+                document.getElementById('preview-panel').classList.remove('hidden-mobile');
+                e.target.classList.add('active');
+                document.getElementById('btn-tab-edit').classList.remove('active');
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

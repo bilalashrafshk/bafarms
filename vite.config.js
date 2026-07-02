@@ -11,6 +11,7 @@ export default defineConfig({
         product: resolve(__dirname, 'product.html'),
         capability: resolve(__dirname, 'capability-sheet.html'),
         quotation: resolve(__dirname, 'quotation.html'),
+        specSheet: resolve(__dirname, 'spec-sheet.html'),
       },
     },
   },

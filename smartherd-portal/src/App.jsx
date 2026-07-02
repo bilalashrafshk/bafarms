@@ -246,6 +246,9 @@ function AppContent() {
                     <a href="/quotation.html" target="_blank" class="menu-item" style={{ textDecoration: 'none', color: 'inherit' }}>
                         <i class="fa-solid fa-file-invoice-dollar"></i> Quotation Creator
                     </a>
+                    <a href="/spec-sheet.html" target="_blank" class="menu-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+                        <i class="fa-solid fa-file-shield"></i> Spec Sheet Creator
+                    </a>
 
                     <button className="menu-item logout-btn" style={{ marginTop: '2rem', border: '1px solid rgba(220, 53, 69, 0.2)', color: 'hsl(0, 75%, 65%)' }} onClick={handleLogout}>
                         <i className="fa-solid fa-power-off" style={{ color: 'hsl(0, 75%, 65%)' }}></i> Secure Logout
