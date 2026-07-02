@@ -802,8 +802,10 @@
                 <div class="form-group">
                     <label>Incoterm Basis</label>
                     <div class="toggle-group" id="incoterm-basis-toggle">
-                        <button class="toggle-btn active" data-value="CNF">CNF Quote</button>
-                        <button class="toggle-btn" data-value="FOB">FOB Quote</button>
+                        <button class="toggle-btn active" data-value="CNF" title="Cost & Freight (Sea/Air)">CNF</button>
+                        <button class="toggle-btn" data-value="CPT" title="Carriage Paid To (Air)">CPT</button>
+                        <button class="toggle-btn" data-value="FOB" title="Free On Board (Sea)">FOB</button>
+                        <button class="toggle-btn" data-value="FCA" title="Free Carrier (Air)">FCA</button>
                     </div>
                 </div>
                 <div class="form-group">
@@ -1255,6 +1257,38 @@
             });
         }
 
+        function updateTermsBasisLine(newIncoterm) {
+            let terms = termsTextarea.value.split('\n');
+            let updated = false;
+            
+            // Map Incoterm to Pricing Basis text
+            let basisText = "";
+            if (newIncoterm === "CNF") {
+                basisText = "Pricing Basis: CFR / CIF destination airport (air freight).";
+            } else if (newIncoterm === "CPT") {
+                basisText = "Pricing Basis: CPT / CIP destination airport (air freight).";
+            } else if (newIncoterm === "FOB") {
+                basisText = "Pricing Basis: FOB Lahore Airport.";
+            } else if (newIncoterm === "FCA") {
+                basisText = "Pricing Basis: FCA Lahore Airport (air freight).";
+            }
+
+            for (let i = 0; i < terms.length; i++) {
+                if (terms[i].trim().startsWith("Pricing Basis:")) {
+                    terms[i] = basisText;
+                    updated = true;
+                    break;
+                }
+            }
+
+            if (!updated && basisText) {
+                // If not found, insert at the beginning
+                terms.unshift(basisText);
+            }
+
+            termsTextarea.value = terms.join('\n');
+        }
+
         function setupToggles() {
             // Incoterms basis toggle
             const incotermBtns = incotermBasisToggle.querySelectorAll('button');
@@ -1265,10 +1299,13 @@
                     currentIncoterm = btn.dataset.value;
                     
                     // Show/hide freight input elements globally
+                    const hasFreight = (currentIncoterm === "CNF" || currentIncoterm === "CPT");
                     document.querySelectorAll('.freight-only-field').forEach(field => {
-                        field.style.display = currentIncoterm === "CNF" ? "block" : "none";
+                        field.style.display = hasFreight ? "block" : "none";
                     });
 
+                    updateTermsBasisLine(currentIncoterm);
+                    renderProductEditor();
                     updatePreview();
                 });
             });
@@ -1315,6 +1352,12 @@
             currentIncoterm = data.incotermBasis;
             incotermBasisToggle.querySelectorAll('button').forEach(b => {
                 b.classList.toggle('active', b.dataset.value === currentIncoterm);
+            });
+
+            // Show/hide freight fields based on loaded incoterm
+            const hasFreight = (currentIncoterm === "CNF" || currentIncoterm === "CPT");
+            document.querySelectorAll('.freight-only-field').forEach(field => {
+                field.style.display = hasFreight ? "block" : "none";
             });
 
             currentScope = data.scope;
@@ -1367,7 +1410,8 @@
                 itemDiv.className = 'product-item-editor';
                 
                 let freightInputsHtml = '';
-                if (currentIncoterm === "CNF") {
+                const hasFreight = (currentIncoterm === "CNF" || currentIncoterm === "CPT");
+                if (hasFreight) {
                     freightInputsHtml = `<div class="dest-freight-grid freight-only-field">`;
                     destinations.forEach(dest => {
                         const val = product.freights[dest] !== undefined ? product.freights[dest] : 1.25;
@@ -1380,6 +1424,8 @@
                     });
                     freightInputsHtml += `</div>`;
                 }
+
+                const preFreightTerm = (currentIncoterm === "CPT" || currentIncoterm === "FCA") ? "FCA" : "FOB";
 
                 itemDiv.innerHTML = `
                     <button class="btn-delete" onclick="removeProduct(${idx})" title="Remove Item"><i class="fa-solid fa-xmark"></i></button>
@@ -1394,7 +1440,7 @@
                         </div>
                     </div>
                     <div class="form-group">
-                        <label>FOB Lahore (USD/kg)</label>
+                        <label>${preFreightTerm} Lahore (USD/kg)</label>
                         <input type="number" step="0.01" class="form-control item-fob" data-index="${idx}" value="${product.fob}">
                     </div>
                     ${freightInputsHtml}
@@ -1479,15 +1525,23 @@
 
             // Update title tags
             const destinations = getDestinations();
-            if (currentIncoterm === "FOB") {
-                previewBasisTag.textContent = "FOB Lahore Export Quote";
-                previewBasisTitle.textContent = "FOB Lahore Airport — Price Sheet (USD/kg)";
+            const isFOB = (currentIncoterm === "FOB");
+            const isFCA = (currentIncoterm === "FCA");
+            const isCPT = (currentIncoterm === "CPT");
+            const isCNF = (currentIncoterm === "CNF");
+
+            if (isFOB || isFCA) {
+                const term = isFOB ? "FOB" : "FCA";
+                previewBasisTag.textContent = `${term} Export Quotation`;
+                previewBasisTitle.textContent = `${term} Lahore Airport — Price Sheet (USD/kg)`;
             } else {
-                previewBasisTag.textContent = "CNF Export Quotation";
+                const mainTerm = isCPT ? "CPT" : "CNF";
+                const baseTerm = isCPT ? "FCA" : "FOB";
+                previewBasisTag.textContent = `${mainTerm} Export Quotation`;
                 if (currentScope === "single" && destinations.length > 0) {
-                    previewBasisTitle.textContent = `CNF Price Sheet — Target: ${destinations[0]} (USD/kg)`;
+                    previewBasisTitle.textContent = `${mainTerm} Price Sheet — Target: ${destinations[0]} (USD/kg)`;
                 } else {
-                    previewBasisTitle.textContent = "FOB Lahore Airport — CNF Price Comparison (USD/kg)";
+                    previewBasisTitle.textContent = `${baseTerm} Lahore Airport — ${mainTerm} Price Comparison (USD/kg)`;
                 }
             }
 
@@ -1497,19 +1551,22 @@
                 <th style="width: 15%;">Weight Cat.</th>
             `;
 
-            if (currentIncoterm === "FOB") {
-                headersHtml += `<th>FOB Lahore Airport (USD/kg)</th>`;
+            if (isFOB || isFCA) {
+                const term = isFOB ? "FOB" : "FCA";
+                headersHtml += `<th>${term} Lahore Airport (USD/kg)</th>`;
             } else {
-                // CNF Quote
+                // CNF or CPT Quote
+                const mainTerm = isCPT ? "CPT" : "CNF";
+                const baseTerm = isCPT ? "FCA" : "FOB";
                 if (currentScope === "single") {
                     const dest = destinations[0] || 'Destination';
                     headersHtml += `
-                        <th>FOB Lahore (USD/kg)</th>
+                        <th>${baseTerm} Lahore (USD/kg)</th>
                         <th>Freight (USD/kg)</th>
-                        <th>CNF ${dest} (USD/kg)</th>
+                        <th>${mainTerm} ${dest} (USD/kg)</th>
                     `;
                 } else {
-                    // Multi-destination CNF: show a column for each destination
+                    // Multi-destination: show a column for each destination
                     destinations.forEach(dest => {
                         headersHtml += `<th>${dest}</th>`;
                     });
@@ -1520,7 +1577,7 @@
             // Render Table Body Rows
             let bodyHtml = '';
             if (activeProducts.length === 0) {
-                const colsCount = currentIncoterm === "FOB" ? 3 : (currentScope === "single" ? 5 : 2 + destinations.length);
+                const colsCount = (isFOB || isFCA) ? 3 : (currentScope === "single" ? 5 : 2 + destinations.length);
                 bodyHtml = `<tr><td colspan="${colsCount}" style="padding: 2rem; color: var(--text-light);">No products added. Add products in the panel to populate.</td></tr>`;
             } else {
                 activeProducts.forEach(product => {
@@ -1528,25 +1585,25 @@
                     bodyHtml += `<td class="align-left"><strong>${product.title}</strong></td>`;
                     bodyHtml += `<td>${product.weight}</td>`;
 
-                    if (currentIncoterm === "FOB") {
+                    if (isFOB || isFCA) {
                         bodyHtml += `<td>$${product.fob.toFixed(2)}</td>`;
                     } else {
-                        // CNF
+                        // CNF or CPT
                         if (currentScope === "single") {
                             const dest = destinations[0] || 'Destination';
                             const freight = product.freights[dest] !== undefined ? product.freights[dest] : 0;
-                            const cnfRate = product.fob + freight;
+                            const totalRate = product.fob + freight;
                             bodyHtml += `
                                 <td>$${product.fob.toFixed(2)}</td>
                                 <td>$${freight.toFixed(2)}</td>
-                                <td><strong>$${cnfRate.toFixed(2)}</strong></td>
+                                <td><strong>$${totalRate.toFixed(2)}</strong></td>
                             `;
                         } else {
-                            // Multi-destination CNF
+                            // Multi-destination
                             destinations.forEach(dest => {
                                 const freight = product.freights[dest] !== undefined ? product.freights[dest] : 0;
-                                const cnfRate = product.fob + freight;
-                                bodyHtml += `<td>$${cnfRate.toFixed(2)}</td>`;
+                                const totalRate = product.fob + freight;
+                                bodyHtml += `<td>$${totalRate.toFixed(2)}</td>`;
                             });
                         }
                     }
