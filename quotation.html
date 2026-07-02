@@ -220,6 +220,38 @@
             color: #f87171;
         }
 
+        .product-item-editor .btn-move-up {
+            position: absolute;
+            top: 0.5rem;
+            right: 3.2rem;
+            background: none;
+            border: none;
+            color: #9ca3af;
+            cursor: pointer;
+            font-size: 0.9rem;
+            padding: 0.2rem;
+        }
+
+        .product-item-editor .btn-move-up:hover {
+            color: white;
+        }
+
+        .product-item-editor .btn-move-down {
+            position: absolute;
+            top: 0.5rem;
+            right: 1.85rem;
+            background: none;
+            border: none;
+            color: #9ca3af;
+            cursor: pointer;
+            font-size: 0.9rem;
+            padding: 0.2rem;
+        }
+
+        .product-item-editor .btn-move-down:hover {
+            color: white;
+        }
+
         .dest-freight-grid {
             margin-top: 0.5rem;
             padding-top: 0.5rem;
@@ -1401,6 +1433,16 @@
             updatePreview();
         }
 
+        function moveProduct(index, direction) {
+            const targetIndex = index + direction;
+            if (targetIndex < 0 || targetIndex >= activeProducts.length) return;
+            const temp = activeProducts[index];
+            activeProducts[index] = activeProducts[targetIndex];
+            activeProducts[targetIndex] = temp;
+            renderProductEditor();
+            updatePreview();
+        }
+
         function renderProductEditor() {
             productListContainer.innerHTML = '';
             const destinations = getDestinations();
@@ -1426,8 +1468,14 @@
                 }
 
                 const preFreightTerm = (currentIncoterm === "CPT" || currentIncoterm === "FCA") ? "FCA" : "FOB";
+                const isFirst = idx === 0;
+                const isLast = idx === activeProducts.length - 1;
+                const upDisabled = isFirst ? 'disabled style="opacity: 0.2; cursor: not-allowed;"' : '';
+                const downDisabled = isLast ? 'disabled style="opacity: 0.2; cursor: not-allowed;"' : '';
 
                 itemDiv.innerHTML = `
+                    <button class="btn-move-up" onclick="moveProduct(${idx}, -1)" ${upDisabled} title="Move Up"><i class="fa-solid fa-arrow-up"></i></button>
+                    <button class="btn-move-down" onclick="moveProduct(${idx}, 1)" ${downDisabled} title="Move Down"><i class="fa-solid fa-arrow-down"></i></button>
                     <button class="btn-delete" onclick="removeProduct(${idx})" title="Remove Item"><i class="fa-solid fa-xmark"></i></button>
                     <div class="form-row" style="margin-bottom: 0.5rem;">
                         <div class="form-group">
