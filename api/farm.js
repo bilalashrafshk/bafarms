@@ -253,6 +253,53 @@ async function ensureTables(client) {
                 status      VARCHAR(50) DEFAULT 'New',
                 created_at  TIMESTAMP DEFAULT NOW()
             );
+
+            CREATE TABLE IF NOT EXISTS ba_quotations (
+                id VARCHAR(50) PRIMARY KEY,
+                client_name VARCHAR(200) NOT NULL,
+                incoterm_basis VARCHAR(50) NOT NULL,
+                scope VARCHAR(50) NOT NULL,
+                target_destination VARCHAR(100),
+                target_destinations TEXT,
+                validity VARCHAR(200),
+                terms JSONB NOT NULL DEFAULT '[]',
+                preparer_name VARCHAR(100),
+                preparer_title VARCHAR(100),
+                preparer_phone VARCHAR(100),
+                products JSONB NOT NULL DEFAULT '[]',
+                status VARCHAR(50) DEFAULT 'Sent',
+                created_at DATE NOT NULL DEFAULT CURRENT_DATE
+            );
+
+            CREATE TABLE IF NOT EXISTS ba_spec_sheets (
+                doc_ref VARCHAR(50) PRIMARY KEY,
+                client_name VARCHAR(200),
+                doc_date DATE,
+                id_name VARCHAR(200),
+                id_category VARCHAR(100),
+                id_spec TEXT,
+                id_hs VARCHAR(100),
+                id_sku VARCHAR(100),
+                origin_country VARCHAR(100),
+                origin_supply TEXT,
+                origin_breed VARCHAR(100),
+                origin_feed VARCHAR(100),
+                origin_age VARCHAR(100),
+                spec_form VARCHAR(100),
+                spec_weight VARCHAR(100),
+                spec_color VARCHAR(100),
+                spec_ph VARCHAR(50),
+                spec_trim VARCHAR(100),
+                spec_bone VARCHAR(100),
+                pack_primary TEXT,
+                pack_secondary TEXT,
+                pack_pieces VARCHAR(100),
+                pack_weight VARCHAR(100),
+                pack_labelling TEXT,
+                store_temp TEXT,
+                store_life TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
         `);
         return;
     }
@@ -335,6 +382,53 @@ async function ensureTables(client) {
             notes       TEXT,
             status      VARCHAR(50) DEFAULT 'New',
             created_at  TIMESTAMP DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS ba_quotations (
+            id VARCHAR(50) PRIMARY KEY,
+            client_name VARCHAR(200) NOT NULL,
+            incoterm_basis VARCHAR(50) NOT NULL,
+            scope VARCHAR(50) NOT NULL,
+            target_destination VARCHAR(100),
+            target_destinations TEXT,
+            validity VARCHAR(200),
+            terms JSONB NOT NULL DEFAULT '[]',
+            preparer_name VARCHAR(100),
+            preparer_title VARCHAR(100),
+            preparer_phone VARCHAR(100),
+            products JSONB NOT NULL DEFAULT '[]',
+            status VARCHAR(50) DEFAULT 'Sent',
+            created_at DATE NOT NULL DEFAULT CURRENT_DATE
+        );
+
+        CREATE TABLE IF NOT EXISTS ba_spec_sheets (
+            doc_ref VARCHAR(50) PRIMARY KEY,
+            client_name VARCHAR(200),
+            doc_date DATE,
+            id_name VARCHAR(200),
+            id_category VARCHAR(100),
+            id_spec TEXT,
+            id_hs VARCHAR(100),
+            id_sku VARCHAR(100),
+            origin_country VARCHAR(100),
+            origin_supply TEXT,
+            origin_breed VARCHAR(100),
+            origin_feed VARCHAR(100),
+            origin_age VARCHAR(100),
+            spec_form VARCHAR(100),
+            spec_weight VARCHAR(100),
+            spec_color VARCHAR(100),
+            spec_ph VARCHAR(50),
+            spec_trim VARCHAR(100),
+            spec_bone VARCHAR(100),
+            pack_primary TEXT,
+            pack_secondary TEXT,
+            pack_pieces VARCHAR(100),
+            pack_weight VARCHAR(100),
+            pack_labelling TEXT,
+            store_temp TEXT,
+            store_life TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
         );
     `);
 }
@@ -503,6 +597,8 @@ module.exports = async (req, res) => {
             const ordersRes = await client.query('SELECT * FROM ba_orders ORDER BY created_at DESC');
             const meatCutsRes = await client.query('SELECT * FROM ba_meat_cuts ORDER BY created_at ASC');
             const enquiriesRes = await client.query('SELECT * FROM ba_export_enquiries ORDER BY created_at DESC');
+            const quotationsRes = await client.query('SELECT * FROM ba_quotations ORDER BY id DESC');
+            const specSheetsRes = await client.query('SELECT * FROM ba_spec_sheets ORDER BY doc_ref DESC');
 
             // Format date objects to clean strings (YYYY-MM-DD)
             const formatDate = (dateStr) => {
@@ -604,7 +700,54 @@ module.exports = async (req, res) => {
                 createdAt: formatDate(row.created_at)
             }));
 
-            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, orders, meatCuts, enquiries });
+            const quotations = quotationsRes.rows.map(row => ({
+                id: row.id,
+                clientName: row.client_name,
+                incotermBasis: row.incoterm_basis,
+                scope: row.scope,
+                targetDestination: row.target_destination || '',
+                targetDestinations: row.target_destinations || '',
+                validity: row.validity || '',
+                terms: typeof row.terms === 'string' ? JSON.parse(row.terms) : row.terms,
+                preparerName: row.preparer_name || '',
+                preparerTitle: row.preparer_title || '',
+                preparerPhone: row.preparer_phone || '',
+                products: typeof row.products === 'string' ? JSON.parse(row.products) : row.products,
+                status: row.status || 'Sent',
+                createdAt: formatDate(row.created_at)
+            }));
+
+            const specSheets = specSheetsRes.rows.map(row => ({
+                clientName: row.client_name || '',
+                docRef: row.doc_ref,
+                docDate: formatDate(row.doc_date),
+                idName: row.id_name || '',
+                idCategory: row.id_category || '',
+                idSpec: row.id_spec || '',
+                idHs: row.id_hs || '',
+                idSku: row.id_sku || '',
+                originCountry: row.origin_country || '',
+                originSupply: row.origin_supply || '',
+                originBreed: row.origin_breed || '',
+                originFeed: row.origin_feed || '',
+                originAge: row.origin_age || '',
+                specForm: row.spec_form || '',
+                specWeight: row.spec_weight || '',
+                specColor: row.spec_color || '',
+                specPh: row.spec_ph || '',
+                specTrim: row.spec_trim || '',
+                specBone: row.spec_bone || '',
+                packPrimary: row.pack_primary || '',
+                packSecondary: row.pack_secondary || '',
+                packPieces: row.pack_pieces || '',
+                packWeight: row.pack_weight || '',
+                packLabelling: row.pack_labelling || '',
+                storeTemp: row.store_temp || '',
+                storeLife: row.store_life || '',
+                createdAt: formatDate(row.created_at)
+            }));
+
+            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, orders, meatCuts, enquiries, quotations, specSheets });
         }
 
         // ─── POST ENDPOINT: LOG TRANSACTION DATA ───
@@ -815,6 +958,111 @@ module.exports = async (req, res) => {
             if (action === 'DELETE_ENQUIRY') {
                 const { enquiryId } = payload;
                 await client.query('DELETE FROM ba_export_enquiries WHERE id=$1', [enquiryId]);
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'SAVE_QUOTATION') {
+                const {
+                    id, clientName, incotermBasis, scope, targetDestination,
+                    targetDestinations, validity, terms, preparerName,
+                    preparerTitle, preparerPhone, products, status, createdAt
+                } = payload;
+
+                await client.query(`
+                    INSERT INTO ba_quotations (id, client_name, incoterm_basis, scope, target_destination, target_destinations, validity, terms, preparer_name, preparer_title, preparer_phone, products, status, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    ON CONFLICT (id) DO UPDATE SET
+                        client_name = EXCLUDED.client_name,
+                        incoterm_basis = EXCLUDED.incoterm_basis,
+                        scope = EXCLUDED.scope,
+                        target_destination = EXCLUDED.target_destination,
+                        target_destinations = EXCLUDED.target_destinations,
+                        validity = EXCLUDED.validity,
+                        terms = EXCLUDED.terms,
+                        preparer_name = EXCLUDED.preparer_name,
+                        preparer_title = EXCLUDED.preparer_title,
+                        preparer_phone = EXCLUDED.preparer_phone,
+                        products = EXCLUDED.products,
+                        status = EXCLUDED.status,
+                        created_at = EXCLUDED.created_at
+                `, [
+                    id, clientName, incotermBasis, scope, targetDestination || null,
+                    targetDestinations || null, validity || null,
+                    JSON.stringify(terms || []), preparerName || null,
+                    preparerTitle || null, preparerPhone || null,
+                    JSON.stringify(products || []), status || 'Sent', createdAt
+                ]);
+
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'UPDATE_QUOTATION_STATUS') {
+                const { quoteId, status } = payload;
+                await client.query('UPDATE ba_quotations SET status=$1 WHERE id=$2', [status, quoteId]);
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'DELETE_QUOTATION') {
+                const { quoteId } = payload;
+                await client.query('DELETE FROM ba_quotations WHERE id=$1', [quoteId]);
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'SAVE_SPEC_SHEET') {
+                const {
+                    docRef, clientName, docDate, idName, idCategory, idSpec,
+                    idHs, idSku, originCountry, originSupply, originBreed,
+                    originFeed, originAge, specForm, specWeight, specColor,
+                    specPh, specTrim, specBone, packPrimary, packSecondary,
+                    packPieces, packWeight, packLabelling, storeTemp, storeLife
+                } = payload;
+
+                await client.query(`
+                    INSERT INTO ba_spec_sheets (doc_ref, client_name, doc_date, id_name, id_category, id_spec, id_hs, id_sku, origin_country, origin_supply, origin_breed, origin_feed, origin_age, spec_form, spec_weight, spec_color, spec_ph, spec_trim, spec_bone, pack_primary, pack_secondary, pack_pieces, pack_weight, pack_labelling, store_temp, store_life)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+                    ON CONFLICT (doc_ref) DO UPDATE SET
+                        client_name = EXCLUDED.client_name,
+                        doc_date = EXCLUDED.doc_date,
+                        id_name = EXCLUDED.id_name,
+                        id_category = EXCLUDED.id_category,
+                        id_spec = EXCLUDED.id_spec,
+                        id_hs = EXCLUDED.id_hs,
+                        id_sku = EXCLUDED.id_sku,
+                        origin_country = EXCLUDED.origin_country,
+                        origin_supply = EXCLUDED.origin_supply,
+                        origin_breed = EXCLUDED.origin_breed,
+                        origin_feed = EXCLUDED.origin_feed,
+                        origin_age = EXCLUDED.origin_age,
+                        spec_form = EXCLUDED.spec_form,
+                        spec_weight = EXCLUDED.spec_weight,
+                        spec_color = EXCLUDED.spec_color,
+                        spec_ph = EXCLUDED.spec_ph,
+                        spec_trim = EXCLUDED.spec_trim,
+                        spec_bone = EXCLUDED.spec_bone,
+                        pack_primary = EXCLUDED.pack_primary,
+                        pack_secondary = EXCLUDED.pack_secondary,
+                        pack_pieces = EXCLUDED.pack_pieces,
+                        pack_weight = EXCLUDED.pack_weight,
+                        pack_labelling = EXCLUDED.pack_labelling,
+                        store_temp = EXCLUDED.store_temp,
+                        store_life = EXCLUDED.store_life
+                `, [
+                    docRef, clientName || null, docDate, idName || null, idCategory || null,
+                    idSpec || null, idHs || null, idSku || null, originCountry || null,
+                    originSupply || null, originBreed || null, originFeed || null,
+                    originAge || null, specForm || null, specWeight || null,
+                    specColor || null, specPh || null, specTrim || null,
+                    specBone || null, packPrimary || null, packSecondary || null,
+                    packPieces || null, packWeight || null, packLabelling || null,
+                    storeTemp || null, storeLife || null
+                ]);
+
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'DELETE_SPEC_SHEET') {
+                const { refId } = payload;
+                await client.query('DELETE FROM ba_spec_sheets WHERE doc_ref=$1', [refId]);
                 return res.status(200).json({ success: true });
             }
 

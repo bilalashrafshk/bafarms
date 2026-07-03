@@ -328,6 +328,8 @@ export const FarmProvider = ({ children }) => {
     const [orders, setOrders] = useState([]);
     const [meatCuts, setMeatCuts] = useState(defaultMeatCuts);
     const [enquiries, setEnquiries] = useState([]);
+    const [quotations, setQuotations] = useState(() => loadStoredData('ba_quotations', []));
+    const [specSheets, setSpecSheets] = useState(() => loadStoredData('ba_spec_sheets', []));
 
     // Database load and sync metrics
     const [fetchLoading, setFetchLoading] = useState(true);
@@ -400,6 +402,14 @@ export const FarmProvider = ({ children }) => {
         localStorage.setItem('ba_feed_ingredients', JSON.stringify(feedIngredients));
     }, [feedIngredients]);
 
+    useEffect(() => {
+        localStorage.setItem('ba_quotations', JSON.stringify(quotations));
+    }, [quotations]);
+
+    useEffect(() => {
+        localStorage.setItem('ba_spec_sheets', JSON.stringify(specSheets));
+    }, [specSheets]);
+
     // ─── NEON DB GET SYNC RUNNER ───
     useEffect(() => {
         const syncState = async () => {
@@ -415,6 +425,8 @@ export const FarmProvider = ({ children }) => {
                     if (data.orders) setOrders(data.orders);
                     if (data.meatCuts) setMeatCuts(data.meatCuts);
                     if (data.enquiries) setEnquiries(data.enquiries);
+                    if (data.quotations) setQuotations(data.quotations);
+                    if (data.specSheets) setSpecSheets(data.specSheets);
                 } else if (data.unconfigured) {
                     setDbUnconfigured(true);
                     console.warn("Neon Database connection string unconfigured. Utilizing offline localStorage backup.");
@@ -884,6 +896,54 @@ export const FarmProvider = ({ children }) => {
         }
     };
 
+    const updateQuotationStatus = async (quoteId, newStatus) => {
+        setQuotations(prev => prev.map(q => q.id === quoteId ? { ...q, status: newStatus } : q));
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'UPDATE_QUOTATION_STATUS',
+                    payload: { quoteId, status: newStatus }
+                })
+            });
+        } catch (err) {
+            console.error('UPDATE_QUOTATION_STATUS failed:', err);
+        }
+    };
+
+    const deleteQuotation = async (quoteId) => {
+        setQuotations(prev => prev.filter(q => q.id !== quoteId));
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'DELETE_QUOTATION',
+                    payload: { quoteId }
+                })
+            });
+        } catch (err) {
+            console.error('DELETE_QUOTATION failed:', err);
+        }
+    };
+
+    const deleteSpecSheet = async (refId) => {
+        setSpecSheets(prev => prev.filter(s => s.docRef !== refId));
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'DELETE_SPEC_SHEET',
+                    payload: { refId }
+                })
+            });
+        } catch (err) {
+            console.error('DELETE_SPEC_SHEET failed:', err);
+        }
+    };
+
     return (
         <FarmContext.Provider value={{
             animals,
@@ -902,6 +962,11 @@ export const FarmProvider = ({ children }) => {
             enquiries,
             updateEnquiryStatus,
             deleteEnquiry,
+            quotations,
+            updateQuotationStatus,
+            deleteQuotation,
+            specSheets,
+            deleteSpecSheet,
             meatCuts,
             addMeatCut,
             updateMeatCut,

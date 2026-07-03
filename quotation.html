@@ -1202,16 +1202,84 @@
         }
 
         // Initialize App
-        function init() {
+        async function init() {
             // Load toggles handlers
             setupToggles();
             
-            // Auto-populate from URL query params (if coming from leads manager)
-            const urlData = parseQueryParams();
-            if (urlData) {
-                loadData(urlData);
-            } else {
-                loadData(demoData);
+            // Auto-populate from URL query params (if coming from leads manager or loading saved)
+            const params = new URLSearchParams(window.location.search);
+            const loadSavedId = params.get('load_saved_id');
+
+            let dataLoaded = false;
+            if (loadSavedId) {
+                // Try database fetch
+                try {
+                    const res = await fetch('/api/farm');
+                    const data = await res.json();
+                    if (data.success && data.quotations) {
+                        const matched = data.quotations.find(q => q.id === loadSavedId);
+                        if (matched) {
+                            loadData({
+                                clientName: matched.clientName,
+                                quoteRefId: matched.id,
+                                incotermBasis: matched.incotermBasis,
+                                scope: matched.scope,
+                                targetDestination: matched.targetDestination,
+                                targetDestinations: matched.targetDestinations,
+                                validity: matched.validity,
+                                terms: matched.terms,
+                                preparerName: matched.preparerName,
+                                preparerTitle: matched.preparerTitle,
+                                preparerPhone: matched.preparerPhone,
+                                products: matched.products,
+                                createdAt: matched.createdAt
+                            });
+                            dataLoaded = true;
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Failed to fetch matched quotation from database, falling back to local storage.", e);
+                }
+
+                // Local storage fallback
+                if (!dataLoaded) {
+                    const stored = localStorage.getItem('ba_quotations');
+                    if (stored) {
+                        try {
+                            const storedQuotes = JSON.parse(stored);
+                            const matched = storedQuotes.find(q => q.id === loadSavedId);
+                            if (matched) {
+                                loadData({
+                                    clientName: matched.clientName,
+                                    quoteRefId: matched.id,
+                                    incotermBasis: matched.incotermBasis,
+                                    scope: matched.scope,
+                                    targetDestination: matched.targetDestination,
+                                    targetDestinations: matched.targetDestinations,
+                                    validity: matched.validity,
+                                    terms: matched.terms,
+                                    preparerName: matched.preparerName,
+                                    preparerTitle: matched.preparerTitle,
+                                    preparerPhone: matched.preparerPhone,
+                                    products: matched.products,
+                                    createdAt: matched.createdAt
+                                });
+                                dataLoaded = true;
+                            }
+                        } catch(e) {
+                            console.error(e);
+                        }
+                    }
+                }
+            }
+
+            if (!dataLoaded) {
+                const urlData = parseQueryParams();
+                if (urlData) {
+                    loadData(urlData);
+                } else {
+                    loadData(demoData);
+                }
             }
 
             // Register global live sync listeners
@@ -1235,7 +1303,7 @@
                 }
             });
 
-            btnSaveTracker.addEventListener('click', () => {
+            btnSaveTracker.addEventListener('click', async () => {
                 const quoteId = quoteRefInput.value.trim();
                 if (!quoteId) {
                     alert("Please enter a valid Reference Number before saving.");
@@ -1276,13 +1344,32 @@
                 if (existingIndex !== -1) {
                     currentQuote.status = storedQuotes[existingIndex].status || "Sent";
                     storedQuotes[existingIndex] = currentQuote;
-                    alert(`Quotation ${quoteId} updated successfully in the tracker!`);
                 } else {
                     storedQuotes.unshift(currentQuote);
-                    alert(`Quotation ${quoteId} saved successfully to the tracker!`);
                 }
 
                 localStorage.setItem('ba_quotations', JSON.stringify(storedQuotes));
+
+                // Sync to DB
+                try {
+                    const dbRes = await fetch('/api/farm', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            action: 'SAVE_QUOTATION',
+                            payload: currentQuote
+                        })
+                    });
+                    const dbData = await dbRes.json();
+                    if (dbData.success) {
+                        alert(`Quotation ${quoteId} saved successfully to the shared database!`);
+                    } else {
+                        alert(`Quotation ${quoteId} saved locally (Offline mode).`);
+                    }
+                } catch (dbErr) {
+                    console.error("Failed to sync quotation to remote database:", dbErr);
+                    alert(`Quotation ${quoteId} saved locally (Offline mode).`);
+                }
             });
 
             // Mobile Tabs

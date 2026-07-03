@@ -1103,20 +1103,6 @@
 
         function parseQueryParams() {
             const params = new URLSearchParams(window.location.search);
-            const loadSavedId = params.get('load_saved_id');
-            if (loadSavedId) {
-                const stored = localStorage.getItem('ba_spec_sheets');
-                if (stored) {
-                    try {
-                        const storedSpecs = JSON.parse(stored);
-                        const matched = storedSpecs.find(s => s.docRef === loadSavedId);
-                        if (matched) return matched;
-                    } catch(e) {
-                        console.error("Failed to parse saved spec", e);
-                    }
-                }
-            }
-
             if (!params.has('product')) return null;
 
             const product = params.get('product') || '';
@@ -1131,22 +1117,62 @@
             };
         }
 
-        function init() {
+        async function init() {
             // Live preview binding
             Object.keys(inputs).forEach(key => {
                 inputs[key].addEventListener('input', updatePreview);
             });
 
             // Parse URL parameters
-            const urlData = parseQueryParams();
-            if (urlData) {
-                loadData(urlData);
-            } else {
-                loadData(defaultData);
+            const params = new URLSearchParams(window.location.search);
+            const loadSavedId = params.get('load_saved_id');
+
+            let dataLoaded = false;
+            if (loadSavedId) {
+                // Try database fetch
+                try {
+                    const res = await fetch('/api/farm');
+                    const data = await res.json();
+                    if (data.success && data.specSheets) {
+                        const matched = data.specSheets.find(s => s.docRef === loadSavedId);
+                        if (matched) {
+                            loadData(matched);
+                            dataLoaded = true;
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Failed to fetch matched spec sheet from database, falling back to local storage.", e);
+                }
+
+                // Fallback to local storage
+                if (!dataLoaded) {
+                    const stored = localStorage.getItem('ba_spec_sheets');
+                    if (stored) {
+                        try {
+                            const storedSpecs = JSON.parse(stored);
+                            const matched = storedSpecs.find(s => s.docRef === loadSavedId);
+                            if (matched) {
+                                loadData(matched);
+                                dataLoaded = true;
+                            }
+                        } catch(e) {
+                            console.error(e);
+                        }
+                    }
+                }
+            }
+
+            if (!dataLoaded) {
+                const urlData = parseQueryParams();
+                if (urlData) {
+                    loadData(urlData);
+                } else {
+                    loadData(defaultData);
+                }
             }
 
             // Save handler
-            document.getElementById('btn-save-spec').addEventListener('click', () => {
+            document.getElementById('btn-save-spec').addEventListener('click', async () => {
                 const specId = inputs.docRef.value.trim();
                 if (!specId) {
                     alert("Please enter a valid Reference Number.");
@@ -1172,13 +1198,32 @@
                 const existingIndex = storedSpecs.findIndex(s => s.docRef === specId);
                 if (existingIndex !== -1) {
                     storedSpecs[existingIndex] = specData;
-                    alert(`Spec Sheet ${specId} updated successfully!`);
                 } else {
                     storedSpecs.unshift(specData);
-                    alert(`Spec Sheet ${specId} saved successfully!`);
                 }
 
                 localStorage.setItem('ba_spec_sheets', JSON.stringify(storedSpecs));
+
+                // Sync to DB
+                try {
+                    const dbRes = await fetch('/api/farm', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            action: 'SAVE_SPEC_SHEET',
+                            payload: specData
+                        })
+                    });
+                    const dbData = await dbRes.json();
+                    if (dbData.success) {
+                        alert(`Spec Sheet ${specId} saved successfully to the shared database!`);
+                    } else {
+                        alert(`Spec Sheet ${specId} saved locally (Offline mode).`);
+                    }
+                } catch (dbErr) {
+                    console.error("Failed to sync spec sheet to remote database:", dbErr);
+                    alert(`Spec Sheet ${specId} saved locally (Offline mode).`);
+                }
             });
 
             // Reset handler

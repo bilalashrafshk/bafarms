@@ -2,63 +2,14 @@ import React, { useContext, useState, useEffect } from 'react';
 import { FarmContext } from '../context/FarmContext';
 
 export default function EnquiriesManager() {
-    const { enquiries, updateEnquiryStatus, deleteEnquiry } = useContext(FarmContext);
+    const { 
+        enquiries, updateEnquiryStatus, deleteEnquiry,
+        quotations, updateQuotationStatus, deleteQuotation,
+        specSheets, deleteSpecSheet
+    } = useContext(FarmContext);
     const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'New' | 'Contacted' | 'Closed'
     const [searchQuery, setSearchQuery] = useState('');
     const [activeSubTab, setActiveSubTab] = useState('leads'); // 'leads' | 'quotes' | 'specs'
-    const [quotations, setQuotations] = useState(() => {
-        const stored = localStorage.getItem('ba_quotations');
-        return stored ? JSON.parse(stored) : [];
-    });
-    const [specSheets, setSpecSheets] = useState(() => {
-        const stored = localStorage.getItem('ba_spec_sheets');
-        return stored ? JSON.parse(stored) : [];
-    });
-
-    const updateQuotationStatus = (quoteId, newStatus) => {
-        const updated = quotations.map(q => q.id === quoteId ? { ...q, status: newStatus } : q);
-        localStorage.setItem('ba_quotations', JSON.stringify(updated));
-        setQuotations(updated);
-    };
-
-    const deleteQuotation = (quoteId) => {
-        if (window.confirm(`Delete quotation ${quoteId}? This cannot be undone.`)) {
-            const updated = quotations.filter(q => q.id !== quoteId);
-            localStorage.setItem('ba_quotations', JSON.stringify(updated));
-            setQuotations(updated);
-        }
-    };
-
-    const deleteSpecSheet = (refId) => {
-        if (window.confirm(`Delete spec sheet ${refId}? This cannot be undone.`)) {
-            const updated = specSheets.filter(s => s.docRef !== refId);
-            localStorage.setItem('ba_spec_sheets', JSON.stringify(updated));
-            setSpecSheets(updated);
-        }
-    };
-
-    useEffect(() => {
-        const handleFocus = () => {
-            const stored = localStorage.getItem('ba_quotations');
-            if (stored) {
-                try {
-                    setQuotations(JSON.parse(stored));
-                } catch(e) {
-                    console.error("Failed to parse quotations on focus", e);
-                }
-            }
-            const storedSpecs = localStorage.getItem('ba_spec_sheets');
-            if (storedSpecs) {
-                try {
-                    setSpecSheets(JSON.parse(storedSpecs));
-                } catch(e) {
-                    console.error("Failed to parse spec sheets on focus", e);
-                }
-            }
-        };
-        window.addEventListener('focus', handleFocus);
-        return () => window.removeEventListener('focus', handleFocus);
-    }, []);
 
     // --- Dynamic KPI Calculations ---
     const totalCount = enquiries.length;
