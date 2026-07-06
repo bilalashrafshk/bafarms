@@ -430,6 +430,51 @@
             border-radius: 0 0 8px 8px;
         }
 
+        /* Language Selector Toggle Styles */
+        .lang-toggle-container {
+            display: inline-flex;
+            background-color: rgba(0, 0, 0, 0.05);
+            border-radius: 30px;
+            padding: 3px;
+            border: 1px solid #d1d5db;
+            gap: 2px;
+        }
+
+        .btn-toggle-lang {
+            background: transparent;
+            border: none;
+            outline: none;
+            font-family: var(--font-heading);
+            font-weight: 600;
+            font-size: 0.78rem;
+            padding: 0.4rem 1rem;
+            border-radius: 20px;
+            cursor: pointer;
+            color: var(--text-medium);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .btn-toggle-lang:hover {
+            color: var(--text-dark);
+            background-color: rgba(0, 0, 0, 0.03);
+        }
+
+        .btn-toggle-lang.active {
+            background: linear-gradient(135deg, var(--primary-green-light) 0%, var(--primary-green) 100%);
+            color: white;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Language display logic */
+        html[lang="en"] .ru-text {
+            display: none !important;
+        }
+        html[lang="ru"] .en-text {
+            display: none !important;
+        }
+
         /* PRINT STYLES - CRITICAL FOR CLEAN PDF EXPORT */
         @media print {
             body {
@@ -493,10 +538,17 @@
     <!-- Action Bar -->
     <div class="action-bar">
         <a href="/" class="btn btn-back">
-            <i class="fa-solid fa-arrow-left"></i> Back to Home
+            <i class="fa-solid fa-arrow-left"></i> <span class="en-text">Back to Home</span><span class="ru-text">Вернуться на главную</span>
         </a>
+        
+        <!-- Language Switcher -->
+        <div class="lang-toggle-container">
+            <button onclick="setLanguage('en')" class="btn-toggle-lang active" id="lang-btn-en">EN</button>
+            <button onclick="setLanguage('ru')" class="btn-toggle-lang" id="lang-btn-ru">RU</button>
+        </div>
+
         <button onclick="window.print()" class="btn btn-print">
-            <i class="fa-solid fa-file-pdf"></i> Print / Export as PDF
+            <i class="fa-solid fa-file-pdf"></i> <span class="en-text">Print / Export as PDF</span><span class="ru-text">Печать / Экспорт в PDF</span>
         </button>
     </div>
 
@@ -510,46 +562,46 @@
                     <img src="/assets/logo_bafoods_dark_green.png" alt="BA Foods Logo" class="logo-img">
                     <div class="brand-title">
                         <h1>BA FOODS</h1>
-                        <p>Halal Beef Export House</p>
+                        <p><span class="en-text">Halal Beef Export House</span><span class="ru-text">Экспортный дом халяльной говядины</span></p>
                     </div>
                 </div>
                 <div class="corporate-info">
                     <strong>BA FOODS</strong><br>
-                    Division of BA Farms Agro-Complex<br>
-Parent: Ashraf Zia Textile Mills<br>
-                    Khurrianwala, Faisalabad, Punjab, Pakistan<br>
+                    <span class="en-text">Division of BA Farms Agro-Complex</span><span class="ru-text">Подразделение агрокомплекса BA Farms</span><br>
+                    <span class="en-text">Parent: Ashraf Zia Textile Mills</span><span class="ru-text">Материнская компания: Текстильные фабрики Ашраф Зия (Ashraf Zia Textile Mills)</span><br>
+                    <span class="en-text">Khurrianwala, Faisalabad, Punjab, Pakistan</span><span class="ru-text">Хуррианвала, Фейсалабад, Пенджаб, Пакистан</span><br>
                     <a href="mailto:sales@bafoods.pk" style="color: var(--primary-green); text-decoration: none;">sales@bafoods.pk</a><span class="sep">|</span><a href="https://wa.me/923278585556" style="color: var(--primary-green); text-decoration: none;"><i class="fa-brands fa-whatsapp" style="color: #25D366;"></i> +92-327-8585556</a><span class="sep">|</span><a href="https://bafoods.pk" style="color: var(--primary-green); text-decoration: none;">www.bafoods.pk</a>
                 </div>
             </header>
 
             <!-- Document Title -->
             <div class="doc-title-section">
-                <span class="doc-tag">Product Capability Statement</span>
-                <h2 class="doc-title">Halal Beef Export Capability Statement</h2>
+                <span class="doc-tag"><span class="en-text">Product Capability Statement</span><span class="ru-text">Лист возможностей продукта</span></span>
+                <h2 class="doc-title"><span class="en-text">Halal Beef Export Capability Statement</span><span class="ru-text">Лист экспортных возможностей халяльной говядины</span></h2>
             </div>
 
             <!-- Section 1: Origin and Supply Base -->
             <section class="section">
-                <h3 class="section-heading"><i class="fa-solid fa-cow"></i> Origin & Supply Base</h3>
+                <h3 class="section-heading"><i class="fa-solid fa-cow"></i> <span class="en-text">Origin & Supply Base</span><span class="ru-text">Происхождение и сырьевая база</span></h3>
                 <div class="grid-2">
                     <div class="info-card">
                         <div class="info-item">
-                            <label>Geographic Origin</label>
-                            <span>Punjab, Pakistan</span>
+                            <label><span class="en-text">Geographic Origin</span><span class="ru-text">Географическое происхождение</span></label>
+                            <span><span class="en-text">Punjab, Pakistan</span><span class="ru-text">Пенджаб, Пакистан</span></span>
                         </div>
                         <div class="info-item">
-                            <label>Feedlot Operations</label>
-                            <span>Own 1,000-head dedicated cattle fattening farm in Khurrianwala</span>
+                            <label><span class="en-text">Feedlot Operations</span><span class="ru-text">Откормочные площадки (Фидлот)</span></label>
+                            <span><span class="en-text">Own 1,000-head dedicated cattle fattening farm in Khurrianwala</span><span class="ru-text">Собственная ферма по откорму КРС на 1000 голов в Хуррианвале</span></span>
                         </div>
                     </div>
                     <div class="info-card">
                         <div class="info-item">
-                            <label>Livestock Breed</label>
-                            <span>Crossbred (Sahiwal x Friesian)</span>
+                            <label><span class="en-text">Livestock Breed</span><span class="ru-text">Порода скота</span></label>
+                            <span><span class="en-text">Crossbred (Sahiwal x Friesian)</span><span class="ru-text">Помесь (Сахивал х Фризская)</span></span>
                         </div>
                         <div class="info-item">
-                            <label>Nutrition / Finish Protocol</label>
-                            <span>Scientific grain-finished ration for premium carcass quality</span>
+                            <label><span class="en-text">Nutrition / Finish Protocol</span><span class="ru-text">Протокол питания / Откорма</span></label>
+                            <span><span class="en-text">Scientific grain-finished ration for premium carcass quality</span><span class="ru-text">Научно обоснованный рацион зернового откорма для премиального качества туши</span></span>
                         </div>
                     </div>
                 </div>
@@ -557,41 +609,41 @@ Parent: Ashraf Zia Textile Mills<br>
 
             <!-- Section 2: Product Forms Supplied -->
             <section class="section">
-                <h3 class="section-heading"><i class="fa-solid fa-boxes-packing"></i> Product Range</h3>
+                <h3 class="section-heading"><i class="fa-solid fa-boxes-packing"></i> <span class="en-text">Product Range</span><span class="ru-text">Ассортимент продукции</span></h3>
                 <div class="product-forms-list">
                     <div class="product-form-item">
                         <i class="fa-solid fa-shield-halved"></i>
                         <div>
-                            <h4>Chilled Carcasses & Quarters</h4>
-                            <p>Whole carcass sides or quarters (4-quarters cut), high-barrier vacuum packed (fully UAE/GCC compliant).</p>
+                            <h4><span class="en-text">Chilled Carcasses & Quarters</span><span class="ru-text">Охлажденные туши и четверти</span></h4>
+                            <p><span class="en-text">Whole carcass sides or quarters (4-quarters cut), high-barrier vacuum packed (fully UAE/GCC compliant).</span><span class="ru-text">Цельные полутуши или четверти (разделка на 4 четверти), вакуумная упаковка с высоким барьером (полное соответствие требованиям ОАЭ/стран Залива).</span></p>
                         </div>
                     </div>
                     <div class="product-form-item">
                         <i class="fa-solid fa-plane-departure"></i>
                         <div>
-                            <h4>Chilled Beef Primal Cuts</h4>
-                            <p>Sahiwal x Friesian (Grain-Finished) primals, high-barrier vacuum packed for Gulf air freight.</p>
+                            <h4><span class="en-text">Chilled Beef Primal Cuts</span><span class="ru-text">Охлажденные крупнокусковые отруба говядины</span></h4>
+                            <p><span class="en-text">Sahiwal x Friesian (Grain-Finished) primals, high-barrier vacuum packed for Gulf air freight.</span><span class="ru-text">Крупнокусковые отруба (зерновой откорм Сахивал х Фризская), вакуумная упаковка с высоким барьером для авиаперевозок в страны Залива.</span></p>
                         </div>
                     </div>
                     <div class="product-form-item">
                         <i class="fa-solid fa-snowflake"></i>
                         <div>
-                            <h4>Frozen Carcasses & Quarters</h4>
-                            <p>Halal slaughtered frozen whole carcasses or quarters, protected in stockinette wrapping.</p>
+                            <h4><span class="en-text">Frozen Carcasses & Quarters</span><span class="ru-text">Замороженные туши и четверти</span></h4>
+                            <p><span class="en-text">Halal slaughtered frozen whole carcasses or quarters, protected in stockinette wrapping.</span><span class="ru-text">Замороженные цельные туши или четверти халяльного убоя в защитной трикотажной упаковке (чулке).</span></p>
                         </div>
                     </div>
                     <div class="product-form-item">
                         <i class="fa-solid fa-bezier-curve"></i>
                         <div>
-                            <h4>Frozen Primal Cuts</h4>
-                            <p>Custom primal cut specifications, vacuum packed and boxed in heavy-duty shipping cartons.</p>
+                            <h4><span class="en-text">Frozen Primal Cuts</span><span class="ru-text">Замороженные крупнокусковые отруба</span></h4>
+                            <p><span class="en-text">Custom primal cut specifications, vacuum packed and boxed in heavy-duty shipping cartons.</span><span class="ru-text">Индивидуальные спецификации отрубов, вакуумная упаковка и фасовка в прочные картонные коробки.</span></p>
                         </div>
                     </div>
                     <div class="product-form-item" style="grid-column: span 2;">
                         <i class="fa-solid fa-circle-nodes"></i>
                         <div>
-                            <h4>Beef Offal & Variety Meats</h4>
-                            <p>Export-certified beef offal and constituents supplied frozen to high-value international markets.</p>
+                            <h4><span class="en-text">Beef Offal & Variety Meats</span><span class="ru-text">Субпродукты и деликатесы из говядины</span></h4>
+                            <p><span class="en-text">Export-certified beef offal and constituents supplied frozen to high-value international markets.</span><span class="ru-text">Сертифицированные для экспорта субпродукты и компоненты говядины, поставляемые в замороженном виде на высокобюджетные международные рынки.</span></p>
                         </div>
                     </div>
                 </div>
@@ -599,34 +651,34 @@ Parent: Ashraf Zia Textile Mills<br>
 
             <!-- Section 3: Technical Specifications & Quality Standards -->
             <section class="section">
-                <h3 class="section-heading"><i class="fa-solid fa-shield-halved"></i> Processing & Quality Standards</h3>
+                <h3 class="section-heading"><i class="fa-solid fa-shield-halved"></i> <span class="en-text">Processing & Quality Standards</span><span class="ru-text">Стандарты переработки и качества</span></h3>
                 <table class="specs-table">
                     <thead>
                         <tr>
-                            <th style="width: 25%;">Quality Parameter</th>
-                            <th style="width: 75%;">Verification & Specifications</th>
+                            <th style="width: 25%;"><span class="en-text">Quality Parameter</span><span class="ru-text">Параметр качества</span></th>
+                            <th style="width: 75%;"><span class="en-text">Verification & Specifications</span><span class="ru-text">Верификация и спецификации</span></th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <strong><td>Processing Facility</td></strong>
-                            <td>Processed exclusively through certified, export-approved abattoirs matching international sanitary protocols.</td>
+                            <td><strong><span class="en-text">Processing Facility</span><span class="ru-text">Предприятие по переработке</span></strong></td>
+                            <td><span class="en-text">Processed exclusively through certified, export-approved abattoirs matching international sanitary protocols.</span><span class="ru-text">Переработка исключительно на сертифицированных бойнях, одобренных для экспорта, соответствующих международным санитарным протоколам.</span></td>
                         </tr>
                         <tr>
-                            <strong><td>Halal Compliance</td></strong>
-                            <td>100% Hand-slaughtered (Shariah compliant) with verified Halal certification issued per consignment.</td>
+                            <td><strong><span class="en-text">Halal Compliance</span><span class="ru-text">Соответствие стандартам Халяль</span></strong></td>
+                            <td><span class="en-text">100% Hand-slaughtered (Shariah compliant) with verified Halal certification issued per consignment.</span><span class="ru-text">100% ручной забой (согласно законам Шариата) с подтвержденным сертификатом Халяль на каждую партию.</span></td>
                         </tr>
                         <tr>
-                            <strong><td>Packaging System</td></strong>
-                            <td>High-barrier vacuum packed for freshness. Carton weights configured strictly to buyer specification.</td>
+                            <td><strong><span class="en-text">Packaging System</span><span class="ru-text">Система упаковки</span></strong></td>
+                            <td><span class="en-text">High-barrier vacuum packed for freshness. Carton weights configured strictly to buyer specification.</span><span class="ru-text">Вакуумная упаковка с высоким барьером для сохранения свежести. Вес коробок формируется строго по спецификациям покупателя.</span></td>
                         </tr>
                         <tr>
-                            <strong><td>Chilled Shelf Life</td></strong>
-                            <td>60–90 days when stored and maintained at 0 to 2°C.</td>
+                            <td><strong><span class="en-text">Chilled Shelf Life</span><span class="ru-text">Срок годности (охлажденное)</span></strong></td>
+                            <td><span class="en-text">60–90 days when stored and maintained at 0 to 2°C.</span><span class="ru-text">60–90 дней при хранении и поддержании температуры от 0 до 2°C.</span></td>
                         </tr>
                         <tr>
-                            <strong><td>Frozen Shelf Life</td></strong>
-                            <td>Up to 12 months when stored and maintained at or below -18°C.</td>
+                            <td><strong><span class="en-text">Frozen Shelf Life</span><span class="ru-text">Срок годности (замороженное)</span></strong></td>
+                            <td><span class="en-text">Up to 12 months when stored and maintained at or below -18°C.</span><span class="ru-text">До 12 месяцев при хранении и поддержании температуры не выше -18°C.</span></td>
                         </tr>
                     </tbody>
                 </table>
@@ -634,30 +686,36 @@ Parent: Ashraf Zia Textile Mills<br>
 
             <!-- Section 4: Logistical Capacity & Documentation -->
             <section class="section">
-                <h3 class="section-heading"><i class="fa-solid fa-truck-ramp-box"></i> Logistical Capacity & Documentation</h3>
+                <h3 class="section-heading"><i class="fa-solid fa-truck-ramp-box"></i> <span class="en-text">Logistical Capacity & Documentation</span><span class="ru-text">Логистический потенциал и документация</span></h3>
                 <div class="grid-2">
                     <div class="info-card" style="height: 100%;">
                         <div class="info-item">
-                            <label>Supply Capacity</label>
+                            <label><span class="en-text">Supply Capacity</span><span class="ru-text">Объем поставок</span></label>
                             <span style="font-size: 0.85rem; display: block; margin-top: 0.15rem; color: var(--text-dark); line-height: 1.4;">
-                                <strong>Chilled Air Freight</strong>: Starting with chilled halal beef air-freighted to the Gulf — from 1–2 tons/week, scaling with demand.<br>
-                                <strong>Frozen Sea Freight</strong>: Container-load reefers dispatched for sea freight where volume justifies.
+                                <span class="en-text"><strong>Chilled Air Freight</strong>: Starting with chilled halal beef air-freighted to the Gulf — from 1–2 tons/week, scaling with demand.</span>
+                                <span class="ru-text"><strong>Охлажденные авиаперевозки</strong>: Начальный объем охлажденной халяльной говядины авиарейсами в страны Залива — от 1–2 тонн в неделю, с возможностью масштабирования.</span>
+                                <br>
+                                <span class="en-text"><strong>Frozen Sea Freight</strong>: Container-load reefers dispatched for sea freight where volume justifies.</span>
+                                <span class="ru-text"><strong>Замороженные морские перевозки</strong>: Отправка рефрижераторных контейнеров морским путем при соответствующих объемах заказа.</span>
                             </span>
                         </div>
                         <div class="info-item" style="margin-top: 0.75rem; border-top: 1px solid var(--border-color); padding-top: 0.5rem;">
-                            <label>Incoterms</label>
-                            <span style="font-size: 0.85rem; color: var(--text-dark);">Prices quoted CFR / CIF Gulf ports on request.</span>
+                            <label><span class="en-text">Incoterms</span><span class="ru-text">Инкотермс</span></label>
+                            <span style="font-size: 0.85rem; color: var(--text-dark);">
+                                <span class="en-text">Prices quoted CFR / CIF Gulf ports on request.</span>
+                                <span class="ru-text">Цены предоставляются на условиях CFR / CIF порты Залива по запросу.</span>
+                            </span>
                         </div>
                     </div>
                     <div class="info-card" style="height: 100%;">
                         <div class="info-item" style="margin-bottom: 0;">
-                            <label>Documentation Suite (Per Shipment)</label>
+                            <label><span class="en-text">Documentation Suite (Per Shipment)</span><span class="ru-text">Пакет документов (на каждую партию)</span></label>
                             <div class="doc-badges-list">
-                                <span class="doc-badge"><i class="fa-solid fa-mosque"></i> Halal Certificate</span>
-                                <span class="doc-badge"><i class="fa-solid fa-file-medical"></i> Veterinary Health Certificate</span>
-                                <span class="doc-badge"><i class="fa-solid fa-globe"></i> Certificate of Origin</span>
-                                <span class="doc-badge"><i class="fa-solid fa-list-check"></i> Packing List</span>
-                                <span class="doc-badge"><i class="fa-solid fa-file-invoice-dollar"></i> Commercial Invoice</span>
+                                <span class="doc-badge"><i class="fa-solid fa-mosque"></i> <span class="en-text">Halal Certificate</span><span class="ru-text">Сертификат Халяль</span></span>
+                                <span class="doc-badge"><i class="fa-solid fa-file-medical"></i> <span class="en-text">Veterinary Health Certificate</span><span class="ru-text">Ветеринарный сертификат</span></span>
+                                <span class="doc-badge"><i class="fa-solid fa-globe"></i> <span class="en-text">Certificate of Origin</span><span class="ru-text">Сертификат происхождения</span></span>
+                                <span class="doc-badge"><i class="fa-solid fa-list-check"></i> <span class="en-text">Packing List</span><span class="ru-text">Упаковочный лист</span></span>
+                                <span class="doc-badge"><i class="fa-solid fa-file-invoice-dollar"></i> <span class="en-text">Commercial Invoice</span><span class="ru-text">Коммерческий инвойс</span></span>
                             </div>
                         </div>
                     </div>
@@ -671,18 +729,19 @@ Parent: Ashraf Zia Textile Mills<br>
             <div class="footer-stamp-area">
                 <div class="stamp-badge">
                     <span>BA FOODS</span>
-                    <span>HALAL EXPORT</span>
-                    <span>APPROVED</span>
+                    <span class="en-text">HALAL EXPORT</span><span class="ru-text">ЭКСПОРТ ХАЛЯЛЬ</span>
+                    <span class="en-text">APPROVED</span><span class="ru-text">ОДОБРЕНО</span>
                 </div>
                 <div class="stamp-text">
-                    This document certifies the current B2B supply capabilities and logistical protocols of BA Foods.
+                    <span class="en-text">This document certifies the current B2B supply capabilities and logistical protocols of BA Foods.</span>
+                    <span class="ru-text">Настоящий документ подтверждает текущие экспортные возможности B2B и логистические протоколы компании BA Foods.</span>
                 </div>
             </div>
             
             <div class="signature-area">
                 <div class="signature-line"></div>
-                <div class="signature-title" style="font-size: 0.88rem; font-weight: 700; color: var(--primary-green);">Bilal Ashraf</div>
-                <div class="signature-subtitle" style="font-size: 0.72rem; color: var(--text-medium); font-weight: 500;">Managing Director / Export Desk</div>
+                <div class="signature-title" style="font-size: 0.88rem; font-weight: 700; color: var(--primary-green);"><span class="en-text">Bilal Ashraf</span><span class="ru-text">Билал Ашраф</span></div>
+                <div class="signature-subtitle" style="font-size: 0.72rem; color: var(--text-medium); font-weight: 500;"><span class="en-text">Managing Director / Export Desk</span><span class="ru-text">Управляющий директор / Экспортный отдел</span></div>
                 <div class="signature-subtitle" style="font-size: 0.72rem; color: var(--accent-gold); font-weight: 600; margin-top: 0.15rem;">
                     <a href="https://wa.me/923278585556" style="color: inherit; text-decoration: none;"><i class="fa-brands fa-whatsapp"></i> +92-327-8585556</a>
                 </div>
@@ -692,6 +751,47 @@ Parent: Ashraf Zia Textile Mills<br>
         <!-- Bottom Border Graphic Line -->
         <div class="bottom-border-graphics"></div>
     </div>
+
+    <!-- Language Translation Script -->
+    <script>
+        function setLanguage(lang) {
+            document.documentElement.lang = lang;
+            
+            // Update active class in toggle buttons
+            document.querySelectorAll('.btn-toggle-lang').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            const activeBtn = document.getElementById('lang-btn-' + lang);
+            if (activeBtn) {
+                activeBtn.classList.add('active');
+            }
+            
+            // Update document title and description for SEO
+            if (lang === 'ru') {
+                document.title = "Спецификация экспортных возможностей халяльной говядины | BA Foods";
+                const metaDesc = document.querySelector('meta[name="description"]');
+                if (metaDesc) {
+                    metaDesc.setAttribute("content", "BA Foods - Спецификация возможностей экспорта халяльной говядины. Загрузите официальный документ о корпоративных возможностях для экспортных контрактов B2B.");
+                }
+            } else {
+                document.title = "Halal Beef Export Capability Statement | BA Foods";
+                const metaDesc = document.querySelector('meta[name="description"]');
+                if (metaDesc) {
+                    metaDesc.setAttribute("content", "BA Foods - Halal Beef Export Capability Sheet. Download official corporate capabilities document for B2B export contracts.");
+                }
+            }
+            
+            // Save preference
+            localStorage.setItem('preferred-lang', lang);
+        }
+
+        // Load language preference on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            const preferredLang = localStorage.getItem('preferred-lang') || 'en';
+            setLanguage(preferredLang);
+        });
+    </script>
 
 </body>
 </html>
