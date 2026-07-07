@@ -249,6 +249,9 @@ function AppContent() {
                     <a href="/spec-sheet.html" target="_blank" class="menu-item" style={{ textDecoration: 'none', color: 'inherit' }}>
                         <i class="fa-solid fa-file-shield"></i> Spec Sheet Creator
                     </a>
+                    <a href="/smartherd-portal/BA_Foods_Blank_Letterhead.docx" download class="menu-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+                        <i class="fa-solid fa-file-word" style={{ color: '#2b579a' }}></i> Blank Letterhead (Word)
+                    </a>
 
                     <button className="menu-item logout-btn" style={{ marginTop: '2rem', border: '1px solid rgba(220, 53, 69, 0.2)', color: 'hsl(0, 75%, 65%)' }} onClick={handleLogout}>
                         <i className="fa-solid fa-power-off" style={{ color: 'hsl(0, 75%, 65%)' }}></i> Secure Logout
