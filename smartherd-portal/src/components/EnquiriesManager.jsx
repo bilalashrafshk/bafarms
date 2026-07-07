@@ -4,7 +4,7 @@ import { FarmContext } from '../context/FarmContext';
 export default function EnquiriesManager() {
     const { 
         enquiries, updateEnquiryStatus, deleteEnquiry,
-        quotations, updateQuotationStatus, deleteQuotation,
+        quotations, updateQuotationStatus, deleteQuotation, duplicateQuotation,
         specSheets, deleteSpecSheet
     } = useContext(FarmContext);
     const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'New' | 'Contacted' | 'Closed'
@@ -389,7 +389,22 @@ export default function EnquiriesManager() {
                                                             <i className="fa-solid fa-pen-to-square"></i> Open
                                                         </a>
                                                         <button
-                                                            onClick={() => deleteQuotation(quote.id)}
+                                                            onClick={() => {
+                                                                if (window.confirm(`Are you sure you want to duplicate quotation ${quote.id}? A new draft will be created.`)) {
+                                                                    duplicateQuotation(quote);
+                                                                }
+                                                            }}
+                                                            style={{ background: 'rgba(25,135,84,0.12)', border: '1px solid rgba(25,135,84,0.25)', color: 'var(--primary-green-light)', borderRadius: '6px', padding: '0.25rem 0.55rem', fontSize: '0.8rem', cursor: 'pointer', lineHeight: 1, display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                                            title="Duplicate Quotation"
+                                                        >
+                                                            <i className="fa-solid fa-copy"></i> Duplicate
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                if (window.confirm(`Are you sure you want to delete quotation ${quote.id}?`)) {
+                                                                    deleteQuotation(quote.id);
+                                                                }
+                                                            }}
                                                             style={{ background: 'rgba(220,53,69,0.12)', border: '1px solid rgba(220,53,69,0.25)', color: '#e05260', borderRadius: '6px', padding: '0.25rem 0.55rem', fontSize: '0.8rem', cursor: 'pointer', lineHeight: 1 }}
                                                             title="Delete quotation record"
                                                         >

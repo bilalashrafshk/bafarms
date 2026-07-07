@@ -928,6 +928,36 @@ export const FarmProvider = ({ children }) => {
         }
     };
 
+    const duplicateQuotation = async (quote) => {
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        const newId = `BAQ-${yyyy}${mm}${dd}-${Math.floor(10 + Math.random() * 90)}`;
+        
+        const duplicated = {
+            ...quote,
+            id: newId,
+            createdAt: today.toISOString().split('T')[0],
+            status: 'Draft'
+        };
+
+        setQuotations(prev => [duplicated, ...prev]);
+
+        try {
+            await fetch('/api/farm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'SAVE_QUOTATION',
+                    payload: duplicated
+                })
+            });
+        } catch (err) {
+            console.error('duplicateQuotation failed:', err);
+        }
+    };
+
     const deleteSpecSheet = async (refId) => {
         setSpecSheets(prev => prev.filter(s => s.docRef !== refId));
         try {
@@ -965,6 +995,7 @@ export const FarmProvider = ({ children }) => {
             quotations,
             updateQuotationStatus,
             deleteQuotation,
+            duplicateQuotation,
             specSheets,
             deleteSpecSheet,
             meatCuts,
