@@ -94,28 +94,39 @@ export default function EnquiriesManager() {
             </div>
 
             {/* Sub-tab navigation */}
-            <div className="glass-panel" style={{ display: 'flex', gap: '1rem', padding: '0.75rem 1.25rem', borderRadius: '8px', marginBottom: '0.5rem' }}>
-                <button 
-                    className={`btn ${activeSubTab === 'leads' ? 'btn-primary' : 'btn-secondary'}`} 
-                    onClick={() => setActiveSubTab('leads')}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '38px', fontSize: '0.85rem' }}
+            <div className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.25rem', borderRadius: '8px', marginBottom: '0.5rem' }}>
+                <div style={{ display: 'flex', gap: '1rem' }}>
+                    <button 
+                        className={`btn ${activeSubTab === 'leads' ? 'btn-primary' : 'btn-secondary'}`} 
+                        onClick={() => setActiveSubTab('leads')}
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '38px', fontSize: '0.85rem' }}
+                    >
+                        <i className="fa-solid fa-envelope-open-text"></i> Export Leads / Enquiries ({filteredEnquiries.length})
+                    </button>
+                    <button 
+                        className={`btn ${activeSubTab === 'quotes' ? 'btn-primary' : 'btn-secondary'}`} 
+                        onClick={() => setActiveSubTab('quotes')}
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '38px', fontSize: '0.85rem' }}
+                    >
+                        <i className="fa-solid fa-file-invoice-dollar"></i> Saved Quotations Tracker ({quotations.length})
+                    </button>
+                    <button 
+                        className={`btn ${activeSubTab === 'specs' ? 'btn-primary' : 'btn-secondary'}`} 
+                        onClick={() => setActiveSubTab('specs')}
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '38px', fontSize: '0.85rem' }}
+                    >
+                        <i className="fa-solid fa-file-shield"></i> Saved Spec Sheets ({specSheets.length})
+                    </button>
+                </div>
+                
+                <a 
+                    href="/smartherd-portal/BA_Foods_Blank_Letterhead.docx" 
+                    download 
+                    className="btn btn-secondary"
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '38px', fontSize: '0.85rem', textDecoration: 'none', border: '1px solid rgba(43, 87, 154, 0.4)', background: 'rgba(43, 87, 154, 0.05)' }}
                 >
-                    <i className="fa-solid fa-envelope-open-text"></i> Export Leads / Enquiries ({filteredEnquiries.length})
-                </button>
-                <button 
-                    className={`btn ${activeSubTab === 'quotes' ? 'btn-primary' : 'btn-secondary'}`} 
-                    onClick={() => setActiveSubTab('quotes')}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '38px', fontSize: '0.85rem' }}
-                >
-                    <i className="fa-solid fa-file-invoice-dollar"></i> Saved Quotations Tracker ({quotations.length})
-                </button>
-                <button 
-                    className={`btn ${activeSubTab === 'specs' ? 'btn-primary' : 'btn-secondary'}`} 
-                    onClick={() => setActiveSubTab('specs')}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '38px', fontSize: '0.85rem' }}
-                >
-                    <i className="fa-solid fa-file-shield"></i> Saved Spec Sheets ({specSheets.length})
-                </button>
+                    <i className="fa-solid fa-file-word" style={{ color: '#2b579a' }}></i> Download Blank Letterhead
+                </a>
             </div>
 
             {/* Conditional Sub-tab Content Rendering */}
