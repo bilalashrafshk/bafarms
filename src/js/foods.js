@@ -145,7 +145,7 @@ const initApp = () => {
 
     function getAvailableVolume(title) {
         const t = title.toLowerCase();
-        if (t.includes('chilled') && t.includes('primal')) return '1–2 tons/week Air Freight, scaling with demand';
+        if (t.includes('chilled') && t.includes('primal')) return '2–8 tons/week Air Freight, scaling with demand';
         if (t.includes('chilled') && (t.includes('carcass') || t.includes('quarter'))) return 'Air Freight, scaling with demand';
         if (t.includes('frozen') && (t.includes('carcass') || t.includes('quarter'))) return 'Container reefers / Sea Freight';
         if (t.includes('frozen') && t.includes('primal')) return 'Container reefers / Sea Freight';
@@ -222,7 +222,7 @@ const initApp = () => {
             packaging: 'Vacuum packed; carton weights to buyer spec',
             shelf_life: '60–90 Days Chilled (0-2°C)',
             weight: 'Carton weights to buyer spec',
-            capacity: 'from 1–2 tons/week, scaling with demand'
+            capacity: 'from 2–8 tons/week, scaling with demand'
         },
         {
             id: 'frozen_carcasses_quarters',
