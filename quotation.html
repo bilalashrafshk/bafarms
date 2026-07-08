@@ -847,9 +847,10 @@
                     <label>Incoterm Basis</label>
                     <div class="toggle-group" id="incoterm-basis-toggle">
                         <button class="toggle-btn active" data-value="CNF" title="Cost & Freight (Sea/Air)">CNF</button>
-                        <button class="toggle-btn" data-value="CPT" title="Carriage Paid To (Air)">CPT</button>
+                        <button class="toggle-btn" data-value="CPT" title="Carriage Paid To (Air/Land)">CPT</button>
+                        <button class="toggle-btn" data-value="DAP" title="Delivered at Place (Land/Sea/Air)">DAP</button>
                         <button class="toggle-btn" data-value="FOB" title="Free On Board (Sea)">FOB</button>
-                        <button class="toggle-btn" data-value="FCA" title="Free Carrier (Air)">FCA</button>
+                        <button class="toggle-btn" data-value="FCA" title="Free Carrier (Air/Land)">FCA</button>
                     </div>
                 </div>
                 <div class="form-group">
@@ -860,7 +861,7 @@
                     </div>
                 </div>
                 <div class="form-group" id="single-dest-group" style="display: none;">
-                    <label for="target-destination">Target Destination Airport/Port</label>
+                    <label for="target-destination">Target Destination (Airport/Port/Terminal/City)</label>
                     <input type="text" id="target-destination" class="form-control" value="Jeddah">
                 </div>
                 <div class="form-group" id="multi-dest-group">
@@ -1395,13 +1396,15 @@
             // Map Incoterm to Pricing Basis text
             let basisText = "";
             if (newIncoterm === "CNF") {
-                basisText = "Pricing Basis: CFR / CIF destination airport (air freight).";
+                basisText = "Pricing Basis: CFR / CIF destination seaport/airport (Sea/Air freight).";
             } else if (newIncoterm === "CPT") {
-                basisText = "Pricing Basis: CPT / CIP destination airport (air freight).";
+                basisText = "Pricing Basis: CPT / CIP destination airport / land terminal (Air/Land freight).";
+            } else if (newIncoterm === "DAP") {
+                basisText = "Pricing Basis: DAP Destination Address / Terminal (by road/land freight).";
             } else if (newIncoterm === "FOB") {
-                basisText = "Pricing Basis: FOB Lahore Airport.";
+                basisText = "Pricing Basis: FOB Karachi Port (sea freight).";
             } else if (newIncoterm === "FCA") {
-                basisText = "Pricing Basis: FCA Lahore Airport (air freight).";
+                basisText = "Pricing Basis: FCA Lahore / Peshawar / Karachi (Air/Land/Sea).";
             }
 
             for (let i = 0; i < terms.length; i++) {
@@ -1430,7 +1433,7 @@
                     currentIncoterm = btn.dataset.value;
                     
                     // Show/hide freight input elements globally
-                    const hasFreight = (currentIncoterm === "CNF" || currentIncoterm === "CPT");
+                    const hasFreight = (currentIncoterm === "CNF" || currentIncoterm === "CPT" || currentIncoterm === "DAP");
                     document.querySelectorAll('.freight-only-field').forEach(field => {
                         field.style.display = hasFreight ? "block" : "none";
                     });
@@ -1486,7 +1489,7 @@
             });
 
             // Show/hide freight fields based on loaded incoterm
-            const hasFreight = (currentIncoterm === "CNF" || currentIncoterm === "CPT");
+            const hasFreight = (currentIncoterm === "CNF" || currentIncoterm === "CPT" || currentIncoterm === "DAP");
             document.querySelectorAll('.freight-only-field').forEach(field => {
                 field.style.display = hasFreight ? "block" : "none";
             });
@@ -1551,7 +1554,7 @@
                 itemDiv.className = 'product-item-editor';
                 
                 let freightInputsHtml = '';
-                const hasFreight = (currentIncoterm === "CNF" || currentIncoterm === "CPT");
+                const hasFreight = (currentIncoterm === "CNF" || currentIncoterm === "CPT" || currentIncoterm === "DAP");
                 if (hasFreight) {
                     freightInputsHtml = `<div class="dest-freight-grid freight-only-field">`;
                     destinations.forEach(dest => {
@@ -1566,7 +1569,7 @@
                     freightInputsHtml += `</div>`;
                 }
 
-                const preFreightTerm = (currentIncoterm === "CPT" || currentIncoterm === "FCA") ? "FCA" : "FOB";
+                const preFreightTerm = (currentIncoterm === "CPT" || currentIncoterm === "FCA" || currentIncoterm === "DAP") ? "FCA" : "FOB";
                 const isFirst = idx === 0;
                 const isLast = idx === activeProducts.length - 1;
                 const upDisabled = isFirst ? 'disabled style="opacity: 0.2; cursor: not-allowed;"' : '';
@@ -1676,19 +1679,22 @@
             const isFCA = (currentIncoterm === "FCA");
             const isCPT = (currentIncoterm === "CPT");
             const isCNF = (currentIncoterm === "CNF");
+            const isDAP = (currentIncoterm === "DAP");
 
             if (isFOB || isFCA) {
                 const term = isFOB ? "FOB" : "FCA";
+                const portText = isFOB ? "Karachi Port" : "Lahore (Air/Land)";
                 previewBasisTag.textContent = `${term} Export Quotation`;
-                previewBasisTitle.textContent = `${term} Lahore Airport — Price Sheet (USD/kg)`;
+                previewBasisTitle.textContent = `${term} ${portText} — Price Sheet (USD/kg)`;
             } else {
-                const mainTerm = isCPT ? "CPT" : "CNF";
-                const baseTerm = isCPT ? "FCA" : "FOB";
+                const mainTerm = isDAP ? "DAP" : (isCPT ? "CPT" : "CNF");
+                const baseTerm = (isCPT || isDAP) ? "FCA" : "FOB";
+                const basePortText = baseTerm === "FOB" ? "Karachi Port" : "Lahore (Air/Land)";
                 previewBasisTag.textContent = `${mainTerm} Export Quotation`;
                 if (currentScope === "single" && destinations.length > 0) {
                     previewBasisTitle.textContent = `${mainTerm} Price Sheet — Target: ${destinations[0]} (USD/kg)`;
                 } else {
-                    previewBasisTitle.textContent = `${baseTerm} Lahore Airport — ${mainTerm} Price Comparison (USD/kg)`;
+                    previewBasisTitle.textContent = `${baseTerm} ${basePortText} — ${mainTerm} Price Comparison (USD/kg)`;
                 }
             }
 
@@ -1700,15 +1706,17 @@
 
             if (isFOB || isFCA) {
                 const term = isFOB ? "FOB" : "FCA";
-                headersHtml += `<th>${term} Lahore Airport (USD/kg)</th>`;
+                const portText = isFOB ? "Karachi Port" : "Lahore";
+                headersHtml += `<th>${term} ${portText} (USD/kg)</th>`;
             } else {
-                // CNF or CPT Quote
-                const mainTerm = isCPT ? "CPT" : "CNF";
-                const baseTerm = isCPT ? "FCA" : "FOB";
+                // CNF, CPT, or DAP Quote
+                const mainTerm = isDAP ? "DAP" : (isCPT ? "CPT" : "CNF");
+                const baseTerm = (isCPT || isDAP) ? "FCA" : "FOB";
+                const basePortText = baseTerm === "FOB" ? "Karachi" : "Lahore";
                 if (currentScope === "single") {
                     const dest = destinations[0] || 'Destination';
                     headersHtml += `
-                        <th>${baseTerm} Lahore (USD/kg)</th>
+                        <th>${baseTerm} ${basePortText} (USD/kg)</th>
                         <th>Freight (USD/kg)</th>
                         <th>${mainTerm} ${dest} (USD/kg)</th>
                     `;
