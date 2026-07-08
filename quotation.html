@@ -352,6 +352,46 @@
             align-items: center;
         }
 
+        /* Language Selector Toggle Styles */
+        .lang-toggle-container {
+            display: inline-flex;
+            background-color: #1f2937;
+            border-radius: 30px;
+            padding: 3px;
+            border: 1px solid var(--sidebar-border);
+            gap: 2px;
+        }
+        .btn-toggle-lang {
+            background: transparent;
+            border: none;
+            outline: none;
+            font-family: inherit;
+            font-weight: 600;
+            font-size: 0.75rem;
+            padding: 0.35rem 0.85rem;
+            border-radius: 20px;
+            cursor: pointer;
+            color: #9ca3af;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+        }
+        .btn-toggle-lang:hover {
+            color: white;
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+        .btn-toggle-lang.active {
+            background-color: var(--accent-gold);
+            color: white;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+        }
+        /* Language display logic */
+        html[lang="en"] .ru-text {
+            display: none !important;
+        }
+        html[lang="ru"] .en-text {
+            display: none !important;
+        }
+
         /* Letterhead Sheet Layout (Capability Sheet Style) */
         .letterhead-sheet {
             background-color: var(--bg-sheet);
@@ -907,6 +947,11 @@
                 <a href="/" class="btn-action btn-secondary-action" style="padding: 0.5rem 1rem;">
                     <i class="fa-solid fa-arrow-left"></i> Back to Home
                 </a>
+                <!-- Language Switcher -->
+                <div class="lang-toggle-container">
+                    <button type="button" class="btn-toggle-lang active" id="lang-btn-en" data-lang="en">EN</button>
+                    <button type="button" class="btn-toggle-lang" id="lang-btn-ru" data-lang="ru">RU</button>
+                </div>
                 <button onclick="window.print()" class="btn-action btn-primary-action" style="padding: 0.5rem 1.25rem;">
                     <i class="fa-solid fa-file-pdf"></i> Print / Save PDF
                 </button>
@@ -922,14 +967,14 @@
                             <img src="/assets/logo_bafoods_dark_green.png" alt="BA Foods Logo" class="logo-img">
                             <div class="brand-title">
                                 <h1>BA FOODS</h1>
-                                <p>Halal Beef Export House</p>
+                                <p><span class="en-text">Halal Beef Export House</span><span class="ru-text">Экспортный дом халяльной говядины</span></p>
                             </div>
                         </div>
                         <div class="corporate-info">
                             <strong>BA FOODS</strong><br>
-                            Division of BA Farms Agro-Complex<br>
-                            Parent: Ashraf Zia Textile Mills<br>
-                            Khurrianwala, Faisalabad, Punjab, Pakistan<br>
+                            <span class="en-text">Division of BA Farms Agro-Complex</span><span class="ru-text">Подразделение агрокомплекса BA Farms</span><br>
+                            <span class="en-text">Parent: Ashraf Zia Textile Mills</span><span class="ru-text">Материнская компания: Текстильные фабрики Ашраф Зия</span><br>
+                            <span class="en-text">Khurrianwala, Faisalabad, Punjab, Pakistan</span><span class="ru-text">Хуррианвала, Фейсалабад, Пенджаб, Пакистан</span><br>
                             <a href="mailto:sales@bafoods.pk" style="color: var(--primary-green); text-decoration: none;">sales@bafoods.pk</a><span class="sep">|</span><a href="https://wa.me/923278585556" style="color: var(--primary-green); text-decoration: none;"><i class="fa-brands fa-whatsapp"></i> +92-327-8585556</a><span class="sep">|</span><a href="https://bafoods.pk" style="color: var(--primary-green); text-decoration: none;">www.bafoods.pk</a>
                         </div>
                     </header>
@@ -944,21 +989,21 @@
                     <div class="quote-meta-box">
                         <div class="meta-group">
                             <div>
-                                <label>Client / Buyer:</label>
+                                <label><span class="en-text">Client / Buyer:</span><span class="ru-text">Клиент / Импортер:</span></label>
                                 <span id="preview-client">Dar Al Lahoom FZ LLC</span>
                             </div>
                             <div>
-                                <label>Reference #:</label>
+                                <label><span class="en-text">Reference #:</span><span class="ru-text">Номер предложения:</span></label>
                                 <span id="preview-ref">BAQ-20260702-01</span>
                             </div>
                         </div>
                         <div class="meta-group">
                             <div>
-                                <label>Date of Issue:</label>
+                                <label><span class="en-text">Date of Issue:</span><span class="ru-text">Дата выдачи:</span></label>
                                 <span id="preview-date">02/07/2026</span>
                             </div>
                             <div>
-                                <label>Quote Validity:</label>
+                                <label><span class="en-text">Quote Validity:</span><span class="ru-text">Срок действия:</span></label>
                                 <span id="preview-validity">7 Days from Date of Issue</span>
                             </div>
                         </div>
@@ -980,7 +1025,7 @@
 
                     <!-- Terms Section -->
                     <div class="terms-section">
-                        <div class="terms-title">Standard Terms & Export Conditions</div>
+                        <div class="terms-title"><span class="en-text">Standard Terms & Export Conditions</span><span class="ru-text">Стандартные условия экспорта</span></div>
                         <ul class="terms-list" id="terms-list-container">
                             <!-- Dynamic terms -->
                         </ul>
@@ -993,11 +1038,12 @@
                     <div class="footer-stamp-area">
                         <div class="stamp-badge">
                             <span>BA FOODS</span>
-                            <span>OFFICIAL QUOTE</span>
-                            <span>APPROVED</span>
+                            <span><span class="en-text">OFFICIAL QUOTE</span><span class="ru-text">ОФИЦИАЛЬНОЕ ПРЕДЛОЖЕНИЕ</span></span>
+                            <span><span class="en-text">APPROVED</span><span class="ru-text">УТВЕРЖДЕНО</span></span>
                         </div>
                         <div class="stamp-text">
-                            Prices quoted in USD per kg. All carcasses slaughtered per strict Shariah rules (Hand Slaughtered).
+                            <span class="en-text">Prices quoted in USD per kg. All carcasses slaughtered per strict Shariah rules (Hand Slaughtered).</span>
+                            <span class="ru-text">Цены указаны в долларах США за кг. Все туши забиты в строгом соответствии с правилами Шариата (ручной забой).</span>
                         </div>
                     </div>
                     
@@ -1058,6 +1104,77 @@
                 { title: "Boneless Beef", weight: "—", fob: 6.60, freights: { "Jeddah": 1.26, "Riyadh": 1.36, "Dammam": 1.36, "Qatar": 2.11, "Bahrain": 2.01, "UAE": 1.37, "Uzbekistan": 2.02, "Tajikistan": 1.97 } }
             ]
         };
+
+        // Translation Dictionaries
+        const translations = {
+            "Pricing Basis: CFR / CIF destination seaport/airport (Sea/Air freight).": "Базис цены: CFR / CIF пункт назначения порт/аэропорт (морской/авиа фрахт).",
+            "Pricing Basis: CPT / CIP destination airport / land terminal (Air/Land freight).": "Базис цены: CPT / CIP пункт назначения аэропорт / сухопутный терминал (авиа/автоперевозка).",
+            "Pricing Basis: DAP Destination Address / Terminal (by road/land freight).": "Базис цены: DAP адрес доставки / терминал (авто/сухопутный транспорт).",
+            "Pricing Basis: FOB Karachi Port (sea freight).": "Базис цены: FOB Порт Карачи (морской фрахт).",
+            "Pricing Basis: FCA Lahore / Peshawar / Karachi (Air/Land/Sea).": "Базис цены: FCA Лахор / Пешавар / Карачи (авиа/авто/море).",
+            "Quote Currency: Quotes made in United States Dollars (USD/kg net weight).": "Валюта предложения: Цены указаны в долларах США (USD/кг нетто).",
+            "Halal Slaughtering: 100% Halal hand-slaughtered per GCC Standards.": "Халяльный забой: 100% халяльный ручной забой в соответствии со стандартами GCC.",
+            "Packaging: High-barrier vacuum skin packing (VSP) in standard export-worthy cartons.": "Упаковка: Высокобарьерная вакуумная скин-упаковка (VSP) в стандартных экспортных коробках.",
+            "Payment Terms: 100% Cash Against Documents (CAD) or irrevocable LC.": "Условия оплаты: 100% наличный расчет против документов (CAD) или безотзывный аккредитив (LC).",
+            "Delivery Schedule: Subject to airline space booking, typically 7-10 days.": "График доставки: Зависит от бронирования места в авиакомпании / на транспорте, обычно 7-10 дней.",
+            "Validity Period: 7 Days from Date of Issue due to flight tariffs": "Срок действия: 7 дней с даты выдачи из-за тарифов на авиаперевозки",
+            "Validity Period: 7 Days from Date of Issue": "Срок действия: 7 дней с даты выдачи"
+        };
+
+        // Create reverse translation map for RU -> EN
+        const reverseTranslations = {};
+        for (const key in translations) {
+            reverseTranslations[translations[key]] = key;
+        }
+
+        // Translates textarea terms between EN and RU
+        function translateTerms(targetLang) {
+            let lines = termsTextarea.value.split('\n');
+            let translatedLines = lines.map(line => {
+                const trimmed = line.trim();
+                if (targetLang === 'ru') {
+                    if (translations[trimmed]) {
+                        return translations[trimmed];
+                    }
+                    if (trimmed.startsWith("Pricing Basis: CFR / CIF")) {
+                        return "Базис цены: CFR / CIF пункт назначения порт/аэропорт (морской/авиа фрахт).";
+                    }
+                    if (trimmed.startsWith("Pricing Basis: CPT / CIP")) {
+                        return "Базис цены: CPT / CIP пункт назначения аэропорт / сухопутный терминал (авиа/автоперевозка).";
+                    }
+                    if (trimmed.startsWith("Pricing Basis: DAP")) {
+                        return "Базис цены: DAP адрес доставки / терминал (авто/сухопутный транспорт).";
+                    }
+                    if (trimmed.startsWith("Pricing Basis: FOB")) {
+                        return "Базис цены: FOB Порт Карачи (морской фрахт).";
+                    }
+                    if (trimmed.startsWith("Pricing Basis: FCA")) {
+                        return "Базис цены: FCA Лахор / Пешавар / Карачи (авиа/авто/море).";
+                    }
+                } else {
+                    if (reverseTranslations[trimmed]) {
+                        return reverseTranslations[trimmed];
+                    }
+                    if (trimmed.startsWith("Базис цены: CFR / CIF")) {
+                        return "Pricing Basis: CFR / CIF destination seaport/airport (Sea/Air freight).";
+                    }
+                    if (trimmed.startsWith("Базис цены: CPT / CIP")) {
+                        return "Pricing Basis: CPT / CIP destination airport / land terminal (Air/Land freight).";
+                    }
+                    if (trimmed.startsWith("Базис цены: DAP")) {
+                        return "Pricing Basis: DAP Destination Address / Terminal (by road/land freight).";
+                    }
+                    if (trimmed.startsWith("Базис цены: FOB")) {
+                        return "Pricing Basis: FOB Karachi Port (sea freight).";
+                    }
+                    if (trimmed.startsWith("Базис цены: FCA")) {
+                        return "Pricing Basis: FCA Lahore / Peshawar / Karachi (Air/Land/Sea).";
+                    }
+                }
+                return line;
+            });
+            termsTextarea.value = translatedLines.join('\n');
+        }
 
         // Form elements
         const clientNameInput = document.getElementById('client-name');
@@ -1200,6 +1317,40 @@
                 preparerPhone: demoData.preparerPhone,
                 products: [activeProd]
             };
+        }
+
+        function setupLanguageSwitcher() {
+            const langButtons = document.querySelectorAll('.btn-toggle-lang');
+            langButtons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const selectedLang = btn.dataset.lang;
+                    setLanguage(selectedLang);
+                });
+            });
+
+            // Initialize preferred language
+            const preferredLang = localStorage.getItem('preferred-lang') || 'en';
+            setLanguage(preferredLang);
+        }
+
+        function setLanguage(lang) {
+            const oldLang = document.documentElement.lang || 'en';
+            
+            document.documentElement.lang = lang;
+            document.querySelectorAll('.btn-toggle-lang').forEach(b => {
+                b.classList.toggle('active', b.dataset.lang === lang);
+            });
+
+            localStorage.setItem('preferred-lang', lang);
+
+            // Translate terms (if language changed)
+            if (oldLang !== lang) {
+                translateTerms(lang);
+                updateTermsBasisLine(currentIncoterm);
+            }
+
+            // Refresh preview
+            updatePreview();
         }
 
         // Initialize App
@@ -1387,28 +1538,47 @@
                 e.target.classList.add('active');
                 document.getElementById('btn-tab-edit').classList.remove('active');
             });
+
+            // Set up bilingual language toggle switcher
+            setupLanguageSwitcher();
         }
 
         function updateTermsBasisLine(newIncoterm) {
             let terms = termsTextarea.value.split('\n');
             let updated = false;
+            const isRu = document.documentElement.lang === "ru";
             
             // Map Incoterm to Pricing Basis text
             let basisText = "";
-            if (newIncoterm === "CNF") {
-                basisText = "Pricing Basis: CFR / CIF destination seaport/airport (Sea/Air freight).";
-            } else if (newIncoterm === "CPT") {
-                basisText = "Pricing Basis: CPT / CIP destination airport / land terminal (Air/Land freight).";
-            } else if (newIncoterm === "DAP") {
-                basisText = "Pricing Basis: DAP Destination Address / Terminal (by road/land freight).";
-            } else if (newIncoterm === "FOB") {
-                basisText = "Pricing Basis: FOB Karachi Port (sea freight).";
-            } else if (newIncoterm === "FCA") {
-                basisText = "Pricing Basis: FCA Lahore / Peshawar / Karachi (Air/Land/Sea).";
+            if (isRu) {
+                if (newIncoterm === "CNF") {
+                    basisText = "Базис цены: CFR / CIF пункт назначения порт/аэропорт (морской/авиа фрахт).";
+                } else if (newIncoterm === "CPT") {
+                    basisText = "Базис цены: CPT / CIP пункт назначения аэропорт / сухопутный терминал (авиа/автоперевозка).";
+                } else if (newIncoterm === "DAP") {
+                    basisText = "Базис цены: DAP адрес доставки / терминал (авто/сухопутный транспорт).";
+                } else if (newIncoterm === "FOB") {
+                    basisText = "Базис цены: FOB Порт Карачи (морской фрахт).";
+                } else if (newIncoterm === "FCA") {
+                    basisText = "Базис цены: FCA Лахор / Пешавар / Карачи (авиа/авто/море).";
+                }
+            } else {
+                if (newIncoterm === "CNF") {
+                    basisText = "Pricing Basis: CFR / CIF destination seaport/airport (Sea/Air freight).";
+                } else if (newIncoterm === "CPT") {
+                    basisText = "Pricing Basis: CPT / CIP destination airport / land terminal (Air/Land freight).";
+                } else if (newIncoterm === "DAP") {
+                    basisText = "Pricing Basis: DAP Destination Address / Terminal (by road/land freight).";
+                } else if (newIncoterm === "FOB") {
+                    basisText = "Pricing Basis: FOB Karachi Port (sea freight).";
+                } else if (newIncoterm === "FCA") {
+                    basisText = "Pricing Basis: FCA Lahore / Peshawar / Karachi (Air/Land/Sea).";
+                }
             }
 
             for (let i = 0; i < terms.length; i++) {
-                if (terms[i].trim().startsWith("Pricing Basis:")) {
+                const line = terms[i].trim();
+                if (line.startsWith("Pricing Basis:") || line.startsWith("Базис цены:")) {
                     terms[i] = basisText;
                     updated = true;
                     break;
@@ -1660,9 +1830,15 @@
             previewValidity.textContent = validityInput.value || 'Validity Period';
             previewDate.textContent = formatDate(quoteDateInput.value);
 
+            const isRu = document.documentElement.lang === "ru";
+
             // Update preparer details
             previewPreparerName.textContent = preparerNameInput.value || '';
-            previewPreparerTitle.textContent = preparerTitleInput.value || '';
+            if (isRu && preparerTitleInput.value === "Managing Director / Export Desk") {
+                previewPreparerTitle.textContent = "Управляющий директор / Экспортный отдел";
+            } else {
+                previewPreparerTitle.textContent = preparerTitleInput.value || '';
+            }
             
             const rawPhone = preparerPhoneInput.value || '';
             const cleanedPhone = rawPhone.replace(/[^0-9]/g, '');
@@ -1683,42 +1859,63 @@
 
             if (isFOB || isFCA) {
                 const term = isFOB ? "FOB" : "FCA";
-                const portText = isFOB ? "Karachi Port" : "Lahore (Air/Land)";
-                previewBasisTag.textContent = `${term} Export Quotation`;
-                previewBasisTitle.textContent = `${term} ${portText} — Price Sheet (USD/kg)`;
+                const portText = isRu 
+                    ? (isFOB ? "Порт Карачи" : "Лахор (Авиа/Сухопутный)")
+                    : (isFOB ? "Karachi Port" : "Lahore (Air/Land)");
+                const tagSuffix = isRu ? " Экспортное предложение" : " Export Quotation";
+                const titleSuffix = isRu ? " — Прайс-лист (USD/кг)" : " — Price Sheet (USD/kg)";
+                previewBasisTag.textContent = `${term}${tagSuffix}`;
+                previewBasisTitle.textContent = `${term} ${portText}${titleSuffix}`;
             } else {
                 const mainTerm = isDAP ? "DAP" : (isCPT ? "CPT" : "CNF");
                 const baseTerm = (isCPT || isDAP) ? "FCA" : "FOB";
-                const basePortText = baseTerm === "FOB" ? "Karachi Port" : "Lahore (Air/Land)";
-                previewBasisTag.textContent = `${mainTerm} Export Quotation`;
+                const basePortText = isRu
+                    ? (baseTerm === "FOB" ? "Порт Карачи" : "Лахор (Авиа/Сухопутный)")
+                    : (baseTerm === "FOB" ? "Karachi Port" : "Lahore (Air/Land)");
+                const tagSuffix = isRu ? " Экспортное предложение" : " Export Quotation";
+                previewBasisTag.textContent = `${mainTerm}${tagSuffix}`;
                 if (currentScope === "single" && destinations.length > 0) {
-                    previewBasisTitle.textContent = `${mainTerm} Price Sheet — Target: ${destinations[0]} (USD/kg)`;
+                    const dest = destinations[0];
+                    previewBasisTitle.textContent = isRu 
+                        ? `${mainTerm} Прайс-лист — Пункт назначения: ${dest} (USD/кг)`
+                        : `${mainTerm} Price Sheet — Target: ${dest} (USD/kg)`;
                 } else {
-                    previewBasisTitle.textContent = `${baseTerm} ${basePortText} — ${mainTerm} Price Comparison (USD/kg)`;
+                    previewBasisTitle.textContent = isRu 
+                        ? `${baseTerm} ${basePortText} — ${mainTerm} Сравнение цен (USD/кг)`
+                        : `${baseTerm} ${basePortText} — ${mainTerm} Price Comparison (USD/kg)`;
                 }
             }
 
             // Render Table Header
+            const productLabel = isRu ? "Продукт" : "Product";
+            const weightLabel = isRu ? "Категория веса" : "Weight Cat.";
             let headersHtml = `
-                <th class="align-left" style="width: 25%;">Product</th>
-                <th style="width: 15%;">Weight Cat.</th>
+                <th class="align-left" style="width: 25%;">${productLabel}</th>
+                <th style="width: 15%;">${weightLabel}</th>
             `;
 
             if (isFOB || isFCA) {
                 const term = isFOB ? "FOB" : "FCA";
-                const portText = isFOB ? "Karachi Port" : "Lahore";
-                headersHtml += `<th>${term} ${portText} (USD/kg)</th>`;
+                const portText = isRu 
+                    ? (isFOB ? "Порт Карачи" : "Лахор")
+                    : (isFOB ? "Karachi Port" : "Lahore");
+                const rateLabel = isRu ? `(USD/кг)` : `(USD/kg)`;
+                headersHtml += `<th>${term} ${portText} ${rateLabel}</th>`;
             } else {
                 // CNF, CPT, or DAP Quote
                 const mainTerm = isDAP ? "DAP" : (isCPT ? "CPT" : "CNF");
                 const baseTerm = (isCPT || isDAP) ? "FCA" : "FOB";
-                const basePortText = baseTerm === "FOB" ? "Karachi" : "Lahore";
+                const basePortText = isRu
+                    ? (baseTerm === "FOB" ? "Карачи" : "Лахор")
+                    : (baseTerm === "FOB" ? "Karachi" : "Lahore");
+                const rateLabel = isRu ? `(USD/кг)` : `(USD/kg)`;
                 if (currentScope === "single") {
-                    const dest = destinations[0] || 'Destination';
+                    const dest = destinations[0] || (isRu ? 'Пункт назначения' : 'Destination');
+                    const freightLabel = isRu ? "Фрахт" : "Freight";
                     headersHtml += `
-                        <th>${baseTerm} ${basePortText} (USD/kg)</th>
-                        <th>Freight (USD/kg)</th>
-                        <th>${mainTerm} ${dest} (USD/kg)</th>
+                        <th>${baseTerm} ${basePortText} ${rateLabel}</th>
+                        <th>${freightLabel} ${rateLabel}</th>
+                        <th>${mainTerm} ${dest} ${rateLabel}</th>
                     `;
                 } else {
                     // Multi-destination: show a column for each destination
@@ -1733,7 +1930,8 @@
             let bodyHtml = '';
             if (activeProducts.length === 0) {
                 const colsCount = (isFOB || isFCA) ? 3 : (currentScope === "single" ? 5 : 2 + destinations.length);
-                bodyHtml = `<tr><td colspan="${colsCount}" style="padding: 2rem; color: var(--text-light);">No products added. Add products in the panel to populate.</td></tr>`;
+                const noProdText = isRu ? "Продукты не добавлены. Добавьте продукты на панели слева." : "No products added. Add products in the panel to populate.";
+                bodyHtml = `<tr><td colspan="${colsCount}" style="padding: 2rem; color: var(--text-light);">${noProdText}</td></tr>`;
             } else {
                 activeProducts.forEach(product => {
                     bodyHtml += `<tr>`;
