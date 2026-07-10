@@ -434,6 +434,30 @@ const initApp = () => {
                 refIdSpan.textContent = data.id;
                 successOverlay.classList.add('active');
                 successOverlay.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                if (data.unconfigured) {
+                    try {
+                        const storedEnquiries = JSON.parse(localStorage.getItem('ba_enquiries') || '[]');
+                        const newEnq = {
+                            id: data.id,
+                            company: payload.company,
+                            contact: payload.contact,
+                            email: payload.email,
+                            phone: payload.phone,
+                            country: payload.country,
+                            cutType: payload.cut_type,
+                            volumeMt: payload.volume_mt,
+                            frequency: payload.frequency,
+                            notes: payload.notes,
+                            status: 'New',
+                            createdAt: new Date().toISOString().split('T')[0]
+                        };
+                        storedEnquiries.push(newEnq);
+                        localStorage.setItem('ba_enquiries', JSON.stringify(storedEnquiries));
+                    } catch (e) {
+                        console.warn("Unable to save enquiry to local storage fallback:", e);
+                    }
+                }
             } else {
                 throw new Error(data.error || 'Failed to submit corporate inquiry');
             }

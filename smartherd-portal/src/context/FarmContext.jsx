@@ -327,7 +327,7 @@ export const FarmProvider = ({ children }) => {
     // Orders, enquiries and meatCuts start empty — authoritative source is DB
     const [orders, setOrders] = useState([]);
     const [meatCuts, setMeatCuts] = useState(defaultMeatCuts);
-    const [enquiries, setEnquiries] = useState([]);
+    const [enquiries, setEnquiries] = useState(() => loadStoredData('ba_enquiries', []));
     const [quotations, setQuotations] = useState(() => loadStoredData('ba_quotations', []));
     const [specSheets, setSpecSheets] = useState(() => loadStoredData('ba_spec_sheets', []));
 
@@ -409,6 +409,10 @@ export const FarmProvider = ({ children }) => {
     useEffect(() => {
         localStorage.setItem('ba_spec_sheets', JSON.stringify(specSheets));
     }, [specSheets]);
+
+    useEffect(() => {
+        localStorage.setItem('ba_enquiries', JSON.stringify(enquiries));
+    }, [enquiries]);
 
     // ─── NEON DB GET SYNC RUNNER ───
     useEffect(() => {
