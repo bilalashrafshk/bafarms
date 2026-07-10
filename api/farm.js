@@ -544,7 +544,7 @@ module.exports = async (req, res) => {
     }
 
     // Resolve connection from environment secrets (Neon standard parameters)
-    const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+    const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.bafarms_DATABASE_URL || process.env.bafarms_DATABASE_URL_UNPOOLED;
 
     if (!connectionString) {
         if (req.method === 'POST' && req.body && req.body.action === 'ADD_ORDER') {

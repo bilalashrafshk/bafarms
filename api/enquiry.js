@@ -160,7 +160,7 @@ module.exports = async (req, res) => {
         return res.status(200).end();
     }
 
-    const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+    const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.bafarms_DATABASE_URL || process.env.bafarms_DATABASE_URL_UNPOOLED;
 
     // Fallback cuts if database is not configured
     const defaultCuts = [
