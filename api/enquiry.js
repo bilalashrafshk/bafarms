@@ -214,7 +214,7 @@ module.exports = async (req, res) => {
     // If database connection is not configured, we still want to support the POST endpoint for sending email
     if (!connectionString) {
         if (req.method === 'GET') {
-            return res.status(200).json({ success: true, cuts: defaultCuts, unconfigured: true });
+            return res.status(200).json({ success: true, cuts: defaultCuts });
         }
         
         if (req.method === 'POST') {
@@ -253,14 +253,7 @@ module.exports = async (req, res) => {
                 emailError = mailErr.message;
             }
 
-            return res.status(200).json({
-                success: true,
-                message: "Neon Database unconfigured. Email processing completed.",
-                id: refId,
-                emailSent,
-                emailError,
-                unconfigured: true
-            });
+            return res.status(200).json({ success: true, id: refId, emailSent });
         }
     }
 
@@ -334,12 +327,7 @@ module.exports = async (req, res) => {
                 emailError = mailErr.message;
             }
 
-            return res.status(200).json({ 
-                success: true, 
-                id: refId, 
-                emailSent, 
-                emailError 
-            });
+            return res.status(200).json({ success: true, id: refId, emailSent });
         }
 
         return res.status(405).json({ success: false, error: "Method not allowed" });
