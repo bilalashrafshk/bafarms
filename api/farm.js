@@ -594,6 +594,7 @@ module.exports = async (req, res) => {
             const animalsRes = await client.query('SELECT * FROM ba_animals ORDER BY id ASC');
             const weightsRes = await client.query('SELECT * FROM ba_weights ORDER BY date ASC, id ASC');
             const treatmentsRes = await client.query('SELECT * FROM ba_treatments ORDER BY date ASC, id ASC');
+            const eventsRes = await client.query('SELECT * FROM ba_events ORDER BY date ASC, id ASC');
             const ordersRes = await client.query('SELECT * FROM ba_orders ORDER BY created_at DESC');
             const meatCutsRes = await client.query('SELECT * FROM ba_meat_cuts ORDER BY created_at ASC');
             const enquiriesRes = await client.query('SELECT * FROM ba_export_enquiries ORDER BY created_at DESC');
