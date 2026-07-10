@@ -175,8 +175,8 @@ module.exports = async (req, res) => {
         },
         {
             id: 'chilled_primal_cuts',
-            title: 'Chilled Beef Primal Cuts',
-            spec: 'Sahiwal x Friesian (Grain-Finished)',
+            title: 'Chilled Primal Cut Sets (Whole Carcass Breakdown)',
+            spec: 'Full set of primals from the whole carcass, vacuum packed for Gulf air freight. Supplied as complete carcass breakdown rather than individual cut selections.',
             packaging: 'Vacuum packed; carton weights to buyer spec',
             shelf_life: '60–90 Days Chilled (0-2°C)',
             weight: 'Carton weights to buyer spec',
@@ -193,8 +193,8 @@ module.exports = async (req, res) => {
         },
         {
             id: 'frozen_primal_cuts',
-            title: 'Frozen Primal Cuts',
-            spec: 'Custom specifications on request',
+            title: 'Frozen Primal Cut Sets (Whole Carcass Breakdown)',
+            spec: 'Complete primal set from the whole carcass, vacuum packed and boxed in heavy-duty shipping cartons.',
             packaging: 'Vacuum packed in heavy shipping cartons',
             shelf_life: 'Up to 12 Months (Frozen at -18°C)',
             weight: 'Carton weights to buyer spec',
