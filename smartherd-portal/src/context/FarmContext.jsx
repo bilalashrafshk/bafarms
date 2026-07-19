@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useEffect, useRef } from 'react';
 
 export const FarmContext = createContext();
 
@@ -134,6 +134,9 @@ export const FarmProvider = ({ children }) => {
         const stored = localStorage.getItem('ba_staff_user');
         return stored ? JSON.parse(stored) : null;
     });
+    // Admin-only roster of per-user Sales/Herd access (populated from GET when the
+    // logged-in user is an admin; empty for everyone else).
+    const [staffPermissions, setStaffPermissions] = useState([]);
 
     const handleLoginSuccess = (userSession) => {
         localStorage.setItem('ba_staff_logged_in', 'true');
@@ -148,6 +151,106 @@ export const FarmProvider = ({ children }) => {
         'Content-Type': 'application/json',
         ...(staffUser?.token ? { Authorization: `Bearer ${staffUser.token}` } : {})
     });
+
+    // ─── DURABLE OFFLINE MUTATION QUEUE ───
+    // Any write made while offline (or that hits a network error) is queued to
+    // localStorage instead of being dropped. The queue is flushed in order on load,
+    // whenever the browser regains connectivity, and on a periodic interval, so a
+    // change is never silently lost even if the tab is closed before it syncs.
+    // Exclusions: recordSale (must be verified live against the food-safety
+    // withholding gate), resetSystem (destructive, must never auto-retry), and
+    // updateStaffPermission (access-control changes need an immediate confirmation).
+    const [pendingMutations, setPendingMutations] = useState(() => loadStoredData('ba_pending_mutations', []));
+    const [failedMutations, setFailedMutations] = useState(() => loadStoredData('ba_failed_mutations', []));
+    const [isSyncing, setIsSyncing] = useState(false);
+
+    const pendingRef = useRef(pendingMutations);
+    const staffUserRef = useRef(staffUser);
+    const flushingRef = useRef(false);
+
+    useEffect(() => { pendingRef.current = pendingMutations; }, [pendingMutations]);
+    useEffect(() => { staffUserRef.current = staffUser; }, [staffUser]);
+
+    useEffect(() => {
+        localStorage.setItem('ba_pending_mutations', JSON.stringify(pendingMutations));
+    }, [pendingMutations]);
+
+    useEffect(() => {
+        localStorage.setItem('ba_failed_mutations', JSON.stringify(failedMutations));
+    }, [failedMutations]);
+
+    const flushQueue = async () => {
+        if (flushingRef.current || typeof navigator !== 'undefined' && navigator.onLine === false) return;
+        flushingRef.current = true;
+        setIsSyncing(true);
+        try {
+            while (pendingRef.current.length > 0) {
+                const item = pendingRef.current[0];
+                const headers = {
+                    'Content-Type': 'application/json',
+                    ...(staffUserRef.current?.token ? { Authorization: `Bearer ${staffUserRef.current.token}` } : {})
+                };
+
+                let res, data;
+                try {
+                    res = await fetch('/api/farm', {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify({ action: item.action, payload: item.payload })
+                    });
+                    data = await res.json().catch(() => ({}));
+                } catch (err) {
+                    // Offline / network error — stop here so ordering is preserved,
+                    // the item stays queued and we retry later.
+                    break;
+                }
+
+                if (!res.ok || data.success === false) {
+                    // Server rejected it (validation/permission/etc). Don't let this
+                    // block the rest of the queue, but never drop it silently either.
+                    const failedItem = { ...item, error: data.error || `HTTP ${res.status}`, failedAt: Date.now() };
+                    setFailedMutations(prev => [...prev, failedItem]);
+                }
+
+                setPendingMutations(prev => prev.filter(p => p.id !== item.id));
+                pendingRef.current = pendingRef.current.filter(p => p.id !== item.id);
+            }
+        } finally {
+            flushingRef.current = false;
+            setIsSyncing(false);
+        }
+    };
+
+    // Queue a mutation durably, then attempt to sync it immediately if online.
+    const persistMutation = (action, payload) => {
+        const item = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, action, payload, createdAt: Date.now() };
+        setPendingMutations(prev => [...prev, item]);
+        // Let the pendingRef-sync effect commit before we read it in flushQueue.
+        setTimeout(flushQueue, 0);
+    };
+
+    const retryFailedMutation = (id) => {
+        const item = failedMutations.find(f => f.id === id);
+        if (!item) return;
+        setFailedMutations(prev => prev.filter(f => f.id !== id));
+        setPendingMutations(prev => [...prev, { id: item.id, action: item.action, payload: item.payload, createdAt: item.createdAt }]);
+        setTimeout(flushQueue, 0);
+    };
+
+    const dismissFailedMutation = (id) => {
+        setFailedMutations(prev => prev.filter(f => f.id !== id));
+    };
+
+    useEffect(() => {
+        flushQueue();
+        window.addEventListener('online', flushQueue);
+        const interval = setInterval(flushQueue, 20000);
+        return () => {
+            window.removeEventListener('online', flushQueue);
+            clearInterval(interval);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const handleLogout = () => {
         try {
@@ -337,6 +440,10 @@ export const FarmProvider = ({ children }) => {
     const [enquiries, setEnquiries] = useState([]);
     const [quotations, setQuotations] = useState(() => loadStoredData('ba_quotations', []));
     const [specSheets, setSpecSheets] = useState(() => loadStoredData('ba_spec_sheets', []));
+    // Dated, immutable "what was actually fed" ledger — distinct from feedIngredients
+    // (the live, always-current recipe definition below). Editing the recipe never
+    // rewrites these historical snapshots.
+    const [feedLogs, setFeedLogs] = useState(() => loadStoredData('ba_feed_logs', []));
 
     // Database load and sync metrics
     const [fetchLoading, setFetchLoading] = useState(true);
@@ -410,6 +517,10 @@ export const FarmProvider = ({ children }) => {
     }, [feedIngredients]);
 
     useEffect(() => {
+        localStorage.setItem('ba_feed_logs', JSON.stringify(feedLogs));
+    }, [feedLogs]);
+
+    useEffect(() => {
         localStorage.setItem('ba_quotations', JSON.stringify(quotations));
     }, [quotations]);
 
@@ -434,11 +545,21 @@ export const FarmProvider = ({ children }) => {
                     setWeightLogs(data.weightLogs);
                     setTreatments(data.treatments);
                     if (data.events) setEvents(data.events);
+                    if (data.feedLogs) setFeedLogs(data.feedLogs);
                     if (data.orders) setOrders(data.orders);
                     if (data.meatCuts) setMeatCuts(data.meatCuts);
                     if (data.enquiries) setEnquiries(data.enquiries);
                     if (data.quotations) setQuotations(data.quotations);
                     if (data.specSheets) setSpecSheets(data.specSheets);
+                    if (data.session) {
+                        setStaffUser(prev => {
+                            if (!prev) return prev;
+                            const merged = { ...prev, ...data.session, token: prev.token };
+                            localStorage.setItem('ba_staff_user', JSON.stringify(merged));
+                            return merged;
+                        });
+                    }
+                    setStaffPermissions(data.staffPermissions || []);
                 } else if (data.unconfigured) {
                     setDbUnconfigured(true);
                     console.warn("Neon Database connection string unconfigured. Utilizing offline localStorage backup.");
@@ -489,19 +610,8 @@ export const FarmProvider = ({ children }) => {
         };
         setWeightLogs(prev => [...prev, initialLog]);
 
-        // 2. Dispatch async database transaction to Neon
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    action: 'ADD_ANIMAL',
-                    payload: animal
-                })
-            });
-        } catch (err) {
-            console.error("DB post failed for addAnimal:", err);
-        }
+        // 2. Queue the database transaction durably (survives offline/refresh/crash)
+        persistMutation('ADD_ANIMAL', animal);
     };
 
     const logWeight = async (animalId, date, weight) => {
@@ -536,19 +646,8 @@ export const FarmProvider = ({ children }) => {
             return animal;
         }));
 
-        // 2. Sync database remote
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    action: 'LOG_WEIGHT',
-                    payload: { animalId: parseInt(animalId), date, weight: targetWeight, adg: calculatedAdg }
-                })
-            });
-        } catch (err) {
-            console.error("DB post failed for logWeight:", err);
-        }
+        // 2. Queue database transaction durably
+        persistMutation('LOG_WEIGHT', { animalId: parseInt(animalId), date, weight: targetWeight, adg: calculatedAdg });
     };
 
     const addTreatment = async (animalId, date, type, medicine, dosage, withholding) => {
@@ -566,19 +665,8 @@ export const FarmProvider = ({ children }) => {
         // 1. Sync UI locally
         setTreatments(prev => [...prev, newTreatment]);
 
-        // 2. Sync database remote
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    action: 'LOG_TREATMENT',
-                    payload: { animalId: parseInt(animalId), date, type, medicine, dosage, withholding: parseInt(withholding) || 0 }
-                })
-            });
-        } catch (err) {
-            console.error("DB post failed for addTreatment:", err);
-        }
+        // 2. Queue database transaction durably
+        persistMutation('LOG_TREATMENT', { animalId: parseInt(animalId), date, type, medicine, dosage, withholding: parseInt(withholding) || 0 });
     };
 
     const transitionAnimalStatus = async (animalId, nextStatus) => {
@@ -592,19 +680,8 @@ export const FarmProvider = ({ children }) => {
         }));
         setEvents(prev => [...prev, { id: Date.now(), animalId: parseInt(animalId), date: today, eventType: 'status_change', note: `→ ${nextStatus}` }]);
 
-        // 2. Sync database remote
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    action: 'TRANSITION_STATUS',
-                    payload: { animalId: parseInt(animalId), status: nextStatus, date: today, note: `→ ${nextStatus}` }
-                })
-            });
-        } catch (err) {
-            console.error("DB post failed for transitionAnimalStatus:", err);
-        }
+        // 2. Queue database transaction durably
+        persistMutation('TRANSITION_STATUS', { animalId: parseInt(animalId), status: nextStatus, date: today, note: `→ ${nextStatus}` });
     };
 
     const deleteAnimal = async (animalId) => {
@@ -613,76 +690,32 @@ export const FarmProvider = ({ children }) => {
         setWeightLogs(prev => prev.filter(w => w.animalId !== animalId));
         setTreatments(prev => prev.filter(t => t.animalId !== animalId));
 
-        // 2. Sync DB remote
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    action: 'DELETE_ANIMAL',
-                    payload: { animalId }
-                })
-            });
-        } catch (err) {
-            console.error("DB post failed for deleteAnimal:", err);
-        }
+        // 2. Queue DB transaction durably
+        persistMutation('DELETE_ANIMAL', { animalId });
     };
 
     const updateAnimal = async (updatedAnimal) => {
         // 1. Sync UI locally
         setAnimals(prev => prev.map(a => a.id === updatedAnimal.id ? { ...a, ...updatedAnimal } : a));
 
-        // 2. Sync DB remote
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    action: 'UPDATE_ANIMAL',
-                    payload: updatedAnimal
-                })
-            });
-        } catch (err) {
-            console.error("DB post failed for updateAnimal:", err);
-        }
+        // 2. Queue DB transaction durably
+        persistMutation('UPDATE_ANIMAL', updatedAnimal);
     };
 
     const deleteWeightLog = async (logId) => {
         // 1. Sync UI locally
         setWeightLogs(prev => prev.filter(w => w.id !== logId));
 
-        // 2. Sync DB remote
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    action: 'DELETE_WEIGHT_LOG',
-                    payload: { logId }
-                })
-            });
-        } catch (err) {
-            console.error("DB post failed for deleteWeightLog:", err);
-        }
+        // 2. Queue DB transaction durably
+        persistMutation('DELETE_WEIGHT_LOG', { logId });
     };
 
     const deleteTreatment = async (treatmentId) => {
         // 1. Sync UI locally
         setTreatments(prev => prev.filter(t => t.id !== treatmentId));
 
-        // 2. Sync DB remote
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    action: 'DELETE_TREATMENT',
-                    payload: { treatmentId }
-                })
-            });
-        } catch (err) {
-            console.error("DB post failed for deleteTreatment:", err);
-        }
+        // 2. Queue DB transaction durably
+        persistMutation('DELETE_TREATMENT', { treatmentId });
     };
 
     // Unlike most mutations in this file, recordSale is NOT optimistic: the backend
@@ -729,19 +762,8 @@ export const FarmProvider = ({ children }) => {
         ));
         setEvents(prev => [...prev, { id: Date.now(), animalId: parseInt(animalId), date: deceasedDate, eventType: 'deceased', note: `Deceased — ${deceasedCause}` }]);
 
-        // 2. Sync database remote
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    action: 'RECORD_DEATH',
-                    payload: { animalId: parseInt(animalId), deceasedDate, deceasedCause }
-                })
-            });
-        } catch (err) {
-            console.error("DB post failed for recordDeath:", err);
-        }
+        // 2. Queue database transaction durably
+        persistMutation('RECORD_DEATH', { animalId: parseInt(animalId), deceasedDate, deceasedCause });
     };
 
     const updateTMRPrices = (prices) => {
@@ -766,6 +788,43 @@ export const FarmProvider = ({ children }) => {
 
     const updateFeedIngredients = (newIngredients) => {
         setFeedIngredients(newIngredients);
+    };
+
+    // Snapshots what was actually fed today (or a chosen date) — ingredients, quantities
+    // and cost — as an immutable dated record, separate from editing the live recipe.
+    // One record per (date, pen); re-logging the same day/pen overwrites that day only,
+    // never earlier days. This is what makes the recipe non-retroactive.
+    const logFeed = (entry) => {
+        const date = entry.date || new Date().toISOString().split('T')[0];
+        const pen = entry.pen || 'ALL';
+        const record = {
+            id: `${date}__${pen}`,
+            date,
+            pen,
+            animalCount: entry.animalCount || 0,
+            ingredients: entry.ingredients || [],
+            totalDmKg: entry.totalDmKg || 0,
+            totalBatchKg: entry.totalBatchKg || 0,
+            totalCost: entry.totalCost || 0,
+            costPerAnimal: entry.costPerAnimal || 0,
+            notes: entry.notes || ''
+        };
+
+        // 1. Sync UI locally immediately (upsert by date+pen)
+        setFeedLogs(prev => {
+            const exists = prev.some(f => f.date === date && f.pen === pen);
+            return exists
+                ? prev.map(f => (f.date === date && f.pen === pen) ? { ...f, ...record } : f)
+                : [...prev, record];
+        });
+
+        // 2. Queue DB transaction durably
+        persistMutation('LOG_FEED', record);
+    };
+
+    const deleteFeedLog = (date, pen) => {
+        setFeedLogs(prev => prev.filter(f => !(f.date === date && f.pen === pen)));
+        persistMutation('DELETE_FEED_LOG', { date, pen });
     };
 
     // Cross-tab real-time sync via Storage API (cart and config only)
@@ -795,83 +854,35 @@ export const FarmProvider = ({ children }) => {
             });
         }
 
-        // Persist to DB
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({ action: 'ADD_ORDER', payload: order })
-            });
-        } catch (err) {
-            console.error('ADD_ORDER failed:', err);
-        }
+        // Queue the order insert durably (idempotent server-side via ON CONFLICT DO NOTHING)
+        persistMutation('ADD_ORDER', order);
     };
 
     const updateOrderStatus = async (orderId, nextStatus) => {
         setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: nextStatus } : o));
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({ action: 'UPDATE_ORDER_STATUS', payload: { orderId, status: nextStatus } })
-            });
-        } catch (err) {
-            console.error('UPDATE_ORDER_STATUS failed:', err);
-        }
+        persistMutation('UPDATE_ORDER_STATUS', { orderId, status: nextStatus });
     };
 
     const deleteOrder = async (orderId) => {
         setOrders(prev => prev.filter(o => o.id !== orderId));
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({ action: 'DELETE_ORDER', payload: { orderId } })
-            });
-        } catch (err) {
-            console.error('DELETE_ORDER failed:', err);
-        }
+        persistMutation('DELETE_ORDER', { orderId });
     };
 
     const addMeatCut = async (newCut) => {
         const id = newCut.id || newCut.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
         const cut = { id, ...newCut };
         setMeatCuts(prev => [...prev, cut]);
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({ action: 'ADD_MEAT_CUT', payload: cut })
-            });
-        } catch (err) {
-            console.error('ADD_MEAT_CUT failed:', err);
-        }
+        persistMutation('ADD_MEAT_CUT', cut);
     };
 
     const updateMeatCut = async (updatedCut) => {
         setMeatCuts(prev => prev.map(c => c.id === updatedCut.id ? updatedCut : c));
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({ action: 'UPDATE_MEAT_CUT', payload: updatedCut })
-            });
-        } catch (err) {
-            console.error('UPDATE_MEAT_CUT failed:', err);
-        }
+        persistMutation('UPDATE_MEAT_CUT', updatedCut);
     };
 
     const deleteMeatCut = async (cutId) => {
         setMeatCuts(prev => prev.filter(c => c.id !== cutId));
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({ action: 'DELETE_MEAT_CUT', payload: { cutId } })
-            });
-        } catch (err) {
-            console.error('DELETE_MEAT_CUT failed:', err);
-        }
+        persistMutation('DELETE_MEAT_CUT', { cutId });
     };
 
     const resetSystem = async () => {
@@ -898,60 +909,22 @@ export const FarmProvider = ({ children }) => {
 
     const updateEnquiryStatus = async (enquiryId, nextStatus) => {
         setEnquiries(prev => prev.map(e => e.id === enquiryId ? { ...e, status: nextStatus } : e));
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({ action: 'UPDATE_ENQUIRY_STATUS', payload: { enquiryId, status: nextStatus } })
-            });
-        } catch (err) {
-            console.error('UPDATE_ENQUIRY_STATUS failed:', err);
-        }
+        persistMutation('UPDATE_ENQUIRY_STATUS', { enquiryId, status: nextStatus });
     };
 
     const deleteEnquiry = async (enquiryId) => {
         setEnquiries(prev => prev.filter(e => e.id !== enquiryId));
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({ action: 'DELETE_ENQUIRY', payload: { enquiryId } })
-            });
-        } catch (err) {
-            console.error('DELETE_ENQUIRY failed:', err);
-        }
+        persistMutation('DELETE_ENQUIRY', { enquiryId });
     };
 
     const updateQuotationStatus = async (quoteId, newStatus) => {
         setQuotations(prev => prev.map(q => q.id === quoteId ? { ...q, status: newStatus } : q));
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    action: 'UPDATE_QUOTATION_STATUS',
-                    payload: { quoteId, status: newStatus }
-                })
-            });
-        } catch (err) {
-            console.error('UPDATE_QUOTATION_STATUS failed:', err);
-        }
+        persistMutation('UPDATE_QUOTATION_STATUS', { quoteId, status: newStatus });
     };
 
     const deleteQuotation = async (quoteId) => {
         setQuotations(prev => prev.filter(q => q.id !== quoteId));
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    action: 'DELETE_QUOTATION',
-                    payload: { quoteId }
-                })
-            });
-        } catch (err) {
-            console.error('DELETE_QUOTATION failed:', err);
-        }
+        persistMutation('DELETE_QUOTATION', { quoteId });
     };
 
     const duplicateQuotation = async (quote) => {
@@ -969,34 +942,43 @@ export const FarmProvider = ({ children }) => {
         };
 
         setQuotations(prev => [duplicated, ...prev]);
-
-        try {
-            await fetch('/api/farm', {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({
-                    action: 'SAVE_QUOTATION',
-                    payload: duplicated
-                })
-            });
-        } catch (err) {
-            console.error('duplicateQuotation failed:', err);
-        }
+        persistMutation('SAVE_QUOTATION', duplicated);
     };
 
     const deleteSpecSheet = async (refId) => {
         setSpecSheets(prev => prev.filter(s => s.docRef !== refId));
+        persistMutation('DELETE_SPEC_SHEET', { refId });
+    };
+
+    // Admin-only: grant/restrict a staff member's access to Sales vs Herd Management.
+    // Kept as a live (non-queued) call — access-control changes need an immediate
+    // confirmation rather than silently sitting in an offline queue.
+    const updateStaffPermission = async (email, updates) => {
+        const current = staffPermissions.find(p => p.email === email) || { isAdmin: false, accessSales: true, accessHerd: true };
+        const next = { ...current, ...updates, email };
+
+        setStaffPermissions(prev => {
+            const exists = prev.some(p => p.email === email);
+            return exists ? prev.map(p => p.email === email ? next : p) : [...prev, next];
+        });
+
         try {
-            await fetch('/api/farm', {
+            const res = await fetch('/api/farm', {
                 method: 'POST',
                 headers: authHeaders(),
                 body: JSON.stringify({
-                    action: 'DELETE_SPEC_SHEET',
-                    payload: { refId }
+                    action: 'UPDATE_STAFF_PERMISSIONS',
+                    payload: { email, isAdmin: next.isAdmin, accessSales: next.accessSales, accessHerd: next.accessHerd }
                 })
             });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || data.success === false) {
+                return { success: false, error: data.error || 'Failed to update permissions.' };
+            }
+            return { success: true };
         } catch (err) {
-            console.error('DELETE_SPEC_SHEET failed:', err);
+            console.error('UPDATE_STAFF_PERMISSIONS failed:', err);
+            return { success: false, error: 'Network error — permission change was not saved. Please try again once online.' };
         }
     };
 
@@ -1009,6 +991,9 @@ export const FarmProvider = ({ children }) => {
             feedRecipe,
             feedPrices,
             feedIngredients,
+            feedLogs,
+            logFeed,
+            deleteFeedLog,
             fetchLoading,
             dbUnconfigured,
             orders,
@@ -1053,7 +1038,14 @@ export const FarmProvider = ({ children }) => {
             updateBreedsConfig,
             updateMedCategories,
             updateSystemParams,
-            updateQuarantineProtocols
+            updateQuarantineProtocols,
+            pendingMutations,
+            failedMutations,
+            isSyncing,
+            retryFailedMutation,
+            dismissFailedMutation,
+            staffPermissions,
+            updateStaffPermission
         }}>
             {children}
         </FarmContext.Provider>

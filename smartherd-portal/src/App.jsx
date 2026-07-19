@@ -5,6 +5,7 @@ import HerdRegistry from './components/HerdRegistry';
 import WeightTracker from './components/WeightTracker';
 import MedicalLog from './components/MedicalLog';
 import TMRCalculator from './components/TMRCalculator';
+import FeedGrowthReport from './components/FeedGrowthReport';
 import RotationPlanner from './components/RotationPlanner';
 import ActivityFeed from './components/ActivityFeed';
 import Login from './components/Login';
@@ -18,10 +19,18 @@ function AppContent() {
     const {
         animals, logWeight, addTreatment, addAnimal, transitionAnimalStatus, fetchLoading, dbUnconfigured,
         isLoggedIn, staffUser, handleLoginSuccess, handleLogout, breedsConfig, medCategories, systemParams, quarantineProtocols,
-        enquiries
+        enquiries, pendingMutations, failedMutations, isSyncing, retryFailedMutation, dismissFailedMutation
     } = useContext(FarmContext);
 
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
+    // Fine-grained section access from the staff-permissions system (defaults to
+    // visible until the first GET sync resolves — actual writes stay gated server-side).
+    const canAccessSales = staffUser?.accessSales !== false;
+    const canAccessHerd = staffUser?.accessHerd !== false;
+    const isPermissionsAdmin = staffUser?.isAdmin === true || isAdmin;
+
+    const [showSyncPanel, setShowSyncPanel] = useState(false);
+    const [showMobileMore, setShowMobileMore] = useState(false);
 
     // Global HUD Scanner States
     const [scannedTag, setScannedTag] = useState(null);
@@ -163,6 +172,8 @@ function AppContent() {
                 return <MedicalLog />;
             case 'tmr':
                 return <TMRCalculator />;
+            case 'feedReport':
+                return <FeedGrowthReport />;
             case 'rotation':
                 return <RotationPlanner />;
             case 'activity':
@@ -184,6 +195,7 @@ function AppContent() {
             case 'weights': return "Weight & Gain Tracker";
             case 'vet': return "Medical & Vet Compliance";
             case 'tmr': return "TMR Moisture Optimizer";
+            case 'feedReport': return "Feed Cost & Growth Report";
             case 'rotation': return "Rotation & Batch Flow";
             case 'activity': return "Activity Log";
             case 'settings': return "System Configuration Panel";
@@ -213,42 +225,59 @@ function AppContent() {
                     <button class={`menu-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
                         <i class="fa-solid fa-chart-pie"></i> Dashboard
                     </button>
-                    <button class={`menu-item ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => setActiveTab('sales')}>
-                        <i class="fa-solid fa-cart-shopping"></i> E-Commerce Sales
-                    </button>
-                    <button class={`menu-item ${activeTab === 'enquiries' ? 'active' : ''}`} onClick={() => setActiveTab('enquiries')}>
-                        <i class="fa-solid fa-envelope-open-text"></i> Export Enquiries
-                    </button>
-                    <button class={`menu-item ${activeTab === 'listings' ? 'active' : ''}`} onClick={() => setActiveTab('listings')}>
-                        <i class="fa-solid fa-store"></i> Store Listings
-                    </button>
-                    <button class={`menu-item ${activeTab === 'rotation' ? 'active' : ''}`} onClick={() => setActiveTab('rotation')}>
-                        <i class="fa-solid fa-rotate"></i> Rotation Flow
-                    </button>
-                    <button class={`menu-item ${activeTab === 'herd' ? 'active' : ''}`} onClick={() => setActiveTab('herd')}>
-                        <i class="fa-solid fa-cow"></i> Herd Registry
-                    </button>
-                    <button class={`menu-item ${activeTab === 'weights' ? 'active' : ''}`} onClick={() => setActiveTab('weights')}>
-                        <i class="fa-solid fa-weight-scale"></i> Weight Logs
-                    </button>
-                    <button class={`menu-item ${activeTab === 'vet' ? 'active' : ''}`} onClick={() => setActiveTab('vet')}>
-                        <i class="fa-solid fa-prescription-bottle-medical"></i> Medical Logs
-                    </button>
-                    <button class={`menu-item ${activeTab === 'tmr' ? 'active' : ''}`} onClick={() => setActiveTab('tmr')}>
-                        <i class="fa-solid fa-scale-balanced"></i> TMR Calculator
-                    </button>
-                    <button class={`menu-item ${activeTab === 'activity' ? 'active' : ''}`} onClick={() => setActiveTab('activity')}>
-                        <i class="fa-solid fa-timeline"></i> Activity Log
-                    </button>
+
+                    {(canAccessSales || isPermissionsAdmin) && (
+                        <>
+                            <div class="sidebar-group-label">Sales &amp; Commerce</div>
+                            <button class={`menu-item ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => setActiveTab('sales')}>
+                                <i class="fa-solid fa-cart-shopping"></i> E-Commerce Sales
+                            </button>
+                            <button class={`menu-item ${activeTab === 'enquiries' ? 'active' : ''}`} onClick={() => setActiveTab('enquiries')}>
+                                <i class="fa-solid fa-envelope-open-text"></i> Export Enquiries
+                            </button>
+                            <button class={`menu-item ${activeTab === 'listings' ? 'active' : ''}`} onClick={() => setActiveTab('listings')}>
+                                <i class="fa-solid fa-store"></i> Store Listings
+                            </button>
+                            <a href="/quotation.html" target="_blank" class="menu-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+                                <i class="fa-solid fa-file-invoice-dollar"></i> Quotation Creator
+                            </a>
+                            <a href="/spec-sheet.html" target="_blank" class="menu-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+                                <i class="fa-solid fa-file-shield"></i> Spec Sheet Creator
+                            </a>
+                        </>
+                    )}
+
+                    {(canAccessHerd || isPermissionsAdmin) && (
+                        <>
+                            <div class="sidebar-group-label">Herd Management</div>
+                            <button class={`menu-item ${activeTab === 'rotation' ? 'active' : ''}`} onClick={() => setActiveTab('rotation')}>
+                                <i class="fa-solid fa-rotate"></i> Rotation Flow
+                            </button>
+                            <button class={`menu-item ${activeTab === 'herd' ? 'active' : ''}`} onClick={() => setActiveTab('herd')}>
+                                <i class="fa-solid fa-cow"></i> Herd Registry
+                            </button>
+                            <button class={`menu-item ${activeTab === 'weights' ? 'active' : ''}`} onClick={() => setActiveTab('weights')}>
+                                <i class="fa-solid fa-weight-scale"></i> Weight Logs
+                            </button>
+                            <button class={`menu-item ${activeTab === 'vet' ? 'active' : ''}`} onClick={() => setActiveTab('vet')}>
+                                <i class="fa-solid fa-prescription-bottle-medical"></i> Medical Logs
+                            </button>
+                            <button class={`menu-item ${activeTab === 'tmr' ? 'active' : ''}`} onClick={() => setActiveTab('tmr')}>
+                                <i class="fa-solid fa-scale-balanced"></i> TMR Calculator
+                            </button>
+                            <button class={`menu-item ${activeTab === 'feedReport' ? 'active' : ''}`} onClick={() => setActiveTab('feedReport')}>
+                                <i class="fa-solid fa-calendar-days"></i> Feed &amp; Growth Report
+                            </button>
+                            <button class={`menu-item ${activeTab === 'activity' ? 'active' : ''}`} onClick={() => setActiveTab('activity')}>
+                                <i class="fa-solid fa-timeline"></i> Activity Log
+                            </button>
+                        </>
+                    )}
+
+                    <div class="sidebar-group-label">System</div>
                     <button class={`menu-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
                         <i class="fa-solid fa-gears"></i> System Settings
                     </button>
-                    <a href="/quotation.html" target="_blank" class="menu-item" style={{ textDecoration: 'none', color: 'inherit' }}>
-                        <i class="fa-solid fa-file-invoice-dollar"></i> Quotation Creator
-                    </a>
-                    <a href="/spec-sheet.html" target="_blank" class="menu-item" style={{ textDecoration: 'none', color: 'inherit' }}>
-                        <i class="fa-solid fa-file-shield"></i> Spec Sheet Creator
-                    </a>
 
                     <button className="menu-item logout-btn" style={{ marginTop: '2rem', border: '1px solid rgba(220, 53, 69, 0.2)', color: 'hsl(0, 75%, 65%)' }} onClick={handleLogout}>
                         <i className="fa-solid fa-power-off" style={{ color: 'hsl(0, 75%, 65%)' }}></i> Secure Logout
@@ -278,6 +307,25 @@ function AppContent() {
                             <div className="farm-badge" style={{ borderColor: 'rgba(25, 135, 84, 0.25)', color: 'var(--primary-green-light)' }} title="Operational databases fully synchronized in real-time with Neon Postgres cloud.">
                                 <i className="fa-solid fa-database"></i>
                                 <span>Database: Live</span>
+                            </div>
+                        )}
+
+                        {/* Offline durable queue status — never silently drop a change */}
+                        {pendingMutations.length > 0 && (
+                            <div className="farm-badge" style={{ borderColor: 'var(--accent-gold-glow)', color: 'var(--accent-gold)' }} title={`${pendingMutations.length} change(s) saved locally, waiting to sync to the database.`}>
+                                <i className={`fa-solid ${isSyncing ? 'fa-sync fa-spin' : 'fa-cloud-arrow-up'}`}></i>
+                                <span>{isSyncing ? 'Syncing' : 'Pending'} ({pendingMutations.length})</span>
+                            </div>
+                        )}
+                        {failedMutations.length > 0 && (
+                            <div
+                                className="farm-badge"
+                                style={{ borderColor: 'rgba(220, 53, 69, 0.4)', color: 'hsl(0, 75%, 65%)', cursor: 'pointer' }}
+                                title="Some changes could not be saved to the database — click to review."
+                                onClick={() => setShowSyncPanel(true)}
+                            >
+                                <i className="fa-solid fa-triangle-exclamation"></i>
+                                <span>Sync Issues ({failedMutations.length})</span>
                             </div>
                         )}
 
@@ -320,36 +368,91 @@ function AppContent() {
                         <i class="fa-solid fa-chart-pie"></i>
                         <span>Dashboard</span>
                     </button>
-                    <button class={`mobile-nav-item ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => setActiveTab('sales')}>
-                        <i class="fa-solid fa-cart-shopping"></i>
-                        <span>Sales</span>
-                    </button>
-                    <button class={`mobile-nav-item ${activeTab === 'rotation' ? 'active' : ''}`} onClick={() => setActiveTab('rotation')}>
-                        <i class="fa-solid fa-rotate"></i>
-                        <span>Rotation</span>
-                    </button>
-                    <button class={`mobile-nav-item ${activeTab === 'herd' ? 'active' : ''}`} onClick={() => setActiveTab('herd')}>
-                        <i class="fa-solid fa-cow"></i>
-                        <span>Herd</span>
-                    </button>
-                    <button class={`mobile-nav-item ${activeTab === 'weights' ? 'active' : ''}`} onClick={() => setActiveTab('weights')}>
-                        <i class="fa-solid fa-weight-scale"></i>
-                        <span>Weights</span>
-                    </button>
-                    <button class={`mobile-nav-item ${activeTab === 'vet' ? 'active' : ''}`} onClick={() => setActiveTab('vet')}>
-                        <i class="fa-solid fa-prescription-bottle-medical"></i>
-                        <span>Vet</span>
-                    </button>
-                    <button class={`mobile-nav-item ${activeTab === 'tmr' ? 'active' : ''}`} onClick={() => setActiveTab('tmr')}>
-                        <i class="fa-solid fa-scale-balanced"></i>
-                        <span>TMR</span>
-                    </button>
-                    <button class={`mobile-nav-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
-                        <i class="fa-solid fa-gears"></i>
-                        <span>Settings</span>
+                    {canAccessSales && (
+                        <button class={`mobile-nav-item ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => setActiveTab('sales')}>
+                            <i class="fa-solid fa-cart-shopping"></i>
+                            <span>Sales</span>
+                        </button>
+                    )}
+                    {canAccessHerd && (
+                        <button class={`mobile-nav-item ${activeTab === 'rotation' ? 'active' : ''}`} onClick={() => setActiveTab('rotation')}>
+                            <i class="fa-solid fa-rotate"></i>
+                            <span>Rotation</span>
+                        </button>
+                    )}
+                    {canAccessHerd && (
+                        <button class={`mobile-nav-item ${activeTab === 'herd' ? 'active' : ''}`} onClick={() => setActiveTab('herd')}>
+                            <i class="fa-solid fa-cow"></i>
+                            <span>Herd</span>
+                        </button>
+                    )}
+                    <button class="mobile-nav-item" onClick={() => setShowMobileMore(true)}>
+                        <i class="fa-solid fa-ellipsis"></i>
+                        <span>More</span>
                     </button>
                 </div>
             </nav>
+
+            {/* Mobile "More" drawer — surfaces every remaining section (including the
+                Quotation/Spec Sheet creator tools, which otherwise have no mobile entry point) */}
+            {showMobileMore && (
+                <div class="rfid-hud-overlay" onClick={() => setShowMobileMore(false)}>
+                    <div class="rfid-hud-card glass-panel" style={{ maxWidth: '360px' }} onClick={(e) => e.stopPropagation()}>
+                        <div class="rfid-hud-header">
+                            <span class="hud-status-title">More Sections</span>
+                            <button class="hud-close" onClick={() => setShowMobileMore(false)}>
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                        <div class="rfid-hud-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                            {canAccessSales && (
+                                <>
+                                    <div class="sidebar-group-label">Sales &amp; Commerce</div>
+                                    <button class="menu-item" onClick={() => { setActiveTab('enquiries'); setShowMobileMore(false); }}>
+                                        <i class="fa-solid fa-envelope-open-text"></i> Export Enquiries
+                                    </button>
+                                    <button class="menu-item" onClick={() => { setActiveTab('listings'); setShowMobileMore(false); }}>
+                                        <i class="fa-solid fa-store"></i> Store Listings
+                                    </button>
+                                    <a href="/quotation.html" target="_blank" class="menu-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+                                        <i class="fa-solid fa-file-invoice-dollar"></i> Quotation Creator
+                                    </a>
+                                    <a href="/spec-sheet.html" target="_blank" class="menu-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+                                        <i class="fa-solid fa-file-shield"></i> Spec Sheet Creator
+                                    </a>
+                                </>
+                            )}
+                            {canAccessHerd && (
+                                <>
+                                    <div class="sidebar-group-label">Herd Management</div>
+                                    <button class="menu-item" onClick={() => { setActiveTab('weights'); setShowMobileMore(false); }}>
+                                        <i class="fa-solid fa-weight-scale"></i> Weight Logs
+                                    </button>
+                                    <button class="menu-item" onClick={() => { setActiveTab('vet'); setShowMobileMore(false); }}>
+                                        <i class="fa-solid fa-prescription-bottle-medical"></i> Medical Logs
+                                    </button>
+                                    <button class="menu-item" onClick={() => { setActiveTab('tmr'); setShowMobileMore(false); }}>
+                                        <i class="fa-solid fa-scale-balanced"></i> TMR Calculator
+                                    </button>
+                                    <button class="menu-item" onClick={() => { setActiveTab('feedReport'); setShowMobileMore(false); }}>
+                                        <i class="fa-solid fa-calendar-days"></i> Feed &amp; Growth Report
+                                    </button>
+                                    <button class="menu-item" onClick={() => { setActiveTab('activity'); setShowMobileMore(false); }}>
+                                        <i class="fa-solid fa-timeline"></i> Activity Log
+                                    </button>
+                                </>
+                            )}
+                            <div class="sidebar-group-label">System</div>
+                            <button class="menu-item" onClick={() => { setActiveTab('settings'); setShowMobileMore(false); }}>
+                                <i class="fa-solid fa-gears"></i> System Settings
+                            </button>
+                            <button className="menu-item logout-btn" style={{ border: '1px solid rgba(220, 53, 69, 0.2)', color: 'hsl(0, 75%, 65%)' }} onClick={handleLogout}>
+                                <i className="fa-solid fa-power-off" style={{ color: 'hsl(0, 75%, 65%)' }}></i> Secure Logout
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* 4. GLOBAL GLASSMORPHIC RFID SCANNER HUD OVERLAY */}
             {hudVisible && (
@@ -561,6 +664,34 @@ function AppContent() {
                                     ) : null}
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Failed-sync review panel — a rejected change is never silently discarded */}
+            {showSyncPanel && (
+                <div class="rfid-hud-overlay" onClick={() => setShowSyncPanel(false)}>
+                    <div class="rfid-hud-card glass-panel" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
+                        <div class="rfid-hud-header">
+                            <span class="hud-status-title">⚠️ Changes That Failed to Sync</span>
+                            <button class="hud-close" onClick={() => setShowSyncPanel(false)}>
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                        <div class="rfid-hud-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                            {failedMutations.length === 0 ? (
+                                <p class="unregistered-help-text">No sync issues.</p>
+                            ) : failedMutations.map(item => (
+                                <div key={item.id} class="hud-detail-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.6rem' }}>
+                                    <strong class="hud-value">{item.action}</strong>
+                                    <span class="hud-label" style={{ color: 'hsl(0, 75%, 70%)' }}>{item.error}</span>
+                                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.3rem' }}>
+                                        <button class="btn btn-secondary" style={{ minHeight: '32px', padding: '0.35rem 0.8rem', fontSize: '0.75rem' }} onClick={() => retryFailedMutation(item.id)}>Retry</button>
+                                        <button class="btn btn-secondary" style={{ minHeight: '32px', padding: '0.35rem 0.8rem', fontSize: '0.75rem' }} onClick={() => dismissFailedMutation(item.id)}>Dismiss</button>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </div>

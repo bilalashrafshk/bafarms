@@ -7,10 +7,18 @@ export default function Settings() {
         medCategories, updateMedCategories,
         systemParams, updateSystemParams,
         quarantineProtocols, updateQuarantineProtocols,
-        staffUser
+        staffUser, staffPermissions, updateStaffPermission
     } = useContext(FarmContext);
 
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
+    // Narrower than isAdmin above — only true super-admins (ba_staff_permissions.is_admin)
+    // can grant/restrict Sales vs Herd Management access for other staff.
+    const isPermsAdmin = staffUser?.isAdmin === true;
+
+    // Local state for Staff Access Form
+    const [newStaffEmail, setNewStaffEmail] = useState('');
+    const [permError, setPermError] = useState('');
+    const [permSavingEmail, setPermSavingEmail] = useState(null);
 
     // Local state for General Params
     const [weighIntervalDays, setWeighIntervalDays] = useState(systemParams.weighIntervalDays ?? 14);
@@ -165,6 +173,34 @@ export default function Settings() {
         }
     };
 
+    // Staff Access — toggle a single permission field for one user
+    const handleTogglePermission = async (email, field, currentValue) => {
+        if (!isPermsAdmin) return;
+        setPermSavingEmail(email);
+        setPermError('');
+        const row = staffPermissions.find(p => p.email === email) || { isAdmin: false, accessSales: true, accessHerd: true };
+        const updates = { isAdmin: row.isAdmin, accessSales: row.accessSales, accessHerd: row.accessHerd, [field]: !currentValue };
+        const result = await updateStaffPermission(email, updates);
+        if (!result.success) setPermError(result.error);
+        setPermSavingEmail(null);
+    };
+
+    // Staff Access — pre-authorize an email (or edit an existing one) with default access
+    const handleAddStaffEmail = async (e) => {
+        e.preventDefault();
+        if (!isPermsAdmin) return;
+        const email = newStaffEmail.trim().toLowerCase();
+        if (!email) return;
+        setPermError('');
+        const existing = staffPermissions.find(p => p.email === email);
+        const result = await updateStaffPermission(email, existing || { isAdmin: false, accessSales: true, accessHerd: true });
+        if (!result.success) {
+            setPermError(result.error);
+            return;
+        }
+        setNewStaffEmail('');
+    };
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
             
@@ -201,12 +237,20 @@ export default function Settings() {
                 >
                     💊 Vet Categories
                 </button>
-                <button 
-                    class={`filter-btn ${activeSettingsTab === 'protocols' ? 'active' : ''}`} 
+                <button
+                    class={`filter-btn ${activeSettingsTab === 'protocols' ? 'active' : ''}`}
                     onClick={() => setActiveSettingsTab('protocols')}
                 >
                     ☣️ Quarantine Protocols
                 </button>
+                {isPermsAdmin && (
+                    <button
+                        class={`filter-btn ${activeSettingsTab === 'staffAccess' ? 'active' : ''}`}
+                        onClick={() => setActiveSettingsTab('staffAccess')}
+                    >
+                        🔐 Staff Access
+                    </button>
+                )}
             </div>
 
             {/* TAB CONTENT: GENERAL PARAMETERS */}
@@ -546,6 +590,96 @@ export default function Settings() {
                                         <tr>
                                             <td colSpan={isAdmin ? 7 : 6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No quarantine protocol checklist steps configured. Calves can be cleared immediately.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* TAB CONTENT: STAFF ACCESS (Super-Admin Only) */}
+            {activeSettingsTab === 'staffAccess' && isPermsAdmin && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+
+                    <div class="glass-panel animate-scale-up">
+                        <h3 class="panel-title"><i class="fa-solid fa-user-plus"></i> Pre-Authorize Staff Email</h3>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginTop: '-0.5rem', marginBottom: '1rem' }}>
+                            Add a staff email to grant it default access (Sales + Herd) before they first log in, or use this to jump to editing an existing user below.
+                        </p>
+                        <form onSubmit={handleAddStaffEmail} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                            {permError && <p style={{ color: 'hsl(0,75%,60%)', fontSize: '0.8rem', width: '100%', margin: 0 }}>{permError}</p>}
+                            <div class="form-group" style={{ flex: 1, minWidth: '240px', marginBottom: 0 }}>
+                                <label>Staff Email</label>
+                                <input
+                                    type="email"
+                                    class="form-control"
+                                    placeholder="name@bafoods.pk"
+                                    value={newStaffEmail}
+                                    onChange={e => setNewStaffEmail(e.target.value)}
+                                    required
+                                />
+                            </div>
+                            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-circle-plus"></i> Add / Update</button>
+                        </form>
+                    </div>
+
+                    <div class="glass-panel animate-scale-up">
+                        <h3 class="panel-title"><i class="fa-solid fa-users-gear"></i> Staff Access Roster</h3>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginTop: '-0.5rem', marginBottom: '1rem' }}>
+                            Sales covers e-commerce sales, export enquiries, store listings, and the Quotation/Spec Sheet creators. Herd covers rotation, herd registry, weights, vet logs, TMR, and the activity log.
+                        </p>
+                        <div class="table-wrapper">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>EMAIL</th>
+                                        <th style={{ textAlign: 'center' }}>SALES ACCESS</th>
+                                        <th style={{ textAlign: 'center' }}>HERD ACCESS</th>
+                                        <th style={{ textAlign: 'center' }}>SUPER ADMIN</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {staffPermissions.map(p => (
+                                        <tr key={p.email}>
+                                            <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
+                                                {p.email}
+                                                {p.email === staffUser?.email && (
+                                                    <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', color: 'var(--accent-gold)' }}>(you)</span>
+                                                )}
+                                            </td>
+                                            <td style={{ textAlign: 'center' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={p.accessSales}
+                                                    disabled={permSavingEmail === p.email}
+                                                    onChange={() => handleTogglePermission(p.email, 'accessSales', p.accessSales)}
+                                                />
+                                            </td>
+                                            <td style={{ textAlign: 'center' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={p.accessHerd}
+                                                    disabled={permSavingEmail === p.email}
+                                                    onChange={() => handleTogglePermission(p.email, 'accessHerd', p.accessHerd)}
+                                                />
+                                            </td>
+                                            <td style={{ textAlign: 'center' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={p.isAdmin}
+                                                    disabled={permSavingEmail === p.email}
+                                                    onChange={() => handleTogglePermission(p.email, 'isAdmin', p.isAdmin)}
+                                                />
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {staffPermissions.length === 0 && (
+                                        <tr>
+                                            <td colSpan={4} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                                No staff members have logged in yet, or none have been pre-authorized.
                                             </td>
                                         </tr>
                                     )}

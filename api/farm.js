@@ -320,6 +320,30 @@ async function ensureTables(client) {
                 store_life TEXT,
                 created_at TIMESTAMP DEFAULT NOW()
             );
+
+            CREATE TABLE IF NOT EXISTS ba_staff_permissions (
+                email VARCHAR(150) PRIMARY KEY,
+                is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+                access_sales BOOLEAN NOT NULL DEFAULT TRUE,
+                access_herd BOOLEAN NOT NULL DEFAULT TRUE,
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS ba_feed_logs (
+                id SERIAL PRIMARY KEY,
+                date DATE NOT NULL,
+                pen VARCHAR(20) NOT NULL DEFAULT 'ALL',
+                animal_count INTEGER NOT NULL DEFAULT 0,
+                ingredients JSONB NOT NULL DEFAULT '[]',
+                total_dm_kg NUMERIC DEFAULT 0,
+                total_batch_kg NUMERIC DEFAULT 0,
+                total_cost NUMERIC DEFAULT 0,
+                cost_per_animal NUMERIC DEFAULT 0,
+                notes TEXT,
+                created_by VARCHAR(150),
+                created_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(date, pen)
+            );
         `);
         return;
     }
@@ -450,8 +474,73 @@ async function ensureTables(client) {
             store_life TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         );
+
+        CREATE TABLE IF NOT EXISTS ba_staff_permissions (
+            email VARCHAR(150) PRIMARY KEY,
+            is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+            access_sales BOOLEAN NOT NULL DEFAULT TRUE,
+            access_herd BOOLEAN NOT NULL DEFAULT TRUE,
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS ba_feed_logs (
+            id SERIAL PRIMARY KEY,
+            date DATE NOT NULL,
+            pen VARCHAR(20) NOT NULL DEFAULT 'ALL',
+            animal_count INTEGER NOT NULL DEFAULT 0,
+            ingredients JSONB NOT NULL DEFAULT '[]',
+            total_dm_kg NUMERIC DEFAULT 0,
+            total_batch_kg NUMERIC DEFAULT 0,
+            total_cost NUMERIC DEFAULT 0,
+            cost_per_animal NUMERIC DEFAULT 0,
+            notes TEXT,
+            created_by VARCHAR(150),
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(date, pen)
+        );
     `);
 }
+
+// Resolve (and lazily bootstrap) a staff member's per-section access. Existing/new staff
+// default to full access on first sight so nobody who could already use the app loses
+// access on deploy — an admin dials individual users down afterward from Settings.
+async function resolvePermissions(client, session) {
+    if (!session || !session.email) return null;
+    const email = session.email.toLowerCase().trim();
+
+    const existing = await client.query('SELECT * FROM ba_staff_permissions WHERE email = $1', [email]);
+    if (existing.rows.length > 0) {
+        const row = existing.rows[0];
+        return { isAdmin: row.is_admin, accessSales: row.access_sales, accessHerd: row.access_herd };
+    }
+
+    const adminEmails = (process.env.ADMIN_EMAILS || 'bilalashrafshk@gmail.com')
+        .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+    const isAdmin = adminEmails.includes(email);
+
+    await client.query(`
+        INSERT INTO ba_staff_permissions (email, is_admin, access_sales, access_herd)
+        VALUES ($1, $2, TRUE, TRUE)
+        ON CONFLICT (email) DO NOTHING
+    `, [email, isAdmin]);
+
+    return { isAdmin, accessSales: true, accessHerd: true };
+}
+
+// Action categories used to gate POST mutations by section access. Public checkout
+// actions (ADD_ORDER, RECORD_SALE) are intentionally excluded — they must keep working
+// for unauthenticated shoppers and for RotationPlanner's staff-initiated sale flow.
+const HERD_ACTIONS = new Set([
+    'ADD_ANIMAL', 'LOG_WEIGHT', 'LOG_TREATMENT', 'TRANSITION_STATUS', 'LOG_EVENT',
+    'DELETE_ANIMAL', 'UPDATE_ANIMAL', 'RECORD_DEATH', 'DELETE_WEIGHT_LOG', 'DELETE_TREATMENT',
+    'LOG_FEED', 'DELETE_FEED_LOG'
+]);
+const SALES_ACTIONS = new Set([
+    'UPDATE_ORDER_STATUS', 'DELETE_ORDER', 'UPDATE_ENQUIRY_STATUS', 'DELETE_ENQUIRY',
+    'SAVE_QUOTATION', 'UPDATE_QUOTATION_STATUS', 'DELETE_QUOTATION',
+    'SAVE_SPEC_SHEET', 'DELETE_SPEC_SHEET', 'ADD_MEAT_CUT', 'UPDATE_MEAT_CUT', 'DELETE_MEAT_CUT'
+]);
+const ADMIN_ONLY_ACTIONS = new Set(['RESET_DATABASE', 'UPDATE_STAFF_PERMISSIONS']);
 
 // Insert 6 default meat cuts if ba_meat_cuts is empty
 async function ensureDefaultCuts(client) {
@@ -620,6 +709,11 @@ module.exports = async (req, res) => {
         await ensureColumns(client);
         await ensureDefaultCuts(client);
 
+        // 2. Resolve this staff member's per-section access (null if unauthenticated)
+        const perms = isStaff ? await resolvePermissions(client, session) : null;
+        const canHerd = isStaff && !!(perms && (perms.isAdmin || perms.accessHerd));
+        const canSales = isStaff && !!(perms && (perms.isAdmin || perms.accessSales));
+
         // ─── GET ENDPOINT: LOAD FULL DATABASE STATE ───
         if (req.method === 'GET') {
             // Format date objects to clean strings (YYYY-MM-DD)
@@ -659,27 +753,33 @@ module.exports = async (req, res) => {
             }
 
             const animalsRes = await client.query('SELECT * FROM ba_animals ORDER BY id ASC');
-            const weightsRes = isStaff
+            const weightsRes = canHerd
                 ? await client.query('SELECT * FROM ba_weights ORDER BY date ASC, id ASC')
                 : { rows: [] };
-            const treatmentsRes = isStaff
+            const treatmentsRes = canHerd
                 ? await client.query('SELECT * FROM ba_treatments ORDER BY date ASC, id ASC')
                 : { rows: [] };
-            const eventsRes = isStaff
+            const eventsRes = canHerd
                 ? await client.query('SELECT * FROM ba_events ORDER BY date ASC, id ASC')
                 : { rows: [] };
-            const ordersRes = isStaff
+            const feedLogsRes = canHerd
+                ? await client.query('SELECT * FROM ba_feed_logs ORDER BY date DESC, pen ASC')
+                : { rows: [] };
+            const ordersRes = canSales
                 ? await client.query('SELECT * FROM ba_orders ORDER BY created_at DESC')
                 : { rows: [] };
             const meatCutsRes = await client.query('SELECT * FROM ba_meat_cuts ORDER BY created_at ASC');
-            const enquiriesRes = isStaff
+            const enquiriesRes = canSales
                 ? await client.query('SELECT * FROM ba_export_enquiries ORDER BY created_at DESC')
                 : { rows: [] };
-            const quotationsRes = isStaff
+            const quotationsRes = canSales
                 ? await client.query('SELECT * FROM ba_quotations ORDER BY id DESC')
                 : { rows: [] };
-            const specSheetsRes = isStaff
+            const specSheetsRes = canSales
                 ? await client.query('SELECT * FROM ba_spec_sheets ORDER BY doc_ref DESC')
+                : { rows: [] };
+            const staffPermsRes = (isStaff && perms && perms.isAdmin)
+                ? await client.query('SELECT email, is_admin, access_sales, access_herd FROM ba_staff_permissions ORDER BY email ASC')
                 : { rows: [] };
 
             const animals = animalsRes.rows.map(row => ({
@@ -728,6 +828,20 @@ module.exports = async (req, res) => {
                 date: formatDate(row.date),
                 eventType: row.event_type,
                 note: row.note
+            }));
+
+            const feedLogs = feedLogsRes.rows.map(row => ({
+                id: row.id,
+                date: formatDate(row.date),
+                pen: row.pen,
+                animalCount: parseInt(row.animal_count || 0),
+                ingredients: typeof row.ingredients === 'string' ? JSON.parse(row.ingredients) : row.ingredients,
+                totalDmKg: parseFloat(row.total_dm_kg || 0),
+                totalBatchKg: parseFloat(row.total_batch_kg || 0),
+                totalCost: parseFloat(row.total_cost || 0),
+                costPerAnimal: parseFloat(row.cost_per_animal || 0),
+                notes: row.notes || '',
+                createdBy: row.created_by || null
             }));
 
             const orders = ordersRes.rows.map(row => ({
@@ -822,7 +936,24 @@ module.exports = async (req, res) => {
                 createdAt: formatDate(row.created_at)
             }));
 
-            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, orders, meatCuts, enquiries, quotations, specSheets });
+            const staffPermissions = staffPermsRes.rows.map(r => ({
+                email: r.email,
+                isAdmin: r.is_admin,
+                accessSales: r.access_sales,
+                accessHerd: r.access_herd
+            }));
+
+            const sessionOut = isStaff ? {
+                name: session.name,
+                email: session.email,
+                picture: session.picture,
+                role: session.role,
+                isAdmin: !!(perms && perms.isAdmin),
+                accessSales: canSales,
+                accessHerd: canHerd
+            } : null;
+
+            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, feedLogs, orders, meatCuts, enquiries, quotations, specSheets, session: sessionOut, staffPermissions });
         }
 
         // ─── POST ENDPOINT: LOG TRANSACTION DATA ───
@@ -831,6 +962,38 @@ module.exports = async (req, res) => {
 
             if (!action) {
                 return res.status(400).json({ success: false, error: "Action is required" });
+            }
+
+            // Fine-grained section gating (Sales vs Herd Management vs admin-only), on top
+            // of the coarse staff-session check above. Public checkout actions are exempt.
+            if (isStaff && !PUBLIC_POST_ACTIONS.has(action)) {
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (ADMIN_ONLY_ACTIONS.has(action) && !isAdmin) {
+                    return res.status(403).json({ success: false, error: 'Admin access required for this action.' });
+                }
+                if (HERD_ACTIONS.has(action) && !isAdmin && !(perms && perms.accessHerd)) {
+                    return res.status(403).json({ success: false, error: 'You do not have access to Herd Management.' });
+                }
+                if (SALES_ACTIONS.has(action) && !isAdmin && !(perms && perms.accessSales)) {
+                    return res.status(403).json({ success: false, error: 'You do not have access to Sales.' });
+                }
+            }
+
+            if (action === 'UPDATE_STAFF_PERMISSIONS') {
+                const { email, isAdmin, accessSales, accessHerd } = payload;
+                if (!email) {
+                    return res.status(400).json({ success: false, error: "Email is required" });
+                }
+                await client.query(`
+                    INSERT INTO ba_staff_permissions (email, is_admin, access_sales, access_herd, updated_at)
+                    VALUES ($1, $2, $3, $4, NOW())
+                    ON CONFLICT (email) DO UPDATE SET
+                        is_admin = EXCLUDED.is_admin,
+                        access_sales = EXCLUDED.access_sales,
+                        access_herd = EXCLUDED.access_herd,
+                        updated_at = NOW()
+                `, [email.toLowerCase().trim(), !!isAdmin, accessSales !== false, accessHerd !== false]);
+                return res.status(200).json({ success: true });
             }
 
             if (action === 'ADD_ANIMAL') {
@@ -1002,6 +1165,49 @@ module.exports = async (req, res) => {
             if (action === 'DELETE_TREATMENT') {
                 const { treatmentId } = payload;
                 await client.query('DELETE FROM ba_treatments WHERE id = $1', [treatmentId]);
+                return res.status(200).json({ success: true });
+            }
+
+            // Snapshots what was actually fed on a given date (for a pen, or 'ALL' for
+            // the whole herd) as an immutable dated record — separate from the live
+            // recipe definition in ba_feed_ingredients-equivalent client state, so
+            // editing today's recipe never rewrites history. One record per (date, pen);
+            // re-logging the same day/pen updates that day's snapshot only.
+            if (action === 'LOG_FEED') {
+                const {
+                    date, pen, animalCount, ingredients,
+                    totalDmKg, totalBatchKg, totalCost, costPerAnimal, notes
+                } = payload;
+
+                if (!date) {
+                    return res.status(400).json({ success: false, error: "Date is required" });
+                }
+
+                await client.query(`
+                    INSERT INTO ba_feed_logs (date, pen, animal_count, ingredients, total_dm_kg, total_batch_kg, total_cost, cost_per_animal, notes, created_by, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+                    ON CONFLICT (date, pen) DO UPDATE SET
+                        animal_count = EXCLUDED.animal_count,
+                        ingredients = EXCLUDED.ingredients,
+                        total_dm_kg = EXCLUDED.total_dm_kg,
+                        total_batch_kg = EXCLUDED.total_batch_kg,
+                        total_cost = EXCLUDED.total_cost,
+                        cost_per_animal = EXCLUDED.cost_per_animal,
+                        notes = EXCLUDED.notes,
+                        created_by = EXCLUDED.created_by,
+                        created_at = NOW()
+                `, [
+                    date, pen || 'ALL', animalCount || 0, JSON.stringify(ingredients || []),
+                    totalDmKg || 0, totalBatchKg || 0, totalCost || 0, costPerAnimal || 0,
+                    notes || null, session ? session.email : null
+                ]);
+
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'DELETE_FEED_LOG') {
+                const { date, pen } = payload;
+                await client.query('DELETE FROM ba_feed_logs WHERE date = $1 AND pen = $2', [date, pen || 'ALL']);
                 return res.status(200).json({ success: true });
             }
 

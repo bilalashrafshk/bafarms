@@ -2,7 +2,7 @@ import React, { useContext, useState, useEffect } from 'react';
 import { FarmContext } from '../context/FarmContext';
 
 export default function TMRCalculator() {
-    const { feedIngredients, updateFeedIngredients, animals, staffUser } = useContext(FarmContext);
+    const { feedIngredients, updateFeedIngredients, animals, staffUser, feedLogs, logFeed, deleteFeedLog } = useContext(FarmContext);
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
 
     // Active (non-sold, non-deceased) herd count — auto-synced
@@ -31,6 +31,11 @@ export default function TMRCalculator() {
     const [isCustomFormOpen, setIsCustomFormOpen] = useState(false);
     const [isTractorMode, setIsTractorMode] = useState(false);
     const [isSaved, setIsSaved] = useState(false);
+
+    // Daily feed-log state (snapshotting what was actually fed — separate from the
+    // live recipe definition above, so recipe edits never rewrite past days)
+    const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
+    const [logSaved, setLogSaved] = useState(false);
 
     // Load moisture discretion toggle
     const [incorporateMoisture, setIncorporateMoisture] = useState(() => {
@@ -122,6 +127,36 @@ export default function TMRCalculator() {
         setIsSaved(true);
         setTimeout(() => setIsSaved(false), 2500);
     };
+
+    // Snapshots the currently calculated batch (for the selected pen and date) into the
+    // immutable feed log — this records what was actually fed, distinct from the live
+    // recipe definition, so later recipe edits never alter this day's history.
+    const handleLogFeed = () => {
+        const pen = selectedTMRPen === 'all' ? 'ALL' : selectedTMRPen;
+        logFeed({
+            date: logDate,
+            pen,
+            animalCount: animalsCount,
+            ingredients: calculatedIngredients.map(ing => ({
+                id: ing.id,
+                name: ing.name,
+                dmTarget: ing.dmTarget,
+                moisture: ing.currentMoisture,
+                price: ing.price,
+                wetSingle: ing.wetSingle,
+                wetBatch: ing.wetBatch,
+                costSingle: ing.costSingle
+            })),
+            totalDmKg: totalDM,
+            totalBatchKg: totalBatchWeight,
+            totalCost: totalCostSingle * animalsCount,
+            costPerAnimal: totalCostSingle
+        });
+        setLogSaved(true);
+        setTimeout(() => setLogSaved(false), 2500);
+    };
+
+    const recentFeedLogs = [...feedLogs].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 10);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
@@ -382,6 +417,28 @@ export default function TMRCalculator() {
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Log Today's Feed — snapshots this batch as a dated, immutable
+                                record so it's known exactly what was fed which day and what
+                                it cost, independent of any later recipe edits. */}
+                            <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.2rem', marginTop: '1.2rem' }}>
+                                <input
+                                    type="date"
+                                    class="form-control"
+                                    style={{ width: '150px', minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.82rem' }}
+                                    value={logDate}
+                                    max={new Date().toISOString().split('T')[0]}
+                                    onChange={(e) => setLogDate(e.target.value)}
+                                />
+                                <button type="button" class="btn btn-primary btn-sm" onClick={handleLogFeed}>
+                                    <i class="fa-solid fa-clipboard-check"></i> Log This Feeding ({selectedTMRPen === 'all' ? 'All Pens' : `Pen ${selectedTMRPen}`})
+                                </button>
+                                {logSaved && (
+                                    <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
+                                        <i class="fa-solid fa-circle-check"></i> Feed logged for {logDate}.
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     ) : (
                         /* Tractor Mixing View Console */
@@ -413,6 +470,51 @@ export default function TMRCalculator() {
                 </div>
 
             </div>
+
+            {/* Feed History — what was actually fed each logged day, immutable regardless
+                of later recipe edits. Full historical view lives in Feed & Growth Report. */}
+            {recentFeedLogs.length > 0 && (
+                <div class="glass-panel">
+                    <h3 class="panel-title"><i class="fa-solid fa-clock-rotate-left"></i> Recent Feed History</h3>
+                    <div class="table-wrapper">
+                        <table class="data-table" style={{ fontSize: '0.85rem' }}>
+                            <thead>
+                                <tr>
+                                    <th>DATE</th>
+                                    <th>PEN</th>
+                                    <th>ANIMALS</th>
+                                    <th>TOTAL COST</th>
+                                    <th>COST / ANIMAL</th>
+                                    {isAdmin && <th style={{ width: '60px', textAlign: 'center' }}>REMOVE</th>}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {recentFeedLogs.map(log => (
+                                    <tr key={`${log.date}__${log.pen}`}>
+                                        <td>{log.date}</td>
+                                        <td>{log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`}</td>
+                                        <td>{log.animalCount}</td>
+                                        <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(log.totalCost).toLocaleString()} PKR</strong></td>
+                                        <td>{Math.round(log.costPerAnimal)} PKR</td>
+                                        {isAdmin && (
+                                            <td style={{ textAlign: 'center' }}>
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-secondary"
+                                                    style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
+                                                    onClick={() => deleteFeedLog(log.date, log.pen)}
+                                                >
+                                                    <i class="fa-solid fa-trash-can"></i>
+                                                </button>
+                                            </td>
+                                        )}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
 
         </div>
     );

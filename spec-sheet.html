@@ -2,9 +2,17 @@
 <html lang="en">
 <head>
     <script>
-        // Auth Guard: redirect to portal if not logged in
+        // Auth Guard: redirect to portal if not logged in, or if this staff member's
+        // account has been explicitly restricted from the Sales section.
         if (localStorage.getItem('ba_staff_logged_in') !== 'true') {
             window.location.replace('/smartherd-portal/');
+        } else {
+            try {
+                const stored = JSON.parse(localStorage.getItem('ba_staff_user') || 'null');
+                if (stored && stored.isAdmin !== true && stored.accessSales === false) {
+                    window.location.replace('/smartherd-portal/');
+                }
+            } catch (e) {}
         }
 
         // Attaches the staff session token (issued at Google login) to /api/farm
