@@ -202,6 +202,15 @@ async function ensureColumns(client) {
             ADD COLUMN IF NOT EXISTS images TEXT DEFAULT NULL
     `);
 
+    // Links a logged treatment back to the specific quarantine-protocol checklist step
+    // it fulfills (e.g. distinguishing the FMD day-1 dose from the FMD day-7 booster,
+    // which otherwise share the same type/medicine and were being conflated). NULL for
+    // treatments logged manually outside of a protocol checklist.
+    await client.query(`
+        ALTER TABLE ba_treatments
+            ADD COLUMN IF NOT EXISTS protocol_task_id VARCHAR(50) DEFAULT NULL
+    `);
+
     // Event log table — safe CREATE IF NOT EXISTS
     await client.query(`
         CREATE TABLE IF NOT EXISTS ba_events (
@@ -819,7 +828,8 @@ module.exports = async (req, res) => {
                 type: row.type,
                 medicine: row.medicine,
                 dosage: row.dosage,
-                withholding: parseInt(row.withholding || 0)
+                withholding: parseInt(row.withholding || 0),
+                protocolTaskId: row.protocol_task_id || null
             }));
 
             const events = eventsRes.rows.map(row => ({
@@ -1043,12 +1053,12 @@ module.exports = async (req, res) => {
             }
 
             if (action === 'LOG_TREATMENT') {
-                const { animalId, date, type, medicine, dosage, withholding } = payload;
+                const { animalId, date, type, medicine, dosage, withholding, protocolTaskId } = payload;
 
                 await client.query(`
-                    INSERT INTO ba_treatments (animal_id, date, type, medicine, dosage, withholding)
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                `, [animalId, date, type, medicine, dosage, withholding]);
+                    INSERT INTO ba_treatments (animal_id, date, type, medicine, dosage, withholding, protocol_task_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                `, [animalId, date, type, medicine, dosage, withholding, protocolTaskId || null]);
 
                 return res.status(200).json({ success: true });
             }

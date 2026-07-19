@@ -54,18 +54,26 @@ export default function RotationPlanner() {
         return max;
     };
 
+    // Prefer an exact link (protocolTaskId, set when the task was logged via the
+    // checklist below) over the old heuristic. The heuristic alone can't tell apart
+    // two checklist steps that share the same type + medicine (e.g. "FMD" on day 1 vs
+    // "FMD Boost" on day 7) — it's kept only so treatments logged before this field
+    // existed still show as complete, narrowed to a window around that task's own due
+    // day so it no longer bleeds into a neighboring step's window.
     const isTaskDone = (animal, task) =>
+        treatments.some(t => t.animalId === animal.id && t.protocolTaskId === task.id) ||
         treatments.some(t =>
             t.animalId === animal.id &&
+            !t.protocolTaskId &&
             t.type === task.type &&
             t.medicine.toLowerCase().includes(task.medicine.split(' ')[0].toLowerCase()) &&
-            (() => { const d = (new Date(t.date) - new Date(animal.entryDate)) / 86400000; return d >= -1 && d <= 30; })()
+            (() => { const d = (new Date(t.date) - new Date(animal.entryDate)) / 86400000; return d >= (task.dueDay - 2) && d <= (task.dueDay + 3); })()
         );
 
     const logProtocolTask = async (animal, task) => {
         const key = `${animal.id}-${task.id}`;
         setLoggingTask(key);
-        await addTreatment(animal.id, new Date().toISOString().split('T')[0], task.type, task.medicine, task.dosage, task.withholding);
+        await addTreatment(animal.id, new Date().toISOString().split('T')[0], task.type, task.medicine, task.dosage, task.withholding, task.id);
         setLoggingTask(null);
     };
 

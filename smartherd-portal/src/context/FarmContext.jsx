@@ -667,7 +667,7 @@ export const FarmProvider = ({ children }) => {
         persistMutation('LOG_WEIGHT', { animalId: parseInt(animalId), date, weight: targetWeight, adg: calculatedAdg });
     };
 
-    const addTreatment = async (animalId, date, type, medicine, dosage, withholding) => {
+    const addTreatment = async (animalId, date, type, medicine, dosage, withholding, protocolTaskId = null) => {
         const id = treatments.length > 0 ? Math.max(...treatments.map(t => t.id)) + 1 : 1;
         const newTreatment = {
             id,
@@ -676,14 +676,15 @@ export const FarmProvider = ({ children }) => {
             type,
             medicine,
             dosage,
-            withholding: parseInt(withholding) || 0
+            withholding: parseInt(withholding) || 0,
+            protocolTaskId: protocolTaskId || null
         };
 
         // 1. Sync UI locally
         setTreatments(prev => [...prev, newTreatment]);
 
         // 2. Queue database transaction durably
-        persistMutation('LOG_TREATMENT', { animalId: parseInt(animalId), date, type, medicine, dosage, withholding: parseInt(withholding) || 0 });
+        persistMutation('LOG_TREATMENT', { animalId: parseInt(animalId), date, type, medicine, dosage, withholding: parseInt(withholding) || 0, protocolTaskId: protocolTaskId || null });
     };
 
     const transitionAnimalStatus = async (animalId, nextStatus) => {
