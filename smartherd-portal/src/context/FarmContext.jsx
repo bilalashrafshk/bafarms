@@ -143,6 +143,9 @@ export const FarmProvider = ({ children }) => {
         localStorage.setItem('ba_staff_user', JSON.stringify(userSession));
         setIsLoggedIn(true);
         setStaffUser(userSession);
+        // A fresh token means any mutations stuck on a 401 can now go through.
+        setSessionExpired(false);
+        setTimeout(flushQueue, 0);
     };
 
     // Attaches the staff session token (issued by /api/auth) to every write against
@@ -163,6 +166,11 @@ export const FarmProvider = ({ children }) => {
     const [pendingMutations, setPendingMutations] = useState(() => loadStoredData('ba_pending_mutations', []));
     const [failedMutations, setFailedMutations] = useState(() => loadStoredData('ba_failed_mutations', []));
     const [isSyncing, setIsSyncing] = useState(false);
+    // True when the queue hit a 401 (expired/invalid session token) rather than a real
+    // validation/permission rejection. Kept distinct from failedMutations on purpose —
+    // those items are still perfectly valid, just blocked on a fresh login, so they must
+    // never be offered a "Dismiss" button that could permanently discard real data.
+    const [sessionExpired, setSessionExpired] = useState(false);
 
     const pendingRef = useRef(pendingMutations);
     const staffUserRef = useRef(staffUser);
@@ -205,11 +213,23 @@ export const FarmProvider = ({ children }) => {
                     break;
                 }
 
+                if (res.status === 401) {
+                    // Session token expired/invalid — this mutation is still perfectly
+                    // valid, it just can't be authenticated right now. Leave it queued
+                    // (not failed) and stop the flush loop entirely, since every other
+                    // queued item will hit the same 401 with a stale token.
+                    setSessionExpired(true);
+                    break;
+                }
+
                 if (!res.ok || data.success === false) {
-                    // Server rejected it (validation/permission/etc). Don't let this
-                    // block the rest of the queue, but never drop it silently either.
+                    // Server rejected it for a real reason (validation/permission/etc).
+                    // Don't let this block the rest of the queue, but never drop it
+                    // silently either.
                     const failedItem = { ...item, error: data.error || `HTTP ${res.status}`, failedAt: Date.now() };
                     setFailedMutations(prev => [...prev, failedItem]);
+                } else {
+                    setSessionExpired(false);
                 }
 
                 setPendingMutations(prev => prev.filter(p => p.id !== item.id));
@@ -1060,6 +1080,7 @@ export const FarmProvider = ({ children }) => {
             pendingMutations,
             failedMutations,
             isSyncing,
+            sessionExpired,
             retryFailedMutation,
             dismissFailedMutation,
             staffPermissions,

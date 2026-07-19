@@ -19,7 +19,7 @@ function AppContent() {
     const {
         animals, logWeight, addTreatment, addAnimal, transitionAnimalStatus, fetchLoading, dbUnconfigured,
         isLoggedIn, staffUser, handleLoginSuccess, handleLogout, breedsConfig, medCategories, systemParams, quarantineProtocols,
-        enquiries, pendingMutations, failedMutations, isSyncing, retryFailedMutation, dismissFailedMutation
+        enquiries, pendingMutations, failedMutations, isSyncing, retryFailedMutation, dismissFailedMutation, sessionExpired
     } = useContext(FarmContext);
 
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
@@ -326,6 +326,21 @@ function AppContent() {
                             >
                                 <i className="fa-solid fa-triangle-exclamation"></i>
                                 <span>Sync Issues ({failedMutations.length})</span>
+                            </div>
+                        )}
+
+                        {/* Session expired mid-sync — NOT a real rejection, so deliberately no
+                            "Dismiss" option here. The change(s) are still safely queued locally;
+                            the only fix is to log back in so the queue can flush. */}
+                        {sessionExpired && (
+                            <div
+                                className="farm-badge"
+                                style={{ borderColor: 'rgba(220, 53, 69, 0.4)', color: 'hsl(0, 75%, 65%)', cursor: 'pointer' }}
+                                title={`Your login session expired, so ${pendingMutations.length} saved change(s) couldn't sync yet. Nothing was lost — click to log in again.`}
+                                onClick={handleLogout}
+                            >
+                                <i className="fa-solid fa-user-clock"></i>
+                                <span>Session Expired — Log In Again</span>
                             </div>
                         )}
 
