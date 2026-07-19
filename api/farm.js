@@ -523,7 +523,7 @@ async function resolvePermissions(client, session) {
         return { isAdmin: row.is_admin, accessSales: row.access_sales, accessHerd: row.access_herd };
     }
 
-    const adminEmails = (process.env.ADMIN_EMAILS || 'bilalashrafshk@gmail.com')
+    const adminEmails = (process.env.ADMIN_EMAILS || process.env.VITE_ADMIN_EMAILS || 'bilalashrafshk@gmail.com')
         .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
     const isAdmin = adminEmails.includes(email);
 
