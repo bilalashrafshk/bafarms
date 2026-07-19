@@ -523,9 +523,10 @@ async function resolvePermissions(client, session) {
         return { isAdmin: row.is_admin, accessSales: row.access_sales, accessHerd: row.access_herd };
     }
 
-    const adminEmails = (process.env.ADMIN_EMAILS || 'bilalashrafshk@gmail.com')
-        .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-    const isAdmin = adminEmails.includes(email);
+    // Bootstrap-only safety net (mirrors api/auth.js) so the owner is always a super-admin
+    // even on a brand-new database — every other admin is promoted via Settings > Staff
+    // Access, not an env var.
+    const isAdmin = email === 'bilalashrafshk@gmail.com';
 
     await client.query(`
         INSERT INTO ba_staff_permissions (email, is_admin, access_sales, access_herd)
