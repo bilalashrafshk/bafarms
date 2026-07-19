@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { FarmContext } from '../context/FarmContext';
 
 export default function RotationPlanner() {
-    const { animals, treatments, transitionAnimalStatus, recordSale, addTreatment, quarantineProtocols, systemParams } = useContext(FarmContext);
+    const { animals, treatments, transitionAnimalStatus, recordSale, addTreatment, deleteTreatment, quarantineProtocols, systemParams } = useContext(FarmContext);
 
     const [activeTab, setActiveTab] = useState('quarantine');
     const [searchQuery, setSearchQuery] = useState('');
@@ -75,6 +75,30 @@ export default function RotationPlanner() {
         setLoggingTask(key);
         await addTreatment(animal.id, new Date().toISOString().split('T')[0], task.type, task.medicine, task.dosage, task.withholding, task.id);
         setLoggingTask(null);
+    };
+
+    // Same matching logic as isTaskDone, but returns the actual treatment record so a
+    // mistakenly-logged checklist step can be undone. Picks the most recent match if
+    // more than one somehow qualifies.
+    const findTaskTreatment = (animal, task) => {
+        const exact = treatments.filter(t => t.animalId === animal.id && t.protocolTaskId === task.id);
+        const matches = exact.length > 0 ? exact : treatments.filter(t =>
+            t.animalId === animal.id &&
+            !t.protocolTaskId &&
+            t.type === task.type &&
+            t.medicine.toLowerCase().includes(task.medicine.split(' ')[0].toLowerCase()) &&
+            (() => { const d = (new Date(t.date) - new Date(animal.entryDate)) / 86400000; return d >= (task.dueDay - 2) && d <= (task.dueDay + 3); })()
+        );
+        if (matches.length === 0) return null;
+        return matches.reduce((latest, t) => new Date(t.date) > new Date(latest.date) ? t : latest);
+    };
+
+    const undoProtocolTask = (animal, task) => {
+        const record = findTaskTreatment(animal, task);
+        if (!record) return;
+        if (window.confirm(`Undo "${task.label}" for ${animal.rfid}? This deletes the logged treatment record.`)) {
+            deleteTreatment(record.id);
+        }
     };
 
     // Classify animals
@@ -208,7 +232,7 @@ export default function RotationPlanner() {
                                                 return (
                                                     <td key={task.id} style={{ ...cellStyle, textAlign: 'center' }}>
                                                         {done
-                                                            ? <i class="fa-solid fa-circle-check" style={{ color: 'var(--primary-green-light)' }}></i>
+                                                            ? <i class="fa-solid fa-circle-check" style={{ color: 'var(--primary-green-light)', cursor: 'pointer' }} title="Logged by mistake? Click to undo." onClick={() => undoProtocolTask(c, task)}></i>
                                                             : due
                                                             ? <button class="btn btn-secondary" style={{ minHeight: '24px', padding: '0.05rem 0.4rem', fontSize: '0.68rem', borderColor: 'rgba(255,193,7,0.3)', color: 'var(--accent-gold)' }} onClick={() => logProtocolTask(c, task)} disabled={loggingTask === key}>{loggingTask === key ? '…' : 'Log'}</button>
                                                             : <span style={{ opacity: 0.2, fontSize: '0.7rem' }}>—</span>
