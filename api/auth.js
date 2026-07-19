@@ -96,12 +96,12 @@ module.exports = async (req, res) => {
 
     if (!SESSION_SECRET) {
         console.error('SESSION_SECRET is not configured — staff login is disabled until this is set.');
-        return res.status(500).json({ success: false, error: 'Server auth is not configured. Contact an administrator.' });
+        return res.status(500).json({ success: false, error: 'Server auth is not configured (missing SESSION_SECRET). Contact an administrator.' });
     }
 
     if (!GOOGLE_CLIENT_ID) {
         console.error('GOOGLE_CLIENT_ID is not configured — staff login is disabled until this is set.');
-        return res.status(500).json({ success: false, error: 'Server auth is not configured. Contact an administrator.' });
+        return res.status(500).json({ success: false, error: 'Server auth is not configured (missing GOOGLE_CLIENT_ID). Contact an administrator.' });
     }
 
     const { credential } = req.body || {};
