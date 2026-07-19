@@ -1,5 +1,4 @@
 const { OAuth2Client } = require('google-auth-library');
-const { Client } = require('pg');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const path = require('path');
@@ -30,55 +29,31 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const SESSION_TTL = '12h';
 
-// Bootstrap-only safety net so the owner can never be locked out of a fresh/empty
-// database — everyone else is authorized via the ba_staff_permissions table, which an
-// admin populates from Settings > Staff Access (not via env vars).
-const FALLBACK_OWNER_EMAIL = 'bilalashrafshk@gmail.com';
-
-const connectionString = () =>
-    process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.bafarms_DATABASE_URL || process.env.bafarms_DATABASE_URL_UNPOOLED;
+const getEmailList = (envVal, fallback) => {
+    if (!envVal) return fallback;
+    return envVal.split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+};
 
 // Authoritative server-side authorization check — mirrors (and replaces trust in) the
-// client-side logic that used to live in Login.jsx. Staff access is granted by an admin
-// via the ba_staff_permissions table (Settings > Staff Access), not hardcoded env vars,
-// so access can be granted/revoked without a redeploy.
-const verifyAndAuthorizeEmail = async (email) => {
+// client-side logic that used to live in Login.jsx.
+const verifyAndAuthorizeEmail = (email) => {
     const cleaned = email.toLowerCase().trim();
 
     if (cleaned.endsWith('@bafoods.pk')) {
         return { authorized: true, role: 'Internal Corporate Staff' };
     }
 
-    if (cleaned === FALLBACK_OWNER_EMAIL) {
+    const adminEmails = getEmailList(process.env.ADMIN_EMAILS, ['bilalashrafshk@gmail.com']);
+    if (adminEmails.includes(cleaned)) {
         return { authorized: true, role: 'Internal Corporate Staff' };
     }
 
-    const connStr = connectionString();
-    if (!connStr) {
-        // No DB configured — only the domain/owner checks above can authorize anyone.
-        return { authorized: false };
+    const allowedEmails = getEmailList(process.env.ALLOWED_EMAILS, ['guest@gmail.com']);
+    if (allowedEmails.includes(cleaned)) {
+        return { authorized: true, role: 'External Guest/Evaluator' };
     }
 
-    const client = new Client({ connectionString: connStr, ssl: { rejectUnauthorized: false } });
-    try {
-        await client.connect();
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS ba_staff_permissions (
-                email VARCHAR(150) PRIMARY KEY,
-                is_admin BOOLEAN NOT NULL DEFAULT FALSE,
-                access_sales BOOLEAN NOT NULL DEFAULT TRUE,
-                access_herd BOOLEAN NOT NULL DEFAULT TRUE,
-                updated_at TIMESTAMP DEFAULT NOW()
-            );
-        `);
-        const result = await client.query('SELECT 1 FROM ba_staff_permissions WHERE email = $1', [cleaned]);
-        if (result.rows.length > 0) {
-            return { authorized: true, role: 'Internal Corporate Staff' };
-        }
-        return { authorized: false };
-    } finally {
-        await client.end();
-    }
+    return { authorized: false };
 };
 
 module.exports = async (req, res) => {
@@ -125,7 +100,7 @@ module.exports = async (req, res) => {
             return res.status(401).json({ success: false, error: 'Google account email is not verified.' });
         }
 
-        const authResult = await verifyAndAuthorizeEmail(payload.email);
+        const authResult = verifyAndAuthorizeEmail(payload.email);
         if (!authResult.authorized) {
             return res.status(403).json({ success: false, error: `Access Denied: "${payload.email}" is not registered in the staff directory.` });
         }
