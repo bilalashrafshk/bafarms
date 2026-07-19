@@ -1,5 +1,6 @@
 const { Client } = require('pg');
 const nodemailer = require('nodemailer');
+const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const path = require('path');
 
@@ -24,6 +25,25 @@ if (!process.env.SMTP_HOST) {
         console.warn("Unable to load local .env file manually in farm api:", e);
     }
 }
+
+const SESSION_SECRET = process.env.SESSION_SECRET;
+
+// Verify the staff session bearer token issued by /api/auth. Returns the decoded
+// user (email, role, name) if valid, or null if missing/invalid/expired.
+function verifySession(req) {
+    try {
+        const authHeader = req.headers['authorization'] || req.headers['Authorization'];
+        if (!authHeader || !authHeader.startsWith('Bearer ') || !SESSION_SECRET) return null;
+        const token = authHeader.slice(7);
+        return jwt.verify(token, SESSION_SECRET);
+    } catch (e) {
+        return null;
+    }
+}
+
+// Actions the public storefront must be able to call without a staff session
+// (checkout flow: placing an order and marking a purchased live animal sold).
+const PUBLIC_POST_ACTIONS = new Set(['ADD_ORDER', 'RECORD_SALE']);
 
 // SMTP Order Email Sender Helper
 async function sendOrderEmail(details) {
@@ -536,11 +556,22 @@ async function ensureDefaultCuts(client) {
 module.exports = async (req, res) => {
     // Inject CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
 
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
+    }
+
+    const session = verifySession(req);
+    const isStaff = !!session;
+
+    // Every mutation except the public checkout actions requires a valid staff session.
+    if (req.method === 'POST') {
+        const requestedAction = req.body && req.body.action;
+        if (requestedAction && !PUBLIC_POST_ACTIONS.has(requestedAction) && !isStaff) {
+            return res.status(401).json({ success: false, error: 'Unauthorized. Staff login required.' });
+        }
     }
 
     // Resolve connection from environment secrets (Neon standard parameters)
@@ -591,22 +622,65 @@ module.exports = async (req, res) => {
 
         // ─── GET ENDPOINT: LOAD FULL DATABASE STATE ───
         if (req.method === 'GET') {
-            const animalsRes = await client.query('SELECT * FROM ba_animals ORDER BY id ASC');
-            const weightsRes = await client.query('SELECT * FROM ba_weights ORDER BY date ASC, id ASC');
-            const treatmentsRes = await client.query('SELECT * FROM ba_treatments ORDER BY date ASC, id ASC');
-            const eventsRes = await client.query('SELECT * FROM ba_events ORDER BY date ASC, id ASC');
-            const ordersRes = await client.query('SELECT * FROM ba_orders ORDER BY created_at DESC');
-            const meatCutsRes = await client.query('SELECT * FROM ba_meat_cuts ORDER BY created_at ASC');
-            const enquiriesRes = await client.query('SELECT * FROM ba_export_enquiries ORDER BY created_at DESC');
-            const quotationsRes = await client.query('SELECT * FROM ba_quotations ORDER BY id DESC');
-            const specSheetsRes = await client.query('SELECT * FROM ba_spec_sheets ORDER BY doc_ref DESC');
-
             // Format date objects to clean strings (YYYY-MM-DD)
             const formatDate = (dateStr) => {
                 if (!dateStr) return '';
                 const d = new Date(dateStr);
                 return d.toISOString().split('T')[0];
             };
+
+            // Public order-tracking lookup: returns a single order by its reference ID
+            // without requiring a staff session and without exposing every other
+            // customer's order history in the process.
+            if (req.query && req.query.orderId) {
+                const orderRes = await client.query('SELECT * FROM ba_orders WHERE id = $1', [req.query.orderId]);
+                if (orderRes.rows.length === 0) {
+                    return res.status(404).json({ success: false, error: 'Order not found' });
+                }
+                const row = orderRes.rows[0];
+                return res.status(200).json({
+                    success: true,
+                    order: {
+                        id: row.id,
+                        customerName: row.customer_name,
+                        customerPhone: row.customer_phone,
+                        customerEmail: row.customer_email,
+                        customerCity: row.customer_city,
+                        customerAddress: row.customer_address,
+                        items: row.items,
+                        netTotal: parseFloat(row.net_total),
+                        status: row.status,
+                        hasLive: row.has_live,
+                        qurbaniService: row.qurbani_service,
+                        paymentMethod: row.payment_method,
+                        date: formatDate(row.date)
+                    }
+                });
+            }
+
+            const animalsRes = await client.query('SELECT * FROM ba_animals ORDER BY id ASC');
+            const weightsRes = isStaff
+                ? await client.query('SELECT * FROM ba_weights ORDER BY date ASC, id ASC')
+                : { rows: [] };
+            const treatmentsRes = isStaff
+                ? await client.query('SELECT * FROM ba_treatments ORDER BY date ASC, id ASC')
+                : { rows: [] };
+            const eventsRes = isStaff
+                ? await client.query('SELECT * FROM ba_events ORDER BY date ASC, id ASC')
+                : { rows: [] };
+            const ordersRes = isStaff
+                ? await client.query('SELECT * FROM ba_orders ORDER BY created_at DESC')
+                : { rows: [] };
+            const meatCutsRes = await client.query('SELECT * FROM ba_meat_cuts ORDER BY created_at ASC');
+            const enquiriesRes = isStaff
+                ? await client.query('SELECT * FROM ba_export_enquiries ORDER BY created_at DESC')
+                : { rows: [] };
+            const quotationsRes = isStaff
+                ? await client.query('SELECT * FROM ba_quotations ORDER BY id DESC')
+                : { rows: [] };
+            const specSheetsRes = isStaff
+                ? await client.query('SELECT * FROM ba_spec_sheets ORDER BY doc_ref DESC')
+                : { rows: [] };
 
             const animals = animalsRes.rows.map(row => ({
                 id: row.id,
@@ -878,6 +952,35 @@ module.exports = async (req, res) => {
 
             if (action === 'RECORD_SALE') {
                 const { animalId, salePrice, buyerName, saleDate } = payload;
+
+                // Food-safety gate: refuse the sale if any logged treatment's withholding
+                // (withdrawal) period has not yet elapsed as of the sale date. This is the
+                // authoritative check — UI filters elsewhere are a convenience, not a guarantee.
+                const withholdRes = await client.query(
+                    'SELECT date, medicine, withholding FROM ba_treatments WHERE animal_id = $1 AND withholding > 0',
+                    [animalId]
+                );
+                const saleDateObj = new Date(saleDate || new Date().toISOString().split('T')[0]);
+                let lockedBy = null;
+                let latestClearDate = null;
+                for (const t of withholdRes.rows) {
+                    const treatmentDate = new Date(t.date);
+                    const daysElapsed = Math.floor((saleDateObj - treatmentDate) / (1000 * 60 * 60 * 24));
+                    if (daysElapsed < t.withholding) {
+                        const clearDate = new Date(treatmentDate.getTime() + t.withholding * 86400000);
+                        if (!latestClearDate || clearDate > latestClearDate) {
+                            latestClearDate = clearDate;
+                            lockedBy = t.medicine;
+                        }
+                    }
+                }
+                if (lockedBy) {
+                    return res.status(409).json({
+                        success: false,
+                        error: `Sale blocked: animal is still within the withholding period for "${lockedBy}" (clears ${latestClearDate.toISOString().split('T')[0]}).`
+                    });
+                }
+
                 await client.query(`
                     UPDATE ba_animals
                     SET status = 'Sold', sale_price = $1, buyer_name = $2, sale_date = $3

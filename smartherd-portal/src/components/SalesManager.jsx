@@ -26,13 +26,15 @@ export default function SalesManager() {
         if (statusFilter === 'live' && !order.hasLive) return false;
         if (statusFilter === 'cuts' && order.hasLive) return false;
 
-        // Search text filter
+        // Search text filter — fields guarded with `|| ''` since older/imported
+        // order records aren't guaranteed to have every field populated, and a
+        // missing field would otherwise throw on .toLowerCase() and crash this tab.
         if (searchQuery.trim() !== '') {
             const query = searchQuery.toLowerCase();
-            const refMatch = order.id.toLowerCase().includes(query);
-            const nameMatch = order.customerName.toLowerCase().includes(query);
-            const phoneMatch = order.customerPhone.includes(query);
-            const cityMatch = order.customerCity.toLowerCase().includes(query);
+            const refMatch = (order.id || '').toLowerCase().includes(query);
+            const nameMatch = (order.customerName || '').toLowerCase().includes(query);
+            const phoneMatch = (order.customerPhone || '').includes(query);
+            const cityMatch = (order.customerCity || '').toLowerCase().includes(query);
             return refMatch || nameMatch || phoneMatch || cityMatch;
         }
 

@@ -21,22 +21,34 @@ export default function RotationPlanner() {
         setSalePrice('');
         setBuyerName('');
         setSaleDate(new Date().toISOString().split('T')[0]);
+        setSaleError('');
     };
+
+    const [saleError, setSaleError] = useState('');
+    const [saleSubmitting, setSaleSubmitting] = useState(false);
 
     const handleSaleSubmit = async (e) => {
         e.preventDefault();
-        if (!salePrice || !saleDate) return;
-        await recordSale(saleAnimal.id, salePrice, buyerName, saleDate);
+        if (!salePrice || Number(salePrice) <= 0 || !saleDate) return;
+        setSaleError('');
+        setSaleSubmitting(true);
+        const result = await recordSale(saleAnimal.id, salePrice, buyerName, saleDate);
+        setSaleSubmitting(false);
+        if (!result.success) {
+            setSaleError(result.error || 'Sale could not be recorded.');
+            return;
+        }
         setSaleAnimal(null);
     };
 
-    // Helpers
-    const dof = (entryDate) => Math.max(1, Math.round((new Date() - new Date(entryDate)) / 86400000));
+    // Helpers — uses Math.floor (not round) so a withholding period isn't treated as
+    // cleared up to ~12 hours early.
+    const dof = (entryDate) => Math.max(1, Math.floor((new Date() - new Date(entryDate)) / 86400000));
 
     const maxWithholding = (animalId) => {
         let max = 0;
         treatments.filter(t => t.animalId === animalId).forEach(t => {
-            const passed = Math.round((new Date() - new Date(t.date)) / 86400000);
+            const passed = Math.floor((new Date() - new Date(t.date)) / 86400000);
             if (passed < t.withholding) max = Math.max(max, t.withholding - passed);
         });
         return max;
@@ -391,7 +403,7 @@ export default function RotationPlanner() {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
                                 <div class="form-group" style={{ marginBottom: 0 }}>
                                     <label>Sale Price (PKR) *</label>
-                                    <input type="number" class="form-control" placeholder="e.g. 250000" value={salePrice} onChange={e => setSalePrice(e.target.value)} required autoFocus />
+                                    <input type="number" class="form-control" placeholder="e.g. 250000" min="0" step="1" value={salePrice} onChange={e => setSalePrice(e.target.value)} required autoFocus />
                                 </div>
                                 <div class="form-group" style={{ marginBottom: 0 }}>
                                     <label>Sale Date *</label>
@@ -409,10 +421,15 @@ export default function RotationPlanner() {
                                     </strong>
                                 </div>
                             )}
+                            {saleError && (
+                                <div style={{ background: 'rgba(220,53,69,0.08)', border: '1px solid rgba(220,53,69,0.3)', borderRadius: '8px', padding: '0.7rem 1rem', marginBottom: '0.75rem', fontSize: '0.85rem', color: 'hsl(0,75%,65%)' }}>
+                                    <i class="fa-solid fa-triangle-exclamation"></i> {saleError}
+                                </div>
+                            )}
                             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
                                 <button type="button" class="btn btn-secondary" onClick={() => setSaleAnimal(null)}>Cancel</button>
-                                <button type="submit" class="btn btn-primary" style={{ background: 'linear-gradient(135deg, var(--accent-gold), hsl(38,90%,42%))', color: '#000', fontWeight: '700' }}>
-                                    <i class="fa-solid fa-circle-check"></i> Confirm Sale
+                                <button type="submit" class="btn btn-primary" disabled={saleSubmitting} style={{ background: 'linear-gradient(135deg, var(--accent-gold), hsl(38,90%,42%))', color: '#000', fontWeight: '700', opacity: saleSubmitting ? 0.6 : 1 }}>
+                                    <i class={saleSubmitting ? 'fa-solid fa-circle-notch fa-spin' : 'fa-solid fa-circle-check'}></i> {saleSubmitting ? 'Checking…' : 'Confirm Sale'}
                                 </button>
                             </div>
                         </form>

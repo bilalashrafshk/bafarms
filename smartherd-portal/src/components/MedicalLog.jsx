@@ -62,10 +62,11 @@ export default function MedicalLog() {
         return animal ? animal.rfid : `Unknown (ID #${animalId})`;
     };
 
-    // Calculate active withholding status for rows
+    // Calculate active withholding status for rows. Uses Math.floor (not round) so a
+    // period isn't shown as cleared up to ~12 hours before it actually elapses.
     const checkWithholdingActive = (treatmentDate, withholdingDays) => {
         const msDiff = new Date() - new Date(treatmentDate);
-        const daysPassed = Math.round(msDiff / (1000 * 60 * 60 * 24));
+        const daysPassed = Math.floor(msDiff / (1000 * 60 * 60 * 24));
         return daysPassed < withholdingDays ? (withholdingDays - daysPassed) : 0;
     };
 

@@ -142,6 +142,13 @@ export const FarmProvider = ({ children }) => {
         setStaffUser(userSession);
     };
 
+    // Attaches the staff session token (issued by /api/auth) to every write against
+    // /api/farm. Without it, the server rejects all non-public actions with 401.
+    const authHeaders = () => ({
+        'Content-Type': 'application/json',
+        ...(staffUser?.token ? { Authorization: `Bearer ${staffUser.token}` } : {})
+    });
+
     const handleLogout = () => {
         try {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -411,10 +418,15 @@ export const FarmProvider = ({ children }) => {
     }, [specSheets]);
 
     // ─── NEON DB GET SYNC RUNNER ───
+    // Re-runs whenever the staff session token changes (login/logout) — without a
+    // valid token the server only returns the public-safe subset of the data (no
+    // orders/treatments/weight logs/etc), so we need a fresh authenticated fetch
+    // right after login rather than waiting for a page reload.
     useEffect(() => {
         const syncState = async () => {
+            setFetchLoading(true);
             try {
-                const res = await fetch('/api/farm');
+                const res = await fetch('/api/farm', { headers: authHeaders() });
                 const data = await res.json();
 
                 if (data.success) {
@@ -438,7 +450,8 @@ export const FarmProvider = ({ children }) => {
             }
         };
         syncState();
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [staffUser?.token]);
 
     // ─── STATE TRANSACTIONS TRIGGER SYNCS ───
 
@@ -480,7 +493,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({
                     action: 'ADD_ANIMAL',
                     payload: animal
@@ -527,7 +540,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({
                     action: 'LOG_WEIGHT',
                     payload: { animalId: parseInt(animalId), date, weight: targetWeight, adg: calculatedAdg }
@@ -557,7 +570,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({
                     action: 'LOG_TREATMENT',
                     payload: { animalId: parseInt(animalId), date, type, medicine, dosage, withholding: parseInt(withholding) || 0 }
@@ -583,7 +596,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({
                     action: 'TRANSITION_STATUS',
                     payload: { animalId: parseInt(animalId), status: nextStatus, date: today, note: `→ ${nextStatus}` }
@@ -604,7 +617,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({
                     action: 'DELETE_ANIMAL',
                     payload: { animalId }
@@ -623,7 +636,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({
                     action: 'UPDATE_ANIMAL',
                     payload: updatedAnimal
@@ -642,7 +655,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({
                     action: 'DELETE_WEIGHT_LOG',
                     payload: { logId }
@@ -661,7 +674,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({
                     action: 'DELETE_TREATMENT',
                     payload: { treatmentId }
@@ -672,26 +685,39 @@ export const FarmProvider = ({ children }) => {
         }
     };
 
+    // Unlike most mutations in this file, recordSale is NOT optimistic: the backend
+    // enforces the medicine withholding (food-safety) period and can legitimately
+    // reject a sale, so we wait for its verdict before touching local state.
     const recordSale = async (animalId, salePrice, buyerName, saleDate) => {
-        // 1. Sync UI locally
-        setAnimals(prev => prev.map(a => a.id === parseInt(animalId)
-            ? { ...a, status: 'Sold', salePrice: parseFloat(salePrice), buyerName, saleDate }
-            : a
-        ));
-        setEvents(prev => [...prev, { id: Date.now(), animalId: parseInt(animalId), date: saleDate, eventType: 'sold', note: `Sold to ${buyerName} — PKR ${parseFloat(salePrice).toLocaleString()}` }]);
-
-        // 2. Sync database remote
         try {
-            await fetch('/api/farm', {
+            const res = await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({
                     action: 'RECORD_SALE',
                     payload: { animalId: parseInt(animalId), salePrice: parseFloat(salePrice), buyerName, saleDate }
                 })
             });
+            const data = await res.json().catch(() => ({}));
+
+            if (!data.unconfigured && (!res.ok || data.success === false)) {
+                const message = data.error || 'Sale could not be recorded.';
+                console.error("recordSale rejected:", message);
+                return { success: false, error: message };
+            }
+
+            // Server confirmed the sale (or no DB is configured, in which case we run
+            // local-only and there's nothing authoritative to check against).
+            setAnimals(prev => prev.map(a => a.id === parseInt(animalId)
+                ? { ...a, status: 'Sold', salePrice: parseFloat(salePrice), buyerName, saleDate }
+                : a
+            ));
+            setEvents(prev => [...prev, { id: Date.now(), animalId: parseInt(animalId), date: saleDate, eventType: 'sold', note: `Sold to ${buyerName} — PKR ${parseFloat(salePrice).toLocaleString()}` }]);
+
+            return { success: true };
         } catch (err) {
             console.error("DB post failed for recordSale:", err);
+            return { success: false, error: 'Network error — sale was not recorded. Please try again.' };
         }
     };
 
@@ -707,7 +733,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({
                     action: 'RECORD_DEATH',
                     payload: { animalId: parseInt(animalId), deceasedDate, deceasedCause }
@@ -773,7 +799,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({ action: 'ADD_ORDER', payload: order })
             });
         } catch (err) {
@@ -786,7 +812,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({ action: 'UPDATE_ORDER_STATUS', payload: { orderId, status: nextStatus } })
             });
         } catch (err) {
@@ -799,7 +825,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({ action: 'DELETE_ORDER', payload: { orderId } })
             });
         } catch (err) {
@@ -814,7 +840,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({ action: 'ADD_MEAT_CUT', payload: cut })
             });
         } catch (err) {
@@ -827,7 +853,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({ action: 'UPDATE_MEAT_CUT', payload: updatedCut })
             });
         } catch (err) {
@@ -840,7 +866,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({ action: 'DELETE_MEAT_CUT', payload: { cutId } })
             });
         } catch (err) {
@@ -862,7 +888,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({ action: 'RESET_DATABASE' })
             });
         } catch (err) {
@@ -875,7 +901,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({ action: 'UPDATE_ENQUIRY_STATUS', payload: { enquiryId, status: nextStatus } })
             });
         } catch (err) {
@@ -888,7 +914,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({ action: 'DELETE_ENQUIRY', payload: { enquiryId } })
             });
         } catch (err) {
@@ -901,7 +927,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({
                     action: 'UPDATE_QUOTATION_STATUS',
                     payload: { quoteId, status: newStatus }
@@ -917,7 +943,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({
                     action: 'DELETE_QUOTATION',
                     payload: { quoteId }
@@ -947,7 +973,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({
                     action: 'SAVE_QUOTATION',
                     payload: duplicated
@@ -963,7 +989,7 @@ export const FarmProvider = ({ children }) => {
         try {
             await fetch('/api/farm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(),
                 body: JSON.stringify({
                     action: 'DELETE_SPEC_SHEET',
                     payload: { refId }

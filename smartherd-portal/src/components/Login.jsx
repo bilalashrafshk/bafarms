@@ -1,23 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// Pure client-side base64url JWT decoder to parse Google ID Tokens
-const parseJwt = (token) => {
-    try {
-        const base64Url = token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(
-            atob(base64)
-                .split('')
-                .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-                .join('')
-        );
-        return JSON.parse(jsonPayload);
-    } catch (e) {
-        console.error("Failed to parse Google JWT token:", e);
-        return null;
-    }
-};
-
 export default function Login({ onLoginSuccess }) {
     // Multi-state indicators
     const [authError, setAuthError] = useState('');
@@ -60,79 +42,36 @@ export default function Login({ onLoginSuccess }) {
         }
     };
 
-    // Parse environment list of allowed admin emails
-    const getAdminEmails = () => {
-        const envVal = import.meta.env.VITE_ADMIN_EMAILS;
-        if (!envVal) return ['bilalashrafshk@gmail.com'];
-        return envVal.split(',').map(email => email.trim().toLowerCase());
-    };
-
-    // Parse environment list of allowed evaluator/guest emails
-    const getAllowedEmails = () => {
-        const envVal = import.meta.env.VITE_ALLOWED_EMAILS;
-        if (!envVal) return ['guest@gmail.com'];
-        return envVal.split(',').map(email => email.trim().toLowerCase());
-    };
-
-    // Verify logged-in staff email against biosecurity protocols
-    const verifyAndAuthorizeEmail = (email) => {
-        const cleaned = email.toLowerCase().trim();
-        
-        // 1. Grant immediate access to all corporate BA Foods domain emails
-        if (cleaned.endsWith('@bafoods.pk')) {
-            return { authorized: true, role: 'Internal Corporate Staff' };
-        }
-
-        // 2. Grant access to explicitly whitelisted admin emails
-        const adminEmails = getAdminEmails();
-        if (adminEmails.includes(cleaned)) {
-            return { authorized: true, role: 'Internal Corporate Staff' };
-        }
-
-        // 3. Grant access to explicitly whitelisted evaluator/guest emails from Vercel/Vite env
-        const whitelisted = getAllowedEmails();
-        if (whitelisted.includes(cleaned)) {
-            return { authorized: true, role: 'External Guest/Evaluator' };
-        }
-
-        return { authorized: false };
-    };
-
-    // Handle Google OAuth successful ticket verification
+    // Hand the Google ID token to the server for verification. The server checks the
+    // token's signature against Google's public keys and checks the email against the
+    // staff allowlist — the client is never trusted to make that call itself.
     const handleGoogleCallback = async (response) => {
         setIsLoading(true);
         setAuthError('');
 
-        // Decode Google JWT payload directly in front-end
-        const payload = parseJwt(response.credential);
-        
-        if (!payload || !payload.email) {
-            setAuthError("Google authentication failed. ID token was malformed.");
-            playBeep('error');
-            setIsLoading(false);
-            return;
-        }
+        try {
+            const res = await fetch('/api/auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ credential: response.credential })
+            });
+            const data = await res.json().catch(() => ({}));
 
-        // Simulate database lookup delay for premium UX
-        setTimeout(() => {
-            const authResult = verifyAndAuthorizeEmail(payload.email);
-
-            if (authResult.authorized) {
-                const userSession = {
-                    name: payload.name,
-                    email: payload.email,
-                    picture: payload.picture,
-                    role: authResult.role,
-                    provider: 'Google'
-                };
-                playBeep('success');
-                onLoginSuccess(userSession);
-            } else {
-                setAuthError(`Access Denied: Email "${payload.email}" is not registered in the staff database directory. Configure VITE_ALLOWED_EMAILS in Vercel to allow access.`);
+            if (!res.ok || !data.success) {
+                setAuthError(data.error || 'Google authentication failed. Please try again.');
                 playBeep('error');
                 setIsLoading(false);
+                return;
             }
-        }, 1200);
+
+            playBeep('success');
+            onLoginSuccess({ ...data.user, token: data.token });
+        } catch (err) {
+            console.error('Login request failed:', err);
+            setAuthError('Could not reach the authentication server. Check your connection and try again.');
+            playBeep('error');
+            setIsLoading(false);
+        }
     };
 
     // Initialize Google OneTap & Button mounting

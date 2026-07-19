@@ -290,7 +290,8 @@ export default function ListingsManager() {
     const openEditLiveModal = (animal) => {
         setEditingLiveAnimal(animal);
         // Default dynamic price computation if price field not set yet
-        const defaultPrice = Math.round(animal.currentWeight * (animal.breed.toLowerCase().includes('goat') || animal.breed.toLowerCase().includes('sheep') || animal.breed.toLowerCase().includes('beetal') || animal.breed.toLowerCase().includes('kajla') || animal.breed.toLowerCase().includes('teddy') ? 1300 : 700));
+        const breedLower = (animal.breed || '').toLowerCase();
+        const defaultPrice = Math.round(animal.currentWeight * (breedLower.includes('goat') || breedLower.includes('sheep') || breedLower.includes('beetal') || breedLower.includes('kajla') || breedLower.includes('teddy') ? 1300 : 700));
         setLivePrice(animal.price || defaultPrice);
         setLiveDesc(animal.desc || `Premium quality healthy ${animal.breed} calf, RFID tag verified, fully vaccinated. Ready for Eid Qurbani.`);
         setLiveImages(animal.images ? [...animal.images] : (animal.image ? [animal.image] : []));
@@ -311,17 +312,18 @@ export default function ListingsManager() {
         setIsLiveModalOpen(false);
     };
 
-    // Filters
-    const filteredCuts = meatCuts.filter(c => 
-        c.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.rfid.toLowerCase().includes(searchQuery.toLowerCase())
+    // Filters — fields guarded with `|| ''` so a record missing title/rfid/breed
+    // can't throw on .toLowerCase() and crash this tab.
+    const filteredCuts = meatCuts.filter(c =>
+        (c.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (c.rfid || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     const activeLiveAnimals = animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased' && a.status !== 'Sick');
-    
+
     const filteredLive = activeLiveAnimals.filter(a =>
-        a.rfid.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        a.breed.toLowerCase().includes(searchQuery.toLowerCase())
+        (a.rfid || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (a.breed || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     return (
@@ -441,7 +443,8 @@ export default function ListingsManager() {
                         </thead>
                         <tbody>
                             {filteredLive.map(a => {
-                                const defaultPrice = Math.round(a.currentWeight * (a.breed.toLowerCase().includes('goat') || a.breed.toLowerCase().includes('sheep') || a.breed.toLowerCase().includes('beetal') || a.breed.toLowerCase().includes('kajla') || a.breed.toLowerCase().includes('teddy') ? 1300 : 700));
+                                const aBreedLower = (a.breed || '').toLowerCase();
+                                const defaultPrice = Math.round(a.currentWeight * (aBreedLower.includes('goat') || aBreedLower.includes('sheep') || aBreedLower.includes('beetal') || aBreedLower.includes('kajla') || aBreedLower.includes('teddy') ? 1300 : 700));
                                 const currentPrice = a.price || defaultPrice;
                                 const customPicsCount = a.images ? a.images.length : (a.image ? 1 : 1); // fallback dynamic check
 
@@ -454,7 +457,7 @@ export default function ListingsManager() {
                                             PKR {currentPrice.toLocaleString()} {a.price ? '' : <span style={{ fontSize: '0.75rem', opacity: 0.5 }}>(Auto ADG)</span>}
                                         </td>
                                         <td>
-                                            <span class={`badge-status ${a.status.toLowerCase()}`}>
+                                            <span class={`badge-status ${(a.status || '').toLowerCase()}`}>
                                                 {a.status}
                                             </span>
                                         </td>

@@ -6,6 +6,18 @@
         if (localStorage.getItem('ba_staff_logged_in') !== 'true') {
             window.location.replace('/smartherd-portal/');
         }
+
+        // Attaches the staff session token (issued at Google login) to /api/farm
+        // calls made from this page — required now that the API rejects staff-only
+        // actions (like SAVE_SPEC_SHEET) without it.
+        function getAuthHeaders(extra) {
+            const headers = Object.assign({}, extra);
+            try {
+                const stored = JSON.parse(localStorage.getItem('ba_staff_user') || 'null');
+                if (stored && stored.token) headers['Authorization'] = 'Bearer ' + stored.token;
+            } catch (e) {}
+            return headers;
+        }
     </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1131,7 +1143,7 @@
             if (loadSavedId) {
                 // Try database fetch
                 try {
-                    const res = await fetch('/api/farm');
+                    const res = await fetch('/api/farm', { headers: getAuthHeaders() });
                     const data = await res.json();
                     if (data.success && data.specSheets) {
                         const matched = data.specSheets.find(s => s.docRef === loadSavedId);
@@ -1208,7 +1220,7 @@
                 try {
                     const dbRes = await fetch('/api/farm', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify({
                             action: 'SAVE_SPEC_SHEET',
                             payload: specData

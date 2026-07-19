@@ -768,7 +768,7 @@ const calculateTotals = () => {
 };
 
 // 6. RFID TRANSPARENCY SEARCH LOGIC
-const triggerTraceLookup = (rfidCode) => {
+const triggerTraceLookup = async (rfidCode) => {
     const placeholder = document.getElementById('trace-placeholder');
     const passport = document.getElementById('cattle-passport');
     const statusMsg = document.getElementById('trace-status-message');
@@ -779,7 +779,19 @@ const triggerTraceLookup = (rfidCode) => {
 
     // Check if it is an Order Reference ID instead of cattle RFID tag!
     if (cleanCode.startsWith('BA-QUR-') || cleanCode.startsWith('BA-ORD-')) {
-        const matchedOrder = dbOrders.find(o => o.id.toUpperCase() === cleanCode);
+        // Check in-memory orders first (covers the order just placed this session),
+        // then fall back to a direct single-order server lookup — the bulk GET no
+        // longer returns full order data to the public shop (privacy: PII).
+        let matchedOrder = dbOrders.find(o => o.id.toUpperCase() === cleanCode);
+        if (!matchedOrder) {
+            try {
+                const res = await fetch(`/api/farm?orderId=${encodeURIComponent(cleanCode)}`);
+                const data = await res.json();
+                if (data.success && data.order) matchedOrder = data.order;
+            } catch (e) {
+                console.error("Order lookup failed:", e);
+            }
+        }
         if (matchedOrder) {
             // Close cart drawer if open
             document.getElementById('cart-drawer').classList.remove('active');

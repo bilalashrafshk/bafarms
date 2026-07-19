@@ -11,6 +11,15 @@ export default function EnquiriesManager() {
     const [searchQuery, setSearchQuery] = useState('');
     const [activeSubTab, setActiveSubTab] = useState('leads'); // 'leads' | 'quotes' | 'specs'
 
+    // Formats a stored date string (e.g. spec.createdAt) for display; guards against
+    // missing/invalid values so a bad or absent date never throws in the render path.
+    const formatDate = (dateStr) => {
+        if (!dateStr) return '—';
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return '—';
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    };
+
     // --- Dynamic KPI Calculations ---
     const totalCount = enquiries.length;
     const newCount = enquiries.filter(e => e.status === 'New').length;
@@ -22,21 +31,23 @@ export default function EnquiriesManager() {
         // Status filter
         if (statusFilter !== 'all' && enq.status !== statusFilter) return false;
 
-        // Search text filter
+        // Search text filter — fields are guarded with `|| ''` since not every
+        // enquiry record is guaranteed to have every field populated, and a missing
+        // field would otherwise throw on .toLowerCase() and crash this whole tab.
         if (searchQuery.trim() !== '') {
             const query = searchQuery.toLowerCase();
-            const refMatch = enq.id.toLowerCase().includes(query);
-            const companyMatch = enq.company.toLowerCase().includes(query);
-            const contactMatch = enq.contact.toLowerCase().includes(query);
-            const emailMatch = enq.email.toLowerCase().includes(query);
-            const phoneMatch = enq.phone.includes(query);
-            const countryMatch = enq.country.toLowerCase().includes(query);
-            const cutMatch = enq.cutType.toLowerCase().includes(query);
+            const refMatch = (enq.id || '').toLowerCase().includes(query);
+            const companyMatch = (enq.company || '').toLowerCase().includes(query);
+            const contactMatch = (enq.contact || '').toLowerCase().includes(query);
+            const emailMatch = (enq.email || '').toLowerCase().includes(query);
+            const phoneMatch = (enq.phone || '').includes(query);
+            const countryMatch = (enq.country || '').toLowerCase().includes(query);
+            const cutMatch = (enq.cutType || '').toLowerCase().includes(query);
             return refMatch || companyMatch || contactMatch || emailMatch || phoneMatch || countryMatch || cutMatch;
         }
 
         return true;
-    }).sort((a, b) => b.id.localeCompare(a.id)); // Sort by newest reference code
+    }).sort((a, b) => (b.id || '').localeCompare(a.id || '')); // Sort by newest reference code
 
     // Get color badge class for B2B status
     const getStatusClass = (status) => {
