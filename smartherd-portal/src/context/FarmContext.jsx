@@ -242,11 +242,28 @@ export const FarmProvider = ({ children }) => {
     };
 
     useEffect(() => {
+        // Ask the browser not to evict this origin's storage under storage pressure /
+        // inactivity-based purges (Safari's 7-day script-writable-storage cap, iOS
+        // low-disk eviction). Best-effort — unsupported/denied browsers just no-op.
+        if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persist) {
+            navigator.storage.persist().catch(() => {});
+        }
+
         flushQueue();
         window.addEventListener('online', flushQueue);
+        // iOS Safari's 'online' event is unreliable on cellular reconnects — also flush
+        // whenever the app comes back to the foreground, which is when a field worker
+        // actually notices they have signal again.
+        window.addEventListener('focus', flushQueue);
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'visible') flushQueue();
+        };
+        document.addEventListener('visibilitychange', onVisibilityChange);
         const interval = setInterval(flushQueue, 20000);
         return () => {
             window.removeEventListener('online', flushQueue);
+            window.removeEventListener('focus', flushQueue);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
             clearInterval(interval);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
