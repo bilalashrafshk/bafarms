@@ -563,37 +563,63 @@ export const FarmProvider = ({ children }) => {
         mineralsPrice: feedIngredients.find(i => i.id === 'minerals')?.price ?? 150.0
     };
 
-    // localStorage cache sync for animals/weights/treatments/events (portal reads these on init before DB loads)
+    // localStorage cache sync for animals/weights/treatments/events (portal reads these on
+    // init before DB loads). These are just a read-on-init display cache, not the source of
+    // truth (that's the DB + the durable pending-mutation queue, which persists itself
+    // synchronously and separately) — so it's safe to debounce these writes instead of
+    // re-serializing the whole array on every single change. Without this, ticking off
+    // several quarantine checklist items back-to-back re-stringifies the entire
+    // `treatments` array on every tick, which gets slower as history grows.
+    const cacheWriteTimers = useRef({});
+    const debouncedCacheWrite = (key, value) => {
+        const timers = cacheWriteTimers.current;
+        clearTimeout(timers[key]?.timer);
+        const write = () => localStorage.setItem(key, JSON.stringify(value));
+        timers[key] = { timer: setTimeout(write, 400), write };
+    };
+
     useEffect(() => {
-        localStorage.setItem('ba_animals', JSON.stringify(animals));
+        const flushAll = () => {
+            Object.values(cacheWriteTimers.current).forEach(t => { clearTimeout(t.timer); t.write(); });
+        };
+        window.addEventListener('beforeunload', flushAll);
+        window.addEventListener('pagehide', flushAll);
+        return () => {
+            window.removeEventListener('beforeunload', flushAll);
+            window.removeEventListener('pagehide', flushAll);
+        };
+    }, []);
+
+    useEffect(() => {
+        debouncedCacheWrite('ba_animals', animals);
     }, [animals]);
 
     useEffect(() => {
-        localStorage.setItem('ba_weights', JSON.stringify(weightLogs));
+        debouncedCacheWrite('ba_weights', weightLogs);
     }, [weightLogs]);
 
     useEffect(() => {
-        localStorage.setItem('ba_treatments', JSON.stringify(treatments));
+        debouncedCacheWrite('ba_treatments', treatments);
     }, [treatments]);
 
     useEffect(() => {
-        localStorage.setItem('ba_events', JSON.stringify(events));
+        debouncedCacheWrite('ba_events', events);
     }, [events]);
 
     useEffect(() => {
-        localStorage.setItem('ba_feed_ingredients', JSON.stringify(feedIngredients));
+        debouncedCacheWrite('ba_feed_ingredients', feedIngredients);
     }, [feedIngredients]);
 
     useEffect(() => {
-        localStorage.setItem('ba_feed_logs', JSON.stringify(feedLogs));
+        debouncedCacheWrite('ba_feed_logs', feedLogs);
     }, [feedLogs]);
 
     useEffect(() => {
-        localStorage.setItem('ba_quotations', JSON.stringify(quotations));
+        debouncedCacheWrite('ba_quotations', quotations);
     }, [quotations]);
 
     useEffect(() => {
-        localStorage.setItem('ba_spec_sheets', JSON.stringify(specSheets));
+        debouncedCacheWrite('ba_spec_sheets', specSheets);
     }, [specSheets]);
 
     // ─── NEON DB GET SYNC RUNNER ───
@@ -913,18 +939,25 @@ export const FarmProvider = ({ children }) => {
         // Optimistic update
         setOrders(prev => [...prev, order]);
 
-        // Mark live animals as sold in register and Neon DB
+        // Mark live animals as sold in register and Neon DB. Awaited in parallel (not
+        // fire-and-forget) so a rejected sale — e.g. the medicine withholding period
+        // hasn't cleared — is reported back to the caller instead of silently leaving
+        // that animal marked unsold with no indication anything went wrong.
+        let saleFailures = [];
         if (order.items) {
-            order.items.forEach(item => {
+            const results = await Promise.all(order.items.map(async item => {
                 const animal = animals.find(a => a.rfid === item.rfid);
-                if (animal) {
-                    recordSale(animal.id, item.price * item.quantity, order.customerName, order.date);
-                }
-            });
+                if (!animal) return null;
+                const result = await recordSale(animal.id, item.price * item.quantity, order.customerName, order.date);
+                return result.success ? null : { rfid: item.rfid, error: result.error };
+            }));
+            saleFailures = results.filter(Boolean);
         }
 
         // Queue the order insert durably (idempotent server-side via ON CONFLICT DO NOTHING)
         persistMutation('ADD_ORDER', order);
+
+        return { success: saleFailures.length === 0, saleFailures };
     };
 
     const updateOrderStatus = async (orderId, nextStatus) => {
