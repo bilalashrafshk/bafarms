@@ -187,6 +187,23 @@ export const FarmProvider = ({ children }) => {
         localStorage.setItem('ba_failed_mutations', JSON.stringify(failedMutations));
     }, [failedMutations]);
 
+    // Sends one mutation to the server. Shared by the immediate fast-path send in
+    // persistMutation and the durable queue flush loop below, so both stay in sync
+    // on auth headers / request shape.
+    const sendMutationToServer = async (action, payload) => {
+        const headers = {
+            'Content-Type': 'application/json',
+            ...(staffUserRef.current?.token ? { Authorization: `Bearer ${staffUserRef.current.token}` } : {})
+        };
+        const res = await fetch('/api/farm', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ action, payload })
+        });
+        const data = await res.json().catch(() => ({}));
+        return { res, data };
+    };
+
     const flushQueue = async () => {
         if (flushingRef.current || typeof navigator !== 'undefined' && navigator.onLine === false) return;
         flushingRef.current = true;
@@ -194,19 +211,10 @@ export const FarmProvider = ({ children }) => {
         try {
             while (pendingRef.current.length > 0) {
                 const item = pendingRef.current[0];
-                const headers = {
-                    'Content-Type': 'application/json',
-                    ...(staffUserRef.current?.token ? { Authorization: `Bearer ${staffUserRef.current.token}` } : {})
-                };
 
                 let res, data;
                 try {
-                    res = await fetch('/api/farm', {
-                        method: 'POST',
-                        headers,
-                        body: JSON.stringify({ action: item.action, payload: item.payload })
-                    });
-                    data = await res.json().catch(() => ({}));
+                    ({ res, data } = await sendMutationToServer(item.action, item.payload));
                 } catch (err) {
                     // Offline / network error — stop here so ordering is preserved,
                     // the item stays queued and we retry later.
@@ -241,9 +249,32 @@ export const FarmProvider = ({ children }) => {
         }
     };
 
-    // Queue a mutation durably, then attempt to sync it immediately if online.
-    const persistMutation = (action, payload) => {
+    // Send a mutation. If we're online and nothing is already queued ahead of it,
+    // send it directly so a normal save resolves in one round trip with no
+    // "Pending"/"Syncing" badge flash. Only drop into the durable localStorage
+    // queue (and its retry/offline machinery) on a real network failure, or when
+    // there's already queued work ahead of it — sending straight through in that
+    // case could land out of order relative to what's still waiting to flush.
+    const persistMutation = async (action, payload) => {
         const item = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, action, payload, createdAt: Date.now() };
+
+        if (pendingRef.current.length === 0 && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+            try {
+                const { res, data } = await sendMutationToServer(action, payload);
+
+                if (res.status === 401) {
+                    setSessionExpired(true);
+                } else if (!res.ok || data.success === false) {
+                    setFailedMutations(prev => [...prev, { ...item, error: data.error || `HTTP ${res.status}`, failedAt: Date.now() }]);
+                } else {
+                    setSessionExpired(false);
+                }
+                return;
+            } catch (err) {
+                // Network error mid-flight — fall through and queue it durably below.
+            }
+        }
+
         setPendingMutations(prev => [...prev, item]);
         // Let the pendingRef-sync effect commit before we read it in flushQueue.
         setTimeout(flushQueue, 0);
