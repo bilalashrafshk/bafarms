@@ -226,7 +226,7 @@ export default function TMRCalculator() {
 
                         {/* Ingredients Table (Desktop) */}
                         <form onSubmit={handleSaveAllIngredients}>
-                            <div className="table-wrapper desktop-only" style={{ marginBottom: '1.2rem' }}>
+                            <div className="table-wrapper" style={{ marginBottom: '1.2rem' }}>
                                 <table className="data-table" style={{ fontSize: '0.85rem' }}>
                                     <thead>
                                         <tr>

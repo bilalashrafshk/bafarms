@@ -189,10 +189,10 @@ export default function RotationPlanner() {
             <div class="glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
 
                 {/* Tab bar */}
-                <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)', overflowX: 'auto', WebkitOverflowScrolling: 'touch', whiteSpace: 'nowrap' }}>
                     {tabs.map(tab => (
                         <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                            style={{ flex: 1, padding: '0.75rem 0.5rem', background: activeTab === tab.id ? 'rgba(255,255,255,0.04)' : 'none', border: 'none', borderBottom: activeTab === tab.id ? `2px solid ${tab.color}` : '2px solid transparent', cursor: 'pointer', fontFamily: 'var(--font-heading)', fontWeight: '600', fontSize: '0.82rem', color: activeTab === tab.id ? 'var(--text-pure)' : 'var(--text-muted)', transition: 'all 0.15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
+                            style={{ flex: 1, minWidth: '125px', flexShrink: 0, padding: '0.75rem 0.6rem', background: activeTab === tab.id ? 'rgba(255,255,255,0.04)' : 'none', border: 'none', borderBottom: activeTab === tab.id ? `2px solid ${tab.color}` : '2px solid transparent', cursor: 'pointer', fontFamily: 'var(--font-heading)', fontWeight: '600', fontSize: '0.82rem', color: activeTab === tab.id ? 'var(--text-pure)' : 'var(--text-muted)', transition: 'all 0.15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
                             <i class={`fa-solid ${tab.icon}`} style={{ color: tab.color, fontSize: '0.8rem' }}></i>
                             {tab.label}
                             <span style={{ background: activeTab === tab.id ? tab.color : 'rgba(255,255,255,0.08)', color: activeTab === tab.id ? '#000' : 'var(--text-muted)', borderRadius: '50px', padding: '0 0.4rem', fontSize: '0.7rem', fontWeight: '700', lineHeight: '1.6' }}>{tab.count}</span>

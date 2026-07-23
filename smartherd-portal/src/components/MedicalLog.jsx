@@ -207,8 +207,8 @@ export default function MedicalLog() {
             <div className="glass-panel">
                 <h3 className="panel-title"><i className="fa-solid fa-clock-rotate-left"></i> Treatment History</h3>
                 
-                {/* Desktop Table */}
-                <div className="table-wrapper desktop-only">
+                {/* Table */}
+                <div className="table-wrapper">
                     <table className="data-table">
                         <thead>
                             <tr>
@@ -274,64 +274,6 @@ export default function MedicalLog() {
                     </table>
                 </div>
 
-                {/* Mobile Card Transform */}
-                <div className="mobile-card-list mobile-only">
-                    {sortedTreatments.map((t) => {
-                        const daysRemaining = checkWithholdingActive(t.date, t.withholding);
-                        return (
-                            <div key={t.id} className="mobile-item-card">
-                                <div className="mobile-item-card-header">
-                                    <div>
-                                        <span className="mobile-item-card-title">{getRfid(t.animalId)}</span>
-                                        <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--accent-gold)' }}>#{t.id}</span>
-                                    </div>
-                                    {daysRemaining > 0 ? (
-                                        <span className="badge-status sick">
-                                            ⚠️ {daysRemaining}d LOCKED
-                                        </span>
-                                    ) : (
-                                        <span className="badge-status fattening">
-                                            CLEAR
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="mobile-item-card-grid">
-                                    <div className="mobile-item-card-meta">
-                                        <span className="mobile-item-card-meta-label">Medicine</span>
-                                        <span className="mobile-item-card-meta-val">{t.medicine} ({t.dosage})</span>
-                                    </div>
-                                    <div className="mobile-item-card-meta">
-                                        <span className="mobile-item-card-meta-label">Category</span>
-                                        <span className="mobile-item-card-meta-val">{t.type}</span>
-                                    </div>
-                                    <div className="mobile-item-card-meta">
-                                        <span className="mobile-item-card-meta-label">Date</span>
-                                        <span className="mobile-item-card-meta-val">{t.date}</span>
-                                    </div>
-                                    <div className="mobile-item-card-meta">
-                                        <span className="mobile-item-card-meta-label">Withholding</span>
-                                        <span className="mobile-item-card-meta-val">{t.withholding} Days</span>
-                                    </div>
-                                </div>
-                                <div className="mobile-item-card-actions">
-                                    <button className="btn btn-secondary" style={{ color: 'hsl(0, 75%, 65%)', borderColor: 'rgba(220, 53, 69, 0.2)' }} onClick={() => {
-                                        if (window.confirm("Delete this treatment record?")) {
-                                            deleteTreatment(t.id);
-                                        }
-                                    }}>
-                                        <i className="fa-solid fa-trash-can"></i> Delete Record
-                                    </button>
-                                </div>
-                            </div>
-                        );
-                    })}
-                    {sortedTreatments.length === 0 && (
-                        <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)' }}>
-                            <i className="fa-solid fa-prescription-bottle-medical" style={{ fontSize: '2rem', marginBottom: '0.5rem', display: 'block' }}></i>
-                            No veterinary treatment records logged yet.
-                        </div>
-                    )}
-                </div>
             </div>
 
         </div>

@@ -1,8 +1,14 @@
 import React, { useContext, useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { FarmContext } from '../context/FarmContext';
 
 export default function WeightTracker() {
-    const { animals, weightLogs, logWeight, deleteWeightLog, systemParams } = useContext(FarmContext);
+    const { animals, weightLogs, logWeight, deleteWeightLog, updateWeightLog, systemParams } = useContext(FarmContext);
+
+    // Edit weight log modal state
+    const [editingLog, setEditingLog] = useState(null);
+    const [editWeight, setEditWeight] = useState('');
+    const [editDate, setEditDate] = useState('');
 
     // Pen filter for animal dropdown
     const [selectedPen, setSelectedPen] = useState('all');
@@ -69,6 +75,28 @@ export default function WeightTracker() {
         setWeight('');
         setIsSuccess(true);
         setTimeout(() => setIsSuccess(false), 3000);
+    };
+
+    // Correcting a mis-keyed weight or weighing date — ADG for this log and every
+    // later log for the animal (plus its currentWeight) recalculates automatically
+    // via updateWeightLog in FarmContext.
+    const openEditLogModal = (log) => {
+        setEditingLog(log);
+        setEditWeight(String(log.weight));
+        setEditDate(log.date);
+    };
+
+    const closeEditLogModal = () => {
+        setEditingLog(null);
+        setEditWeight('');
+        setEditDate('');
+    };
+
+    const handleEditLogSubmit = async (e) => {
+        e.preventDefault();
+        if (!editingLog || !editWeight || !editDate) return;
+        await updateWeightLog(editingLog.id, { date: editDate, weight: parseFloat(editWeight) });
+        closeEditLogModal();
     };
 
     // Sort weight logs by date descending for overview
@@ -477,8 +505,8 @@ export default function WeightTracker() {
             <div className="glass-panel">
                 <h3 className="panel-title"><i className="fa-solid fa-clock-rotate-left"></i> Weight History</h3>
 
-                {/* Desktop Table */}
-                <div className="table-wrapper desktop-only">
+                {/* Table */}
+                <div className="table-wrapper">
                     <table className="data-table">
                         <thead>
                             <tr>
@@ -519,7 +547,10 @@ export default function WeightTracker() {
                                         )}
                                     </td>
                                     <td>
-                                        <div style={{ display: 'flex', justifyContent: 'center' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'center', gap: '0.3rem' }}>
+                                            <button className="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem' }} onClick={() => openEditLogModal(log)}>
+                                                <i className="fa-solid fa-pen-to-square"></i>
+                                            </button>
                                             <button className="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem', borderColor: 'rgba(220, 53, 69, 0.15)', color: 'hsl(0, 75%, 65%)', background: 'rgba(220, 53, 69, 0.01)' }} onClick={() => {
                                                 if (window.confirm("Delete this weight record?")) {
                                                     deleteWeightLog(log.id);
@@ -542,59 +573,59 @@ export default function WeightTracker() {
                         </tbody>
                     </table>
                 </div>
-
-                {/* Mobile Card Transform */}
-                <div className="mobile-card-list mobile-only">
-                    {sortedLogs.map((log) => (
-                        <div key={log.id} className="mobile-item-card">
-                            <div className="mobile-item-card-header">
-                                <div>
-                                    <span className="mobile-item-card-title">{getRfid(log.animalId)}</span>
-                                    <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--accent-gold)' }}>#{log.id}</span>
-                                </div>
-                                {log.adg === 0 ? (
-                                    <span className="badge-status">Baseline</span>
-                                ) : log.adg >= (systemParams.adgAlertThreshold ?? 1.0) ? (
-                                    <span className="badge-status fattening">On Track</span>
-                                ) : (
-                                    <span className="badge-status sick">Stunted</span>
-                                )}
-                            </div>
-                            <div className="mobile-item-card-grid">
-                                <div className="mobile-item-card-meta">
-                                    <span className="mobile-item-card-meta-label">Scale Weight</span>
-                                    <span className="mobile-item-card-meta-val">{log.weight} kg</span>
-                                </div>
-                                <div className="mobile-item-card-meta">
-                                    <span className="mobile-item-card-meta-label">Daily Gain</span>
-                                    <span className="mobile-item-card-meta-val" style={{ color: log.adg >= 1.0 ? 'var(--primary-green-light)' : 'hsl(0,75%,65%)' }}>
-                                        {log.adg > 0 ? `+${log.adg} kg/d` : 'Entry'}
-                                    </span>
-                                </div>
-                                <div className="mobile-item-card-meta">
-                                    <span className="mobile-item-card-meta-label">Weighed Date</span>
-                                    <span className="mobile-item-card-meta-val">{log.date}</span>
-                                </div>
-                            </div>
-                            <div className="mobile-item-card-actions">
-                                <button className="btn btn-secondary" style={{ color: 'hsl(0, 75%, 65%)', borderColor: 'rgba(220, 53, 69, 0.2)' }} onClick={() => {
-                                    if (window.confirm("Delete this weight record?")) {
-                                        deleteWeightLog(log.id);
-                                    }
-                                }}>
-                                    <i className="fa-solid fa-trash-can"></i> Delete Record
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                    {sortedLogs.length === 0 && (
-                        <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)' }}>
-                            <i className="fa-solid fa-weight-scale" style={{ fontSize: '2rem', marginBottom: '0.5rem', display: 'block' }}></i>
-                            No weight records registered yet.
-                        </div>
-                    )}
-                </div>
             </div>
+
+            {/* EDIT WEIGHT LOG MODAL */}
+            {editingLog && createPortal(
+                <div class="modal-overlay">
+                    <div class="glass-panel modal-container" style={{ maxWidth: '420px' }}>
+                        <button class="modal-close-btn" onClick={closeEditLogModal}>
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+
+                        <h2 class="panel-title" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.8rem', marginBottom: '1.5rem' }}>
+                            <i class="fa-solid fa-pen-to-square"></i> Edit Weight Record — {getRfid(editingLog.animalId)}
+                        </h2>
+
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '-1rem', marginBottom: '1.2rem' }}>
+                            Correcting the weight or date recalculates ADG for this and every later record for this animal automatically.
+                        </p>
+
+                        <form onSubmit={handleEditLogSubmit}>
+                            <div class="form-grid-row" style={{ marginBottom: '1.2rem' }}>
+                                <div class="form-group" style={{ marginBottom: 0 }}>
+                                    <label>Weight (kg) *</label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        class="form-control"
+                                        value={editWeight}
+                                        onChange={(e) => setEditWeight(e.target.value)}
+                                        required
+                                        autoFocus
+                                    />
+                                </div>
+                                <div class="form-group" style={{ marginBottom: 0 }}>
+                                    <label>Weighing Date *</label>
+                                    <input
+                                        type="date"
+                                        class="form-control"
+                                        value={editDate}
+                                        onChange={(e) => setEditDate(e.target.value)}
+                                        required
+                                    />
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+                                <button type="button" class="btn btn-secondary" onClick={closeEditLogModal}>Cancel</button>
+                                <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Correction</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>,
+                document.body
+            )}
 
         </div>
     );

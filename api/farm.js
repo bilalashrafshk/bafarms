@@ -542,7 +542,7 @@ async function resolvePermissions(client, session) {
 const HERD_ACTIONS = new Set([
     'ADD_ANIMAL', 'LOG_WEIGHT', 'LOG_TREATMENT', 'TRANSITION_STATUS', 'LOG_EVENT',
     'DELETE_ANIMAL', 'UPDATE_ANIMAL', 'RECORD_DEATH', 'DELETE_WEIGHT_LOG', 'DELETE_TREATMENT',
-    'LOG_FEED', 'DELETE_FEED_LOG'
+    'LOG_FEED', 'DELETE_FEED_LOG', 'UPDATE_WEIGHT_LOGS_BATCH'
 ]);
 const SALES_ACTIONS = new Set([
     'UPDATE_ORDER_STATUS', 'DELETE_ORDER', 'UPDATE_ENQUIRY_STATUS', 'DELETE_ENQUIRY',
@@ -1169,6 +1169,29 @@ module.exports = async (req, res) => {
             if (action === 'DELETE_WEIGHT_LOG') {
                 const { logId } = payload;
                 await client.query('DELETE FROM ba_weights WHERE id = $1', [logId]);
+                return res.status(200).json({ success: true });
+            }
+
+            // Correcting a weight or weighing date on an existing log recalculates ADG
+            // for that animal's entire chronological chain client-side (see
+            // recalcWeightChain in FarmContext) — persist every affected log plus the
+            // animal's refreshed currentWeight in one transaction so they never drift.
+            if (action === 'UPDATE_WEIGHT_LOGS_BATCH') {
+                const { animalId, logs, currentWeight } = payload;
+                for (const log of (logs || [])) {
+                    await client.query(`
+                        UPDATE ba_weights
+                        SET date = $1, weight = $2, adg = $3
+                        WHERE id = $4
+                    `, [log.date, log.weight, log.adg, log.id]);
+                }
+                if (currentWeight !== undefined) {
+                    await client.query(`
+                        UPDATE ba_animals
+                        SET current_weight = $1
+                        WHERE id = $2
+                    `, [currentWeight, animalId]);
+                }
                 return res.status(200).json({ success: true });
             }
 

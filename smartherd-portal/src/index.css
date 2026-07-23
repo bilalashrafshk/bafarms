@@ -1886,28 +1886,96 @@ body {
         padding: 0.85rem 0.75rem !important;
         margin-bottom: 0.75rem !important;
         border-radius: 12px !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
     }
 
     .stat-val {
         font-size: 1.35rem !important;
     }
 
+    .table-wrapper {
+        display: block !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        border-radius: 8px !important;
+        box-sizing: border-box !important;
+    }
+
+    .data-table {
+        min-width: 680px !important;
+        width: 100% !important;
+    }
+
     .data-table th, .data-table td {
-        padding: 0.5rem 0.4rem !important;
-        font-size: 0.76rem !important;
+        padding: 0.55rem 0.65rem !important;
+        font-size: 0.78rem !important;
+        white-space: nowrap !important;
+    }
+
+    .table-filters {
+        max-width: 100% !important;
+        overflow-x: auto !important;
+        white-space: nowrap !important;
+        -webkit-overflow-scrolling: touch !important;
+        padding: 0.4rem !important;
+        gap: 0.4rem !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    .table-filters .filter-btn {
+        flex-shrink: 0 !important;
+        padding: 0.45rem 0.8rem !important;
+        font-size: 0.8rem !important;
     }
 
     .dashboard-grid {
-        grid-template-columns: repeat(2, 1fr) !important;
-        gap: 0.5rem !important;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        gap: 0.4rem !important;
     }
 
     .stat-box {
-        padding: 0.75rem !important;
+        padding: 0.5rem 0.55rem !important;
+        min-height: auto !important;
+        justify-content: center !important;
+    }
+
+    .stat-box .stat-header {
+        margin-bottom: 0.15rem !important;
+    }
+
+    .stat-box .stat-icon {
+        display: none !important;
+    }
+
+    .stat-box h3 {
+        font-size: 0.65rem !important;
+        letter-spacing: 0.02em !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        margin: 0 !important;
+    }
+
+    .stat-val {
+        font-size: 1.15rem !important;
+        margin-bottom: 0.1rem !important;
+        line-height: 1.1 !important;
+    }
+
+    .stat-lbl {
+        font-size: 0.68rem !important;
+        line-height: 1.1 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
     }
 
     .hide-mobile-col {
-        display: none !important;
+        display: table-cell !important;
     }
 
     /* Touch target inputs: 16px prevents iOS browser auto-zoom */

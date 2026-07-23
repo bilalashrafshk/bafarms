@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { FarmContext } from '../context/FarmContext';
 
 export default function HerdRegistry() {
-    const { animals, addAnimal, updateAnimal, deleteAnimal, recordDeath, transitionAnimalStatus, breedsConfig } = useContext(FarmContext);
+    const { animals, addAnimal, updateAnimal, deleteAnimal, recordDeath, transitionAnimalStatus, breedsConfig, updateBreedsConfig } = useContext(FarmContext);
 
     // UI State
     const [search, setSearch] = useState('');
@@ -26,6 +26,10 @@ export default function HerdRegistry() {
     const [targetWeight, setTargetWeight] = useState('');
     const [entryDate, setEntryDate] = useState('');
     const [pen, setPen] = useState('');
+    // When true, the Breed field is a free-text input instead of the preset dropdown —
+    // lets staff register an animal with a breed that isn't in the configured list yet.
+    const [customBreedMode, setCustomBreedMode] = useState(false);
+    const CUSTOM_BREED_OPTION = '__custom__';
 
     const exportCSV = () => {
         const headers = ['RFID,Breed,Entry Date,Entry Weight (kg),Current Weight (kg),Total Gain (kg),Purchase Cost (PKR),Source,Pen,Status'];
@@ -47,6 +51,7 @@ export default function HerdRegistry() {
         setEditingAnimal(null);
         setRfid('');
         setBreed(breedsConfig[0]?.name || 'Sahiwal');
+        setCustomBreedMode(false);
         setEntryWeight('');
         setPurchasePrice('');
         setSource('');
@@ -61,6 +66,10 @@ export default function HerdRegistry() {
         setEditingAnimal(animal);
         setRfid(animal.rfid);
         setBreed(animal.breed);
+        // If this animal's breed isn't in the configured list (e.g. it was entered as a
+        // custom breed, or the config was later trimmed), keep the field editable as
+        // free text instead of silently swapping it for the first preset breed.
+        setCustomBreedMode(!breedsConfig.some(b => b.name === animal.breed));
         setEntryWeight(animal.entryWeight);
         setPurchasePrice(animal.purchasePrice);
         setSource(animal.source);
@@ -81,9 +90,15 @@ const handleSubmit = (e) => {
         e.preventDefault();
         if (!entryWeight || !purchasePrice) return;
 
-        const selectedBreed = breed || (breedsConfig[0]?.name || 'Sahiwal');
-        const matchedBreed = breedsConfig.find(b => b.name === selectedBreed);
-        const defaultTarget = matchedBreed ? matchedBreed.defaultTargetWeight : 360;
+        const selectedBreed = (breed || '').trim() || (breedsConfig[0]?.name || 'Sahiwal');
+        const matchedBreed = breedsConfig.find(b => b.name.toLowerCase() === selectedBreed.toLowerCase());
+        const defaultTarget = matchedBreed ? matchedBreed.defaultTargetWeight : (parseFloat(targetWeight) || 360);
+
+        // A newly typed custom breed isn't in the registry yet — add it now so it's
+        // available in future dropdowns and shows up alongside the presets in Settings.
+        if (customBreedMode && !matchedBreed) {
+            updateBreedsConfig([...breedsConfig, { name: selectedBreed, defaultTargetWeight: defaultTarget }]);
+        }
 
         const payload = {
             rfid,
@@ -110,6 +125,7 @@ const handleSubmit = (e) => {
         // Reset form & close
         setRfid('');
         setBreed(breedsConfig[0]?.name || 'Sahiwal');
+        setCustomBreedMode(false);
         setEntryWeight('');
         setPurchasePrice('');
         setSource('');
@@ -175,17 +191,17 @@ const handleSubmit = (e) => {
                 <button class={`filter-btn ${filterStatus === 'Sold' ? 'active' : ''}`} onClick={() => setFilterStatus('Sold')}>Sold ({animals.filter(a => a.status === 'Sold').length})</button>
             </div>
 
-            {/* Main Ledger Table (Desktop) */}
-            <div className="table-wrapper desktop-only">
+            {/* Main Ledger Table */}
+            <div className="table-wrapper">
                 <table className="data-table">
                     <thead>
                         <tr>
                             <th>TAG</th>
                             <th>BREED</th>
                             <th>WT (KG)</th>
-                            <th className="hide-mobile-col">GAIN</th>
-                            <th className="hide-mobile-col">COST (PKR)</th>
-                            <th className="hide-mobile-col">PEN</th>
+                            <th>GAIN</th>
+                            <th>COST (PKR)</th>
+                            <th>PEN</th>
                             <th>STATUS</th>
                             <th style={{ textAlign: 'center' }}>ACTIONS</th>
                         </tr>
@@ -198,11 +214,11 @@ const handleSubmit = (e) => {
                                 </td>
                                 <td>{animal.breed}</td>
                                 <td><strong>{animal.currentWeight} kg</strong></td>
-                                <td className="hide-mobile-col" style={{ color: 'var(--primary-green-light)', fontWeight: '600' }}>
+                                <td style={{ color: 'var(--primary-green-light)', fontWeight: '600' }}>
                                     +{parseFloat((animal.currentWeight - animal.entryWeight).toFixed(1))} kg
                                 </td>
-                                <td className="hide-mobile-col">{animal.purchasePrice.toLocaleString()}</td>
-                                <td className="hide-mobile-col" style={{ fontFamily: 'var(--font-heading)', fontWeight: '600' }}>
+                                <td>{animal.purchasePrice.toLocaleString()}</td>
+                                <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '600' }}>
                                     {animal.pen ? <span style={{ color: 'var(--accent-gold)' }}>{animal.pen}</span> : <span style={{ opacity: 0.4 }}>—</span>}
                                 </td>
                                 <td>
@@ -253,72 +269,7 @@ const handleSubmit = (e) => {
                 </table>
             </div>
 
-            {/* Mobile Card Transform List */}
-            <div className="mobile-card-list mobile-only">
-                {filteredAnimals.map((animal) => (
-                    <div key={animal.id} className="mobile-item-card">
-                        <div className="mobile-item-card-header">
-                            <div>
-                                <span className="mobile-item-card-title">{animal.rfid}</span>
-                                <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{animal.breed}</span>
-                            </div>
-                            <span className={`badge-status ${animal.status.toLowerCase()}`}>
-                                {animal.status}
-                            </span>
-                        </div>
-                        <div className="mobile-item-card-grid">
-                            <div className="mobile-item-card-meta">
-                                <span className="mobile-item-card-meta-label">Weight</span>
-                                <span className="mobile-item-card-meta-val">{animal.currentWeight} kg</span>
-                            </div>
-                            <div className="mobile-item-card-meta">
-                                <span className="mobile-item-card-meta-label">Gain</span>
-                                <span className="mobile-item-card-meta-val" style={{ color: 'var(--primary-green-light)' }}>
-                                    +{parseFloat((animal.currentWeight - animal.entryWeight).toFixed(1))} kg
-                                </span>
-                            </div>
-                            <div className="mobile-item-card-meta">
-                                <span className="mobile-item-card-meta-label">Pen</span>
-                                <span className="mobile-item-card-meta-val" style={{ color: animal.pen ? 'var(--accent-gold)' : 'inherit' }}>
-                                    {animal.pen || 'Unassigned'}
-                                </span>
-                            </div>
-                            <div className="mobile-item-card-meta">
-                                <span className="mobile-item-card-meta-label">Cost</span>
-                                <span className="mobile-item-card-meta-val">{animal.purchasePrice.toLocaleString()} PKR</span>
-                            </div>
-                        </div>
-                        <div className="mobile-item-card-actions">
-                            <button className="btn btn-secondary" onClick={() => openEditModal(animal)}>
-                                <i className="fa-solid fa-pen-to-square"></i> Edit
-                            </button>
-                            {animal.status !== 'Sick' && animal.status !== 'Sold' && animal.status !== 'Deceased' && (
-                                <button className="btn btn-secondary" style={{ borderColor: 'rgba(255,193,7,0.3)', color: 'hsl(43,90%,53%)' }} onClick={() => transitionAnimalStatus(animal.id, 'Sick')}>
-                                    <i className="fa-solid fa-heart-pulse"></i> Sick
-                                </button>
-                            )}
-                            {animal.status === 'Sick' && (
-                                <button className="btn btn-secondary" style={{ borderColor: 'rgba(25,135,84,0.3)', color: 'var(--primary-green-light)' }} onClick={() => transitionAnimalStatus(animal.id, 'Fattening')}>
-                                    <i className="fa-solid fa-circle-check"></i> Recovered
-                                </button>
-                            )}
-                            <button className="btn btn-secondary" style={{ borderColor: 'rgba(220, 53, 69, 0.2)', color: 'hsl(0, 75%, 65%)' }} onClick={() => {
-                                if (window.confirm(`Delete ${animal.rfid}?`)) {
-                                    deleteAnimal(animal.id);
-                                }
-                            }}>
-                                <i className="fa-solid fa-trash-can"></i> Delete
-                            </button>
-                        </div>
-                    </div>
-                ))}
-                {filteredAnimals.length === 0 && (
-                    <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)' }}>
-                        <i className="fa-solid fa-cow" style={{ fontSize: '2rem', marginBottom: '0.5rem', display: 'block' }}></i>
-                        No animal records matching your filters found.
-                    </div>
-                )}
-            </div>
+
 
             {/* 4. MODAL POPUP ADD/EDIT CALF REGISTER FORM */}
             {isModalOpen && createPortal(
@@ -346,11 +297,46 @@ const handleSubmit = (e) => {
                                     </div>
                                     <div class="form-group" style={{ marginBottom: 0 }}>
                                         <label>Breed</label>
-                                        <select class="form-control" value={breed || (breedsConfig[0]?.name || 'Sahiwal')} onChange={(e) => setBreed(e.target.value)}>
-                                            {breedsConfig.map(b => (
-                                                <option key={b.name} value={b.name}>{b.name}</option>
-                                            ))}
-                                        </select>
+                                        {customBreedMode ? (
+                                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                                <input
+                                                    type="text"
+                                                    class="form-control"
+                                                    placeholder="Enter breed name"
+                                                    value={breed}
+                                                    onChange={(e) => setBreed(e.target.value)}
+                                                    required
+                                                    autoFocus
+                                                />
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-secondary"
+                                                    style={{ minHeight: '38px', padding: '0 0.7rem', flexShrink: 0 }}
+                                                    title="Back to preset breed list"
+                                                    onClick={() => { setCustomBreedMode(false); setBreed(breedsConfig[0]?.name || 'Sahiwal'); }}
+                                                >
+                                                    <i class="fa-solid fa-xmark"></i>
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <select
+                                                class="form-control"
+                                                value={breed || (breedsConfig[0]?.name || 'Sahiwal')}
+                                                onChange={(e) => {
+                                                    if (e.target.value === CUSTOM_BREED_OPTION) {
+                                                        setCustomBreedMode(true);
+                                                        setBreed('');
+                                                    } else {
+                                                        setBreed(e.target.value);
+                                                    }
+                                                }}
+                                            >
+                                                {breedsConfig.map(b => (
+                                                    <option key={b.name} value={b.name}>{b.name}</option>
+                                                ))}
+                                                <option value={CUSTOM_BREED_OPTION}>+ Add Custom Breed…</option>
+                                            </select>
+                                        )}
                                     </div>
                                 </div>
 

@@ -744,6 +744,58 @@ export const FarmProvider = ({ children }) => {
         persistMutation('LOG_WEIGHT', { animalId: parseInt(animalId), date, weight: targetWeight, adg: calculatedAdg });
     };
 
+    // Recomputes the entire ADG chain for one animal after a weight or date edit.
+    // Editing a log in place can shift its position in the chronological sequence
+    // (e.g. moving its date earlier/later than a neighboring log), so the safest fix
+    // is to re-sort all of that animal's logs and recalculate ADG from scratch rather
+    // than patching only the edited row — this is what makes ADG (and currentWeight)
+    // "dynamically update" when a past entry weight or weighing date is corrected.
+    const recalcWeightChain = (animalId, logId, updates) => {
+        const animalLogs = weightLogs
+            .filter(w => w.animalId === animalId)
+            .map(w => w.id === logId ? { ...w, ...updates } : w)
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        let prevLog = null;
+        const recalculated = animalLogs.map(w => {
+            let adg = 0;
+            if (prevLog) {
+                const msDiff = new Date(w.date) - new Date(prevLog.date);
+                const daysElapsed = Math.max(1, Math.round(msDiff / (1000 * 60 * 60 * 24)));
+                adg = parseFloat(((w.weight - prevLog.weight) / daysElapsed).toFixed(2));
+            }
+            prevLog = w;
+            return { ...w, adg };
+        });
+
+        const latestWeight = recalculated.length > 0 ? recalculated[recalculated.length - 1].weight : undefined;
+
+        // 1. Sync UI locally
+        setWeightLogs(prev => prev.map(w => recalculated.find(r => r.id === w.id) || w));
+        if (latestWeight !== undefined) {
+            setAnimals(prev => prev.map(a => a.id === animalId ? { ...a, currentWeight: latestWeight } : a));
+        }
+
+        // 2. Queue database transaction durably
+        persistMutation('UPDATE_WEIGHT_LOGS_BATCH', {
+            animalId,
+            logs: recalculated.map(w => ({ id: w.id, date: w.date, weight: w.weight, adg: w.adg })),
+            currentWeight: latestWeight
+        });
+    };
+
+    // Correcting a mis-keyed weight or weighing date on an existing log — recalculates
+    // ADG for that log and every log after it for the same animal, and refreshes the
+    // animal's currentWeight if the edited log turns out to be the latest one.
+    const updateWeightLog = async (logId, updates) => {
+        const log = weightLogs.find(w => w.id === logId);
+        if (!log) return;
+        recalcWeightChain(log.animalId, logId, {
+            date: updates.date ?? log.date,
+            weight: updates.weight !== undefined ? parseFloat(updates.weight) : log.weight
+        });
+    };
+
     const addTreatment = async (animalId, date, type, medicine, dosage, withholding, protocolTaskId = null) => {
         const id = treatments.length > 0 ? Math.max(...treatments.map(t => t.id)) + 1 : 1;
         const newTreatment = {
@@ -790,8 +842,27 @@ export const FarmProvider = ({ children }) => {
     };
 
     const updateAnimal = async (updatedAnimal) => {
+        const existing = animals.find(a => a.id === updatedAnimal.id);
+
         // 1. Sync UI locally
         setAnimals(prev => prev.map(a => a.id === updatedAnimal.id ? { ...a, ...updatedAnimal } : a));
+
+        // If the entry weight or entry date was corrected, the baseline weight log
+        // created automatically at registration is now stale — ripple the fix through
+        // to ADG on every log that follows it (same chain recalculation as editing a
+        // weight log directly).
+        if (existing) {
+            const newEntryWeight = updatedAnimal.entryWeight !== undefined ? parseFloat(updatedAnimal.entryWeight) : existing.entryWeight;
+            const newEntryDate = updatedAnimal.entryDate ?? existing.entryDate;
+            if (newEntryWeight !== existing.entryWeight || newEntryDate !== existing.entryDate) {
+                const baselineLog = weightLogs
+                    .filter(w => w.animalId === existing.id)
+                    .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+                if (baselineLog) {
+                    recalcWeightChain(existing.id, baselineLog.id, { date: newEntryDate, weight: newEntryWeight });
+                }
+            }
+        }
 
         // 2. Queue DB transaction durably
         persistMutation('UPDATE_ANIMAL', updatedAnimal);
@@ -1127,6 +1198,7 @@ export const FarmProvider = ({ children }) => {
             deleteAnimal,
             updateAnimal,
             deleteWeightLog,
+            updateWeightLog,
             deleteTreatment,
             resetSystem,
             isLoggedIn,
