@@ -410,16 +410,18 @@ function AppContent() {
 
             {/* Mobile "More" drawer — surfaces every remaining section (including the
                 Quotation/Spec Sheet creator tools, which otherwise have no mobile entry point) */}
+            {/* Mobile "More" drawer — surfaces every remaining section (including the
+                Quotation/Spec Sheet creator tools, which otherwise have no mobile entry point) */}
             {showMobileMore && (
-                <div class="rfid-hud-overlay" onClick={() => setShowMobileMore(false)}>
-                    <div class="rfid-hud-card glass-panel" style={{ maxWidth: '360px' }} onClick={(e) => e.stopPropagation()}>
-                        <div class="rfid-hud-header">
-                            <span class="hud-status-title">More Sections</span>
-                            <button class="hud-close" onClick={() => setShowMobileMore(false)}>
-                                <i class="fa-solid fa-xmark"></i>
+                <div className="mobile-more-drawer-overlay" onClick={() => setShowMobileMore(false)}>
+                    <div className="rfid-hud-card glass-panel mobile-more-drawer-card" style={{ maxWidth: '360px' }} onClick={(e) => e.stopPropagation()}>
+                        <div className="rfid-hud-header">
+                            <span className="hud-status-title">More Sections</span>
+                            <button className="hud-close" onClick={() => setShowMobileMore(false)}>
+                                <i className="fa-solid fa-xmark"></i>
                             </button>
                         </div>
-                        <div class="rfid-hud-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        <div className="rfid-hud-body mobile-more-drawer-body">
                             {canAccessSales && (
                                 <>
                                     <div className="sidebar-group-label">Sales &amp; Commerce</div>
@@ -457,9 +459,9 @@ function AppContent() {
                                     </button>
                                 </>
                             )}
-                            <div class="sidebar-group-label">System</div>
-                            <button class="menu-item" onClick={() => { setActiveTab('settings'); setShowMobileMore(false); }}>
-                                <i class="fa-solid fa-gears"></i> System Settings
+                            <div className="sidebar-group-label">System</div>
+                            <button className="menu-item" onClick={() => { setActiveTab('settings'); setShowMobileMore(false); }}>
+                                <i className="fa-solid fa-gears"></i> System Settings
                             </button>
                             <button className="menu-item logout-btn" style={{ border: '1px solid rgba(220, 53, 69, 0.2)', color: 'hsl(0, 75%, 65%)' }} onClick={handleLogout}>
                                 <i className="fa-solid fa-power-off" style={{ color: 'hsl(0, 75%, 65%)' }}></i> Secure Logout

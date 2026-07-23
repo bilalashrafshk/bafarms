@@ -1321,6 +1321,50 @@ body {
     }
 }
 
+/* Mobile "More" Sections Modal Overlay & Vertical Scroll Fix */
+.mobile-more-drawer-overlay {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background-color: rgba(10, 15, 12, 0.85) !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+    z-index: 10000 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 1rem !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+}
+
+.mobile-more-drawer-card {
+    width: 100% !important;
+    max-width: 380px !important;
+    max-height: 85vh !important;
+    display: flex !important;
+    flex-direction: column !important;
+    position: relative !important;
+    overflow: hidden !important;
+    margin: auto !important;
+    border: 1.5px solid var(--accent-gold) !important;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(255, 193, 7, 0.2) !important;
+}
+
+.mobile-more-drawer-body {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    max-height: calc(85vh - 70px) !important;
+    padding-right: 0.4rem !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.4rem !important;
+}
+
 .rfid-hud-card {
     background: hsla(210, 15%, 8%, 0.95) !important;
     border: 2px solid var(--accent-gold) !important;
