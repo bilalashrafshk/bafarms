@@ -183,9 +183,9 @@ const handleSubmit = (e) => {
                             <th>TAG</th>
                             <th>BREED</th>
                             <th>WT (KG)</th>
-                            <th>GAIN</th>
-                            <th>COST (PKR)</th>
-                            <th>PEN</th>
+                            <th class="hide-mobile-col">GAIN</th>
+                            <th class="hide-mobile-col">COST (PKR)</th>
+                            <th class="hide-mobile-col">PEN</th>
                             <th>STATUS</th>
                             <th style={{ textAlign: 'center' }}>ACTIONS</th>
                         </tr>
@@ -198,11 +198,11 @@ const handleSubmit = (e) => {
                                 </td>
                                 <td>{animal.breed}</td>
                                 <td><strong>{animal.currentWeight} kg</strong></td>
-                                <td style={{ color: 'var(--primary-green-light)', fontWeight: '600' }}>
+                                <td class="hide-mobile-col" style={{ color: 'var(--primary-green-light)', fontWeight: '600' }}>
                                     +{parseFloat((animal.currentWeight - animal.entryWeight).toFixed(1))} kg
                                 </td>
-                                <td>{animal.purchasePrice.toLocaleString()}</td>
-                                <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '600' }}>
+                                <td class="hide-mobile-col">{animal.purchasePrice.toLocaleString()}</td>
+                                <td class="hide-mobile-col" style={{ fontFamily: 'var(--font-heading)', fontWeight: '600' }}>
                                     {animal.pen ? <span style={{ color: 'var(--accent-gold)' }}>{animal.pen}</span> : <span style={{ opacity: 0.4 }}>—</span>}
                                 </td>
                                 <td>
@@ -211,7 +211,7 @@ const handleSubmit = (e) => {
                                     </span>
                                 </td>
                                 <td>
-                                    <div style={{ display: 'flex', gap: '0.3rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                    <div class="herd-actions-group" style={{ display: 'flex', gap: '0.3rem', justifyContent: 'center', flexWrap: 'wrap' }}>
                                         <button class="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem' }} onClick={() => openEditModal(animal)}>
                                             <i class="fa-solid fa-pen-to-square"></i>
                                         </button>

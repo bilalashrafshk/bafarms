@@ -246,9 +246,14 @@ body {
 
 /* Glassmorphic Panels */
 .glass-panel {
+    /* No backdrop-filter here on purpose. These panels sit in normal scrolling
+       document flow (nothing distinct moves behind them), so blurring their
+       background was pure GPU cost for no visible payoff — and with dozens of
+       .glass-panel instances per page, that's the main cause of stuttery scroll
+       on mobile. The 70%-opacity --bg-card alone gives the same "glass" look.
+       Real floating/overlay elements (sticky header, fixed mobile nav, modals)
+       keep their blur since content genuinely scrolls behind those. */
     background: var(--bg-card);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border-subtle);
     border-radius: 12px;
     padding: 0.85rem;
@@ -1861,6 +1866,15 @@ body {
     }
     .stat-box {
         padding: 0.85rem !important;
+    }
+    /* Hide lower-priority table columns (e.g. Herd Registry's GAIN/COST/PEN)
+       on narrow screens so tables come closer to fitting without horizontal
+       scroll, instead of cramming every column onto a 390px phone. */
+    .hide-mobile-col {
+        display: none;
+    }
+    .herd-actions-group {
+        max-width: 76px;
     }
 }
 
