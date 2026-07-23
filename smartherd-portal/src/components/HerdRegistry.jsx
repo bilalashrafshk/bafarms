@@ -175,17 +175,17 @@ const handleSubmit = (e) => {
                 <button class={`filter-btn ${filterStatus === 'Sold' ? 'active' : ''}`} onClick={() => setFilterStatus('Sold')}>Sold ({animals.filter(a => a.status === 'Sold').length})</button>
             </div>
 
-            {/* Main Ledger Table */}
-            <div class="table-wrapper">
-                <table class="data-table">
+            {/* Main Ledger Table (Desktop) */}
+            <div className="table-wrapper desktop-only">
+                <table className="data-table">
                     <thead>
                         <tr>
                             <th>TAG</th>
                             <th>BREED</th>
                             <th>WT (KG)</th>
-                            <th class="hide-mobile-col">GAIN</th>
-                            <th class="hide-mobile-col">COST (PKR)</th>
-                            <th class="hide-mobile-col">PEN</th>
+                            <th className="hide-mobile-col">GAIN</th>
+                            <th className="hide-mobile-col">COST (PKR)</th>
+                            <th className="hide-mobile-col">PEN</th>
                             <th>STATUS</th>
                             <th style={{ textAlign: 'center' }}>ACTIONS</th>
                         </tr>
@@ -198,44 +198,44 @@ const handleSubmit = (e) => {
                                 </td>
                                 <td>{animal.breed}</td>
                                 <td><strong>{animal.currentWeight} kg</strong></td>
-                                <td class="hide-mobile-col" style={{ color: 'var(--primary-green-light)', fontWeight: '600' }}>
+                                <td className="hide-mobile-col" style={{ color: 'var(--primary-green-light)', fontWeight: '600' }}>
                                     +{parseFloat((animal.currentWeight - animal.entryWeight).toFixed(1))} kg
                                 </td>
-                                <td class="hide-mobile-col">{animal.purchasePrice.toLocaleString()}</td>
-                                <td class="hide-mobile-col" style={{ fontFamily: 'var(--font-heading)', fontWeight: '600' }}>
+                                <td className="hide-mobile-col">{animal.purchasePrice.toLocaleString()}</td>
+                                <td className="hide-mobile-col" style={{ fontFamily: 'var(--font-heading)', fontWeight: '600' }}>
                                     {animal.pen ? <span style={{ color: 'var(--accent-gold)' }}>{animal.pen}</span> : <span style={{ opacity: 0.4 }}>—</span>}
                                 </td>
                                 <td>
-                                    <span class={`badge-status ${animal.status.toLowerCase()}`}>
+                                    <span className={`badge-status ${animal.status.toLowerCase()}`}>
                                         {animal.status}
                                     </span>
                                 </td>
                                 <td>
-                                    <div class="herd-actions-group" style={{ display: 'flex', gap: '0.3rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-                                        <button class="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem' }} onClick={() => openEditModal(animal)}>
-                                            <i class="fa-solid fa-pen-to-square"></i>
+                                    <div className="herd-actions-group" style={{ display: 'flex', gap: '0.3rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                        <button className="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem' }} onClick={() => openEditModal(animal)}>
+                                            <i className="fa-solid fa-pen-to-square"></i>
                                         </button>
                                         {animal.status !== 'Sick' && animal.status !== 'Sold' && animal.status !== 'Deceased' && (
-                                            <button class="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem', borderColor: 'rgba(255,193,7,0.3)', color: 'hsl(43,90%,53%)', background: 'rgba(255,193,7,0.04)' }} onClick={() => transitionAnimalStatus(animal.id, 'Sick')} title="Mark Sick">
-                                                <i class="fa-solid fa-heart-pulse"></i> Sick
+                                            <button className="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem', borderColor: 'rgba(255,193,7,0.3)', color: 'hsl(43,90%,53%)', background: 'rgba(255,193,7,0.04)' }} onClick={() => transitionAnimalStatus(animal.id, 'Sick')} title="Mark Sick">
+                                                <i className="fa-solid fa-heart-pulse"></i> Sick
                                             </button>
                                         )}
                                         {animal.status === 'Sick' && (
-                                            <button class="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem', borderColor: 'rgba(25,135,84,0.3)', color: 'var(--primary-green-light)', background: 'rgba(25,135,84,0.04)' }} onClick={() => transitionAnimalStatus(animal.id, 'Fattening')} title="Mark Recovered">
-                                                <i class="fa-solid fa-circle-check"></i> OK
+                                            <button className="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem', borderColor: 'rgba(25,135,84,0.3)', color: 'var(--primary-green-light)', background: 'rgba(25,135,84,0.04)' }} onClick={() => transitionAnimalStatus(animal.id, 'Fattening')} title="Mark Recovered">
+                                                <i className="fa-solid fa-circle-check"></i> OK
                                             </button>
                                         )}
                                         {animal.status !== 'Sold' && animal.status !== 'Deceased' && (
-                                            <button class="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem', borderColor: 'rgba(100, 50, 50, 0.3)', color: 'hsl(0, 60%, 55%)', background: 'rgba(80, 20, 20, 0.05)' }} onClick={() => openDeathModal(animal)} title="Record Death">
+                                            <button className="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem', borderColor: 'rgba(100, 50, 50, 0.3)', color: 'hsl(0, 60%, 55%)', background: 'rgba(80, 20, 20, 0.05)' }} onClick={() => openDeathModal(animal)} title="Record Death">
                                                 ☠
                                             </button>
                                         )}
-                                        <button class="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem', borderColor: 'rgba(220, 53, 69, 0.2)', color: 'hsl(0, 75%, 65%)', background: 'rgba(220, 53, 69, 0.02)' }} onClick={() => {
+                                        <button className="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem', borderColor: 'rgba(220, 53, 69, 0.2)', color: 'hsl(0, 75%, 65%)', background: 'rgba(220, 53, 69, 0.02)' }} onClick={() => {
                                             if (window.confirm(`Delete ${animal.rfid}?`)) {
                                                 deleteAnimal(animal.id);
                                             }
                                         }} title="Delete">
-                                            <i class="fa-solid fa-trash-can"></i>
+                                            <i className="fa-solid fa-trash-can"></i>
                                         </button>
                                     </div>
                                 </td>
@@ -244,13 +244,80 @@ const handleSubmit = (e) => {
                         {filteredAnimals.length === 0 && (
                             <tr>
                                 <td colSpan="8" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-                                    <i class="fa-solid fa-cow" style={{ fontSize: '2rem', marginBottom: '0.5rem', display: 'block' }}></i>
+                                    <i className="fa-solid fa-cow" style={{ fontSize: '2rem', marginBottom: '0.5rem', display: 'block' }}></i>
                                     No animal records matching your filters were found in the database.
                                 </td>
                             </tr>
                         )}
                     </tbody>
                 </table>
+            </div>
+
+            {/* Mobile Card Transform List */}
+            <div className="mobile-card-list mobile-only">
+                {filteredAnimals.map((animal) => (
+                    <div key={animal.id} className="mobile-item-card">
+                        <div className="mobile-item-card-header">
+                            <div>
+                                <span className="mobile-item-card-title">{animal.rfid}</span>
+                                <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{animal.breed}</span>
+                            </div>
+                            <span className={`badge-status ${animal.status.toLowerCase()}`}>
+                                {animal.status}
+                            </span>
+                        </div>
+                        <div className="mobile-item-card-grid">
+                            <div className="mobile-item-card-meta">
+                                <span className="mobile-item-card-meta-label">Weight</span>
+                                <span className="mobile-item-card-meta-val">{animal.currentWeight} kg</span>
+                            </div>
+                            <div className="mobile-item-card-meta">
+                                <span className="mobile-item-card-meta-label">Gain</span>
+                                <span className="mobile-item-card-meta-val" style={{ color: 'var(--primary-green-light)' }}>
+                                    +{parseFloat((animal.currentWeight - animal.entryWeight).toFixed(1))} kg
+                                </span>
+                            </div>
+                            <div className="mobile-item-card-meta">
+                                <span className="mobile-item-card-meta-label">Pen</span>
+                                <span className="mobile-item-card-meta-val" style={{ color: animal.pen ? 'var(--accent-gold)' : 'inherit' }}>
+                                    {animal.pen || 'Unassigned'}
+                                </span>
+                            </div>
+                            <div className="mobile-item-card-meta">
+                                <span className="mobile-item-card-meta-label">Cost</span>
+                                <span className="mobile-item-card-meta-val">{animal.purchasePrice.toLocaleString()} PKR</span>
+                            </div>
+                        </div>
+                        <div className="mobile-item-card-actions">
+                            <button className="btn btn-secondary" onClick={() => openEditModal(animal)}>
+                                <i className="fa-solid fa-pen-to-square"></i> Edit
+                            </button>
+                            {animal.status !== 'Sick' && animal.status !== 'Sold' && animal.status !== 'Deceased' && (
+                                <button className="btn btn-secondary" style={{ borderColor: 'rgba(255,193,7,0.3)', color: 'hsl(43,90%,53%)' }} onClick={() => transitionAnimalStatus(animal.id, 'Sick')}>
+                                    <i className="fa-solid fa-heart-pulse"></i> Sick
+                                </button>
+                            )}
+                            {animal.status === 'Sick' && (
+                                <button className="btn btn-secondary" style={{ borderColor: 'rgba(25,135,84,0.3)', color: 'var(--primary-green-light)' }} onClick={() => transitionAnimalStatus(animal.id, 'Fattening')}>
+                                    <i className="fa-solid fa-circle-check"></i> Recovered
+                                </button>
+                            )}
+                            <button className="btn btn-secondary" style={{ borderColor: 'rgba(220, 53, 69, 0.2)', color: 'hsl(0, 75%, 65%)' }} onClick={() => {
+                                if (window.confirm(`Delete ${animal.rfid}?`)) {
+                                    deleteAnimal(animal.id);
+                                }
+                            }}>
+                                <i className="fa-solid fa-trash-can"></i> Delete
+                            </button>
+                        </div>
+                    </div>
+                ))}
+                {filteredAnimals.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)' }}>
+                        <i className="fa-solid fa-cow" style={{ fontSize: '2rem', marginBottom: '0.5rem', display: 'block' }}></i>
+                        No animal records matching your filters found.
+                    </div>
+                )}
             </div>
 
             {/* 4. MODAL POPUP ADD/EDIT CALF REGISTER FORM */}

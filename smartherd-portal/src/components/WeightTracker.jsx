@@ -474,11 +474,12 @@ export default function WeightTracker() {
             )}
 
             {/* Historical list */}
-            <div class="glass-panel">
-                <h3 class="panel-title"><i class="fa-solid fa-clock-rotate-left"></i> Weight History</h3>
+            <div className="glass-panel">
+                <h3 className="panel-title"><i className="fa-solid fa-clock-rotate-left"></i> Weight History</h3>
 
-                <div class="table-wrapper">
-                    <table class="data-table">
+                {/* Desktop Table */}
+                <div className="table-wrapper desktop-only">
+                    <table className="data-table">
                         <thead>
                             <tr>
                                 <th>WEIGHT ENTRY ID</th>
@@ -501,7 +502,7 @@ export default function WeightTracker() {
                                     <td><strong>{log.weight} kg</strong></td>
                                     <td style={{ fontFamily: 'var(--font-heading)' }}>
                                         {log.adg > 0 ? (
-                                            <span class={log.adg >= (systemParams.adgAlertThreshold ?? 1.0) ? 'adg-text good' : 'adg-text alert'}>
+                                            <span className={log.adg >= (systemParams.adgAlertThreshold ?? 1.0) ? 'adg-text good' : 'adg-text alert'}>
                                                 +{log.adg} kg/day
                                             </span>
                                         ) : (
@@ -512,19 +513,19 @@ export default function WeightTracker() {
                                         {log.adg === 0 ? (
                                             <span style={{ color: 'var(--text-muted)' }}>Registered</span>
                                         ) : log.adg >= (systemParams.adgAlertThreshold ?? 1.0) ? (
-                                            <span style={{ color: 'var(--primary-green-light)', fontWeight: '600' }}><i class="fa-solid fa-circle-check"></i> Standard Met</span>
+                                            <span style={{ color: 'var(--primary-green-light)', fontWeight: '600' }}><i className="fa-solid fa-circle-check"></i> Standard Met</span>
                                         ) : (
-                                            <span style={{ color: 'hsl(0, 75%, 55%)', fontWeight: '600' }}><i class="fa-solid fa-triangle-exclamation"></i> Growth Stunted</span>
+                                            <span style={{ color: 'hsl(0, 75%, 55%)', fontWeight: '600' }}><i className="fa-solid fa-triangle-exclamation"></i> Growth Stunted</span>
                                         )}
                                     </td>
                                     <td>
                                         <div style={{ display: 'flex', justifyContent: 'center' }}>
-                                            <button class="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem', borderColor: 'rgba(220, 53, 69, 0.15)', color: 'hsl(0, 75%, 65%)', background: 'rgba(220, 53, 69, 0.01)' }} onClick={() => {
+                                            <button className="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem', borderColor: 'rgba(220, 53, 69, 0.15)', color: 'hsl(0, 75%, 65%)', background: 'rgba(220, 53, 69, 0.01)' }} onClick={() => {
                                                 if (window.confirm("Delete this weight record?")) {
                                                     deleteWeightLog(log.id);
                                                 }
                                             }}>
-                                                <i class="fa-solid fa-trash-can"></i> Del
+                                                <i className="fa-solid fa-trash-can"></i> Del
                                             </button>
                                         </div>
                                     </td>
@@ -533,13 +534,65 @@ export default function WeightTracker() {
                             {sortedLogs.length === 0 && (
                                 <tr>
                                     <td colSpan="7" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-                                        <i class="fa-solid fa-weight-scale" style={{ fontSize: '2rem', marginBottom: '0.8rem', display: 'block', color: 'var(--text-muted)', opacity: '0.8' }}></i>
+                                        <i className="fa-solid fa-weight-scale" style={{ fontSize: '2rem', marginBottom: '0.8rem', display: 'block', color: 'var(--text-muted)', opacity: '0.8' }}></i>
                                         No scale weight records registered in the herd database yet.
                                     </td>
                                 </tr>
                             )}
                         </tbody>
                     </table>
+                </div>
+
+                {/* Mobile Card Transform */}
+                <div className="mobile-card-list mobile-only">
+                    {sortedLogs.map((log) => (
+                        <div key={log.id} className="mobile-item-card">
+                            <div className="mobile-item-card-header">
+                                <div>
+                                    <span className="mobile-item-card-title">{getRfid(log.animalId)}</span>
+                                    <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--accent-gold)' }}>#{log.id}</span>
+                                </div>
+                                {log.adg === 0 ? (
+                                    <span className="badge-status">Baseline</span>
+                                ) : log.adg >= (systemParams.adgAlertThreshold ?? 1.0) ? (
+                                    <span className="badge-status fattening">On Track</span>
+                                ) : (
+                                    <span className="badge-status sick">Stunted</span>
+                                )}
+                            </div>
+                            <div className="mobile-item-card-grid">
+                                <div className="mobile-item-card-meta">
+                                    <span className="mobile-item-card-meta-label">Scale Weight</span>
+                                    <span className="mobile-item-card-meta-val">{log.weight} kg</span>
+                                </div>
+                                <div className="mobile-item-card-meta">
+                                    <span className="mobile-item-card-meta-label">Daily Gain</span>
+                                    <span className="mobile-item-card-meta-val" style={{ color: log.adg >= 1.0 ? 'var(--primary-green-light)' : 'hsl(0,75%,65%)' }}>
+                                        {log.adg > 0 ? `+${log.adg} kg/d` : 'Entry'}
+                                    </span>
+                                </div>
+                                <div className="mobile-item-card-meta">
+                                    <span className="mobile-item-card-meta-label">Weighed Date</span>
+                                    <span className="mobile-item-card-meta-val">{log.date}</span>
+                                </div>
+                            </div>
+                            <div className="mobile-item-card-actions">
+                                <button className="btn btn-secondary" style={{ color: 'hsl(0, 75%, 65%)', borderColor: 'rgba(220, 53, 69, 0.2)' }} onClick={() => {
+                                    if (window.confirm("Delete this weight record?")) {
+                                        deleteWeightLog(log.id);
+                                    }
+                                }}>
+                                    <i className="fa-solid fa-trash-can"></i> Delete Record
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                    {sortedLogs.length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)' }}>
+                            <i className="fa-solid fa-weight-scale" style={{ fontSize: '2rem', marginBottom: '0.5rem', display: 'block' }}></i>
+                            No weight records registered yet.
+                        </div>
+                    )}
                 </div>
             </div>
 

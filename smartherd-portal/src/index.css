@@ -1842,39 +1842,221 @@ body {
     animation: loginShake 0.4s ease-in-out both;
 }
 
-/* ── HIDE NON-ESSENTIAL HEADER BADGES ON MOBILE ── */
+/* ── MOBILE RESPONSIVE DESIGN SYSTEM & CARD TRANSFORMS ── */
+.mobile-only {
+    display: none !important;
+}
+
+.desktop-only {
+    display: block;
+}
+
 @media (max-width: 768px) {
-    .farm-badge:not(.rfid-badge-glow):not(.staff-profile-badge) {
-        display: none;
+    .mobile-only {
+        display: block !important;
+    }
+    .mobile-only-flex {
+        display: flex !important;
+    }
+    .desktop-only {
+        display: none !important;
+    }
+
+    /* Page container compact density */
+    .page-content {
+        padding: 0.5rem 0.6rem 4rem 0.6rem !important;
+    }
+
+    /* Compact Top Header Bar */
+    .top-header {
+        padding: 0.5rem 0.75rem !important;
+        background: hsla(210, 16%, 6%, 0.98);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     }
     .page-title h1 {
-        font-size: 1.15rem;
+        font-size: 1.1rem !important;
     }
+    
+    /* Compact Badges in Header */
+    .farm-badge:not(.mobile-status-pill):not(.staff-profile-badge) {
+        display: none !important;
+    }
+    
     .glass-panel {
-        padding: 1rem 0.85rem;
+        padding: 0.85rem 0.75rem !important;
+        margin-bottom: 0.75rem !important;
+        border-radius: 12px !important;
     }
+
     .stat-val {
-        font-size: 1.5rem;
+        font-size: 1.35rem !important;
     }
+
     .data-table th, .data-table td {
-        padding: 0.5rem 0.6rem;
-        font-size: 0.78rem;
+        padding: 0.5rem 0.4rem !important;
+        font-size: 0.76rem !important;
     }
+
     .dashboard-grid {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 0.5rem !important;
+    }
+
+    .stat-box {
+        padding: 0.75rem !important;
+    }
+
+    .hide-mobile-col {
+        display: none !important;
+    }
+
+    /* Touch target inputs: 16px prevents iOS browser auto-zoom */
+    .form-control, input, select, textarea {
+        font-size: 16px !important;
+        min-height: 44px;
+    }
+
+    /* Responsive button rows */
+    .form-header-bar {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 0.6rem !important;
+    }
+
+    .search-bar-wrap {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    /* Hide desktop table on mobile when card transform is enabled */
+    .desktop-table-wrap {
+        display: none !important;
+    }
+
+    /* Mobile Card List Transforms */
+    .mobile-card-list {
+        display: flex !important;
+        flex-direction: column;
         gap: 0.6rem;
     }
-    .stat-box {
-        padding: 0.85rem !important;
+
+    .mobile-item-card {
+        background: hsla(210, 16%, 10%, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        padding: 0.85rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     }
-    /* Hide lower-priority table columns (e.g. Herd Registry's GAIN/COST/PEN)
-       on narrow screens so tables come closer to fitting without horizontal
-       scroll, instead of cramming every column onto a 390px phone. */
-    .hide-mobile-col {
-        display: none;
+
+    .mobile-item-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        padding-bottom: 0.5rem;
     }
-    .herd-actions-group {
-        max-width: 76px;
+
+    .mobile-item-card-title {
+        font-family: var(--font-heading);
+        font-weight: 700;
+        font-size: 1rem;
+        color: var(--text-pure);
+    }
+
+    .mobile-item-card-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+        font-size: 0.8rem;
+    }
+
+    .mobile-item-card-meta {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .mobile-item-card-meta-label {
+        font-size: 0.68rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .mobile-item-card-meta-val {
+        font-weight: 600;
+        color: var(--text-main);
+    }
+
+    .mobile-item-card-actions {
+        display: flex;
+        gap: 0.4rem;
+        margin-top: 0.2rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.04);
+        padding-top: 0.5rem;
+    }
+
+    .mobile-item-card-actions .btn {
+        flex: 1;
+        min-height: 36px;
+        font-size: 0.78rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.3rem;
+        padding: 0 0.4rem;
+    }
+
+    /* Mobile Bottom Navigation Bar */
+    .mobile-nav-bar {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 60px;
+        background: hsla(210, 16%, 6%, 0.96);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        z-index: 1000;
+        display: flex !important;
+        justify-content: space-around;
+        align-items: center;
+    }
+
+    .mobile-nav-menu {
+        display: flex;
+        width: 100%;
+        justify-content: space-around;
+        align-items: center;
+    }
+
+    .mobile-nav-item {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.25rem;
+        font-size: 0.7rem;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 0.35rem 0.6rem;
+        border-radius: 8px;
+        transition: var(--transition-quick);
+        flex: 1;
+    }
+
+    .mobile-nav-item i {
+        font-size: 1.15rem;
+    }
+
+    .mobile-nav-item.active {
+        color: var(--accent-gold);
+        background: rgba(255, 193, 7, 0.08);
     }
 }
 

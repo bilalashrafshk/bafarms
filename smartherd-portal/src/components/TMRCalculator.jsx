@@ -224,10 +224,10 @@ export default function TMRCalculator() {
                             </form>
                         )}
 
-                        {/* Ingredients Table */}
+                        {/* Ingredients Table (Desktop) */}
                         <form onSubmit={handleSaveAllIngredients}>
-                            <div class="table-wrapper" style={{ marginBottom: '1.2rem' }}>
-                                <table class="data-table" style={{ fontSize: '0.85rem' }}>
+                            <div className="table-wrapper desktop-only" style={{ marginBottom: '1.2rem' }}>
+                                <table className="data-table" style={{ fontSize: '0.85rem' }}>
                                     <thead>
                                         <tr>
                                             <th>INGREDIENT</th>
@@ -245,7 +245,7 @@ export default function TMRCalculator() {
                                                     <input
                                                         type="number"
                                                         step="0.01"
-                                                        class="form-control"
+                                                        className="form-control"
                                                         style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '90px' }}
                                                         value={ing.dmTarget}
                                                         onChange={(e) => updateLocalIngredient(ing.id, 'dmTarget', parseFloat(e.target.value) || 0)}
@@ -258,7 +258,7 @@ export default function TMRCalculator() {
                                                         type="number"
                                                         min="0"
                                                         max="95"
-                                                        class="form-control"
+                                                        className="form-control"
                                                         style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '90px', opacity: incorporateMoisture ? 1 : 0.5 }}
                                                         value={ing.moisture ?? 0}
                                                         onChange={(e) => updateLocalIngredient(ing.id, 'moisture', parseInt(e.target.value) || 0)}
@@ -270,7 +270,7 @@ export default function TMRCalculator() {
                                                     <input
                                                         type="number"
                                                         step="0.1"
-                                                        class="form-control"
+                                                        className="form-control"
                                                         style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '90px' }}
                                                         value={ing.price}
                                                         onChange={(e) => updateLocalIngredient(ing.id, 'price', parseFloat(e.target.value) || 0)}
@@ -280,17 +280,17 @@ export default function TMRCalculator() {
                                                 </td>
                                                 <td style={{ textAlign: 'center' }}>
                                                     {ing.isDefault ? (
-                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-lock" title="Baseline ingredients cannot be removed"></i></span>
+                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}><i className="fa-solid fa-lock" title="Baseline ingredients cannot be removed"></i></span>
                                                     ) : !isAdmin ? (
-                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-lock" title="Admin permissions required to modify ingredients"></i></span>
+                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}><i className="fa-solid fa-lock" title="Admin permissions required to modify ingredients"></i></span>
                                                     ) : (
                                                         <button
                                                             type="button"
-                                                            class="btn btn-secondary"
+                                                            className="btn btn-secondary"
                                                             style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
                                                             onClick={() => handleDeleteIngredient(ing.id)}
                                                         >
-                                                            <i class="fa-solid fa-trash-can"></i>
+                                                            <i className="fa-solid fa-trash-can"></i>
                                                         </button>
                                                     )}
                                                 </td>
@@ -300,18 +300,77 @@ export default function TMRCalculator() {
                                 </table>
                             </div>
 
+                            {/* Mobile Card Inputs */}
+                            <div className="mobile-card-list mobile-only" style={{ marginBottom: '1.2rem' }}>
+                                {ingredients.map(ing => (
+                                    <div key={ing.id} className="mobile-item-card">
+                                        <div className="mobile-item-card-header">
+                                            <span className="mobile-item-card-title">{ing.name}</span>
+                                            {ing.isDefault ? (
+                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}><i className="fa-solid fa-lock"></i> Baseline</span>
+                                            ) : isAdmin && (
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-secondary"
+                                                    style={{ padding: '0.2rem 0.6rem', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
+                                                    onClick={() => handleDeleteIngredient(ing.id)}
+                                                >
+                                                    <i className="fa-solid fa-trash-can"></i> Remove
+                                                </button>
+                                            )}
+                                        </div>
+                                        <div className="mobile-item-card-grid">
+                                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                                <label style={{ fontSize: '0.72rem' }}>DM Target (kg)</label>
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    className="form-control"
+                                                    value={ing.dmTarget}
+                                                    onChange={(e) => updateLocalIngredient(ing.id, 'dmTarget', parseFloat(e.target.value) || 0)}
+                                                    disabled={!isAdmin}
+                                                />
+                                            </div>
+                                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                                <label style={{ fontSize: '0.72rem' }}>Moisture (%)</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="95"
+                                                    className="form-control"
+                                                    value={ing.moisture ?? 0}
+                                                    onChange={(e) => updateLocalIngredient(ing.id, 'moisture', parseInt(e.target.value) || 0)}
+                                                    disabled={!isAdmin || !incorporateMoisture}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="form-group" style={{ marginBottom: 0 }}>
+                                            <label style={{ fontSize: '0.72rem' }}>Price (PKR/kg)</label>
+                                            <input
+                                                type="number"
+                                                step="0.1"
+                                                className="form-control"
+                                                value={ing.price}
+                                                onChange={(e) => updateLocalIngredient(ing.id, 'price', parseFloat(e.target.value) || 0)}
+                                                disabled={!isAdmin}
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
                             {isAdmin ? (
                                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                                    <button type="submit" class="btn btn-secondary"><i class="fa-solid fa-floppy-disk"></i> Save Formulation</button>
+                                    <button type="submit" className="btn btn-secondary" style={{ width: '100%', minHeight: '44px' }}><i className="fa-solid fa-floppy-disk"></i> Save Formulation</button>
                                     {isSaved && (
                                         <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
-                                            <i class="fa-solid fa-circle-check"></i> Changes committed successfully.
+                                            <i className="fa-solid fa-circle-check"></i> Saved!
                                         </span>
                                     )}
                                 </div>
                             ) : (
                                 <span style={{ fontSize: '0.85rem', color: 'var(--accent-gold)', fontWeight: '600' }}>
-                                    <i class="fa-solid fa-circle-info"></i> Recipe viewing mode (Admin authorization required to modify).
+                                    <i className="fa-solid fa-circle-info"></i> Recipe viewing mode.
                                 </span>
                             )}
                         </form>

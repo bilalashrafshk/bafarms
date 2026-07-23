@@ -377,32 +377,32 @@ function AppContent() {
             </main>
 
             {/* 3. MOBILE RESPONSIVE BOTTOM NAVIGATION BAR */}
-            <nav class="mobile-nav-bar" style={{ padding: '0.5rem 0.15rem' }}>
-                <div class="mobile-nav-menu">
-                    <button class={`mobile-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
-                        <i class="fa-solid fa-chart-pie"></i>
+            <nav className="mobile-nav-bar" style={{ padding: '0.5rem 0.15rem' }}>
+                <div className="mobile-nav-menu">
+                    <button className={`mobile-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
+                        <i className="fa-solid fa-chart-pie"></i>
                         <span>Dashboard</span>
                     </button>
-                    {canAccessSales && (
-                        <button class={`mobile-nav-item ${activeTab === 'sales' ? 'active' : ''}`} onClick={() => setActiveTab('sales')}>
-                            <i class="fa-solid fa-cart-shopping"></i>
-                            <span>Sales</span>
-                        </button>
-                    )}
                     {canAccessHerd && (
-                        <button class={`mobile-nav-item ${activeTab === 'rotation' ? 'active' : ''}`} onClick={() => setActiveTab('rotation')}>
-                            <i class="fa-solid fa-rotate"></i>
-                            <span>Rotation</span>
-                        </button>
-                    )}
-                    {canAccessHerd && (
-                        <button class={`mobile-nav-item ${activeTab === 'herd' ? 'active' : ''}`} onClick={() => setActiveTab('herd')}>
-                            <i class="fa-solid fa-cow"></i>
+                        <button className={`mobile-nav-item ${activeTab === 'herd' ? 'active' : ''}`} onClick={() => setActiveTab('herd')}>
+                            <i className="fa-solid fa-cow"></i>
                             <span>Herd</span>
                         </button>
                     )}
-                    <button class="mobile-nav-item" onClick={() => setShowMobileMore(true)}>
-                        <i class="fa-solid fa-ellipsis"></i>
+                    {canAccessHerd && (
+                        <button className={`mobile-nav-item ${activeTab === 'weights' ? 'active' : ''}`} onClick={() => setActiveTab('weights')}>
+                            <i className="fa-solid fa-weight-scale"></i>
+                            <span>Weights</span>
+                        </button>
+                    )}
+                    {canAccessHerd && (
+                        <button className={`mobile-nav-item ${activeTab === 'vet' ? 'active' : ''}`} onClick={() => setActiveTab('vet')}>
+                            <i className="fa-solid fa-prescription-bottle-medical"></i>
+                            <span>Vet Log</span>
+                        </button>
+                    )}
+                    <button className="mobile-nav-item" onClick={() => setShowMobileMore(true)}>
+                        <i className="fa-solid fa-ellipsis"></i>
                         <span>More</span>
                     </button>
                 </div>
@@ -422,38 +422,38 @@ function AppContent() {
                         <div class="rfid-hud-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                             {canAccessSales && (
                                 <>
-                                    <div class="sidebar-group-label">Sales &amp; Commerce</div>
-                                    <button class="menu-item" onClick={() => { setActiveTab('enquiries'); setShowMobileMore(false); }}>
-                                        <i class="fa-solid fa-envelope-open-text"></i> Export Enquiries
+                                    <div className="sidebar-group-label">Sales &amp; Commerce</div>
+                                    <button className="menu-item" onClick={() => { setActiveTab('sales'); setShowMobileMore(false); }}>
+                                        <i className="fa-solid fa-cart-shopping"></i> E-Commerce Sales
                                     </button>
-                                    <button class="menu-item" onClick={() => { setActiveTab('listings'); setShowMobileMore(false); }}>
-                                        <i class="fa-solid fa-store"></i> Store Listings
+                                    <button className="menu-item" onClick={() => { setActiveTab('enquiries'); setShowMobileMore(false); }}>
+                                        <i className="fa-solid fa-envelope-open-text"></i> Export Enquiries
                                     </button>
-                                    <a href="/quotation.html" target="_blank" class="menu-item" style={{ textDecoration: 'none', color: 'inherit' }}>
-                                        <i class="fa-solid fa-file-invoice-dollar"></i> Quotation Creator
+                                    <button className="menu-item" onClick={() => { setActiveTab('listings'); setShowMobileMore(false); }}>
+                                        <i className="fa-solid fa-store"></i> Store Listings
+                                    </button>
+                                    <a href="/quotation.html" target="_blank" className="menu-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+                                        <i className="fa-solid fa-file-invoice-dollar"></i> Quotation Creator
                                     </a>
-                                    <a href="/spec-sheet.html" target="_blank" class="menu-item" style={{ textDecoration: 'none', color: 'inherit' }}>
-                                        <i class="fa-solid fa-file-shield"></i> Spec Sheet Creator
+                                    <a href="/spec-sheet.html" target="_blank" className="menu-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+                                        <i className="fa-solid fa-file-shield"></i> Spec Sheet Creator
                                     </a>
                                 </>
                             )}
                             {canAccessHerd && (
                                 <>
-                                    <div class="sidebar-group-label">Herd Management</div>
-                                    <button class="menu-item" onClick={() => { setActiveTab('weights'); setShowMobileMore(false); }}>
-                                        <i class="fa-solid fa-weight-scale"></i> Weight Logs
+                                    <div className="sidebar-group-label">Herd Management</div>
+                                    <button className="menu-item" onClick={() => { setActiveTab('rotation'); setShowMobileMore(false); }}>
+                                        <i className="fa-solid fa-rotate"></i> Rotation Flow
                                     </button>
-                                    <button class="menu-item" onClick={() => { setActiveTab('vet'); setShowMobileMore(false); }}>
-                                        <i class="fa-solid fa-prescription-bottle-medical"></i> Medical Logs
+                                    <button className="menu-item" onClick={() => { setActiveTab('tmr'); setShowMobileMore(false); }}>
+                                        <i className="fa-solid fa-scale-balanced"></i> TMR Calculator
                                     </button>
-                                    <button class="menu-item" onClick={() => { setActiveTab('tmr'); setShowMobileMore(false); }}>
-                                        <i class="fa-solid fa-scale-balanced"></i> TMR Calculator
+                                    <button className="menu-item" onClick={() => { setActiveTab('feedReport'); setShowMobileMore(false); }}>
+                                        <i className="fa-solid fa-calendar-days"></i> Feed &amp; Growth Report
                                     </button>
-                                    <button class="menu-item" onClick={() => { setActiveTab('feedReport'); setShowMobileMore(false); }}>
-                                        <i class="fa-solid fa-calendar-days"></i> Feed &amp; Growth Report
-                                    </button>
-                                    <button class="menu-item" onClick={() => { setActiveTab('activity'); setShowMobileMore(false); }}>
-                                        <i class="fa-solid fa-timeline"></i> Activity Log
+                                    <button className="menu-item" onClick={() => { setActiveTab('activity'); setShowMobileMore(false); }}>
+                                        <i className="fa-solid fa-timeline"></i> Activity Log
                                     </button>
                                 </>
                             )}
