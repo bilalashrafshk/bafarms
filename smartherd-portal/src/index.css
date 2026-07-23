@@ -1126,12 +1126,16 @@ body {
     }
 
     .dashboard-grid {
-        grid-template-columns: 1fr;
+        /* minmax(0, 1fr), not bare 1fr — a bare 1fr track has an implicit
+           min-width: auto, so it refuses to shrink below its content's natural
+           width (e.g. a wide table) and blows out the page instead of letting
+           that content's own overflow-x:auto wrapper scroll internally. */
+        grid-template-columns: minmax(0, 1fr);
         gap: 1.5rem;
     }
 
     .dashboard-bottom-grid, .tmr-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
         gap: 1.5rem;
         flex: none;     /* reset desktop flex-fill on mobile */
         min-height: auto;
@@ -1210,6 +1214,8 @@ body {
 
     .top-header {
         padding: 1rem 1.5rem 0.8rem;
+        flex-wrap: wrap;
+        row-gap: 0.6rem;
     }
     
     .page-title h1 {
@@ -1782,6 +1788,21 @@ body {
 .staff-profile-badge {
     cursor: pointer;
     transition: var(--transition-smooth);
+}
+
+/* Long staff names must never be what forces the header wider than the screen —
+   truncate with an ellipsis instead. */
+.staff-name-text {
+    max-width: 160px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+@media (max-width: 480px) {
+    .staff-name-text {
+        max-width: 90px;
+    }
 }
 
 .staff-profile-badge:hover {

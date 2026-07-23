@@ -296,7 +296,7 @@ function AppContent() {
                     <div class="page-title">
                         <h1>{getPageTitle()}</h1>
                     </div>
-                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                         {/* Live Database Sync Badge */}
                         {fetchLoading ? (
                             <div className="farm-badge" style={{ borderColor: 'var(--accent-gold-glow)', color: 'var(--accent-gold)' }} title="Synchronizing state with Neon Postgres database...">
@@ -353,8 +353,8 @@ function AppContent() {
                                         <i className="fa-solid fa-user-shield" style={{ fontSize: '0.65rem', color: 'var(--accent-gold)' }}></i>
                                     </div>
                                 )}
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: '1.1' }}>
-                                    <span style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-pure)' }}>{staffUser.name}</span>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: '1.1', minWidth: 0 }}>
+                                    <span className="staff-name-text" style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-pure)' }}>{staffUser.name}</span>
                                     <span style={{ fontSize: '0.62rem', color: 'var(--accent-gold)', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: '600' }}>{staffUser.role}</span>
                                 </div>
                             </div>
