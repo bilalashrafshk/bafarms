@@ -181,6 +181,15 @@ export default function RationPlans() {
                 </div>
             )}
 
+            {isAdmin && (
+                <div style={{ background: 'rgba(74, 144, 217, 0.06)', border: '1px solid rgba(74, 144, 217, 0.18)', borderRadius: '8px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
+                    <i class="fa-solid fa-circle-info" style={{ color: '#4a90d9', fontSize: '1.1rem', marginTop: '0.15rem' }}></i>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: '1.5' }}>
+                        <strong style={{ color: 'var(--text-pure)' }}>How this works:</strong> First, build a weekly schedule under <strong>Ration Plans</strong> (or use the pre-loaded "Baseline" plan). Then switch to <strong>Pen Assignment</strong> to link a plan and cycle start date to each pen — the TMR Calculator will then auto-fill each pen's daily batch from the plan.
+                    </span>
+                </div>
+            )}
+
             <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '0.75rem', flexWrap: 'wrap' }}>
                 <button class={`filter-btn ${activeTab === 'plans' ? 'active' : ''}`} onClick={() => setActiveTab('plans')}>
                     <i class="fa-solid fa-clipboard-list"></i> Ration Plans

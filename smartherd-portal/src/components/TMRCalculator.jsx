@@ -545,9 +545,15 @@ export default function TMRCalculator() {
                                                     class={`filter-btn ${selectedTMRPen === p ? 'active' : ''}`}
                                                     style={{ fontSize: '0.7rem', minHeight: '26px', padding: '0.15rem 0.5rem' }}
                                                     onClick={() => setSelectedTMRPen(p)}
+                                                    title={hasPlan ? 'Has a Ration Plan assigned — selecting this pen auto-fills the batch' : 'No Ration Plan assigned — manual recipe only'}
                                                 >Pen {p} ({penCount}){hasPlan && ' \u2713'}</button>
                                             );
                                         })}
+                                        {activePens.some(p => pens.some(pc => pc.id === p && pc.rationPlanId)) && (
+                                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginLeft: '0.2rem' }}>
+                                                ({'\u2713'} = has a Ration Plan — auto-fills the batch below)
+                                            </span>
+                                        )}
                                     </div>
                                 )}
                                 <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
