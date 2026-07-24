@@ -38,13 +38,6 @@ export default function TMRCalculator() {
     const [animalsCount, setAnimalsCount] = useState(activeHerdCount || 1);
     const [ingredients, setIngredients] = useState([]);
 
-    // Custom ingredient addition form states
-    const [newName, setNewName] = useState('');
-    const [newDM, setNewDM] = useState('');
-    const [newPrice, setNewPrice] = useState('');
-    const [newMoisture, setNewMoisture] = useState('10');
-
-    const [isCustomFormOpen, setIsCustomFormOpen] = useState(false);
     const [isTractorMode, setIsTractorMode] = useState(false);
     const [isSaved, setIsSaved] = useState(false);
 
@@ -53,15 +46,9 @@ export default function TMRCalculator() {
     const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
     const [logSaved, setLogSaved] = useState(false);
 
-    // Load moisture discretion toggle
-    const [incorporateMoisture, setIncorporateMoisture] = useState(() => {
-        try {
-            const stored = localStorage.getItem('ba_tmr_incorporate_moisture');
-            return stored !== null ? JSON.parse(stored) : true;
-        } catch (e) {
-            return true;
-        }
-    });
+    // Procurement cost is set per-ingredient in Ration Plans → Ingredient Costs, not
+    // here. Ingredient quantities on this page are as-fed kg/head/day directly (no
+    // moisture/DM conversion); price is intentionally not shown on this page.
 
     // Sync state from context when ready
     useEffect(() => {
@@ -80,18 +67,17 @@ export default function TMRCalculator() {
         }
     }, [activeHerdCount, selectedTMRPen, animals]);
 
-    // 2. MATHEMATICAL FORMULATIONS (Dry-Matter to Wet-weight) — manual/global recipe mode
+    // 2. QUANTITY MATH — manual/global recipe mode. Ingredient quantities are as-fed
+    // kg/head/day directly (no moisture/DM conversion — small quantities like urea or
+    // minerals matter, so nothing here is rounded to whole kg; decimals are preserved
+    // all the way through to the batch table and feed log).
     const calculatedIngredients = ingredients.map(ing => {
-        const currentMoisture = incorporateMoisture ? (ing.moisture ?? 0) : 0;
-        const wetFactor = currentMoisture < 100 ? (100 / (100 - currentMoisture)) : 1.0;
-        const wetSingle = ing.dmTarget * wetFactor;
-        const wetBatch = Math.round(wetSingle * animalsCount);
+        const wetSingle = ing.dmTarget;
+        const wetBatch = wetSingle * animalsCount;
         const costSingle = wetSingle * ing.price;
 
         return {
             ...ing,
-            currentMoisture,
-            wetFactor,
             wetSingle,
             wetBatch,
             costSingle
@@ -99,7 +85,7 @@ export default function TMRCalculator() {
     });
 
     // Plan-driven quantities are already as-fed kg/head/day straight from the Ration
-    // Plan's weekly schedule — no DM/moisture conversion needed, just scale by head count.
+    // Plan's weekly schedule — just scale by head count, keeping full decimal precision.
     const planIngredientRows = isPlanDriven
         ? Object.entries(resolvedPlanRow.week.ingredients).map(([id, qty]) => {
             const ing = feedIngredients.find(i => i.id === id) || { id, name: id, price: 0 };
@@ -111,7 +97,7 @@ export default function TMRCalculator() {
                 planQty: qty,
                 qtyPerHead,
                 isOverridden: planOverrides[id] !== undefined,
-                wetBatch: Math.round(qtyPerHead * animalsCount),
+                wetBatch: qtyPerHead * animalsCount,
                 costSingle: qtyPerHead * ing.price
             };
         })
@@ -124,7 +110,6 @@ export default function TMRCalculator() {
             id: r.id,
             name: r.name,
             dmTarget: r.qtyPerHead,
-            currentMoisture: null,
             wetSingle: r.qtyPerHead,
             wetBatch: r.wetBatch,
             costSingle: r.costSingle
@@ -157,31 +142,6 @@ export default function TMRCalculator() {
         });
     };
 
-    const handleDeleteIngredient = (id) => {
-        setIngredients(prev => prev.filter(ing => ing.id !== id));
-    };
-
-    const handleAddIngredient = (e) => {
-        e.preventDefault();
-        if (!newName.trim() || !newDM || !newPrice) return;
-
-        const newIng = {
-            id: 'custom_' + Date.now(),
-            name: newName.trim(),
-            dmTarget: parseFloat(newDM) || 0,
-            price: parseFloat(newPrice) || 0,
-            moisture: parseFloat(newMoisture) || 0,
-            isDefault: false
-        };
-
-        setIngredients(prev => [...prev, newIng]);
-        setNewName('');
-        setNewDM('');
-        setNewPrice('');
-        setNewMoisture('10');
-        setIsCustomFormOpen(false);
-    };
-
     const handleSaveAllIngredients = (e) => {
         if (e) e.preventDefault();
         updateFeedIngredients(ingredients);
@@ -205,7 +165,6 @@ export default function TMRCalculator() {
                 id: ing.id,
                 name: ing.name,
                 dmTarget: ing.dmTarget,
-                moisture: ing.currentMoisture ?? 0,
                 price: feedIngredients.find(i => i.id === ing.id)?.price ?? 0,
                 wetSingle: ing.wetSingle,
                 wetBatch: ing.wetBatch,
@@ -299,62 +258,16 @@ export default function TMRCalculator() {
                         </div>
                     ) : (
                     <>
-                    {/* Unified Formulation Card (manual / global recipe mode) */}
+                    {/* Unified Formulation Card (manual / global recipe mode) — quantities only.
+                        Ingredient prices and moisture % are configured under
+                        Ration Plans → Ingredient Costs, not here. */}
                     <div class="glass-panel">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '1rem' }}>
                             <h3 class="panel-title" style={{ margin: 0 }}><i class="fa-solid fa-flask"></i> Ingredients & Recipe</h3>
-                            <div style={{ display: 'flex', gap: '1.2rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: 'var(--text-pure)', cursor: isAdmin ? 'pointer' : 'default', margin: 0 }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={incorporateMoisture}
-                                        onChange={(e) => {
-                                            if (!isAdmin) return;
-                                            setIncorporateMoisture(e.target.checked);
-                                            localStorage.setItem('ba_tmr_incorporate_moisture', JSON.stringify(e.target.checked));
-                                        }}
-                                        disabled={!isAdmin}
-                                        style={{ width: '15px', height: '15px', cursor: isAdmin ? 'pointer' : 'default' }}
-                                    />
-                                    Use Moisture
-                                </label>
-                                {isAdmin && (
-                                    <button type="button" class="btn btn-secondary" style={{ padding: '0.35rem 0.75rem', minHeight: '32px', height: '32px', fontSize: '0.8rem' }} onClick={() => setIsCustomFormOpen(!isCustomFormOpen)}>
-                                        <i class={`fa-solid ${isCustomFormOpen ? 'fa-xmark' : 'fa-plus'}`}></i> {isCustomFormOpen ? 'Cancel' : 'Add Custom'}
-                                    </button>
-                                )}
-                            </div>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                No plan assigned to this pen — using the manual fallback recipe
+                            </span>
                         </div>
-
-                        {/* Inline Form to Add Custom Ingredient - Single compact row */}
-                        {isCustomFormOpen && (
-                            <form onSubmit={handleAddIngredient} style={{ background: 'rgba(0, 0, 0, 0.2)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '0.8rem 1rem', marginBottom: '1.2rem' }}>
-                                <h4 style={{ fontSize: '0.78rem', color: 'var(--accent-gold)', marginBottom: '0.6rem', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.05em' }}>
-                                    <i class="fa-solid fa-circle-plus"></i> Add Custom Ingredient
-                                </h4>
-                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 1.2fr 1.2fr auto', gap: '0.8rem', alignItems: 'flex-end' }}>
-                                    <div class="form-group" style={{ marginBottom: 0 }}>
-                                        <label style={{ fontSize: '0.75rem' }}>Name</label>
-                                        <input type="text" class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem' }} placeholder="e.g. Molasses" value={newName} onChange={(e) => setNewName(e.target.value)} required />
-                                    </div>
-                                    <div class="form-group" style={{ marginBottom: 0 }}>
-                                        <label style={{ fontSize: '0.75rem' }}>DM Target (kg)</label>
-                                        <input type="number" step="0.01" class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem' }} placeholder="e.g. 1.2" value={newDM} onChange={(e) => setNewDM(e.target.value)} required />
-                                    </div>
-                                    <div class="form-group" style={{ marginBottom: 0 }}>
-                                        <label style={{ fontSize: '0.75rem' }}>Moisture (%)</label>
-                                        <input type="number" step="1" min="0" max="95" class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem' }} placeholder="e.g. 15" value={newMoisture} onChange={(e) => setNewMoisture(e.target.value)} />
-                                    </div>
-                                    <div class="form-group" style={{ marginBottom: 0 }}>
-                                        <label style={{ fontSize: '0.75rem' }}>Price (PKR/kg)</label>
-                                        <input type="number" step="0.1" class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem' }} placeholder="e.g. 45" value={newPrice} onChange={(e) => setNewPrice(e.target.value)} required />
-                                    </div>
-                                    <div class="form-group" style={{ marginBottom: 0 }}>
-                                        <button type="submit" class="btn btn-primary" style={{ minHeight: '36px', height: '36px', padding: '0 1rem', fontSize: '0.85rem' }}>Add</button>
-                                    </div>
-                                </div>
-                            </form>
-                        )}
 
                         {/* Ingredients Table (Desktop) */}
                         <form onSubmit={handleSaveAllIngredients}>
@@ -363,10 +276,7 @@ export default function TMRCalculator() {
                                     <thead>
                                         <tr>
                                             <th>INGREDIENT</th>
-                                            <th>DM TARGET (KG)</th>
-                                            <th>MOISTURE (%)</th>
-                                            <th>PRICE (PKR/KG)</th>
-                                            <th style={{ width: '60px', textAlign: 'center' }}>REMOVE</th>
+                                            <th>DM TARGET (KG/HEAD/DAY)</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -385,47 +295,6 @@ export default function TMRCalculator() {
                                                         disabled={!isAdmin}
                                                     />
                                                 </td>
-                                                <td>
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        max="95"
-                                                        className="form-control"
-                                                        style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '90px', opacity: incorporateMoisture ? 1 : 0.5 }}
-                                                        value={ing.moisture ?? 0}
-                                                        onChange={(e) => updateLocalIngredient(ing.id, 'moisture', parseInt(e.target.value) || 0)}
-                                                        required
-                                                        disabled={!isAdmin || !incorporateMoisture}
-                                                    />
-                                                </td>
-                                                <td>
-                                                    <input
-                                                        type="number"
-                                                        step="0.1"
-                                                        className="form-control"
-                                                        style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '90px' }}
-                                                        value={ing.price}
-                                                        onChange={(e) => updateLocalIngredient(ing.id, 'price', parseFloat(e.target.value) || 0)}
-                                                        required
-                                                        disabled={!isAdmin}
-                                                    />
-                                                </td>
-                                                <td style={{ textAlign: 'center' }}>
-                                                    {ing.isDefault ? (
-                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}><i className="fa-solid fa-lock" title="Baseline ingredients cannot be removed"></i></span>
-                                                    ) : !isAdmin ? (
-                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}><i className="fa-solid fa-lock" title="Admin permissions required to modify ingredients"></i></span>
-                                                    ) : (
-                                                        <button
-                                                            type="button"
-                                                            className="btn btn-secondary"
-                                                            style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
-                                                            onClick={() => handleDeleteIngredient(ing.id)}
-                                                        >
-                                                            <i className="fa-solid fa-trash-can"></i>
-                                                        </button>
-                                                    )}
-                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -438,52 +307,15 @@ export default function TMRCalculator() {
                                     <div key={ing.id} className="mobile-item-card">
                                         <div className="mobile-item-card-header">
                                             <span className="mobile-item-card-title">{ing.name}</span>
-                                            {ing.isDefault ? (
-                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}><i className="fa-solid fa-lock"></i> Baseline</span>
-                                            ) : isAdmin && (
-                                                <button
-                                                    type="button"
-                                                    className="btn btn-secondary"
-                                                    style={{ padding: '0.2rem 0.6rem', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
-                                                    onClick={() => handleDeleteIngredient(ing.id)}
-                                                >
-                                                    <i className="fa-solid fa-trash-can"></i> Remove
-                                                </button>
-                                            )}
-                                        </div>
-                                        <div className="mobile-item-card-grid">
-                                            <div className="form-group" style={{ marginBottom: 0 }}>
-                                                <label style={{ fontSize: '0.72rem' }}>DM Target (kg)</label>
-                                                <input
-                                                    type="number"
-                                                    step="0.01"
-                                                    className="form-control"
-                                                    value={ing.dmTarget}
-                                                    onChange={(e) => updateLocalIngredient(ing.id, 'dmTarget', parseFloat(e.target.value) || 0)}
-                                                    disabled={!isAdmin}
-                                                />
-                                            </div>
-                                            <div className="form-group" style={{ marginBottom: 0 }}>
-                                                <label style={{ fontSize: '0.72rem' }}>Moisture (%)</label>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="95"
-                                                    className="form-control"
-                                                    value={ing.moisture ?? 0}
-                                                    onChange={(e) => updateLocalIngredient(ing.id, 'moisture', parseInt(e.target.value) || 0)}
-                                                    disabled={!isAdmin || !incorporateMoisture}
-                                                />
-                                            </div>
                                         </div>
                                         <div className="form-group" style={{ marginBottom: 0 }}>
-                                            <label style={{ fontSize: '0.72rem' }}>Price (PKR/kg)</label>
+                                            <label style={{ fontSize: '0.72rem' }}>DM Target (kg/head/day)</label>
                                             <input
                                                 type="number"
-                                                step="0.1"
+                                                step="0.01"
                                                 className="form-control"
-                                                value={ing.price}
-                                                onChange={(e) => updateLocalIngredient(ing.id, 'price', parseFloat(e.target.value) || 0)}
+                                                value={ing.dmTarget}
+                                                onChange={(e) => updateLocalIngredient(ing.id, 'dmTarget', parseFloat(e.target.value) || 0)}
                                                 disabled={!isAdmin}
                                             />
                                         </div>
@@ -519,7 +351,7 @@ export default function TMRCalculator() {
                         <div class="glass-panel" style={{ borderTop: '4px solid var(--accent-gold)' }}>
                             <div class="form-header-bar" style={{ marginBottom: '1.2rem', gap: '1rem', flexWrap: 'wrap' }}>
                                 <h3 class="panel-title" style={{ marginBottom: '0' }}><i class="fa-solid fa-scale-balanced"></i> Batch Recipe</h3>
-                                <button type="button" class="btn btn-secondary btn-sm" onClick={() => setIsTractorMode(true)}>
+                                <button type="button" class="btn btn-secondary" style={{ minHeight: '44px' }} onClick={() => setIsTractorMode(true)}>
                                     <i class="fa-solid fa-tractor"></i> Tractor Mode
                                 </button>
                             </div>
@@ -574,7 +406,6 @@ export default function TMRCalculator() {
                                         <tr>
                                             <th>FEED INGREDIENT</th>
                                             <th>{isPlanDriven ? 'QTY / HEAD' : 'DM TARGET'}</th>
-                                            {!isPlanDriven && <th>MOISTURE</th>}
                                             <th>WET WT / ANIMAL</th>
                                             <th>BATCH WEIGHT</th>
                                         </tr>
@@ -584,37 +415,30 @@ export default function TMRCalculator() {
                                             <tr key={ing.id}>
                                                 <td><strong>{ing.name}</strong></td>
                                                 <td>{ing.dmTarget.toFixed(2)} kg</td>
-                                                {!isPlanDriven && <td>{incorporateMoisture ? `${ing.currentMoisture}%` : '0% (Ignored)'}</td>}
                                                 <td>{ing.wetSingle.toFixed(2)} kg</td>
-                                                <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{ing.wetBatch} kg</strong></td>
+                                                <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{ing.wetBatch.toFixed(2)} kg</strong></td>
                                             </tr>
                                         ))}
                                         <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
                                             <td><strong>Total Feed Mix</strong></td>
                                             <td><strong>{totalDM.toFixed(2)} kg</strong></td>
-                                            {!isPlanDriven && <td>—</td>}
                                             <td><strong>{displayIngredients.reduce((sum, ing) => sum + ing.wetSingle, 0).toFixed(2)} kg</strong></td>
-                                            <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{totalBatchWeight.toLocaleString()} kg</strong></td>
+                                            <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{totalBatchWeight.toFixed(2)} kg</strong></td>
                                         </tr>
                                     </tbody>
                                 </table>
                             </div>
 
-                            {/* Cost Summary Box */}
+                            {/* Batch Weight Summary — cost figures live in Feed & Growth Report, not here */}
                             <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.2rem', alignItems: 'center' }}>
                                 <div>
-                                    <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Daily feeding cost / calf</span>
-                                    <strong style={{ fontSize: '1.4rem', color: totalCostSingle <= 300 ? 'var(--primary-green-light)' : 'hsl(0, 75%, 55%)', fontFamily: 'var(--font-heading)' }}>
-                                        {Math.round(totalCostSingle)} PKR <small style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>per day</small>
+                                    <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total batch to mix</span>
+                                    <strong style={{ fontSize: '1.4rem', color: 'var(--accent-gold)', fontFamily: 'var(--font-heading)' }}>
+                                        {totalBatchWeight.toFixed(2)} kg
                                     </strong>
                                 </div>
-                                <div style={{ textAlign: 'right' }}>
-                                    <span class={`badge-status ${totalCostSingle <= 300 ? 'fattening' : 'quarantined'}`}>
-                                        {totalCostSingle <= 300 ? 'Within Budget' : 'Exceeds Target'}
-                                    </span>
-                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
-                                        Total Daily Herd Cost: <strong style={{ color: 'var(--text-pure)' }}>{Math.round(totalCostSingle * animalsCount).toLocaleString()} PKR</strong>
-                                    </div>
+                                <div style={{ textAlign: 'right', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                    For {animalsCount} animal{animalsCount === 1 ? '' : 's'}
                                 </div>
                             </div>
 
@@ -641,12 +465,14 @@ export default function TMRCalculator() {
                             </div>
                         </div>
                     ) : (
-                        /* Tractor Mixing View Console */
+                        /* Tractor Mixing View Console — a genuine fullscreen overlay
+                           (see .tractor-mode-box, position:fixed) so it's always reachable
+                           and tappable on a phone regardless of scroll position. */
                         <div class="tractor-mode-box">
-                            <div class="modal-close-btn" style={{ top: '1rem', right: '1.5rem', color: 'var(--accent-gold)' }} onClick={() => setIsTractorMode(false)}>
-                                <i class="fa-solid fa-rectangle-list" style={{ marginRight: '0.5rem', fontSize: '0.95rem' }}></i>
-                                <span style={{ fontFamily: 'var(--font-heading)', fontSize: '0.85rem', fontWeight: '700' }}>Standard Mode</span>
-                            </div>
+                            <button type="button" class="modal-close-btn" onClick={() => setIsTractorMode(false)}>
+                                <i class="fa-solid fa-rectangle-list" style={{ marginRight: '0.4rem', fontSize: '0.95rem', color: 'var(--accent-gold)' }}></i>
+                                <span style={{ fontFamily: 'var(--font-heading)', fontSize: '0.85rem', fontWeight: '700', color: 'var(--accent-gold)' }}>Exit Tractor Mode</span>
+                            </button>
 
                             <div class="tractor-logo-icon"><i class="fa-solid fa-tractor"></i></div>
                             <h2>Tractor Mixing Screen</h2>
@@ -656,13 +482,13 @@ export default function TMRCalculator() {
                                 {displayIngredients.map((ing, idx) => (
                                     <div class="tractor-mix-item" key={ing.id} style={ing.id === 'minerals' ? { borderLeftColor: 'var(--accent-gold)' } : {}}>
                                         <span>{idx + 1}. WET {ing.name.toUpperCase()}</span>
-                                        <strong>{ing.wetBatch.toLocaleString()} KG</strong>
+                                        <strong>{ing.wetBatch.toFixed(2)} KG</strong>
                                     </div>
                                 ))}
                             </div>
 
                             <p style={{ marginTop: '2rem', fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                                <i class="fa-solid fa-circle-info"></i> Weigh ingredients sequentially inside the mixer wagon scales. Total batch target: {totalBatchWeight.toLocaleString()} kg.
+                                <i class="fa-solid fa-circle-info"></i> Weigh ingredients sequentially inside the mixer wagon scales. Total batch target: {totalBatchWeight.toFixed(2)} kg.
                             </p>
                         </div>
                     )}
@@ -683,8 +509,7 @@ export default function TMRCalculator() {
                                     <th>DATE</th>
                                     <th>PEN</th>
                                     <th>ANIMALS</th>
-                                    <th>TOTAL COST</th>
-                                    <th>COST / ANIMAL</th>
+                                    <th>TOTAL BATCH</th>
                                     {isAdmin && <th style={{ width: '60px', textAlign: 'center' }}>REMOVE</th>}
                                 </tr>
                             </thead>
@@ -694,8 +519,7 @@ export default function TMRCalculator() {
                                         <td>{log.date}</td>
                                         <td>{log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`}</td>
                                         <td>{log.animalCount}</td>
-                                        <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(log.totalCost).toLocaleString()} PKR</strong></td>
-                                        <td>{Math.round(log.costPerAnimal)} PKR</td>
+                                        <td><strong style={{ color: 'var(--accent-gold)' }}>{(log.totalBatchKg || 0).toFixed(2)} kg</strong></td>
                                         {isAdmin && (
                                             <td style={{ textAlign: 'center' }}>
                                                 <button

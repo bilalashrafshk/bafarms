@@ -785,6 +785,8 @@ body {
     color: var(--text-muted);
     cursor: pointer;
     transition: var(--transition-quick);
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .filter-btn:hover {
@@ -883,15 +885,35 @@ body {
     background: var(--accent-gold);
 }
 
-/* Big-Screen Tractor Driver Mixing Box */
+/* Big-Screen Tractor Driver Mixing Box — a true fullscreen overlay (position:fixed,
+   independent of scroll position) so it's always reachable and tappable on mobile,
+   regardless of where the TMR page was scrolled to when it was opened. */
 .tractor-mode-box {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
     background: linear-gradient(145deg, hsl(143, 68%, 10%) 0%, hsl(210, 15%, 5%) 100%);
-    border: 2px solid var(--primary-green-light);
-    border-radius: 16px;
     padding: 2.5rem;
     text-align: center;
-    position: relative;
-    overflow: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.tractor-mode-box .modal-close-btn {
+    position: sticky;
+    top: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin: 0 auto 1.5rem auto;
+    padding: 0.75rem 1.4rem;
+    min-height: 48px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    border-radius: 10px;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .tractor-logo-icon {
@@ -957,6 +979,8 @@ body {
     font-weight: 600;
     border-radius: 8px;
     cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
     font-size: 0.95rem;
     transition: var(--transition-quick);
     border: none;

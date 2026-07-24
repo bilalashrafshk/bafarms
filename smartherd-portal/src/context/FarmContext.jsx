@@ -612,6 +612,109 @@ export const FarmProvider = ({ children }) => {
         mineralsPrice: feedIngredients.find(i => i.id === 'minerals')?.price ?? 150.0
     };
 
+    // ─── FEED STOCK / STORE LEDGER ───
+    // A physical store ledger, separate from feedIngredients (the ration/TMR recipe
+    // definition) and feedLogs (the TMR's computed daily batch). This tracks what
+    // actually moves in and out of the feed store: opening stock, dated purchases
+    // (qty/rate/supplier), and dated issues to a pen — so closing stock and real
+    // consumption cost (at weighted-average purchase rate, not the ration's static
+    // price field) can be derived per item and per pen. Device-local only (like
+    // feedIngredients above) — there's no server-side action for this yet, so it's
+    // cached to localStorage rather than routed through persistMutation.
+    const defaultFeedStockItems = [
+        { id: 'silage', name: 'Silage', unit: 'kg', isDefault: true },
+        { id: 'maizeGrain', name: 'Maize', unit: 'kg', isDefault: true },
+        { id: 'glutenFeed', name: 'Gluten Feed', unit: 'kg', isDefault: true },
+        { id: 'straw', name: 'Toori (Straw)', unit: 'kg', isDefault: true },
+        { id: 'urea', name: 'Urea', unit: 'kg', isDefault: true },
+        { id: 'limestone', name: 'Limestone', unit: 'kg', isDefault: true },
+        { id: 'mineralPack', name: 'Mineral Pack', unit: 'kg', isDefault: true }
+    ];
+    const [feedStockItems, setFeedStockItems] = useState(() => loadStoredData('ba_feed_stock_items', defaultFeedStockItems));
+    // Baseline qty/value per item as of whenever this ledger was first set up — everything
+    // after that is reconstructed purely from dated purchases/issues below.
+    const [feedOpeningStock, setFeedOpeningStock] = useState(() => loadStoredData('ba_feed_opening_stock', {}));
+    const [feedPurchases, setFeedPurchases] = useState(() => loadStoredData('ba_feed_purchases', []));
+    const [feedStockIssues, setFeedStockIssues] = useState(() => loadStoredData('ba_feed_stock_issues', []));
+
+    const updateFeedStockItems = (newItems) => setFeedStockItems(newItems);
+
+    const setItemOpeningStock = (itemId, qty, value) => {
+        setFeedOpeningStock(prev => ({ ...prev, [itemId]: { qty: parseFloat(qty) || 0, value: parseFloat(value) || 0 } }));
+    };
+
+    const addFeedPurchase = (purchase) => {
+        const record = {
+            id: `fp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            itemId: purchase.itemId,
+            date: purchase.date || new Date().toISOString().split('T')[0],
+            quantity: parseFloat(purchase.quantity) || 0,
+            rate: parseFloat(purchase.rate) || 0,
+            supplier: purchase.supplier || '',
+            notes: purchase.notes || ''
+        };
+        setFeedPurchases(prev => [...prev, record]);
+        return record;
+    };
+
+    const deleteFeedPurchase = (id) => {
+        setFeedPurchases(prev => prev.filter(p => p.id !== id));
+    };
+
+    const addFeedStockIssue = (issue) => {
+        const record = {
+            id: `fi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            itemId: issue.itemId,
+            date: issue.date || new Date().toISOString().split('T')[0],
+            pen: issue.pen || 'ALL',
+            quantity: parseFloat(issue.quantity) || 0,
+            notes: issue.notes || ''
+        };
+        setFeedStockIssues(prev => [...prev, record]);
+        return record;
+    };
+
+    const deleteFeedStockIssue = (id) => {
+        setFeedStockIssues(prev => prev.filter(i => i.id !== id));
+    };
+
+    // Per-item running ledger: opening + purchases − issues = closing, priced at the
+    // weighted-average cost of everything ever brought into stock for that item (opening
+    // value blended with every purchase's own rate) — so a price spike on one purchase
+    // doesn't wildly swing the cost of feed issued from stock bought earlier.
+    const getFeedStockLedger = () => {
+        return feedStockItems.map(item => {
+            const purchases = feedPurchases.filter(p => p.itemId === item.id);
+            const issues = feedStockIssues.filter(i => i.itemId === item.id);
+            const opening = feedOpeningStock[item.id] || { qty: 0, value: 0 };
+
+            const purchasedQty = purchases.reduce((sum, p) => sum + p.quantity, 0);
+            const purchasedValue = purchases.reduce((sum, p) => sum + (p.quantity * p.rate), 0);
+            const issuedQty = issues.reduce((sum, i) => sum + i.quantity, 0);
+
+            const totalInQty = opening.qty + purchasedQty;
+            const totalInValue = opening.value + purchasedValue;
+            const avgRate = totalInQty > 0 ? totalInValue / totalInQty : 0;
+
+            const closingQty = totalInQty - issuedQty;
+            const consumptionValue = issuedQty * avgRate;
+            const closingValue = closingQty * avgRate;
+
+            return {
+                item,
+                openingQty: opening.qty,
+                openingValue: opening.value,
+                purchasedQty,
+                purchasedValue,
+                issuedQty,
+                avgRate,
+                consumptionValue,
+                closingQty,
+                closingValue
+            };
+        });
+    };
+
     // localStorage cache sync for animals/weights/treatments/events (portal reads these on
     // init before DB loads). These are just a read-on-init display cache, not the source of
     // truth (that's the DB + the durable pending-mutation queue, which persists itself
@@ -658,6 +761,22 @@ export const FarmProvider = ({ children }) => {
     useEffect(() => {
         debouncedCacheWrite('ba_feed_ingredients', feedIngredients);
     }, [feedIngredients]);
+
+    useEffect(() => {
+        debouncedCacheWrite('ba_feed_stock_items', feedStockItems);
+    }, [feedStockItems]);
+
+    useEffect(() => {
+        debouncedCacheWrite('ba_feed_opening_stock', feedOpeningStock);
+    }, [feedOpeningStock]);
+
+    useEffect(() => {
+        debouncedCacheWrite('ba_feed_purchases', feedPurchases);
+    }, [feedPurchases]);
+
+    useEffect(() => {
+        debouncedCacheWrite('ba_feed_stock_issues', feedStockIssues);
+    }, [feedStockIssues]);
 
     useEffect(() => {
         debouncedCacheWrite('ba_feed_logs', feedLogs);
@@ -1360,6 +1479,17 @@ export const FarmProvider = ({ children }) => {
             feedLogs,
             logFeed,
             deleteFeedLog,
+            feedStockItems,
+            updateFeedStockItems,
+            feedOpeningStock,
+            setItemOpeningStock,
+            feedPurchases,
+            addFeedPurchase,
+            deleteFeedPurchase,
+            feedStockIssues,
+            addFeedStockIssue,
+            deleteFeedStockIssue,
+            getFeedStockLedger,
             rationPlans,
             pens,
             saveRationPlan,

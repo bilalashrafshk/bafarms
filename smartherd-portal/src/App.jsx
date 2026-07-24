@@ -6,6 +6,7 @@ import WeightTracker from './components/WeightTracker';
 import MedicalLog from './components/MedicalLog';
 import TMRCalculator from './components/TMRCalculator';
 import RationPlans from './components/RationPlans';
+import FeedStock from './components/FeedStock';
 import FeedGrowthReport from './components/FeedGrowthReport';
 import RotationPlanner from './components/RotationPlanner';
 import ActivityFeed from './components/ActivityFeed';
@@ -175,6 +176,8 @@ function AppContent() {
                 return <TMRCalculator />;
             case 'rationPlans':
                 return <RationPlans />;
+            case 'feedStock':
+                return <FeedStock />;
             case 'feedReport':
                 return <FeedGrowthReport />;
             case 'rotation':
@@ -199,6 +202,7 @@ function AppContent() {
             case 'vet': return "Medical & Vet Compliance";
             case 'tmr': return "TMR Moisture Optimizer";
             case 'rationPlans': return "Ration Plans & Pen Assignment";
+            case 'feedStock': return "Feed Stock & Store Ledger";
             case 'feedReport': return "Feed Cost & Growth Report";
             case 'rotation': return "Rotation & Batch Flow";
             case 'activity': return "Activity Log";
@@ -271,6 +275,9 @@ function AppContent() {
                             </button>
                             <button class={`menu-item ${activeTab === 'rationPlans' ? 'active' : ''}`} onClick={() => setActiveTab('rationPlans')}>
                                 <i class="fa-solid fa-clipboard-list"></i> Ration Plans
+                            </button>
+                            <button class={`menu-item ${activeTab === 'feedStock' ? 'active' : ''}`} onClick={() => setActiveTab('feedStock')}>
+                                <i class="fa-solid fa-warehouse"></i> Feed Stock
                             </button>
                             <button class={`menu-item ${activeTab === 'feedReport' ? 'active' : ''}`} onClick={() => setActiveTab('feedReport')}>
                                 <i class="fa-solid fa-calendar-days"></i> Feed &amp; Growth Report
@@ -460,6 +467,9 @@ function AppContent() {
                                     </button>
                                     <button className="menu-item" onClick={() => { setActiveTab('rationPlans'); setShowMobileMore(false); }}>
                                         <i className="fa-solid fa-clipboard-list"></i> Ration Plans
+                                    </button>
+                                    <button className="menu-item" onClick={() => { setActiveTab('feedStock'); setShowMobileMore(false); }}>
+                                        <i className="fa-solid fa-warehouse"></i> Feed Stock
                                     </button>
                                     <button className="menu-item" onClick={() => { setActiveTab('feedReport'); setShowMobileMore(false); }}>
                                         <i className="fa-solid fa-calendar-days"></i> Feed &amp; Growth Report
