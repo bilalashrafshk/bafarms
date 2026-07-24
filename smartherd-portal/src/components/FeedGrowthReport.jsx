@@ -7,7 +7,8 @@ import { FarmContext } from '../context/FarmContext';
 // how much weight did the herd actually gain? Both source ledgers are append-only/dated,
 // so this view is always a historical report — never affected by later recipe edits.
 export default function FeedGrowthReport() {
-    const { animals, weightLogs, feedLogs } = useContext(FarmContext);
+    const { animals, weightLogs, feedLogs, getPenRationRow, systemParams } = useContext(FarmContext);
+    const adgFloor = systemParams?.adgAlertThreshold ?? 1.0;
 
     const activePens = useMemo(() => {
         const pens = new Set();
@@ -57,6 +58,12 @@ export default function FeedGrowthReport() {
         ? relevantWeightLogs.reduce((sum, w) => sum + w.adg, 0) / relevantWeightLogs.length
         : null;
 
+    // When a single pen is selected, resolve its assigned Ration Plan's target ADG for
+    // the current week so actual-vs-plan can be compared directly, not just against the
+    // generic system-wide floor.
+    const selectedPenPlanRow = penFilter !== 'ALL' ? getPenRationRow(penFilter) : null;
+    const isBelowFloor = avgAdg !== null && avgAdg < adgFloor;
+
     const animalCount = relevantAnimalIds.size;
     const costPerAnimalPerDay = animalCount > 0 && daysLogged > 0 ? totalFeedCost / daysLogged / animalCount : null;
     const feedCostPerKgGain = avgAdg && avgAdg > 0 && costPerAnimalPerDay ? costPerAnimalPerDay / avgAdg : null;
@@ -73,16 +80,20 @@ export default function FeedGrowthReport() {
             const penAdg = penWeightLogs.length > 0
                 ? penWeightLogs.reduce((sum, w) => sum + w.adg, 0) / penWeightLogs.length
                 : null;
+            const planRow = getPenRationRow(pen);
             return {
                 pen,
                 animalCount: penAnimalIds.size,
                 totalCost: penCost,
                 daysLogged: penDays,
-                avgAdg: penAdg
+                avgAdg: penAdg,
+                planName: planRow?.plan?.name ?? null,
+                targetAdg: planRow?.week?.targetAdg ?? null,
+                isBelowFloor: penAdg !== null && penAdg < adgFloor
             };
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activePens, animals, feedLogs, weightLogs, dateFrom, dateTo, penFilter]);
+    }, [activePens, animals, feedLogs, weightLogs, dateFrom, dateTo, penFilter, getPenRationRow, adgFloor]);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
@@ -150,10 +161,20 @@ export default function FeedGrowthReport() {
                         <h3>Avg Weight Gain</h3>
                         <div class="stat-icon"><i class="fa-solid fa-weight-scale"></i></div>
                     </div>
-                    <div class="stat-val" style={{ color: avgAdg === null ? 'var(--text-muted)' : (avgAdg >= 1.2 ? 'var(--primary-green-light)' : 'var(--accent-gold)') }}>
+                    <div class="stat-val" style={{ color: avgAdg === null ? 'var(--text-muted)' : (isBelowFloor ? 'hsl(0, 75%, 55%)' : (avgAdg >= 1.2 ? 'var(--primary-green-light)' : 'var(--accent-gold)')) }}>
                         {avgAdg !== null ? avgAdg.toFixed(2) : '—'} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>kg/day</small>
                     </div>
                     <span class="stat-lbl">From {relevantWeightLogs.length} weigh-in{relevantWeightLogs.length === 1 ? '' : 's'} in range</span>
+                    {isBelowFloor && (
+                        <span class="stat-lbl" style={{ color: 'hsl(0, 75%, 60%)', fontWeight: '600', display: 'block', marginTop: '0.2rem' }}>
+                            <i class="fa-solid fa-triangle-exclamation"></i> Below {adgFloor} kg/day floor
+                        </span>
+                    )}
+                    {selectedPenPlanRow && (
+                        <span class="stat-lbl" style={{ display: 'block', marginTop: '0.2rem' }}>
+                            Plan target ({selectedPenPlanRow.plan.name}, Week {selectedPenPlanRow.week.week}): <strong>{selectedPenPlanRow.week.targetAdg} kg/day</strong>
+                        </span>
+                    )}
                 </div>
 
                 <div class="glass-panel stat-box">
@@ -184,22 +205,27 @@ export default function FeedGrowthReport() {
                             <thead>
                                 <tr>
                                     <th>PEN</th>
+                                    <th>PLAN</th>
                                     <th>ANIMALS</th>
                                     <th>DAYS LOGGED</th>
                                     <th>TOTAL FEED COST</th>
                                     <th>AVG ADG</th>
+                                    <th>TARGET ADG</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {perPenBreakdown.map(row => (
                                     <tr key={row.pen}>
                                         <td><strong>Pen {row.pen}</strong></td>
+                                        <td>{row.planName ?? '—'}</td>
                                         <td>{row.animalCount}</td>
                                         <td>{row.daysLogged}</td>
                                         <td>{Math.round(row.totalCost).toLocaleString()} PKR</td>
-                                        <td style={{ color: row.avgAdg === null ? 'var(--text-muted)' : (row.avgAdg >= 1.2 ? 'var(--primary-green-light)' : 'var(--accent-gold)') }}>
+                                        <td style={{ color: row.avgAdg === null ? 'var(--text-muted)' : (row.isBelowFloor ? 'hsl(0, 75%, 55%)' : (row.avgAdg >= 1.2 ? 'var(--primary-green-light)' : 'var(--accent-gold)')) }}>
                                             {row.avgAdg !== null ? `${row.avgAdg.toFixed(2)} kg/day` : '—'}
+                                            {row.isBelowFloor && <i class="fa-solid fa-triangle-exclamation" style={{ marginLeft: '0.35rem' }} title="Below ADG floor"></i>}
                                         </td>
+                                        <td>{row.targetAdg !== null && row.targetAdg !== undefined ? `${row.targetAdg} kg/day` : '—'}</td>
                                     </tr>
                                 ))}
                             </tbody>

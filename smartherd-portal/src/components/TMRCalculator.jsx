@@ -2,7 +2,10 @@ import React, { useContext, useState, useEffect } from 'react';
 import { FarmContext } from '../context/FarmContext';
 
 export default function TMRCalculator() {
-    const { feedIngredients, updateFeedIngredients, animals, staffUser, feedLogs, logFeed, deleteFeedLog } = useContext(FarmContext);
+    const {
+        feedIngredients, updateFeedIngredients, animals, staffUser, feedLogs, logFeed, deleteFeedLog,
+        pens, rationPlans, getPenRationRow
+    } = useContext(FarmContext);
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
 
     // Active (non-sold, non-deceased) herd count — auto-synced
@@ -18,16 +21,29 @@ export default function TMRCalculator() {
     // Selected pen for TMR batch sizing
     const [selectedTMRPen, setSelectedTMRPen] = useState('all');
 
+    // Plan-driven lookup: resolves the pen's assigned Ration Plan + current week
+    // by matching its animals' average actual weight against each week's live-weight
+    // bracket (scaled by head count for the batch) — see FarmContext.getPenRationRow.
+    const resolvedPlanRow = selectedTMRPen !== 'all' ? getPenRationRow(selectedTMRPen) : null;
+    const isPlanDriven = !!resolvedPlanRow;
+
+    // Per-ingredient overrides for today's plan-driven batch only — never written back
+    // to the Ration Plan itself, so the schedule stays intact for every other pen/day.
+    const [planOverrides, setPlanOverrides] = useState({});
+    useEffect(() => {
+        setPlanOverrides({});
+    }, [selectedTMRPen, resolvedPlanRow?.plan?.id, resolvedPlanRow?.week?.week]);
+
     // 1. LOCAL UI STATE
     const [animalsCount, setAnimalsCount] = useState(activeHerdCount || 1);
     const [ingredients, setIngredients] = useState([]);
-    
+
     // Custom ingredient addition form states
     const [newName, setNewName] = useState('');
     const [newDM, setNewDM] = useState('');
     const [newPrice, setNewPrice] = useState('');
     const [newMoisture, setNewMoisture] = useState('10');
-    
+
     const [isCustomFormOpen, setIsCustomFormOpen] = useState(false);
     const [isTractorMode, setIsTractorMode] = useState(false);
     const [isSaved, setIsSaved] = useState(false);
@@ -64,7 +80,7 @@ export default function TMRCalculator() {
         }
     }, [activeHerdCount, selectedTMRPen, animals]);
 
-    // 2. MATHEMATICAL FORMULATIONS (Dry-Matter to Wet-weight)
+    // 2. MATHEMATICAL FORMULATIONS (Dry-Matter to Wet-weight) — manual/global recipe mode
     const calculatedIngredients = ingredients.map(ing => {
         const currentMoisture = incorporateMoisture ? (ing.moisture ?? 0) : 0;
         const wetFactor = currentMoisture < 100 ? (100 / (100 - currentMoisture)) : 1.0;
@@ -82,9 +98,42 @@ export default function TMRCalculator() {
         };
     });
 
-    const totalDM = calculatedIngredients.reduce((sum, ing) => sum + ing.dmTarget, 0);
-    const totalBatchWeight = calculatedIngredients.reduce((sum, ing) => sum + ing.wetBatch, 0);
-    const totalCostSingle = calculatedIngredients.reduce((sum, ing) => sum + ing.costSingle, 0);
+    // Plan-driven quantities are already as-fed kg/head/day straight from the Ration
+    // Plan's weekly schedule — no DM/moisture conversion needed, just scale by head count.
+    const planIngredientRows = isPlanDriven
+        ? Object.entries(resolvedPlanRow.week.ingredients).map(([id, qty]) => {
+            const ing = feedIngredients.find(i => i.id === id) || { id, name: id, price: 0 };
+            const qtyPerHead = planOverrides[id] !== undefined ? planOverrides[id] : qty;
+            return {
+                id,
+                name: ing.name,
+                price: ing.price,
+                planQty: qty,
+                qtyPerHead,
+                isOverridden: planOverrides[id] !== undefined,
+                wetBatch: Math.round(qtyPerHead * animalsCount),
+                costSingle: qtyPerHead * ing.price
+            };
+        })
+        : [];
+
+    // Unified display array so the batch table / tractor mode / cost summary below
+    // work identically whether the pen is plan-driven or on the manual global recipe.
+    const displayIngredients = isPlanDriven
+        ? planIngredientRows.map(r => ({
+            id: r.id,
+            name: r.name,
+            dmTarget: r.qtyPerHead,
+            currentMoisture: null,
+            wetSingle: r.qtyPerHead,
+            wetBatch: r.wetBatch,
+            costSingle: r.costSingle
+        }))
+        : calculatedIngredients;
+
+    const totalDM = displayIngredients.reduce((sum, ing) => sum + ing.dmTarget, 0);
+    const totalBatchWeight = displayIngredients.reduce((sum, ing) => sum + ing.wetBatch, 0);
+    const totalCostSingle = displayIngredients.reduce((sum, ing) => sum + ing.costSingle, 0);
 
     // Updaters
     const updateLocalIngredient = (id, field, value) => {
@@ -94,6 +143,18 @@ export default function TMRCalculator() {
             }
             return ing;
         }));
+    };
+
+    const handlePlanOverride = (id, value) => {
+        setPlanOverrides(prev => ({ ...prev, [id]: parseFloat(value) || 0 }));
+    };
+
+    const handleResetOverride = (id) => {
+        setPlanOverrides(prev => {
+            const next = { ...prev };
+            delete next[id];
+            return next;
+        });
     };
 
     const handleDeleteIngredient = (id) => {
@@ -133,16 +194,19 @@ export default function TMRCalculator() {
     // recipe definition, so later recipe edits never alter this day's history.
     const handleLogFeed = () => {
         const pen = selectedTMRPen === 'all' ? 'ALL' : selectedTMRPen;
+        const notes = isPlanDriven
+            ? `Auto-filled from ${resolvedPlanRow.plan.name}, Week ${resolvedPlanRow.week.week}${resolvedPlanRow.matchedByWeight ? '' : ' (matched by cycle day)'}`
+            : '';
         logFeed({
             date: logDate,
             pen,
             animalCount: animalsCount,
-            ingredients: calculatedIngredients.map(ing => ({
+            ingredients: displayIngredients.map(ing => ({
                 id: ing.id,
                 name: ing.name,
                 dmTarget: ing.dmTarget,
-                moisture: ing.currentMoisture,
-                price: ing.price,
+                moisture: ing.currentMoisture ?? 0,
+                price: feedIngredients.find(i => i.id === ing.id)?.price ?? 0,
                 wetSingle: ing.wetSingle,
                 wetBatch: ing.wetBatch,
                 costSingle: ing.costSingle
@@ -150,7 +214,8 @@ export default function TMRCalculator() {
             totalDmKg: totalDM,
             totalBatchKg: totalBatchWeight,
             totalCost: totalCostSingle * animalsCount,
-            costPerAnimal: totalCostSingle
+            costPerAnimal: totalCostSingle,
+            notes
         });
         setLogSaved(true);
         setTimeout(() => setLogSaved(false), 2500);
@@ -160,14 +225,81 @@ export default function TMRCalculator() {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-            
+
             {/* Top Grid: Ingredients list and Batch Recipe Output */}
             <div class="tmr-grid">
 
-                {/* Left: Input, Custom addition & Formulation list */}
+                {/* Left: either the plan-driven ration (auto-filled) or the manual global recipe editor */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-                    
-                    {/* Unified Formulation Card */}
+
+                    {isPlanDriven ? (
+                        <div class="glass-panel" style={{ borderTop: '4px solid var(--primary-green-light)' }}>
+                            <h3 class="panel-title" style={{ marginBottom: '0.6rem' }}><i class="fa-solid fa-clipboard-check"></i> Plan-Driven Ration — Pen {selectedTMRPen}</h3>
+                            <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0.8rem 1rem', marginBottom: '1.2rem' }}>
+                                <div style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
+                                    {resolvedPlanRow.plan.name} — Week {resolvedPlanRow.week.week}
+                                    {resolvedPlanRow.isAdaptationWeek && <span style={{ marginLeft: '0.5rem', color: 'var(--accent-gold)', fontSize: '0.75rem' }}>ADAPTATION WEEK</span>}
+                                </div>
+                                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                                    {resolvedPlanRow.matchedByWeight
+                                        ? `Matched by average weight (${resolvedPlanRow.avgWeight.toFixed(1)} kg across ${resolvedPlanRow.headCount} head)`
+                                        : 'No weigh-in yet for this pen — matched by cycle day instead of actual weight'}
+                                    {' · '}Target ADG {resolvedPlanRow.week.targetAdg} kg/day
+                                </div>
+                                {resolvedPlanRow.week.note && (
+                                    <div style={{ fontSize: '0.76rem', color: 'var(--accent-gold)', marginTop: '0.3rem', fontStyle: 'italic' }}>
+                                        <i class="fa-solid fa-circle-info"></i> {resolvedPlanRow.week.note}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div class="table-wrapper">
+                                <table class="data-table" style={{ fontSize: '0.85rem' }}>
+                                    <thead>
+                                        <tr>
+                                            <th>INGREDIENT</th>
+                                            <th>PLAN QTY (KG/HEAD/DAY)</th>
+                                            <th>TODAY'S QTY</th>
+                                            <th style={{ width: '60px', textAlign: 'center' }}>RESET</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {planIngredientRows.map(row => (
+                                            <tr key={row.id}>
+                                                <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{row.name}</td>
+                                                <td>{row.planQty.toFixed(3)} kg</td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        step="0.001"
+                                                        className="form-control"
+                                                        style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: row.isOverridden ? 'var(--accent-gold)' : 'inherit' }}
+                                                        value={row.qtyPerHead}
+                                                        onChange={(e) => handlePlanOverride(row.id, e.target.value)}
+                                                        disabled={!isAdmin}
+                                                    />
+                                                </td>
+                                                <td style={{ textAlign: 'center' }}>
+                                                    {row.isOverridden ? (
+                                                        <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => handleResetOverride(row.id)} title="Reset to plan quantity">
+                                                            <i class="fa-solid fa-rotate-left"></i>
+                                                        </button>
+                                                    ) : (
+                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>—</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '0.8rem', marginBottom: 0 }}>
+                                <i class="fa-solid fa-circle-info"></i> Overrides here apply to today's logged feeding only — the Ration Plan schedule itself is unchanged. Manage the schedule from Ration Plans.
+                            </p>
+                        </div>
+                    ) : (
+                    <>
+                    {/* Unified Formulation Card (manual / global recipe mode) */}
                     <div class="glass-panel">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '1rem' }}>
                             <h3 class="panel-title" style={{ margin: 0 }}><i class="fa-solid fa-flask"></i> Ingredients & Recipe</h3>
@@ -375,12 +507,14 @@ export default function TMRCalculator() {
                             )}
                         </form>
                     </div>
+                    </>
+                    )}
 
                 </div>
 
                 {/* Right: Outputs, Batch Scale & Tractor mixer mode */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-                    
+
                     {!isTractorMode ? (
                         <div class="glass-panel" style={{ borderTop: '4px solid var(--accent-gold)' }}>
                             <div class="form-header-bar" style={{ marginBottom: '1.2rem', gap: '1rem', flexWrap: 'wrap' }}>
@@ -403,6 +537,7 @@ export default function TMRCalculator() {
                                         >All ({activeHerdCount})</button>
                                         {activePens.map(p => {
                                             const penCount = animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased' && a.pen === p).length;
+                                            const hasPlan = pens.some(pc => pc.id === p && pc.rationPlanId);
                                             return (
                                                 <button
                                                     key={p}
@@ -410,7 +545,7 @@ export default function TMRCalculator() {
                                                     class={`filter-btn ${selectedTMRPen === p ? 'active' : ''}`}
                                                     style={{ fontSize: '0.7rem', minHeight: '26px', padding: '0.15rem 0.5rem' }}
                                                     onClick={() => setSelectedTMRPen(p)}
-                                                >Pen {p} ({penCount})</button>
+                                                >Pen {p} ({penCount}){hasPlan && ' \u2713'}</button>
                                             );
                                         })}
                                     </div>
@@ -432,18 +567,18 @@ export default function TMRCalculator() {
                                     <thead>
                                         <tr>
                                             <th>FEED INGREDIENT</th>
-                                            <th>DM TARGET</th>
-                                            <th>MOISTURE</th>
+                                            <th>{isPlanDriven ? 'QTY / HEAD' : 'DM TARGET'}</th>
+                                            {!isPlanDriven && <th>MOISTURE</th>}
                                             <th>WET WT / ANIMAL</th>
                                             <th>BATCH WEIGHT</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {calculatedIngredients.map(ing => (
+                                        {displayIngredients.map(ing => (
                                             <tr key={ing.id}>
                                                 <td><strong>{ing.name}</strong></td>
                                                 <td>{ing.dmTarget.toFixed(2)} kg</td>
-                                                <td>{incorporateMoisture ? `${ing.moisture}%` : '0% (Ignored)'}</td>
+                                                {!isPlanDriven && <td>{incorporateMoisture ? `${ing.currentMoisture}%` : '0% (Ignored)'}</td>}
                                                 <td>{ing.wetSingle.toFixed(2)} kg</td>
                                                 <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{ing.wetBatch} kg</strong></td>
                                             </tr>
@@ -451,8 +586,8 @@ export default function TMRCalculator() {
                                         <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
                                             <td><strong>Total Feed Mix</strong></td>
                                             <td><strong>{totalDM.toFixed(2)} kg</strong></td>
-                                            <td>—</td>
-                                            <td><strong>{calculatedIngredients.reduce((sum, ing) => sum + ing.wetSingle, 0).toFixed(2)} kg</strong></td>
+                                            {!isPlanDriven && <td>—</td>}
+                                            <td><strong>{displayIngredients.reduce((sum, ing) => sum + ing.wetSingle, 0).toFixed(2)} kg</strong></td>
                                             <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{totalBatchWeight.toLocaleString()} kg</strong></td>
                                         </tr>
                                     </tbody>
@@ -512,7 +647,7 @@ export default function TMRCalculator() {
                             <p class="batch-sub">Total batch scaled up for {animalsCount} calves</p>
 
                             <div class="tractor-mix-list">
-                                {calculatedIngredients.map((ing, idx) => (
+                                {displayIngredients.map((ing, idx) => (
                                     <div class="tractor-mix-item" key={ing.id} style={ing.id === 'minerals' ? { borderLeftColor: 'var(--accent-gold)' } : {}}>
                                         <span>{idx + 1}. WET {ing.name.toUpperCase()}</span>
                                         <strong>{ing.wetBatch.toLocaleString()} KG</strong>

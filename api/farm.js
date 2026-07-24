@@ -353,6 +353,27 @@ async function ensureTables(client) {
                 created_at TIMESTAMP DEFAULT NOW(),
                 UNIQUE(date, pen)
             );
+
+            CREATE TABLE IF NOT EXISTS ba_ration_plans (
+                id VARCHAR(50) PRIMARY KEY,
+                name VARCHAR(150) NOT NULL,
+                description TEXT,
+                adg_floor NUMERIC DEFAULT 1.0,
+                weeks JSONB NOT NULL DEFAULT '[]',
+                is_default BOOLEAN DEFAULT FALSE,
+                created_by VARCHAR(150),
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS ba_pens (
+                id VARCHAR(20) PRIMARY KEY,
+                ration_plan_id VARCHAR(50) REFERENCES ba_ration_plans(id) ON DELETE SET NULL,
+                cycle_start_date DATE,
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
         `);
         return;
     }
@@ -507,6 +528,27 @@ async function ensureTables(client) {
             created_at TIMESTAMP DEFAULT NOW(),
             UNIQUE(date, pen)
         );
+
+        CREATE TABLE IF NOT EXISTS ba_ration_plans (
+            id VARCHAR(50) PRIMARY KEY,
+            name VARCHAR(150) NOT NULL,
+            description TEXT,
+            adg_floor NUMERIC DEFAULT 1.0,
+            weeks JSONB NOT NULL DEFAULT '[]',
+            is_default BOOLEAN DEFAULT FALSE,
+            created_by VARCHAR(150),
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS ba_pens (
+            id VARCHAR(20) PRIMARY KEY,
+            ration_plan_id VARCHAR(50) REFERENCES ba_ration_plans(id) ON DELETE SET NULL,
+            cycle_start_date DATE,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
     `);
 }
 
@@ -542,7 +584,8 @@ async function resolvePermissions(client, session) {
 const HERD_ACTIONS = new Set([
     'ADD_ANIMAL', 'LOG_WEIGHT', 'LOG_TREATMENT', 'TRANSITION_STATUS', 'LOG_EVENT',
     'DELETE_ANIMAL', 'UPDATE_ANIMAL', 'RECORD_DEATH', 'DELETE_WEIGHT_LOG', 'DELETE_TREATMENT',
-    'LOG_FEED', 'DELETE_FEED_LOG', 'UPDATE_WEIGHT_LOGS_BATCH'
+    'LOG_FEED', 'DELETE_FEED_LOG', 'UPDATE_WEIGHT_LOGS_BATCH',
+    'SAVE_RATION_PLAN', 'DELETE_RATION_PLAN', 'SAVE_PEN', 'DELETE_PEN'
 ]);
 const SALES_ACTIONS = new Set([
     'UPDATE_ORDER_STATUS', 'DELETE_ORDER', 'UPDATE_ENQUIRY_STATUS', 'DELETE_ENQUIRY',
@@ -774,6 +817,12 @@ module.exports = async (req, res) => {
             const feedLogsRes = canHerd
                 ? await client.query('SELECT * FROM ba_feed_logs ORDER BY date DESC, pen ASC')
                 : { rows: [] };
+            const rationPlansRes = canHerd
+                ? await client.query('SELECT * FROM ba_ration_plans ORDER BY created_at ASC')
+                : { rows: [] };
+            const pensRes = canHerd
+                ? await client.query('SELECT * FROM ba_pens ORDER BY id ASC')
+                : { rows: [] };
             const ordersRes = canSales
                 ? await client.query('SELECT * FROM ba_orders ORDER BY created_at DESC')
                 : { rows: [] };
@@ -852,6 +901,23 @@ module.exports = async (req, res) => {
                 costPerAnimal: parseFloat(row.cost_per_animal || 0),
                 notes: row.notes || '',
                 createdBy: row.created_by || null
+            }));
+
+            const rationPlans = rationPlansRes.rows.map(row => ({
+                id: row.id,
+                name: row.name,
+                description: row.description || '',
+                adgFloor: parseFloat(row.adg_floor || 1.0),
+                weeks: typeof row.weeks === 'string' ? JSON.parse(row.weeks) : row.weeks,
+                isDefault: row.is_default,
+                createdBy: row.created_by || null
+            }));
+
+            const pens = pensRes.rows.map(row => ({
+                id: row.id,
+                rationPlanId: row.ration_plan_id || null,
+                cycleStartDate: row.cycle_start_date ? formatDate(row.cycle_start_date) : null,
+                notes: row.notes || ''
             }));
 
             const orders = ordersRes.rows.map(row => ({
@@ -963,7 +1029,7 @@ module.exports = async (req, res) => {
                 accessHerd: canHerd
             } : null;
 
-            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, feedLogs, orders, meatCuts, enquiries, quotations, specSheets, session: sessionOut, staffPermissions });
+            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, feedLogs, rationPlans, pens, orders, meatCuts, enquiries, quotations, specSheets, session: sessionOut, staffPermissions });
         }
 
         // ─── POST ENDPOINT: LOG TRANSACTION DATA ───
@@ -1241,6 +1307,64 @@ module.exports = async (req, res) => {
             if (action === 'DELETE_FEED_LOG') {
                 const { date, pen } = payload;
                 await client.query('DELETE FROM ba_feed_logs WHERE date = $1 AND pen = $2', [date, pen || 'ALL']);
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'SAVE_RATION_PLAN') {
+                const { id, name, description, adgFloor, weeks, isDefault } = payload;
+
+                if (!id || !name) {
+                    return res.status(400).json({ success: false, error: "Plan id and name are required" });
+                }
+
+                await client.query(`
+                    INSERT INTO ba_ration_plans (id, name, description, adg_floor, weeks, is_default, created_by, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+                    ON CONFLICT (id) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        description = EXCLUDED.description,
+                        adg_floor = EXCLUDED.adg_floor,
+                        weeks = EXCLUDED.weeks,
+                        is_default = EXCLUDED.is_default,
+                        updated_at = NOW()
+                `, [
+                    id, name, description || null, adgFloor || 1.0,
+                    JSON.stringify(weeks || []), !!isDefault, session ? session.email : null
+                ]);
+
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'DELETE_RATION_PLAN') {
+                const { id } = payload;
+                await client.query('UPDATE ba_pens SET ration_plan_id = NULL WHERE ration_plan_id = $1', [id]);
+                await client.query('DELETE FROM ba_ration_plans WHERE id = $1', [id]);
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'SAVE_PEN') {
+                const { id, rationPlanId, cycleStartDate, notes } = payload;
+
+                if (!id) {
+                    return res.status(400).json({ success: false, error: "Pen id is required" });
+                }
+
+                await client.query(`
+                    INSERT INTO ba_pens (id, ration_plan_id, cycle_start_date, notes, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, NOW(), NOW())
+                    ON CONFLICT (id) DO UPDATE SET
+                        ration_plan_id = EXCLUDED.ration_plan_id,
+                        cycle_start_date = EXCLUDED.cycle_start_date,
+                        notes = EXCLUDED.notes,
+                        updated_at = NOW()
+                `, [id, rationPlanId || null, cycleStartDate || null, notes || null]);
+
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'DELETE_PEN') {
+                const { id } = payload;
+                await client.query('DELETE FROM ba_pens WHERE id = $1', [id]);
                 return res.status(200).json({ success: true });
             }
 

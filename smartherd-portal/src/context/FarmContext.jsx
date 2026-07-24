@@ -127,6 +127,35 @@ const defaultMeatCuts = [
     }
 ];
 
+// Seeded from the BA Farms Master Ration Model (Section 3 — Baseline schedule).
+// Ingredient quantities are already as-fed kg/head/day (no DM/moisture conversion
+// needed), keyed by feedIngredients id. Live-weight brackets are used to resolve
+// a pen's current week from its animals' actual average weight, not just elapsed
+// days-on-feed (cycleStartDate is kept only as a secondary/reference field).
+const defaultBaselineRationPlan = {
+    id: 'baseline',
+    name: 'Baseline',
+    description: 'BA Farms Master Ration Model — Section 3 baseline weekly schedule (165kg entry → ~265kg exit, 95-day cycle).',
+    adgFloor: 1.0,
+    isDefault: true,
+    weeks: [
+        { week: 1, liveWeightMin: 165, liveWeightMax: 170, targetAdg: 0.65, costPerDay: 205, note: 'Adaptation week: Days 1-3 silage + 0.2kg toori only (no grain/urea); Days 4-7 grain ramped to ~60% with urea introduced gradually.', ingredients: { silage: 5.25, maizeGrain: 1.48, glutenFeed: 0.10, straw: 0.20, urea: 0.024, minerals: 0.021 } },
+        { week: 2, liveWeightMin: 170, liveWeightMax: 177, targetAdg: 1.03, costPerDay: 291, ingredients: { silage: 5.22, maizeGrain: 2.52, glutenFeed: 0.18, straw: 0.26, urea: 0.041, minerals: 0.035 } },
+        { week: 3, liveWeightMin: 177, liveWeightMax: 184, targetAdg: 1.04, costPerDay: 301, ingredients: { silage: 5.42, maizeGrain: 2.62, glutenFeed: 0.19, straw: 0.26, urea: 0.043, minerals: 0.037 } },
+        { week: 4, liveWeightMin: 184, liveWeightMax: 191, targetAdg: 1.05, costPerDay: 310, ingredients: { silage: 5.63, maizeGrain: 2.71, glutenFeed: 0.19, straw: 0.27, urea: 0.044, minerals: 0.038 } },
+        { week: 5, liveWeightMin: 191, liveWeightMax: 199, targetAdg: 1.06, costPerDay: 320, ingredients: { silage: 5.87, maizeGrain: 2.81, glutenFeed: 0.20, straw: 0.27, urea: 0.046, minerals: 0.039 } },
+        { week: 6, liveWeightMin: 199, liveWeightMax: 206, targetAdg: 1.07, costPerDay: 330, ingredients: { silage: 6.12, maizeGrain: 2.91, glutenFeed: 0.20, straw: 0.26, urea: 0.047, minerals: 0.041 } },
+        { week: 7, liveWeightMin: 206, liveWeightMax: 214, targetAdg: 1.08, costPerDay: 339, ingredients: { silage: 6.39, maizeGrain: 3.01, glutenFeed: 0.20, straw: 0.25, urea: 0.049, minerals: 0.042 } },
+        { week: 8, liveWeightMin: 214, liveWeightMax: 222, targetAdg: 1.09, costPerDay: 349, ingredients: { silage: 6.67, maizeGrain: 3.11, glutenFeed: 0.21, straw: 0.23, urea: 0.050, minerals: 0.043 } },
+        { week: 9, liveWeightMin: 222, liveWeightMax: 229, targetAdg: 1.10, costPerDay: 360, ingredients: { silage: 6.98, maizeGrain: 3.21, glutenFeed: 0.21, straw: 0.21, urea: 0.052, minerals: 0.045 } },
+        { week: 10, liveWeightMin: 229, liveWeightMax: 237, targetAdg: 1.10, costPerDay: 367, ingredients: { silage: 6.99, maizeGrain: 3.29, glutenFeed: 0.22, straw: 0.27, urea: 0.053, minerals: 0.046 } },
+        { week: 11, liveWeightMin: 237, liveWeightMax: 245, targetAdg: 1.11, costPerDay: 378, ingredients: { silage: 7.33, maizeGrain: 3.40, glutenFeed: 0.22, straw: 0.24, urea: 0.055, minerals: 0.047 } },
+        { week: 12, liveWeightMin: 245, liveWeightMax: 252, targetAdg: 1.12, costPerDay: 388, ingredients: { silage: 7.68, maizeGrain: 3.50, glutenFeed: 0.21, straw: 0.20, urea: 0.056, minerals: 0.049 } },
+        { week: 13, liveWeightMin: 252, liveWeightMax: 260, targetAdg: 1.12, costPerDay: 396, ingredients: { silage: 7.73, maizeGrain: 3.58, glutenFeed: 0.23, straw: 0.25, urea: 0.058, minerals: 0.050 } },
+        { week: 14, liveWeightMin: 260, liveWeightMax: 265, targetAdg: 1.13, costPerDay: 406, ingredients: { silage: 8.12, maizeGrain: 3.69, glutenFeed: 0.23, straw: 0.20, urea: 0.059, minerals: 0.051 } }
+    ]
+};
+
 export const FarmProvider = ({ children }) => {
     // Auth States
     const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('ba_staff_logged_in') === 'true');
@@ -512,6 +541,10 @@ export const FarmProvider = ({ children }) => {
     // (the live, always-current recipe definition below). Editing the recipe never
     // rewrites these historical snapshots.
     const [feedLogs, setFeedLogs] = useState(() => loadStoredData('ba_feed_logs', []));
+    // Ration Plans (named weekly schedules) and Pens (plan assignment + cycle start
+    // date per pen) — authoritative source is DB, same load pattern as orders/quotations.
+    const [rationPlans, setRationPlans] = useState(() => loadStoredData('ba_ration_plans', []));
+    const [pens, setPens] = useState(() => loadStoredData('ba_pens', []));
 
     // Database load and sync metrics
     const [fetchLoading, setFetchLoading] = useState(true);
@@ -549,6 +582,22 @@ export const FarmProvider = ({ children }) => {
             { id: 'minerals', name: 'Limestone / Minerals', dmTarget: recipe.mineralsDM ?? 0.15, price: prices.mineralsPrice ?? 150.0, moisture: 5, isDefault: true }
         ];
     });
+
+    // Ensure the Master Ration Model's ingredients always exist, even for browsers
+    // whose localStorage cache predates this feature — the seeded Baseline Ration Plan
+    // references these ids for its per-week as-fed quantities.
+    useEffect(() => {
+        const masterModelDefaults = [
+            { id: 'maizeGrain', name: 'Maize Grain', dmTarget: 2.8, price: 55.0, moisture: 12, isDefault: true },
+            { id: 'glutenFeed', name: 'Maize Gluten Feed 30%', dmTarget: 0.2, price: 68.0, moisture: 10, isDefault: true },
+            { id: 'urea', name: 'Urea', dmTarget: 0.05, price: 92.0, moisture: 0, isDefault: true }
+        ];
+        setFeedIngredients(prev => {
+            const missing = masterModelDefaults.filter(d => !prev.some(i => i.id === d.id));
+            return missing.length ? [...prev, ...missing] : prev;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const feedRecipe = {
         silageDM: feedIngredients.find(i => i.id === 'silage')?.dmTarget ?? 4.5,
@@ -615,6 +664,14 @@ export const FarmProvider = ({ children }) => {
     }, [feedLogs]);
 
     useEffect(() => {
+        debouncedCacheWrite('ba_ration_plans', rationPlans);
+    }, [rationPlans]);
+
+    useEffect(() => {
+        debouncedCacheWrite('ba_pens', pens);
+    }, [pens]);
+
+    useEffect(() => {
         debouncedCacheWrite('ba_quotations', quotations);
     }, [quotations]);
 
@@ -645,6 +702,15 @@ export const FarmProvider = ({ children }) => {
                     if (data.enquiries) setEnquiries(data.enquiries);
                     if (data.quotations) setQuotations(data.quotations);
                     if (data.specSheets) setSpecSheets(data.specSheets);
+                    if (data.rationPlans) setRationPlans(data.rationPlans);
+                    if (data.pens) setPens(data.pens);
+                    // First-ever load with no Ration Plans defined yet: seed the Master
+                    // Ration Model's Baseline schedule so admins have something to assign
+                    // to a pen immediately instead of starting from a blank slate.
+                    if (data.rationPlans && data.rationPlans.length === 0 && data.session?.accessHerd) {
+                        setRationPlans([defaultBaselineRationPlan]);
+                        persistMutation('SAVE_RATION_PLAN', defaultBaselineRationPlan);
+                    }
                     if (data.session) {
                         setStaffUser(prev => {
                             if (!prev) return prev;
@@ -993,6 +1059,133 @@ export const FarmProvider = ({ children }) => {
         persistMutation('DELETE_FEED_LOG', { date, pen });
     };
 
+    // ─── RATION PLANS & PEN ASSIGNMENT ───
+
+    const saveRationPlan = (plan) => {
+        const record = {
+            id: plan.id || `plan-${Date.now()}`,
+            name: plan.name || 'Untitled Plan',
+            description: plan.description || '',
+            adgFloor: plan.adgFloor ?? 1.0,
+            weeks: plan.weeks || [],
+            isDefault: !!plan.isDefault
+        };
+
+        setRationPlans(prev => {
+            const exists = prev.some(p => p.id === record.id);
+            return exists ? prev.map(p => (p.id === record.id ? { ...p, ...record } : p)) : [...prev, record];
+        });
+
+        persistMutation('SAVE_RATION_PLAN', record);
+        return record;
+    };
+
+    const duplicateRationPlan = (plan) => {
+        const newId = `plan-${Date.now()}`;
+        const duplicated = {
+            ...plan,
+            id: newId,
+            name: `${plan.name} (Copy)`,
+            isDefault: false
+        };
+        setRationPlans(prev => [...prev, duplicated]);
+        persistMutation('SAVE_RATION_PLAN', duplicated);
+        return duplicated;
+    };
+
+    const deleteRationPlan = (id) => {
+        setRationPlans(prev => prev.filter(p => p.id !== id));
+        // Unassign any pen that was pointed at this plan, mirroring the server's
+        // ON DELETE SET NULL / explicit unassign in the DELETE_RATION_PLAN handler.
+        setPens(prev => prev.map(p => (p.rationPlanId === id ? { ...p, rationPlanId: null } : p)));
+        persistMutation('DELETE_RATION_PLAN', { id });
+    };
+
+    const savePen = (pen) => {
+        const record = {
+            id: pen.id,
+            rationPlanId: pen.rationPlanId || null,
+            cycleStartDate: pen.cycleStartDate || null,
+            notes: pen.notes || ''
+        };
+
+        setPens(prev => {
+            const exists = prev.some(p => p.id === record.id);
+            return exists ? prev.map(p => (p.id === record.id ? { ...p, ...record } : p)) : [...prev, record];
+        });
+
+        persistMutation('SAVE_PEN', record);
+        return record;
+    };
+
+    const deletePen = (id) => {
+        setPens(prev => prev.filter(p => p.id !== id));
+        persistMutation('DELETE_PEN', { id });
+    };
+
+    // Resolves the current week's ration row for a pen from its assigned plan.
+    // Primary key is the pen's average current weight of active animals matched
+    // against each week's live-weight bracket — NOT calendar days-on-feed — per
+    // the master ration model ("re-scaled every 7 days" tracks actual growth, and
+    // a pen that's ahead/behind schedule should get the ration for the weight it's
+    // actually at). cycleStartDate is only used as a fallback when no animals are
+    // weighed yet, and to flag the week-1 adaptation protocol.
+    const getPenRationRow = (penId) => {
+        if (!penId || penId === 'all') return null;
+
+        const pen = pens.find(p => p.id === penId);
+        if (!pen || !pen.rationPlanId) return null;
+
+        const plan = rationPlans.find(p => p.id === pen.rationPlanId);
+        if (!plan || !plan.weeks || plan.weeks.length === 0) return null;
+
+        const penAnimals = animals.filter(a => a.pen === penId && a.status !== 'Sold' && a.status !== 'Deceased');
+        const headCount = penAnimals.length;
+        const avgWeight = headCount > 0
+            ? penAnimals.reduce((sum, a) => sum + (parseFloat(a.currentWeight) || 0), 0) / headCount
+            : null;
+
+        const daysOnFeed = pen.cycleStartDate
+            ? Math.max(0, Math.floor((new Date() - new Date(pen.cycleStartDate)) / (1000 * 60 * 60 * 24)))
+            : null;
+
+        let week = null;
+        let matchedByWeight = false;
+
+        if (avgWeight !== null) {
+            week = plan.weeks.find(w => avgWeight >= w.liveWeightMin && avgWeight < w.liveWeightMax);
+            if (week) {
+                matchedByWeight = true;
+            } else {
+                // No exact bracket contains this weight (e.g. below week-1's minimum, or
+                // past the final week's maximum, or a gap) — fall back to the nearest
+                // bracket by midpoint distance so a pen never silently loses its ration.
+                week = plan.weeks.reduce((closest, w) => {
+                    const mid = (w.liveWeightMin + w.liveWeightMax) / 2;
+                    const closestMid = (closest.liveWeightMin + closest.liveWeightMax) / 2;
+                    return Math.abs(avgWeight - mid) < Math.abs(avgWeight - closestMid) ? w : closest;
+                }, plan.weeks[0]);
+            }
+        } else if (daysOnFeed !== null) {
+            // No weighed animals yet in this pen — fall back to calendar week so the
+            // calculator still has something to show until the first weigh-in.
+            const weekNum = Math.min(plan.weeks.length, Math.floor(daysOnFeed / 7) + 1);
+            week = plan.weeks.find(w => w.week === weekNum) || plan.weeks[0];
+        } else {
+            week = plan.weeks[0];
+        }
+
+        return {
+            plan,
+            week,
+            headCount,
+            avgWeight,
+            daysOnFeed,
+            matchedByWeight,
+            isAdaptationWeek: week.week === 1
+        };
+    };
+
     // Cross-tab real-time sync via Storage API (cart and config only)
     useEffect(() => {
         const handleStorageChange = (e) => {
@@ -1167,6 +1360,14 @@ export const FarmProvider = ({ children }) => {
             feedLogs,
             logFeed,
             deleteFeedLog,
+            rationPlans,
+            pens,
+            saveRationPlan,
+            duplicateRationPlan,
+            deleteRationPlan,
+            savePen,
+            deletePen,
+            getPenRationRow,
             fetchLoading,
             dbUnconfigured,
             orders,
