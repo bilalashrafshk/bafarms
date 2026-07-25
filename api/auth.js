@@ -27,7 +27,7 @@ if (!process.env.SESSION_SECRET) {
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
 const SESSION_SECRET = process.env.SESSION_SECRET;
-const SESSION_TTL = '12h';
+const SESSION_TTL = '7d';
 
 const getEmailList = (envVal, fallback) => {
     if (!envVal) return fallback;

@@ -292,7 +292,13 @@ export const FarmProvider = ({ children }) => {
                 const { res, data } = await sendMutationToServer(action, payload);
 
                 if (res.status === 401) {
+                    // Session token expired/invalid — this mutation is still perfectly
+                    // valid, it just can't be authenticated right now. Never drop it:
+                    // queue it durably so it flushes automatically once the user logs
+                    // back in, same as the durable-queue path below handles it.
                     setSessionExpired(true);
+                    setPendingMutations(prev => [...prev, item]);
+                    setTimeout(flushQueue, 0);
                 } else if (!res.ok || data.success === false) {
                     setFailedMutations(prev => [...prev, { ...item, error: data.error || `HTTP ${res.status}`, failedAt: Date.now() }]);
                 } else {
@@ -621,21 +627,52 @@ export const FarmProvider = ({ children }) => {
     // price field) can be derived per item and per pen. Device-local only (like
     // feedIngredients above) — there's no server-side action for this yet, so it's
     // cached to localStorage rather than routed through persistMutation.
+    // `derivedFromIngredientId` maps a stock item to the feedIngredients/feedLog id it should
+    // auto-pull "Issued" quantity from, so a TMR "Log This Feeding" entry (already per-pen,
+    // per-date, per-ingredient) doesn't have to be re-typed into this ledger by hand. TMR only
+    // has one combined "minerals" ingredient, so both limestone and mineralPack point at it and
+    // get split by mineralSplitRatio below.
     const defaultFeedStockItems = [
-        { id: 'silage', name: 'Silage', unit: 'kg', isDefault: true },
-        { id: 'maizeGrain', name: 'Maize', unit: 'kg', isDefault: true },
-        { id: 'glutenFeed', name: 'Gluten Feed', unit: 'kg', isDefault: true },
-        { id: 'straw', name: 'Toori (Straw)', unit: 'kg', isDefault: true },
-        { id: 'urea', name: 'Urea', unit: 'kg', isDefault: true },
-        { id: 'limestone', name: 'Limestone', unit: 'kg', isDefault: true },
-        { id: 'mineralPack', name: 'Mineral Pack', unit: 'kg', isDefault: true }
+        { id: 'silage', name: 'Silage', unit: 'kg', isDefault: true, derivedFromIngredientId: 'silage' },
+        { id: 'maizeGrain', name: 'Maize', unit: 'kg', isDefault: true, derivedFromIngredientId: 'maizeGrain' },
+        { id: 'glutenFeed', name: 'Gluten Feed', unit: 'kg', isDefault: true, derivedFromIngredientId: 'glutenFeed' },
+        { id: 'straw', name: 'Toori (Straw)', unit: 'kg', isDefault: true, derivedFromIngredientId: 'straw' },
+        { id: 'urea', name: 'Urea', unit: 'kg', isDefault: true, derivedFromIngredientId: 'urea' },
+        { id: 'limestone', name: 'Limestone', unit: 'kg', isDefault: true, derivedFromIngredientId: 'minerals' },
+        { id: 'mineralPack', name: 'Mineral Pack', unit: 'kg', isDefault: true, derivedFromIngredientId: 'minerals' }
     ];
     const [feedStockItems, setFeedStockItems] = useState(() => loadStoredData('ba_feed_stock_items', defaultFeedStockItems));
     // Baseline qty/value per item as of whenever this ledger was first set up — everything
     // after that is reconstructed purely from dated purchases/issues below.
     const [feedOpeningStock, setFeedOpeningStock] = useState(() => loadStoredData('ba_feed_opening_stock', {}));
     const [feedPurchases, setFeedPurchases] = useState(() => loadStoredData('ba_feed_purchases', []));
+    // Manual/exception issues only (spoilage, samples, sales) — routine pen feeding is
+    // auto-derived from feedLogs in getCombinedFeedIssues() below.
     const [feedStockIssues, setFeedStockIssues] = useState(() => loadStoredData('ba_feed_stock_issues', []));
+    // Share of the combined TMR "minerals" line attributed to Limestone vs Mineral Pack
+    // (must sum to 1) — adjustable since the actual product mix varies by farm.
+    const [mineralSplitRatio, setMineralSplitRatio] = useState(() => loadStoredData('ba_mineral_split_ratio', 0.7));
+
+    // Backfill derivedFromIngredientId onto any ledger saved to localStorage before this
+    // auto-sync mapping existed, so existing farms don't lose the feature silently.
+    useEffect(() => {
+        const derivedMap = {
+            silage: 'silage', maizeGrain: 'maizeGrain', glutenFeed: 'glutenFeed',
+            straw: 'straw', urea: 'urea', limestone: 'minerals', mineralPack: 'minerals'
+        };
+        setFeedStockItems(prev => {
+            let changed = false;
+            const next = prev.map(item => {
+                if (item.derivedFromIngredientId === undefined && derivedMap[item.id]) {
+                    changed = true;
+                    return { ...item, derivedFromIngredientId: derivedMap[item.id] };
+                }
+                return item;
+            });
+            return changed ? next : prev;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const updateFeedStockItems = (newItems) => setFeedStockItems(newItems);
 
@@ -678,14 +715,47 @@ export const FarmProvider = ({ children }) => {
         setFeedStockIssues(prev => prev.filter(i => i.id !== id));
     };
 
+    // Merges auto-derived issues (from every "Log This Feeding" record in TMR — same
+    // per-pen, per-date, per-ingredient wetBatch quantities already fed) with manually
+    // entered exception issues (spoilage, samples, sales), so the store ledger never
+    // needs the same feeding event typed in twice. Each row is tagged with its source.
+    const getCombinedFeedIssues = () => {
+        const autoIssues = [];
+        feedLogs.forEach(log => {
+            (log.ingredients || []).forEach(ing => {
+                feedStockItems.forEach(item => {
+                    if (!item.derivedFromIngredientId || item.derivedFromIngredientId !== ing.id) return;
+                    const share = item.id === 'limestone' ? mineralSplitRatio
+                        : item.id === 'mineralPack' ? (1 - mineralSplitRatio)
+                        : 1;
+                    const quantity = (ing.wetBatch || 0) * share;
+                    if (quantity > 0) {
+                        autoIssues.push({
+                            id: `auto__${log.date}__${log.pen}__${item.id}`,
+                            itemId: item.id,
+                            date: log.date,
+                            pen: log.pen,
+                            quantity,
+                            notes: 'Auto-synced from TMR feed log',
+                            source: 'auto'
+                        });
+                    }
+                });
+            });
+        });
+        const manualIssues = feedStockIssues.map(i => ({ ...i, source: 'manual' }));
+        return [...autoIssues, ...manualIssues];
+    };
+
     // Per-item running ledger: opening + purchases − issues = closing, priced at the
     // weighted-average cost of everything ever brought into stock for that item (opening
     // value blended with every purchase's own rate) — so a price spike on one purchase
     // doesn't wildly swing the cost of feed issued from stock bought earlier.
     const getFeedStockLedger = () => {
+        const combinedIssues = getCombinedFeedIssues();
         return feedStockItems.map(item => {
             const purchases = feedPurchases.filter(p => p.itemId === item.id);
-            const issues = feedStockIssues.filter(i => i.itemId === item.id);
+            const issues = combinedIssues.filter(i => i.itemId === item.id);
             const opening = feedOpeningStock[item.id] || { qty: 0, value: 0 };
 
             const purchasedQty = purchases.reduce((sum, p) => sum + p.quantity, 0);
@@ -779,6 +849,10 @@ export const FarmProvider = ({ children }) => {
     }, [feedStockIssues]);
 
     useEffect(() => {
+        debouncedCacheWrite('ba_mineral_split_ratio', mineralSplitRatio);
+    }, [mineralSplitRatio]);
+
+    useEffect(() => {
         debouncedCacheWrite('ba_feed_logs', feedLogs);
     }, [feedLogs]);
 
@@ -812,24 +886,39 @@ export const FarmProvider = ({ children }) => {
 
                 if (data.success) {
                     setAnimals(data.animals);
-                    setWeightLogs(data.weightLogs);
-                    setTreatments(data.treatments);
-                    if (data.events) setEvents(data.events);
-                    if (data.feedLogs) setFeedLogs(data.feedLogs);
-                    if (data.orders) setOrders(data.orders);
                     if (data.meatCuts) setMeatCuts(data.meatCuts);
-                    if (data.enquiries) setEnquiries(data.enquiries);
-                    if (data.quotations) setQuotations(data.quotations);
-                    if (data.specSheets) setSpecSheets(data.specSheets);
-                    if (data.rationPlans) setRationPlans(data.rationPlans);
-                    if (data.pens) setPens(data.pens);
-                    // First-ever load with no Ration Plans defined yet: seed the Master
-                    // Ration Model's Baseline schedule so admins have something to assign
-                    // to a pen immediately instead of starting from a blank slate.
-                    if (data.rationPlans && data.rationPlans.length === 0 && data.session?.accessHerd) {
-                        setRationPlans([defaultBaselineRationPlan]);
-                        persistMutation('SAVE_RATION_PLAN', defaultBaselineRationPlan);
+
+                    // Weights/treatments/events/feed logs/ration plans/pens are herd-access
+                    // gated on the server: an expired or invalid session doesn't get a 401
+                    // here, it just gets back `[]` for all of these while `success` stays
+                    // true. Only trust this response as the authoritative full dataset when
+                    // the session actually still has herd access — otherwise a stale/expired
+                    // token would silently wipe out unsynced local ration plans, pens, etc.
+                    const hasHerdAccess = !!(data.session && data.session.accessHerd);
+                    if (hasHerdAccess) {
+                        setWeightLogs(data.weightLogs);
+                        setTreatments(data.treatments);
+                        if (data.events) setEvents(data.events);
+                        if (data.feedLogs) setFeedLogs(data.feedLogs);
+                        if (data.rationPlans) setRationPlans(data.rationPlans);
+                        if (data.pens) setPens(data.pens);
+                        // First-ever load with no Ration Plans defined yet: seed the Master
+                        // Ration Model's Baseline schedule so admins have something to assign
+                        // to a pen immediately instead of starting from a blank slate.
+                        if (data.rationPlans && data.rationPlans.length === 0) {
+                            setRationPlans([defaultBaselineRationPlan]);
+                            persistMutation('SAVE_RATION_PLAN', defaultBaselineRationPlan);
+                        }
                     }
+
+                    const hasSalesAccess = !!(data.session && data.session.accessSales);
+                    if (hasSalesAccess) {
+                        if (data.orders) setOrders(data.orders);
+                        if (data.enquiries) setEnquiries(data.enquiries);
+                        if (data.quotations) setQuotations(data.quotations);
+                        if (data.specSheets) setSpecSheets(data.specSheets);
+                    }
+
                     if (data.session) {
                         setStaffUser(prev => {
                             if (!prev) return prev;
@@ -1490,6 +1579,9 @@ export const FarmProvider = ({ children }) => {
             addFeedStockIssue,
             deleteFeedStockIssue,
             getFeedStockLedger,
+            getCombinedFeedIssues,
+            mineralSplitRatio,
+            setMineralSplitRatio,
             rationPlans,
             pens,
             saveRationPlan,

@@ -9,12 +9,13 @@ import { FarmContext } from '../context/FarmContext';
 // the ration's static price field since it reflects what was actually paid.
 export default function FeedStock() {
     const {
-        staffUser, animals, pens,
+        staffUser, animals, pens, feedLogs,
         feedStockItems, updateFeedStockItems,
         feedOpeningStock, setItemOpeningStock,
         feedPurchases, addFeedPurchase, deleteFeedPurchase,
         feedStockIssues, addFeedStockIssue, deleteFeedStockIssue,
-        getFeedStockLedger
+        getFeedStockLedger, getCombinedFeedIssues,
+        mineralSplitRatio, setMineralSplitRatio
     } = useContext(FarmContext);
 
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
@@ -113,14 +114,19 @@ export default function FeedStock() {
         setINotes('');
     };
 
+    // Auto-derived (from TMR "Log This Feeding" records) + manual exception issues,
+    // merged and tagged by source — so routine pen feeding never has to be typed twice.
+    const combinedIssues = useMemo(() => getCombinedFeedIssues(),
+        [feedLogs, feedStockItems, feedStockIssues, mineralSplitRatio]
+    );
     const filteredIssues = useMemo(() =>
-        feedStockIssues.filter(i => inRange(i.date)).sort((a, b) => new Date(b.date) - new Date(a.date)),
-        [feedStockIssues, dateFrom, dateTo]
+        combinedIssues.filter(i => inRange(i.date)).sort((a, b) => new Date(b.date) - new Date(a.date)),
+        [combinedIssues, dateFrom, dateTo]
     );
 
     // Full-history ledger (opening + all-time purchases/issues) — closing stock is
     // always a current, all-time snapshot regardless of the Purchases/Issues date filter.
-    const ledger = useMemo(() => getFeedStockLedger(), [feedStockItems, feedOpeningStock, feedPurchases, feedStockIssues]);
+    const ledger = useMemo(() => getFeedStockLedger(), [feedStockItems, feedOpeningStock, feedPurchases, feedLogs, feedStockIssues, mineralSplitRatio]);
     const ledgerByItemId = useMemo(() => Object.fromEntries(ledger.map(l => [l.item.id, l])), [ledger]);
 
     // Actual cost per pen within the selected date range, priced at each item's
@@ -158,7 +164,7 @@ export default function FeedStock() {
                 <div style={{ background: 'rgba(74, 144, 217, 0.06)', border: '1px solid rgba(74, 144, 217, 0.18)', borderRadius: '8px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
                     <i class="fa-solid fa-circle-info" style={{ color: '#4a90d9', fontSize: '1.1rem', marginTop: '0.15rem' }}></i>
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: '1.5' }}>
-                        <strong style={{ color: 'var(--text-pure)' }}>How this works:</strong> Set each item's <strong>Opening Stock</strong> once, then log dated <strong>Purchases</strong> (qty, rate, supplier) as feed comes in and dated <strong>Issues</strong> (qty, pen) as it goes out to the mixer. Closing stock and actual cost per pen are calculated automatically at the weighted-average purchase rate.
+                        <strong style={{ color: 'var(--text-pure)' }}>How this works:</strong> Set each item's <strong>Opening Stock</strong> once — the balance physically in the store before you started tracking here (leave at 0 kg if this is a fresh start). Then log dated <strong>Purchases</strong> (qty, rate, supplier) as feed comes in. Routine <strong>Issues</strong> to a pen sync automatically from every "Log This Feeding" entry in the TMR Calculator — no need to re-enter them here; the Issues tab is only for exceptions (spoilage, samples, a sale out of the store). Closing stock and actual cost per pen are calculated automatically at the weighted-average purchase rate.
                     </span>
                 </div>
             )}
@@ -197,6 +203,29 @@ export default function FeedStock() {
                             <span class="stat-lbl">Issues between {dateFrom} and {dateTo}</span>
                         </div>
                     </div>
+
+                    {isAdmin && (
+                        <div class="glass-panel">
+                            <h3 class="panel-title" style={{ marginBottom: '0.5rem' }}><i class="fa-solid fa-sliders"></i> Mineral Split (auto-sync)</h3>
+                            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 0, marginBottom: '0.8rem' }}>
+                                TMR logs one combined "Limestone / Minerals" ingredient — this decides what share of that quantity is auto-counted against each line below.
+                            </p>
+                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                                <div class="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: '0.75rem' }}>Limestone %</label>
+                                    <input
+                                        type="number" min="0" max="100" step="1" class="form-control" style={{ width: '90px' }}
+                                        value={Math.round(mineralSplitRatio * 100)}
+                                        onChange={e => setMineralSplitRatio(Math.min(1, Math.max(0, (parseFloat(e.target.value) || 0) / 100)))}
+                                    />
+                                </div>
+                                <div class="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: '0.75rem' }}>Mineral Pack %</label>
+                                    <input type="number" class="form-control" style={{ width: '90px' }} value={Math.round((1 - mineralSplitRatio) * 100)} disabled />
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     <div class="glass-panel">
                         <div class="form-header-bar" style={{ marginBottom: '1rem' }}>
@@ -414,6 +443,9 @@ export default function FeedStock() {
                     {isAdmin && (
                         <div class="glass-panel">
                             <h3 class="panel-title"><i class="fa-solid fa-circle-plus"></i> Record an Issue</h3>
+                            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 0, marginBottom: '0.8rem' }}>
+                                <i class="fa-solid fa-circle-info"></i> Routine pen feeding is auto-filled below from TMR's "Log This Feeding" entries — use this form only for exceptions (spoilage, samples, a direct sale out of the store).
+                            </p>
                             <form onSubmit={handleAddIssue} class="form-grid-3" style={{ alignItems: 'flex-end' }}>
                                 <div class="form-group">
                                     <label>Date</label>
@@ -505,6 +537,7 @@ export default function FeedStock() {
                                         <th>ITEM</th>
                                         <th>PEN</th>
                                         <th>QTY</th>
+                                        <th>SOURCE</th>
                                         <th>NOTES</th>
                                         {isAdmin && <th style={{ textAlign: 'center', width: '60px' }}>REMOVE</th>}
                                     </tr>
@@ -516,19 +549,30 @@ export default function FeedStock() {
                                             <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(iss.itemId)}</td>
                                             <td>{iss.pen === 'ALL' ? 'All Pens' : `Pen ${iss.pen}`}</td>
                                             <td>{iss.quantity.toFixed(2)} kg</td>
+                                            <td>
+                                                {iss.source === 'auto' ? (
+                                                    <span style={{ fontSize: '0.72rem', color: 'var(--primary-green-light)' }}><i class="fa-solid fa-arrows-rotate"></i> TMR log</span>
+                                                ) : (
+                                                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-pen"></i> Manual</span>
+                                                )}
+                                            </td>
                                             <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{iss.notes || '—'}</td>
                                             {isAdmin && (
                                                 <td style={{ textAlign: 'center' }}>
-                                                    <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => deleteFeedStockIssue(iss.id)}>
-                                                        <i class="fa-solid fa-trash-can"></i>
-                                                    </button>
+                                                    {iss.source === 'auto' ? (
+                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Auto-synced from a TMR feed log — edit or delete it from the TMR Calculator's Recent Feed History instead"><i class="fa-solid fa-lock"></i></span>
+                                                    ) : (
+                                                        <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => deleteFeedStockIssue(iss.id)}>
+                                                            <i class="fa-solid fa-trash-can"></i>
+                                                        </button>
+                                                    )}
                                                 </td>
                                             )}
                                         </tr>
                                     ))}
                                     {filteredIssues.length === 0 && (
                                         <tr>
-                                            <td colSpan={isAdmin ? 6 : 5} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                            <td colSpan={isAdmin ? 7 : 6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No issues logged in this date range.
                                             </td>
                                         </tr>
