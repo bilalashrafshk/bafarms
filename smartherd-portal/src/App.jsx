@@ -399,6 +399,12 @@ function AppContent() {
                         </button>
                     )}
                     {canAccessHerd && (
+                        <button className={`mobile-nav-item ${activeTab === 'tmr' ? 'active' : ''}`} onClick={() => setActiveTab('tmr')}>
+                            <i className="fa-solid fa-scale-balanced"></i>
+                            <span>Feed</span>
+                        </button>
+                    )}
+                    {canAccessHerd && (
                         <button className={`mobile-nav-item ${activeTab === 'weights' ? 'active' : ''}`} onClick={() => setActiveTab('weights')}>
                             <i className="fa-solid fa-weight-scale"></i>
                             <span>Weights</span>
@@ -417,8 +423,6 @@ function AppContent() {
                 </div>
             </nav>
 
-            {/* Mobile "More" drawer — surfaces every remaining section (including the
-                Quotation/Spec Sheet creator tools, which otherwise have no mobile entry point) */}
             {/* Mobile "More" drawer — surfaces every remaining section (including the
                 Quotation/Spec Sheet creator tools, which otherwise have no mobile entry point) */}
             {showMobileMore && (
@@ -456,9 +460,6 @@ function AppContent() {
                                     <div className="sidebar-group-label">Herd Management</div>
                                     <button className="menu-item" onClick={() => { setActiveTab('rotation'); setShowMobileMore(false); }}>
                                         <i className="fa-solid fa-rotate"></i> Rotation Flow
-                                    </button>
-                                    <button className="menu-item" onClick={() => { setActiveTab('tmr'); setShowMobileMore(false); }}>
-                                        <i className="fa-solid fa-scale-balanced"></i> TMR Calculator
                                     </button>
                                     <button className="menu-item" onClick={() => { setActiveTab('rationPlans'); setShowMobileMore(false); }}>
                                         <i className="fa-solid fa-clipboard-list"></i> Ration Plans

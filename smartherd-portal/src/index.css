@@ -1139,6 +1139,13 @@ body {
         display: none; /* Hide default sidebar on tablets/mobiles */
     }
 
+    /* The sidebar disappears at this breakpoint, so the bottom nav bar must take
+       over here too — not just at the narrower 768px breakpoint below. Without
+       this, tablet-width screens (~769-1024px) had no navigation at all. */
+    .mobile-nav-bar {
+        display: block;
+    }
+
     .main-content {
         height: auto;
         min-height: 100vh;
@@ -1147,7 +1154,7 @@ body {
 
     .page-content {
         overflow: visible;
-        padding: 1.5rem;
+        padding: 1.5rem 1.5rem 5.5rem; /* bottom padding clears the fixed bottom nav */
     }
 
     .top-header {
@@ -2193,6 +2200,19 @@ body {
     .mobile-nav-item.active {
         color: var(--accent-gold);
         background: rgba(255, 193, 7, 0.08);
+    }
+}
+
+/* Narrow phones — the bottom nav now carries 5 tabs + More, so tighten spacing
+   to keep every label on one line instead of wrapping/overflowing. */
+@media (max-width: 380px) {
+    .mobile-nav-item {
+        padding: 0.35rem 0.2rem;
+        font-size: 0.6rem;
+    }
+
+    .mobile-nav-item i {
+        font-size: 1rem;
     }
 }
 
