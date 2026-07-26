@@ -1,5 +1,6 @@
 import React, { useContext, useState, useMemo } from 'react';
 import { FarmContext } from '../context/FarmContext';
+import { formatDate } from '../utils/formatDate';
 
 // Feed store ledger — separate from the ration/TMR ingredient list (which defines
 // recipe quantities and a single reference price). This tracks what physically moves
@@ -407,7 +408,7 @@ export default function FeedStock() {
                                 <tbody>
                                     {filteredPurchases.map(p => (
                                         <tr key={p.id}>
-                                            <td>{p.date}</td>
+                                            <td>{formatDate(p.date)}</td>
                                             <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(p.itemId)}</td>
                                             <td>{p.quantity.toFixed(2)} kg</td>
                                             <td>{p.rate.toFixed(2)} PKR/kg</td>
@@ -545,7 +546,7 @@ export default function FeedStock() {
                                 <tbody>
                                     {filteredIssues.map(iss => (
                                         <tr key={iss.id}>
-                                            <td>{iss.date}</td>
+                                            <td>{formatDate(iss.date)}</td>
                                             <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(iss.itemId)}</td>
                                             <td>{iss.pen === 'ALL' ? 'All Pens' : `Pen ${iss.pen}`}</td>
                                             <td>{iss.quantity.toFixed(2)} kg</td>
@@ -562,7 +563,17 @@ export default function FeedStock() {
                                                     {iss.source === 'auto' ? (
                                                         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Auto-synced from a TMR feed log — edit or delete it from the TMR Calculator's Recent Feed History instead"><i class="fa-solid fa-lock"></i></span>
                                                     ) : (
-                                                        <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => deleteFeedStockIssue(iss.id)}>
+                                                        <button
+                                                            type="button"
+                                                            class="btn btn-secondary"
+                                                            style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
+                                                            onClick={() => {
+                                                                if (window.confirm(`Undo this issue?\n\n${formatDate(iss.date)} · ${itemName(iss.itemId)} · ${iss.quantity.toFixed(2)} kg\n\nThis cannot be undone.`)) {
+                                                                    deleteFeedStockIssue(iss.id);
+                                                                }
+                                                            }}
+                                                            title="Undo this issue"
+                                                        >
                                                             <i class="fa-solid fa-trash-can"></i>
                                                         </button>
                                                     )}

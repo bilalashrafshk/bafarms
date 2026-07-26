@@ -1,6 +1,7 @@
 import React, { useContext, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FarmContext } from '../context/FarmContext';
+import { formatDate } from '../utils/formatDate';
 
 export default function HerdRegistry() {
     const { animals, addAnimal, updateAnimal, deleteAnimal, recordDeath, transitionAnimalStatus, breedsConfig, updateBreedsConfig } = useContext(FarmContext);
@@ -34,7 +35,7 @@ export default function HerdRegistry() {
     const exportCSV = () => {
         const headers = ['RFID,Breed,Entry Date,Entry Weight (kg),Current Weight (kg),Total Gain (kg),Purchase Cost (PKR),Source,Pen,Status'];
         const rows = filteredAnimals.map(a =>
-            [a.rfid, a.breed, a.entryDate, a.entryWeight, a.currentWeight,
+            [a.rfid, a.breed, formatDate(a.entryDate), a.entryWeight, a.currentWeight,
              (a.currentWeight - a.entryWeight).toFixed(1), a.purchasePrice, a.source || '', a.pen || '', a.status].join(',')
         );
         const csv = [...headers, ...rows].join('\n');

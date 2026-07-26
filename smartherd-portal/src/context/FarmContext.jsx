@@ -1398,6 +1398,9 @@ export const FarmProvider = ({ children }) => {
             description: plan.description || '',
             adgFloor: plan.adgFloor ?? 1.0,
             weeks: plan.weeks || [],
+            // Per-plan procurement price overrides (PKR/kg), keyed by ingredient id.
+            // Ingredients not present here fall back to the global feed ingredient price.
+            ingredientPrices: plan.ingredientPrices || {},
             isDefault: !!plan.isDefault
         };
 

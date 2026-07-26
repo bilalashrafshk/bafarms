@@ -1,5 +1,6 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { FarmContext } from '../context/FarmContext';
+import { formatDate as formatDateDMY } from '../utils/formatDate';
 
 export default function EnquiriesManager() {
     const { 
@@ -11,14 +12,9 @@ export default function EnquiriesManager() {
     const [searchQuery, setSearchQuery] = useState('');
     const [activeSubTab, setActiveSubTab] = useState('leads'); // 'leads' | 'quotes' | 'specs'
 
-    // Formats a stored date string (e.g. spec.createdAt) for display; guards against
-    // missing/invalid values so a bad or absent date never throws in the render path.
-    const formatDate = (dateStr) => {
-        if (!dateStr) return '—';
-        const d = new Date(dateStr);
-        if (isNaN(d.getTime())) return '—';
-        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-    };
+    // Formats a stored date string (e.g. spec.createdAt) for display as DD-MM-YYYY;
+    // guards against missing/invalid values so a bad or absent date never throws.
+    const formatDate = (dateStr) => formatDateDMY(dateStr) || '—';
 
     // --- Dynamic KPI Calculations ---
     const totalCount = enquiries.length;
@@ -203,7 +199,7 @@ export default function EnquiriesManager() {
                                                 <td>
                                                     <strong style={{ color: 'var(--accent-gold)' }}>{enq.id}</strong>
                                                     <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                                                        {enq.createdAt}
+                                                        {formatDateDMY(enq.createdAt)}
                                                     </span>
                                                 </td>
                                                 <td>
@@ -346,7 +342,7 @@ export default function EnquiriesManager() {
                                                 <td>
                                                     <strong style={{ color: 'var(--accent-gold)' }}>{quote.id}</strong>
                                                     <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                                                        {quote.createdAt}
+                                                        {formatDateDMY(quote.createdAt)}
                                                     </span>
                                                 </td>
                                                 <td>

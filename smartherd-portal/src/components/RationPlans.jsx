@@ -61,11 +61,15 @@ export default function RationPlans() {
         }
     };
 
-    // Estimated cost/day for a week's ingredient quantities, priced at today's ingredient costs.
-    const estimateWeekCost = (weekIngredients) => {
+    // Estimated cost/day for a week's ingredient quantities. Procurement price is set
+    // per Ration Plan (ingredientPrices, an override map keyed by ingredient id) — any
+    // ingredient the plan hasn't priced falls back to the global default price below.
+    const estimateWeekCost = (weekIngredients, ingredientPrices) => {
         return Object.entries(weekIngredients || {}).reduce((sum, [id, qty]) => {
             const ing = feedIngredients.find(i => i.id === id);
-            return sum + (parseFloat(qty) || 0) * (ing?.price || 0);
+            const override = ingredientPrices?.[id];
+            const price = (override !== undefined && override !== null && override !== '') ? (parseFloat(override) || 0) : (ing?.price || 0);
+            return sum + (parseFloat(qty) || 0) * price;
         }, 0);
     };
 
@@ -77,6 +81,10 @@ export default function RationPlans() {
     const [formIsDefault, setFormIsDefault] = useState(false);
     const [formIngredientIds, setFormIngredientIds] = useState([]);
     const [formWeeks, setFormWeeks] = useState([]);
+    // Per-plan procurement price overrides (PKR/kg), keyed by ingredient id. Blank/unset
+    // means "use the global default price" — only ingredients this plan prices
+    // differently need an entry here.
+    const [formIngredientPrices, setFormIngredientPrices] = useState({});
     const [addIngredientChoice, setAddIngredientChoice] = useState('');
     const [saveConfirm, setSaveConfirm] = useState(false);
     const [isNewIngredientFormOpen, setIsNewIngredientFormOpen] = useState(false);
@@ -106,6 +114,7 @@ export default function RationPlans() {
         setFormIsDefault(false);
         setFormIngredientIds(defaultIds.length ? defaultIds : feedIngredients.map(i => i.id));
         setFormWeeks([blankWeek(1, defaultIds, null)]);
+        setFormIngredientPrices({});
     };
 
     const openEditPlan = (plan) => {
@@ -118,6 +127,7 @@ export default function RationPlans() {
         setFormIsDefault(!!plan.isDefault);
         setFormIngredientIds([...idSet]);
         setFormWeeks((plan.weeks || []).map(w => ({ ...w, ingredients: { ...w.ingredients } })));
+        setFormIngredientPrices({ ...(plan.ingredientPrices || {}) });
     };
 
     const closeEditor = () => {
@@ -158,6 +168,15 @@ export default function RationPlans() {
             delete ing[id];
             return { ...w, ingredients: ing };
         }));
+        setFormIngredientPrices(prev => {
+            const next = { ...prev };
+            delete next[id];
+            return next;
+        });
+    };
+
+    const handlePlanPriceChange = (id, value) => {
+        setFormIngredientPrices(prev => ({ ...prev, [id]: value }));
     };
 
     const handleWeekFieldChange = (index, field, value) => {
@@ -197,13 +216,20 @@ export default function RationPlans() {
             }, {})
         }));
 
+        const ingredientPrices = formIngredientIds.reduce((acc, ingId) => {
+            const v = formIngredientPrices[ingId];
+            if (v !== undefined && v !== '') acc[ingId] = parseFloat(v) || 0;
+            return acc;
+        }, {});
+
         saveRationPlan({
             id,
             name: formName.trim(),
             description: formDesc.trim(),
             adgFloor: parseFloat(formAdgFloor) || 1.0,
             isDefault: formIsDefault,
-            weeks
+            weeks,
+            ingredientPrices
         });
 
         setSaveConfirm(true);
@@ -213,7 +239,11 @@ export default function RationPlans() {
 
     const handleDeletePlan = (plan) => {
         if (!isAdmin) return;
-        if (window.confirm(`Delete Ration Plan "${plan.name}"? Any pens assigned to it will be unassigned.`)) {
+        const affectedPens = pens.filter(p => p.rationPlanId === plan.id).map(p => p.id);
+        const impactMsg = affectedPens.length > 0
+            ? `\n\n${affectedPens.length} pen${affectedPens.length === 1 ? '' : 's'} currently use this plan and will be unassigned and stop being fed until reassigned: Pen ${affectedPens.join(', Pen ')}.`
+            : '\n\nNo pens are currently using this plan.';
+        if (window.confirm(`Delete Ration Plan "${plan.name}"?${impactMsg}\n\nThis cannot be undone.`)) {
             if (editingId === plan.id) closeEditor();
             deleteRationPlan(plan.id);
         }
@@ -224,6 +254,14 @@ export default function RationPlans() {
         ...animals.filter(a => a.pen).map(a => a.pen),
         ...pens.map(p => p.id)
     ])].sort();
+
+    // Pens with active animals but no Ration Plan attached — the TMR Calculator can't
+    // feed these until a plan is assigned, so surface it here rather than silently.
+    const unassignedPens = distinctPenNames.filter(penId => {
+        const hasActiveAnimals = animals.some(a => a.pen === penId && a.status !== 'Sold' && a.status !== 'Deceased');
+        const penConfig = pens.find(p => p.id === penId);
+        return hasActiveAnimals && !penConfig?.rationPlanId;
+    });
 
     const [newPenId, setNewPenId] = useState('');
 
@@ -265,7 +303,7 @@ export default function RationPlans() {
                 <div style={{ background: 'rgba(74, 144, 217, 0.06)', border: '1px solid rgba(74, 144, 217, 0.18)', borderRadius: '8px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
                     <i class="fa-solid fa-circle-info" style={{ color: '#4a90d9', fontSize: '1.1rem', marginTop: '0.15rem' }}></i>
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: '1.5' }}>
-                        <strong style={{ color: 'var(--text-pure)' }}>How this works:</strong> First, set your <strong>Ingredient Costs</strong> (procurement price per kg), then build a weekly schedule under <strong>Ration Plans</strong> (or use the pre-loaded "Baseline" plan). Finally, switch to <strong>Pen Assignment</strong> to link a plan and cycle start date to each pen — the TMR Calculator will then auto-fill each pen's daily batch from the plan, with no cost figures cluttering that page.
+                        <strong style={{ color: 'var(--text-pure)' }}>How this works:</strong> <strong>Ingredient Costs</strong> sets the default procurement price per kg. Then build a weekly schedule under <strong>Ration Plans</strong> (or use the pre-loaded "Baseline" plan) — each plan can optionally override the price per ingredient for its own cost scenario, falling back to the default when left blank. Finally, switch to <strong>Pen Assignment</strong> to link a plan and cycle start date to each pen — the TMR Calculator will then auto-fill each pen's daily batch from the plan, with no cost figures cluttering that page.
                     </span>
                 </div>
             )}
@@ -310,7 +348,7 @@ export default function RationPlans() {
                                 </thead>
                                 <tbody>
                                     {rationPlans.map(plan => {
-                                        const weekCosts = (plan.weeks || []).map(w => estimateWeekCost(w.ingredients));
+                                        const weekCosts = (plan.weeks || []).map(w => estimateWeekCost(w.ingredients, plan.ingredientPrices));
                                         const minCost = weekCosts.length ? Math.min(...weekCosts) : null;
                                         const maxCost = weekCosts.length ? Math.max(...weekCosts) : null;
                                         return (
@@ -425,6 +463,36 @@ export default function RationPlans() {
                                     </div>
                                 )}
 
+                                {/* Per-plan procurement price overrides */}
+                                {formIngredientIds.length > 0 && (
+                                    <div style={{ marginBottom: '1rem', background: 'rgba(0,0,0,0.15)', padding: '0.8rem', borderRadius: '8px' }}>
+                                        <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '0.5rem' }}>
+                                            Procurement Price for this Plan (PKR/kg)
+                                        </label>
+                                        <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                                            {formIngredientIds.map(id => {
+                                                const ing = feedIngredients.find(i => i.id === id);
+                                                return (
+                                                    <div class="form-group" key={id} style={{ marginBottom: 0, minWidth: '140px' }}>
+                                                        <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{ing?.name || id}</label>
+                                                        <input
+                                                            type="number"
+                                                            step="0.1"
+                                                            class="form-control"
+                                                            placeholder={`${ing?.price ?? 0} (default)`}
+                                                            value={formIngredientPrices[id] ?? ''}
+                                                            onChange={e => handlePlanPriceChange(id, e.target.value)}
+                                                        />
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                        <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.5rem' }}>
+                                            Leave blank to use the default price set in Ingredient Costs. Only fill in a value here to override the price for this specific plan.
+                                        </small>
+                                    </div>
+                                )}
+
                                 {/* Weekly schedule table */}
                                 <div class="table-wrapper" style={{ marginBottom: '1rem' }}>
                                     <table class="data-table" style={{ fontSize: '0.8rem' }}>
@@ -474,7 +542,7 @@ export default function RationPlans() {
                                                         <input type="text" class="form-control" style={{ minWidth: '160px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.note} onChange={e => handleWeekFieldChange(idx, 'note', e.target.value)} placeholder="e.g. adaptation week" />
                                                     </td>
                                                     <td style={{ whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
-                                                        {Math.round(estimateWeekCost(w.ingredients))} PKR
+                                                        {Math.round(estimateWeekCost(w.ingredients, formIngredientPrices))} PKR
                                                     </td>
                                                     <td style={{ textAlign: 'center' }}>
                                                         <button type="button" onClick={() => handleRemoveWeek(idx)} style={{ background: 'none', border: 'none', color: 'hsl(0,75%,60%)', cursor: 'pointer' }} title="Remove week">
@@ -509,6 +577,15 @@ export default function RationPlans() {
             {/* ═══ TAB: PEN ASSIGNMENT ═══ */}
             {activeTab === 'pens' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+
+                    {unassignedPens.length > 0 && (
+                        <div style={{ background: 'rgba(255, 193, 7, 0.05)', border: '1px solid rgba(255, 193, 7, 0.15)', borderRadius: '8px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
+                            <i class="fa-solid fa-triangle-exclamation" style={{ color: 'var(--accent-gold)', fontSize: '1.1rem', marginTop: '0.15rem' }}></i>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem', lineHeight: '1.5' }}>
+                                <strong style={{ color: 'var(--text-pure)' }}>{unassignedPens.length} pen{unassignedPens.length === 1 ? '' : 's'} with active animals have no Ration Plan assigned</strong> and can't be fed from the TMR Calculator: Pen {unassignedPens.join(', Pen ')}. Assign a plan below.
+                            </span>
+                        </div>
+                    )}
 
                     {isAdmin && (
                         <div class="glass-panel">
@@ -550,7 +627,7 @@ export default function RationPlans() {
                                                 <td>
                                                     <select
                                                         class="form-control"
-                                                        style={{ minHeight: '32px', height: '32px', padding: '0.2rem 0.5rem' }}
+                                                        style={{ minHeight: '32px', height: '32px', padding: '0.2rem 0.5rem', borderColor: unassignedPens.includes(penId) ? 'rgba(255, 193, 7, 0.5)' : undefined }}
                                                         value={penConfig.rationPlanId || ''}
                                                         onChange={e => handlePenFieldChange(penId, 'rationPlanId', e.target.value)}
                                                         disabled={!isAdmin}
@@ -560,6 +637,11 @@ export default function RationPlans() {
                                                             <option key={plan.id} value={plan.id}>{plan.name}</option>
                                                         ))}
                                                     </select>
+                                                    {unassignedPens.includes(penId) && (
+                                                        <span style={{ fontSize: '0.68rem', color: 'var(--accent-gold)', display: 'block', marginTop: '0.2rem' }}>
+                                                            <i class="fa-solid fa-triangle-exclamation"></i> Can't be fed
+                                                        </span>
+                                                    )}
                                                 </td>
                                                 <td>
                                                     <input
@@ -620,7 +702,7 @@ export default function RationPlans() {
                     <div style={{ background: 'rgba(255, 193, 7, 0.05)', border: '1px solid rgba(255, 193, 7, 0.15)', borderRadius: '8px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
                         <i class="fa-solid fa-circle-info" style={{ color: 'var(--accent-gold)', fontSize: '1.1rem', marginTop: '0.15rem' }}></i>
                         <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: '1.5' }}>
-                            Procurement price (PKR/kg) drives every cost figure across the portal (Ration Plan cost estimates, Feed &amp; Growth Report). This lives here, not on the TMR Calculator — the TMR page only shows quantities to feed, never prices.
+                            This is the <strong>default</strong> procurement price (PKR/kg), used whenever a Ration Plan doesn't set its own override. It drives cost figures across the portal (Ration Plan cost estimates, Feed &amp; Growth Report) and is also what the TMR Calculator's manual "All Pens" recipe (no plan attached) uses. To price an ingredient differently for a specific plan, set an override on that plan's editor instead — this page never lives on the TMR Calculator, which only shows quantities to feed, never prices.
                         </span>
                     </div>
 

@@ -1,5 +1,6 @@
 import React, { useContext, useState } from 'react';
 import { FarmContext } from '../context/FarmContext';
+import { formatDate } from '../utils/formatDate';
 
 const EVENT_META = {
     registered:    { icon: 'fa-plus-circle',        color: 'var(--accent-gold)' },
@@ -101,7 +102,7 @@ export default function ActivityFeed() {
                                 <span style={{ fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)', fontSize: '0.88rem', marginRight: '0.5rem' }}>{rfid}</span>
                                 <span style={{ color: 'var(--text-main)', fontSize: '0.83rem' }}>{item.note}</span>
                             </div>
-                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', flexShrink: 0, fontFamily: 'var(--font-heading)', whiteSpace: 'nowrap' }}>{item.date}</span>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', flexShrink: 0, fontFamily: 'var(--font-heading)', whiteSpace: 'nowrap' }}>{formatDate(item.date)}</span>
                         </div>
                     );
                 })}

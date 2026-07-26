@@ -1,6 +1,7 @@
 import React, { useContext, useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { FarmContext } from '../context/FarmContext';
+import { formatDate } from '../utils/formatDate';
 
 export default function WeightTracker() {
     const { animals, weightLogs, logWeight, deleteWeightLog, updateWeightLog, systemParams } = useContext(FarmContext);
@@ -231,7 +232,7 @@ export default function WeightTracker() {
                                     <span>Breed: <strong style={{ color: 'var(--text-pure)' }}>{currentAnimal.breed}</strong></span>
                                     <span>Last Wt: <strong style={{ color: 'var(--text-pure)' }}>{currentAnimal.currentWeight} kg</strong></span>
                                     {currentAnimal.pen && <span>Pen: <strong style={{ color: 'var(--accent-gold)' }}>{currentAnimal.pen}</strong></span>}
-                                    {getLastWeighDate(currentAnimal.id) && <span>Last Weighed: <strong style={{ color: 'var(--text-pure)' }}>{getLastWeighDate(currentAnimal.id)}</strong></span>}
+                                    {getLastWeighDate(currentAnimal.id) && <span>Last Weighed: <strong style={{ color: 'var(--text-pure)' }}>{formatDate(getLastWeighDate(currentAnimal.id))}</strong></span>}
                                 </div>
                             </div>
 
@@ -479,7 +480,7 @@ export default function WeightTracker() {
                             <tbody>
                                 {animalHistory.map(log => (
                                     <tr key={log.id}>
-                                        <td>{log.date}</td>
+                                        <td>{formatDate(log.date)}</td>
                                         <td><strong>{log.weight} kg</strong></td>
                                         <td>
                                             {log.adg > 0 ? (
@@ -526,7 +527,7 @@ export default function WeightTracker() {
                                     <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '600', color: 'var(--text-pure)' }}>
                                         {getRfid(log.animalId)}
                                     </td>
-                                    <td>{log.date}</td>
+                                    <td>{formatDate(log.date)}</td>
                                     <td><strong>{log.weight} kg</strong></td>
                                     <td style={{ fontFamily: 'var(--font-heading)' }}>
                                         {log.adg > 0 ? (

@@ -1,5 +1,6 @@
 import React, { useContext, useState } from 'react';
 import { FarmContext } from '../context/FarmContext';
+import { formatDate } from '../utils/formatDate';
 
 export default function MedicalLog() {
     const { animals, treatments, addTreatment, deleteTreatment, medCategories } = useContext(FarmContext);
@@ -231,7 +232,7 @@ export default function MedicalLog() {
                                         <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '600', color: 'var(--text-pure)' }}>
                                             {getRfid(t.animalId)}
                                         </td>
-                                        <td>{t.date}</td>
+                                        <td>{formatDate(t.date)}</td>
                                         <td>{t.type}</td>
                                         <td><strong>{t.medicine}</strong> ({t.dosage})</td>
                                         <td>{t.withholding} Days</td>

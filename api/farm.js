@@ -211,6 +211,15 @@ async function ensureColumns(client) {
             ADD COLUMN IF NOT EXISTS protocol_task_id VARCHAR(50) DEFAULT NULL
     `);
 
+    // Per-plan ingredient price overrides (PKR/kg) — procurement cost is set per Ration
+    // Plan, not globally, since different plans/scenarios can assume different sourcing
+    // costs. Missing/unset ingredient ids in this map fall back to the global feed
+    // ingredient price (used by the "All Pens" manual TMR recipe with no plan attached).
+    await client.query(`
+        ALTER TABLE ba_ration_plans
+            ADD COLUMN IF NOT EXISTS ingredient_prices JSONB DEFAULT '{}'
+    `);
+
     // Event log table — safe CREATE IF NOT EXISTS
     await client.query(`
         CREATE TABLE IF NOT EXISTS ba_events (
@@ -360,6 +369,7 @@ async function ensureTables(client) {
                 description TEXT,
                 adg_floor NUMERIC DEFAULT 1.0,
                 weeks JSONB NOT NULL DEFAULT '[]',
+                ingredient_prices JSONB DEFAULT '{}',
                 is_default BOOLEAN DEFAULT FALSE,
                 created_by VARCHAR(150),
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -571,6 +581,7 @@ async function ensureTables(client) {
             description TEXT,
             adg_floor NUMERIC DEFAULT 1.0,
             weeks JSONB NOT NULL DEFAULT '[]',
+            ingredient_prices JSONB DEFAULT '{}',
             is_default BOOLEAN DEFAULT FALSE,
             created_by VARCHAR(150),
             created_at TIMESTAMP DEFAULT NOW(),
@@ -994,6 +1005,7 @@ module.exports = async (req, res) => {
                 description: row.description || '',
                 adgFloor: parseFloat(row.adg_floor || 1.0),
                 weeks: typeof row.weeks === 'string' ? JSON.parse(row.weeks) : row.weeks,
+                ingredientPrices: (typeof row.ingredient_prices === 'string' ? JSON.parse(row.ingredient_prices) : row.ingredient_prices) || {},
                 isDefault: row.is_default,
                 createdBy: row.created_by || null
             }));
@@ -1420,25 +1432,26 @@ module.exports = async (req, res) => {
             }
 
             if (action === 'SAVE_RATION_PLAN') {
-                const { id, name, description, adgFloor, weeks, isDefault } = payload;
+                const { id, name, description, adgFloor, weeks, ingredientPrices, isDefault } = payload;
 
                 if (!id || !name) {
                     return res.status(400).json({ success: false, error: "Plan id and name are required" });
                 }
 
                 await client.query(`
-                    INSERT INTO ba_ration_plans (id, name, description, adg_floor, weeks, is_default, created_by, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+                    INSERT INTO ba_ration_plans (id, name, description, adg_floor, weeks, ingredient_prices, is_default, created_by, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
                     ON CONFLICT (id) DO UPDATE SET
                         name = EXCLUDED.name,
                         description = EXCLUDED.description,
                         adg_floor = EXCLUDED.adg_floor,
                         weeks = EXCLUDED.weeks,
+                        ingredient_prices = EXCLUDED.ingredient_prices,
                         is_default = EXCLUDED.is_default,
                         updated_at = NOW()
                 `, [
                     id, name, description || null, adgFloor || 1.0,
-                    JSON.stringify(weeks || []), !!isDefault, session ? session.email : null
+                    JSON.stringify(weeks || []), JSON.stringify(ingredientPrices || {}), !!isDefault, session ? session.email : null
                 ]);
 
                 return res.status(200).json({ success: true });

@@ -1,5 +1,6 @@
 import React, { useContext, useState } from 'react';
 import { FarmContext } from '../context/FarmContext';
+import { formatDate } from '../utils/formatDate';
 
 export default function SalesManager() {
     const { orders, updateOrderStatus, deleteOrder, animals } = useContext(FarmContext);
@@ -197,7 +198,7 @@ export default function SalesManager() {
                                             <td>
                                                 <strong style={{ color: order.hasLive ? 'var(--accent-gold)' : 'var(--text-pure)' }}>{order.id}</strong>
                                                 <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                                                    {new Date(order.date).toLocaleDateString()}
+                                                    {formatDate(order.date)}
                                                 </span>
                                             </td>
                                             <td>

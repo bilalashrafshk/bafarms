@@ -1,10 +1,11 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { FarmContext } from '../context/FarmContext';
+import { formatDate } from '../utils/formatDate';
 
 export default function TMRCalculator() {
     const {
-        feedIngredients, updateFeedIngredients, animals, staffUser, feedLogs, logFeed, deleteFeedLog,
-        pens, rationPlans, getPenRationRow
+        feedIngredients, animals, staffUser, feedLogs, logFeed, deleteFeedLog,
+        pens, getPenRationRow
     } = useContext(FarmContext);
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
 
@@ -36,26 +37,18 @@ export default function TMRCalculator() {
 
     // 1. LOCAL UI STATE
     const [animalsCount, setAnimalsCount] = useState(activeHerdCount || 1);
-    const [ingredients, setIngredients] = useState([]);
 
     const [isTractorMode, setIsTractorMode] = useState(false);
-    const [isSaved, setIsSaved] = useState(false);
 
     // Daily feed-log state (snapshotting what was actually fed — separate from the
-    // live recipe definition above, so recipe edits never rewrite past days)
+    // Ration Plan schedule itself, so schedule edits never rewrite past days)
     const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
     const [logSaved, setLogSaved] = useState(false);
 
-    // Procurement cost is set per-ingredient in Ration Plans → Ingredient Costs, not
-    // here. Ingredient quantities on this page are as-fed kg/head/day directly (no
-    // moisture/DM conversion); price is intentionally not shown on this page.
-
-    // Sync state from context when ready
-    useEffect(() => {
-        if (feedIngredients) {
-            setIngredients(feedIngredients);
-        }
-    }, [feedIngredients]);
+    // Rations are only ever set by a Ration Plan (managed under Ration Plans, not
+    // here). This page's job is strictly to feed today's plan-driven batch and
+    // calculate the total kg to mix — no recipe editing lives here. Procurement
+    // cost is likewise set per Ration Plan and never shown on this page.
 
     // Sync animalsCount when herd data loads/changes or pen selection changes
     useEffect(() => {
@@ -67,44 +60,37 @@ export default function TMRCalculator() {
         }
     }, [activeHerdCount, selectedTMRPen, animals]);
 
-    // 2. QUANTITY MATH — manual/global recipe mode. Ingredient quantities are as-fed
-    // kg/head/day directly (no moisture/DM conversion — small quantities like urea or
-    // minerals matter, so nothing here is rounded to whole kg; decimals are preserved
-    // all the way through to the batch table and feed log).
-    const calculatedIngredients = ingredients.map(ing => {
-        const wetSingle = ing.dmTarget;
-        const wetBatch = wetSingle * animalsCount;
-        const costSingle = wetSingle * ing.price;
-
-        return {
-            ...ing,
-            wetSingle,
-            wetBatch,
-            costSingle
-        };
-    });
-
+    // 2. QUANTITY MATH — plan-driven only. Ingredient quantities are as-fed kg/head/day
+    // straight from the Ration Plan's weekly schedule (no moisture/DM conversion — small
+    // quantities like urea or minerals matter, so nothing here is rounded to whole kg;
+    // decimals are preserved all the way through to the batch table and feed log).
     // Plan-driven quantities are already as-fed kg/head/day straight from the Ration
     // Plan's weekly schedule — just scale by head count, keeping full decimal precision.
+    // Price comes from this plan's own ingredientPrices override when set (procurement
+    // cost is configured per Ration Plan, not globally), falling back to the global
+    // feed ingredient price for any ingredient the plan hasn't overridden.
     const planIngredientRows = isPlanDriven
         ? Object.entries(resolvedPlanRow.week.ingredients).map(([id, qty]) => {
             const ing = feedIngredients.find(i => i.id === id) || { id, name: id, price: 0 };
+            const overridePrice = resolvedPlanRow.plan.ingredientPrices?.[id];
+            const price = (overridePrice !== undefined && overridePrice !== null && overridePrice !== '')
+                ? (parseFloat(overridePrice) || 0)
+                : (ing.price || 0);
             const qtyPerHead = planOverrides[id] !== undefined ? planOverrides[id] : qty;
             return {
                 id,
                 name: ing.name,
-                price: ing.price,
+                price,
                 planQty: qty,
                 qtyPerHead,
                 isOverridden: planOverrides[id] !== undefined,
                 wetBatch: qtyPerHead * animalsCount,
-                costSingle: qtyPerHead * ing.price
+                costSingle: qtyPerHead * price
             };
         })
         : [];
 
-    // Unified display array so the batch table / tractor mode / cost summary below
-    // work identically whether the pen is plan-driven or on the manual global recipe.
+    // Display array feeding the batch table / tractor mode / feed log below.
     const displayIngredients = isPlanDriven
         ? planIngredientRows.map(r => ({
             id: r.id,
@@ -112,23 +98,14 @@ export default function TMRCalculator() {
             dmTarget: r.qtyPerHead,
             wetSingle: r.qtyPerHead,
             wetBatch: r.wetBatch,
-            costSingle: r.costSingle
+            costSingle: r.costSingle,
+            price: r.price
         }))
-        : calculatedIngredients;
+        : [];
 
     const totalDM = displayIngredients.reduce((sum, ing) => sum + ing.dmTarget, 0);
     const totalBatchWeight = displayIngredients.reduce((sum, ing) => sum + ing.wetBatch, 0);
     const totalCostSingle = displayIngredients.reduce((sum, ing) => sum + ing.costSingle, 0);
-
-    // Updaters
-    const updateLocalIngredient = (id, field, value) => {
-        setIngredients(prev => prev.map(ing => {
-            if (ing.id === id) {
-                return { ...ing, [field]: value };
-            }
-            return ing;
-        }));
-    };
 
     const handlePlanOverride = (id, value) => {
         setPlanOverrides(prev => ({ ...prev, [id]: parseFloat(value) || 0 }));
@@ -142,21 +119,13 @@ export default function TMRCalculator() {
         });
     };
 
-    const handleSaveAllIngredients = (e) => {
-        if (e) e.preventDefault();
-        updateFeedIngredients(ingredients);
-        setIsSaved(true);
-        setTimeout(() => setIsSaved(false), 2500);
-    };
-
     // Snapshots the currently calculated batch (for the selected pen and date) into the
-    // immutable feed log — this records what was actually fed, distinct from the live
-    // recipe definition, so later recipe edits never alter this day's history.
+    // immutable feed log — this records what was actually fed, distinct from the Ration
+    // Plan schedule itself, so later schedule edits never alter this day's history.
     const handleLogFeed = () => {
-        const pen = selectedTMRPen === 'all' ? 'ALL' : selectedTMRPen;
-        const notes = isPlanDriven
-            ? `Auto-filled from ${resolvedPlanRow.plan.name}, Week ${resolvedPlanRow.week.week}${resolvedPlanRow.matchedByWeight ? '' : ' (matched by cycle day)'}`
-            : '';
+        if (!isPlanDriven) return;
+        const pen = selectedTMRPen;
+        const notes = `Auto-filled from ${resolvedPlanRow.plan.name}, Week ${resolvedPlanRow.week.week}${resolvedPlanRow.matchedByWeight ? '' : ' (matched by cycle day)'}`;
         logFeed({
             date: logDate,
             pen,
@@ -165,7 +134,7 @@ export default function TMRCalculator() {
                 id: ing.id,
                 name: ing.name,
                 dmTarget: ing.dmTarget,
-                price: feedIngredients.find(i => i.id === ing.id)?.price ?? 0,
+                price: ing.price,
                 wetSingle: ing.wetSingle,
                 wetBatch: ing.wetBatch,
                 costSingle: ing.costSingle
@@ -188,7 +157,8 @@ export default function TMRCalculator() {
             {/* Top Grid: Ingredients list and Batch Recipe Output */}
             <div class="tmr-grid">
 
-                {/* Left: either the plan-driven ration (auto-filled) or the manual global recipe editor */}
+                {/* Left: the plan-driven ration (auto-filled from the pen's assigned Ration Plan),
+                    or an empty-state prompt when no plan is attached — rations are never set here */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
 
                     {isPlanDriven ? (
@@ -257,89 +227,20 @@ export default function TMRCalculator() {
                             </p>
                         </div>
                     ) : (
-                    <>
-                    {/* Unified Formulation Card (manual / global recipe mode) — quantities only.
-                        Ingredient prices and moisture % are configured under
-                        Ration Plans → Ingredient Costs, not here. */}
-                    <div class="glass-panel">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '1rem' }}>
-                            <h3 class="panel-title" style={{ margin: 0 }}><i class="fa-solid fa-flask"></i> Ingredients & Recipe</h3>
-                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                                No plan assigned to this pen — using the manual fallback recipe
-                            </span>
+                        /* Rations are only ever set by a Ration Plan (under Ration Plans) — this
+                           page never allows a manual/global recipe. Nothing to feed or calculate
+                           until a plan is assigned to the selected pen. */
+                        <div class="glass-panel" style={{ textAlign: 'center', padding: '2.5rem 1.5rem' }}>
+                            <i class="fa-solid fa-clipboard-list" style={{ fontSize: '2rem', color: 'var(--text-muted)', marginBottom: '1rem' }}></i>
+                            <h3 class="panel-title" style={{ justifyContent: 'center', marginBottom: '0.5rem' }}>
+                                {selectedTMRPen === 'all' ? 'Select a Pen' : `No Ration Plan Assigned — Pen ${selectedTMRPen}`}
+                            </h3>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '440px', margin: '0 auto' }}>
+                                {selectedTMRPen === 'all'
+                                    ? 'Choose a pen above to feed. Every ration comes from a Ration Plan — nothing is fed without one.'
+                                    : 'This pen has no Ration Plan attached, so there\'s nothing to feed or calculate here. Assign one under Ration Plans → Pen Assignment.'}
+                            </p>
                         </div>
-
-                        {/* Ingredients Table (Desktop) */}
-                        <form onSubmit={handleSaveAllIngredients}>
-                            <div className="table-wrapper" style={{ marginBottom: '1.2rem' }}>
-                                <table className="data-table" style={{ fontSize: '0.85rem' }}>
-                                    <thead>
-                                        <tr>
-                                            <th>INGREDIENT</th>
-                                            <th>DM TARGET (KG/HEAD/DAY)</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {ingredients.map(ing => (
-                                            <tr key={ing.id}>
-                                                <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{ing.name}</td>
-                                                <td>
-                                                    <input
-                                                        type="number"
-                                                        step="0.01"
-                                                        className="form-control"
-                                                        style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '90px' }}
-                                                        value={ing.dmTarget}
-                                                        onChange={(e) => updateLocalIngredient(ing.id, 'dmTarget', parseFloat(e.target.value) || 0)}
-                                                        required
-                                                        disabled={!isAdmin}
-                                                    />
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            {/* Mobile Card Inputs */}
-                            <div className="mobile-card-list mobile-only" style={{ marginBottom: '1.2rem' }}>
-                                {ingredients.map(ing => (
-                                    <div key={ing.id} className="mobile-item-card">
-                                        <div className="mobile-item-card-header">
-                                            <span className="mobile-item-card-title">{ing.name}</span>
-                                        </div>
-                                        <div className="form-group" style={{ marginBottom: 0 }}>
-                                            <label style={{ fontSize: '0.72rem' }}>DM Target (kg/head/day)</label>
-                                            <input
-                                                type="number"
-                                                step="0.01"
-                                                className="form-control"
-                                                value={ing.dmTarget}
-                                                onChange={(e) => updateLocalIngredient(ing.id, 'dmTarget', parseFloat(e.target.value) || 0)}
-                                                disabled={!isAdmin}
-                                            />
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {isAdmin ? (
-                                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                                    <button type="submit" className="btn btn-secondary" style={{ width: '100%', minHeight: '44px' }}><i className="fa-solid fa-floppy-disk"></i> Save Formulation</button>
-                                    {isSaved && (
-                                        <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
-                                            <i className="fa-solid fa-circle-check"></i> Saved!
-                                        </span>
-                                    )}
-                                </div>
-                            ) : (
-                                <span style={{ fontSize: '0.85rem', color: 'var(--accent-gold)', fontWeight: '600' }}>
-                                    <i className="fa-solid fa-circle-info"></i> Recipe viewing mode.
-                                </span>
-                            )}
-                        </form>
-                    </div>
-                    </>
                     )}
 
                 </div>
@@ -351,7 +252,7 @@ export default function TMRCalculator() {
                         <div class="glass-panel" style={{ borderTop: '4px solid var(--accent-gold)' }}>
                             <div class="form-header-bar" style={{ marginBottom: '1.2rem', gap: '1rem', flexWrap: 'wrap' }}>
                                 <h3 class="panel-title" style={{ marginBottom: '0' }}><i class="fa-solid fa-scale-balanced"></i> Batch Recipe</h3>
-                                <button type="button" class="btn btn-secondary" style={{ minHeight: '44px' }} onClick={() => setIsTractorMode(true)}>
+                                <button type="button" class="btn btn-secondary" style={{ minHeight: '44px' }} onClick={() => setIsTractorMode(true)} disabled={!isPlanDriven}>
                                     <i class="fa-solid fa-tractor"></i> Tractor Mode
                                 </button>
                             </div>
@@ -377,7 +278,7 @@ export default function TMRCalculator() {
                                                     class={`filter-btn ${selectedTMRPen === p ? 'active' : ''}`}
                                                     style={{ fontSize: '0.7rem', minHeight: '26px', padding: '0.15rem 0.5rem' }}
                                                     onClick={() => setSelectedTMRPen(p)}
-                                                    title={hasPlan ? 'Has a Ration Plan assigned — selecting this pen auto-fills the batch' : 'No Ration Plan assigned — manual recipe only'}
+                                                    title={hasPlan ? 'Has a Ration Plan assigned — selecting this pen auto-fills the batch' : 'No Ration Plan assigned — assign one under Ration Plans to feed this pen'}
                                                 >Pen {p} ({penCount}){hasPlan && ' \u2713'}</button>
                                             );
                                         })}
@@ -400,69 +301,77 @@ export default function TMRCalculator() {
                                 </div>
                             </div>
 
-                            <div class="table-wrapper" style={{ marginBottom: '1.2rem' }}>
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>FEED INGREDIENT</th>
-                                            <th>{isPlanDriven ? 'QTY / HEAD' : 'DM TARGET'}</th>
-                                            <th>WET WT / ANIMAL</th>
-                                            <th>BATCH WEIGHT</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {displayIngredients.map(ing => (
-                                            <tr key={ing.id}>
-                                                <td><strong>{ing.name}</strong></td>
-                                                <td>{ing.dmTarget.toFixed(2)} kg</td>
-                                                <td>{ing.wetSingle.toFixed(2)} kg</td>
-                                                <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{ing.wetBatch.toFixed(2)} kg</strong></td>
-                                            </tr>
-                                        ))}
-                                        <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                                            <td><strong>Total Feed Mix</strong></td>
-                                            <td><strong>{totalDM.toFixed(2)} kg</strong></td>
-                                            <td><strong>{displayIngredients.reduce((sum, ing) => sum + ing.wetSingle, 0).toFixed(2)} kg</strong></td>
-                                            <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{totalBatchWeight.toFixed(2)} kg</strong></td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
+                            {isPlanDriven ? (
+                                <>
+                                    <div class="table-wrapper" style={{ marginBottom: '1.2rem' }}>
+                                        <table class="data-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>FEED INGREDIENT</th>
+                                                    <th>QTY / HEAD</th>
+                                                    <th>WET WT / ANIMAL</th>
+                                                    <th>BATCH WEIGHT</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {displayIngredients.map(ing => (
+                                                    <tr key={ing.id}>
+                                                        <td><strong>{ing.name}</strong></td>
+                                                        <td>{ing.dmTarget.toFixed(2)} kg</td>
+                                                        <td>{ing.wetSingle.toFixed(2)} kg</td>
+                                                        <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{ing.wetBatch.toFixed(2)} kg</strong></td>
+                                                    </tr>
+                                                ))}
+                                                <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                                                    <td><strong>Total Feed Mix</strong></td>
+                                                    <td><strong>{totalDM.toFixed(2)} kg</strong></td>
+                                                    <td><strong>{displayIngredients.reduce((sum, ing) => sum + ing.wetSingle, 0).toFixed(2)} kg</strong></td>
+                                                    <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{totalBatchWeight.toFixed(2)} kg</strong></td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
 
-                            {/* Batch Weight Summary — cost figures live in Feed & Growth Report, not here */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.2rem', alignItems: 'center' }}>
-                                <div>
-                                    <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total batch to mix</span>
-                                    <strong style={{ fontSize: '1.4rem', color: 'var(--accent-gold)', fontFamily: 'var(--font-heading)' }}>
-                                        {totalBatchWeight.toFixed(2)} kg
-                                    </strong>
-                                </div>
-                                <div style={{ textAlign: 'right', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                                    For {animalsCount} animal{animalsCount === 1 ? '' : 's'}
-                                </div>
-                            </div>
+                                    {/* Batch Weight Summary — cost figures live in Feed & Growth Report, not here */}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.2rem', alignItems: 'center' }}>
+                                        <div>
+                                            <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total batch to mix</span>
+                                            <strong style={{ fontSize: '1.4rem', color: 'var(--accent-gold)', fontFamily: 'var(--font-heading)' }}>
+                                                {totalBatchWeight.toFixed(2)} kg
+                                            </strong>
+                                        </div>
+                                        <div style={{ textAlign: 'right', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                            For {animalsCount} animal{animalsCount === 1 ? '' : 's'}
+                                        </div>
+                                    </div>
 
-                            {/* Log Today's Feed — snapshots this batch as a dated, immutable
-                                record so it's known exactly what was fed which day and what
-                                it cost, independent of any later recipe edits. */}
-                            <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.2rem', marginTop: '1.2rem' }}>
-                                <input
-                                    type="date"
-                                    class="form-control"
-                                    style={{ width: '150px', minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.82rem' }}
-                                    value={logDate}
-                                    max={new Date().toISOString().split('T')[0]}
-                                    onChange={(e) => setLogDate(e.target.value)}
-                                />
-                                <button type="button" class="btn btn-primary btn-sm" onClick={handleLogFeed}>
-                                    <i class="fa-solid fa-clipboard-check"></i> Log This Feeding ({selectedTMRPen === 'all' ? 'All Pens' : `Pen ${selectedTMRPen}`})
-                                </button>
-                                {logSaved && (
-                                    <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
-                                        <i class="fa-solid fa-circle-check"></i> Feed logged for {logDate}.
-                                    </span>
-                                )}
-                            </div>
+                                    {/* Log Today's Feed — snapshots this batch as a dated, immutable
+                                        record so it's known exactly what was fed which day and what
+                                        it cost, independent of any later Ration Plan edits. */}
+                                    <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.2rem', marginTop: '1.2rem' }}>
+                                        <input
+                                            type="date"
+                                            class="form-control"
+                                            style={{ width: '150px', minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.82rem' }}
+                                            value={logDate}
+                                            max={new Date().toISOString().split('T')[0]}
+                                            onChange={(e) => setLogDate(e.target.value)}
+                                        />
+                                        <button type="button" class="btn btn-primary btn-sm" onClick={handleLogFeed}>
+                                            <i class="fa-solid fa-clipboard-check"></i> Log This Feeding (Pen {selectedTMRPen})
+                                        </button>
+                                        {logSaved && (
+                                            <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
+                                                <i class="fa-solid fa-circle-check"></i> Feed logged for {formatDate(logDate)}.
+                                            </span>
+                                        )}
+                                    </div>
+                                </>
+                            ) : (
+                                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1.5rem 0' }}>
+                                    Nothing to calculate yet — select a pen with an assigned Ration Plan.
+                                </p>
+                            )}
                         </div>
                     ) : (
                         /* Tractor Mixing View Console — a genuine fullscreen overlay
@@ -516,7 +425,7 @@ export default function TMRCalculator() {
                             <tbody>
                                 {recentFeedLogs.map(log => (
                                     <tr key={`${log.date}__${log.pen}`}>
-                                        <td>{log.date}</td>
+                                        <td>{formatDate(log.date)}</td>
                                         <td>{log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`}</td>
                                         <td>{log.animalCount}</td>
                                         <td><strong style={{ color: 'var(--accent-gold)' }}>{(log.totalBatchKg || 0).toFixed(2)} kg</strong></td>
@@ -526,7 +435,13 @@ export default function TMRCalculator() {
                                                     type="button"
                                                     class="btn btn-secondary"
                                                     style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
-                                                    onClick={() => deleteFeedLog(log.date, log.pen)}
+                                                    onClick={() => {
+                                                        const penLabel = log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`;
+                                                        if (window.confirm(`Undo this feed log?\n\n${formatDate(log.date)} · ${penLabel} · ${(log.totalBatchKg || 0).toFixed(2)} kg\n\nThis also reverses the matching entry in the Feed Stock ledger and the Feed & Growth Report. This cannot be undone.`)) {
+                                                            deleteFeedLog(log.date, log.pen);
+                                                        }
+                                                    }}
+                                                    title="Undo this feed log"
                                                 >
                                                     <i class="fa-solid fa-trash-can"></i>
                                                 </button>

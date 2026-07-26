@@ -1,6 +1,7 @@
 import React, { useContext, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FarmContext } from '../context/FarmContext';
+import { formatDate } from '../utils/formatDate';
 
 export default function RotationPlanner() {
     const { animals, treatments, transitionAnimalStatus, recordSale, addTreatment, deleteTreatment, quarantineProtocols, systemParams } = useContext(FarmContext);
@@ -402,7 +403,7 @@ export default function RotationPlanner() {
                                         <tr key={a.id}>
                                             <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '600', color: 'var(--text-pure)' }}>{a.rfid}</td>
                                             <td>{a.breed}</td>
-                                            <td>{a.saleDate || '—'}</td>
+                                            <td>{formatDate(a.saleDate) || '—'}</td>
                                             <td>{a.buyerName || '—'}</td>
                                             <td>{(a.purchasePrice || 0).toLocaleString()} PKR</td>
                                             <td><strong>{a.salePrice ? a.salePrice.toLocaleString() + ' PKR' : '—'}</strong></td>

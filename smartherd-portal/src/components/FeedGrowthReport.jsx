@@ -1,5 +1,6 @@
 import React, { useContext, useState, useMemo } from 'react';
 import { FarmContext } from '../context/FarmContext';
+import { formatDate } from '../utils/formatDate';
 
 // Cross-references the dated feed-log ledger (what was fed, and its cost, on a given
 // day) against per-animal weight logs (ADG) to answer: for a chosen date range,
@@ -254,7 +255,7 @@ export default function FeedGrowthReport() {
                             <tbody>
                                 {filteredFeedLogs.map(log => (
                                     <tr key={`${log.date}__${log.pen}`}>
-                                        <td>{log.date}</td>
+                                        <td>{formatDate(log.date)}</td>
                                         <td>{log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`}</td>
                                         <td>{log.animalCount}</td>
                                         <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(log.totalCost).toLocaleString()} PKR</strong></td>
