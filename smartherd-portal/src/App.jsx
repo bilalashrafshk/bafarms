@@ -215,6 +215,16 @@ function AppContent() {
         return <Login onLoginSuccess={handleLoginSuccess} />;
     }
 
+    // Session genuinely expired (a real 401 from the server, not just an offline
+    // network blip) — block all further interaction with a full-screen sign-in
+    // gate rather than a dismissible corner badge, so no one keeps working under
+    // the illusion that changes are saving to the database. Nothing is lost:
+    // staffUser/pendingMutations stay intact in context, so the moment they sign
+    // back in, any locally-queued edits flush automatically.
+    if (sessionExpired) {
+        return <Login onLoginSuccess={handleLoginSuccess} reauth pendingCount={pendingMutations.length} />;
+    }
+
     return (
         <div class="app-container">
             
@@ -340,21 +350,6 @@ function AppContent() {
                             >
                                 <i className="fa-solid fa-triangle-exclamation"></i>
                                 <span>Sync Issues ({failedMutations.length})</span>
-                            </div>
-                        )}
-
-                        {/* Session expired mid-sync — NOT a real rejection, so deliberately no
-                            "Dismiss" option here. The change(s) are still safely queued locally;
-                            the only fix is to log back in so the queue can flush. */}
-                        {sessionExpired && (
-                            <div
-                                className="farm-badge"
-                                style={{ borderColor: 'rgba(220, 53, 69, 0.4)', color: 'hsl(0, 75%, 65%)', cursor: 'pointer' }}
-                                title={`Your login session expired, so ${pendingMutations.length} saved change(s) couldn't sync yet. Nothing was lost — click to log in again.`}
-                                onClick={handleLogout}
-                            >
-                                <i className="fa-solid fa-user-clock"></i>
-                                <span>Session Expired — Log In Again</span>
                             </div>
                         )}
 

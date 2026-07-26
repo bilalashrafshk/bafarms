@@ -172,9 +172,12 @@ export const FarmProvider = ({ children }) => {
         localStorage.setItem('ba_staff_user', JSON.stringify(userSession));
         setIsLoggedIn(true);
         setStaffUser(userSession);
-        // A fresh token means any mutations stuck on a 401 can now go through.
+        // A fresh token means any mutations stuck on a 401 can now go through. The
+        // staffUser?.token-keyed effect below picks up the change and flushes the
+        // queue before it re-fetches from the server — don't also kick off a flush
+        // here, or the two runs race and the GET can win, overwriting a just-queued
+        // edit (e.g. a pen ration assignment) with stale pre-edit server data.
         setSessionExpired(false);
-        setTimeout(flushQueue, 0);
     };
 
     // Attaches the staff session token (issued by /api/auth) to every write against
@@ -203,7 +206,11 @@ export const FarmProvider = ({ children }) => {
 
     const pendingRef = useRef(pendingMutations);
     const staffUserRef = useRef(staffUser);
-    const flushingRef = useRef(false);
+    // Holds the in-flight flush promise so concurrent callers (e.g. the post-login
+    // GET refresh racing the login flush) await the SAME run instead of each kicking
+    // off their own pass — that race is what used to let a fresh GET clobber a pen/
+    // ration-plan edit that hadn't finished (re-)saving yet after a re-login.
+    const flushPromiseRef = useRef(null);
 
     useEffect(() => { pendingRef.current = pendingMutations; }, [pendingMutations]);
     useEffect(() => { staffUserRef.current = staffUser; }, [staffUser]);
@@ -233,48 +240,57 @@ export const FarmProvider = ({ children }) => {
         return { res, data };
     };
 
-    const flushQueue = async () => {
-        if (flushingRef.current || typeof navigator !== 'undefined' && navigator.onLine === false) return;
-        flushingRef.current = true;
-        setIsSyncing(true);
-        try {
-            while (pendingRef.current.length > 0) {
-                const item = pendingRef.current[0];
+    const flushQueue = () => {
+        if (flushPromiseRef.current) return flushPromiseRef.current;
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve();
 
-                let res, data;
-                try {
-                    ({ res, data } = await sendMutationToServer(item.action, item.payload));
-                } catch (err) {
-                    // Offline / network error — stop here so ordering is preserved,
-                    // the item stays queued and we retry later.
-                    break;
-                }
-
-                if (res.status === 401) {
-                    // Session token expired/invalid — this mutation is still perfectly
-                    // valid, it just can't be authenticated right now. Leave it queued
-                    // (not failed) and stop the flush loop entirely, since every other
-                    // queued item will hit the same 401 with a stale token.
-                    setSessionExpired(true);
-                    break;
-                }
-
-                if (!res.ok || data.success === false) {
-                    // Server rejected it for a real reason (validation/permission/etc).
-                    // Don't let this block the rest of the queue, but never drop it
-                    // silently either.
-                    const failedItem = { ...item, error: data.error || `HTTP ${res.status}`, failedAt: Date.now() };
-                    setFailedMutations(prev => [...prev, failedItem]);
-                } else {
-                    setSessionExpired(false);
-                }
-
-                setPendingMutations(prev => prev.filter(p => p.id !== item.id));
-                pendingRef.current = pendingRef.current.filter(p => p.id !== item.id);
+        const run = (async () => {
+            setIsSyncing(true);
+            try {
+                await flushQueueBody();
+            } finally {
+                setIsSyncing(false);
+                flushPromiseRef.current = null;
             }
-        } finally {
-            flushingRef.current = false;
-            setIsSyncing(false);
+        })();
+        flushPromiseRef.current = run;
+        return run;
+    };
+
+    const flushQueueBody = async () => {
+        while (pendingRef.current.length > 0) {
+            const item = pendingRef.current[0];
+
+            let res, data;
+            try {
+                ({ res, data } = await sendMutationToServer(item.action, item.payload));
+            } catch (err) {
+                // Offline / network error — stop here so ordering is preserved,
+                // the item stays queued and we retry later.
+                break;
+            }
+
+            if (res.status === 401) {
+                // Session token expired/invalid — this mutation is still perfectly
+                // valid, it just can't be authenticated right now. Leave it queued
+                // (not failed) and stop the flush loop entirely, since every other
+                // queued item will hit the same 401 with a stale token.
+                setSessionExpired(true);
+                break;
+            }
+
+            if (!res.ok || data.success === false) {
+                // Server rejected it for a real reason (validation/permission/etc).
+                // Don't let this block the rest of the queue, but never drop it
+                // silently either.
+                const failedItem = { ...item, error: data.error || `HTTP ${res.status}`, failedAt: Date.now() };
+                setFailedMutations(prev => [...prev, failedItem]);
+            } else {
+                setSessionExpired(false);
+            }
+
+            setPendingMutations(prev => prev.filter(p => p.id !== item.id));
+            pendingRef.current = pendingRef.current.filter(p => p.id !== item.id);
         }
     };
 
@@ -327,6 +343,52 @@ export const FarmProvider = ({ children }) => {
         setFailedMutations(prev => prev.filter(f => f.id !== id));
     };
 
+    // ─── SLIDING SESSION ───
+    // Best-practice dashboards (Gmail, GitHub, Notion, etc.) don't log an active user
+    // out on a fixed timer — the session silently renews itself in the background as
+    // long as the person keeps using the app, and only truly expires after a long
+    // stretch of real inactivity. We do the same: as long as the current token is
+    // still valid, quietly trade it in for a fresh one before it gets anywhere near
+    // expiring, so staff are never randomly booted out mid-task.
+    const lastRefreshRef = useRef(0);
+    const refreshSession = async () => {
+        const current = staffUserRef.current;
+        if (!current?.token || current.provider === 'dev') return;
+
+        // Throttle — no need to hit the server more than once every few minutes even
+        // if focus/visibility events fire in a burst.
+        const now = Date.now();
+        if (now - lastRefreshRef.current < 5 * 60 * 1000) return;
+        lastRefreshRef.current = now;
+
+        try {
+            const res = await fetch('/api/auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${current.token}` },
+                body: JSON.stringify({ refresh: true })
+            });
+
+            if (res.status === 401 || res.status === 403) {
+                // The token is genuinely dead (not just "about to expire") — this is a
+                // real re-login case, not a network blip.
+                setSessionExpired(true);
+                return;
+            }
+
+            const data = await res.json().catch(() => ({}));
+            if (data.success && data.token) {
+                setStaffUser(prev => {
+                    if (!prev) return prev;
+                    const merged = { ...prev, ...data.user, token: data.token };
+                    localStorage.setItem('ba_staff_user', JSON.stringify(merged));
+                    return merged;
+                });
+            }
+        } catch (err) {
+            // Network error — say nothing, the next scheduled attempt will retry.
+        }
+    };
+
     useEffect(() => {
         // Ask the browser not to evict this origin's storage under storage pressure /
         // inactivity-based purges (Safari's 7-day script-writable-storage cap, iOS
@@ -336,21 +398,28 @@ export const FarmProvider = ({ children }) => {
         }
 
         flushQueue();
+        refreshSession();
         window.addEventListener('online', flushQueue);
         // iOS Safari's 'online' event is unreliable on cellular reconnects — also flush
         // whenever the app comes back to the foreground, which is when a field worker
-        // actually notices they have signal again.
-        window.addEventListener('focus', flushQueue);
+        // actually notices they have signal again. Also a good moment to silently renew
+        // the session, since "came back to the app" is exactly when a stale token would
+        // otherwise surprise them.
+        const onFocus = () => { flushQueue(); refreshSession(); };
+        window.addEventListener('focus', onFocus);
         const onVisibilityChange = () => {
-            if (document.visibilityState === 'visible') flushQueue();
+            if (document.visibilityState === 'visible') { flushQueue(); refreshSession(); }
         };
         document.addEventListener('visibilitychange', onVisibilityChange);
         const interval = setInterval(flushQueue, 20000);
+        // Belt-and-braces renewal for long-running tabs that never lose/regain focus.
+        const refreshInterval = setInterval(refreshSession, 15 * 60 * 1000);
         return () => {
             window.removeEventListener('online', flushQueue);
-            window.removeEventListener('focus', flushQueue);
+            window.removeEventListener('focus', onFocus);
             document.removeEventListener('visibilitychange', onVisibilityChange);
             clearInterval(interval);
+            clearInterval(refreshInterval);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -389,21 +458,25 @@ export const FarmProvider = ({ children }) => {
     const updateBreedsConfig = (newBreeds) => {
         setBreedsConfig(newBreeds);
         localStorage.setItem('ba_breeds_config', JSON.stringify(newBreeds));
+        persistMutation('SAVE_SETTINGS', { key: 'breeds_config', value: newBreeds });
     };
 
     const updateMedCategories = (newCategories) => {
         setMedCategories(newCategories);
         localStorage.setItem('ba_med_categories', JSON.stringify(newCategories));
+        persistMutation('SAVE_SETTINGS', { key: 'med_categories', value: newCategories });
     };
 
     const updateSystemParams = (newParams) => {
         setSystemParams(newParams);
         localStorage.setItem('ba_system_params', JSON.stringify(newParams));
+        persistMutation('SAVE_SETTINGS', { key: 'system_params', value: newParams });
     };
 
     const updateQuarantineProtocols = (newProtocols) => {
         setQuarantineProtocols(newProtocols);
         localStorage.setItem('ba_quarantine_protocols', JSON.stringify(newProtocols));
+        persistMutation('SAVE_SETTINGS', { key: 'quarantine_protocols', value: newProtocols });
     };
 
     // ─── INITIAL LOCAL SEEDS ───
@@ -651,7 +724,11 @@ export const FarmProvider = ({ children }) => {
     const [feedStockIssues, setFeedStockIssues] = useState(() => loadStoredData('ba_feed_stock_issues', []));
     // Share of the combined TMR "minerals" line attributed to Limestone vs Mineral Pack
     // (must sum to 1) — adjustable since the actual product mix varies by farm.
-    const [mineralSplitRatio, setMineralSplitRatio] = useState(() => loadStoredData('ba_mineral_split_ratio', 0.7));
+    const [mineralSplitRatio, setMineralSplitRatioState] = useState(() => loadStoredData('ba_mineral_split_ratio', 0.7));
+    const setMineralSplitRatio = (newRatio) => {
+        setMineralSplitRatioState(newRatio);
+        persistMutation('SAVE_SETTINGS', { key: 'mineral_split_ratio', value: newRatio });
+    };
 
     // Backfill derivedFromIngredientId onto any ledger saved to localStorage before this
     // auto-sync mapping existed, so existing farms don't lose the feature silently.
@@ -674,10 +751,17 @@ export const FarmProvider = ({ children }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const updateFeedStockItems = (newItems) => setFeedStockItems(newItems);
+    const updateFeedStockItems = (newItems) => {
+        setFeedStockItems(newItems);
+        persistMutation('SAVE_SETTINGS', { key: 'feed_stock_items', value: newItems });
+    };
 
     const setItemOpeningStock = (itemId, qty, value) => {
-        setFeedOpeningStock(prev => ({ ...prev, [itemId]: { qty: parseFloat(qty) || 0, value: parseFloat(value) || 0 } }));
+        setFeedOpeningStock(prev => {
+            const next = { ...prev, [itemId]: { qty: parseFloat(qty) || 0, value: parseFloat(value) || 0 } };
+            persistMutation('SAVE_SETTINGS', { key: 'feed_opening_stock', value: next });
+            return next;
+        });
     };
 
     const addFeedPurchase = (purchase) => {
@@ -691,11 +775,13 @@ export const FarmProvider = ({ children }) => {
             notes: purchase.notes || ''
         };
         setFeedPurchases(prev => [...prev, record]);
+        persistMutation('ADD_FEED_PURCHASE', record);
         return record;
     };
 
     const deleteFeedPurchase = (id) => {
         setFeedPurchases(prev => prev.filter(p => p.id !== id));
+        persistMutation('DELETE_FEED_PURCHASE', { id });
     };
 
     const addFeedStockIssue = (issue) => {
@@ -708,11 +794,13 @@ export const FarmProvider = ({ children }) => {
             notes: issue.notes || ''
         };
         setFeedStockIssues(prev => [...prev, record]);
+        persistMutation('ADD_FEED_STOCK_ISSUE', record);
         return record;
     };
 
     const deleteFeedStockIssue = (id) => {
         setFeedStockIssues(prev => prev.filter(i => i.id !== id));
+        persistMutation('DELETE_FEED_STOCK_ISSUE', { id });
     };
 
     // Merges auto-derived issues (from every "Log This Feeding" record in TMR — same
@@ -879,6 +967,13 @@ export const FarmProvider = ({ children }) => {
     // right after login rather than waiting for a page reload.
     useEffect(() => {
         const syncState = async () => {
+            // Replay any locally-queued writes (made while offline or mid-session-expiry)
+            // with the current token BEFORE pulling the "authoritative" snapshot below.
+            // Otherwise this GET can race the queued POST and win, overwriting a just-made
+            // edit (e.g. a pen ration assignment) with stale pre-edit server data — which is
+            // what made changes look like they "disappeared" right after logging back in.
+            await flushQueue();
+
             setFetchLoading(true);
             try {
                 const res = await fetch('/api/farm', { headers: authHeaders() });
@@ -909,6 +1004,24 @@ export const FarmProvider = ({ children }) => {
                             setRationPlans([defaultBaselineRationPlan]);
                             persistMutation('SAVE_RATION_PLAN', defaultBaselineRationPlan);
                         }
+
+                        // Server-persisted admin settings (breed roster, med categories, system
+                        // params, quarantine protocols, TMR recipe/prices, Feed Stock config) —
+                        // only trust these once the server has at least one saved, so a
+                        // brand-new/never-configured DB doesn't stomp the local defaults.
+                        if (data.settings) {
+                            const s = data.settings;
+                            if (s.breeds_config) setBreedsConfig(s.breeds_config);
+                            if (s.med_categories) setMedCategories(s.med_categories);
+                            if (s.system_params) setSystemParams(s.system_params);
+                            if (s.quarantine_protocols) setQuarantineProtocols(s.quarantine_protocols);
+                            if (s.feed_ingredients) setFeedIngredients(s.feed_ingredients);
+                            if (s.feed_stock_items) setFeedStockItems(s.feed_stock_items);
+                            if (s.feed_opening_stock) setFeedOpeningStock(s.feed_opening_stock);
+                            if (s.mineral_split_ratio !== undefined) setMineralSplitRatioState(s.mineral_split_ratio);
+                        }
+                        if (data.feedPurchases) setFeedPurchases(data.feedPurchases);
+                        if (data.feedStockIssues) setFeedStockIssues(data.feedStockIssues);
                     }
 
                     const hasSalesAccess = !!(data.session && data.session.accessSales);
@@ -1207,27 +1320,36 @@ export const FarmProvider = ({ children }) => {
     };
 
     const updateTMRPrices = (prices) => {
-        setFeedIngredients(prev => prev.map(ing => {
-            if (ing.id === 'silage' && prices.silagePrice !== undefined) return { ...ing, price: prices.silagePrice };
-            if (ing.id === 'cottonseed' && prices.cottonseedPrice !== undefined) return { ...ing, price: prices.cottonseedPrice };
-            if (ing.id === 'straw' && prices.strawPrice !== undefined) return { ...ing, price: prices.strawPrice };
-            if (ing.id === 'minerals' && prices.mineralsPrice !== undefined) return { ...ing, price: prices.mineralsPrice };
-            return ing;
-        }));
+        setFeedIngredients(prev => {
+            const next = prev.map(ing => {
+                if (ing.id === 'silage' && prices.silagePrice !== undefined) return { ...ing, price: prices.silagePrice };
+                if (ing.id === 'cottonseed' && prices.cottonseedPrice !== undefined) return { ...ing, price: prices.cottonseedPrice };
+                if (ing.id === 'straw' && prices.strawPrice !== undefined) return { ...ing, price: prices.strawPrice };
+                if (ing.id === 'minerals' && prices.mineralsPrice !== undefined) return { ...ing, price: prices.mineralsPrice };
+                return ing;
+            });
+            persistMutation('SAVE_SETTINGS', { key: 'feed_ingredients', value: next });
+            return next;
+        });
     };
 
     const updateFeedRecipe = (recipe) => {
-        setFeedIngredients(prev => prev.map(ing => {
-            if (ing.id === 'silage' && recipe.silageDM !== undefined) return { ...ing, dmTarget: recipe.silageDM };
-            if (ing.id === 'cottonseed' && recipe.cottonseedDM !== undefined) return { ...ing, dmTarget: recipe.cottonseedDM };
-            if (ing.id === 'straw' && recipe.strawDM !== undefined) return { ...ing, dmTarget: recipe.strawDM };
-            if (ing.id === 'minerals' && recipe.mineralsDM !== undefined) return { ...ing, dmTarget: recipe.mineralsDM };
-            return ing;
-        }));
+        setFeedIngredients(prev => {
+            const next = prev.map(ing => {
+                if (ing.id === 'silage' && recipe.silageDM !== undefined) return { ...ing, dmTarget: recipe.silageDM };
+                if (ing.id === 'cottonseed' && recipe.cottonseedDM !== undefined) return { ...ing, dmTarget: recipe.cottonseedDM };
+                if (ing.id === 'straw' && recipe.strawDM !== undefined) return { ...ing, dmTarget: recipe.strawDM };
+                if (ing.id === 'minerals' && recipe.mineralsDM !== undefined) return { ...ing, dmTarget: recipe.mineralsDM };
+                return ing;
+            });
+            persistMutation('SAVE_SETTINGS', { key: 'feed_ingredients', value: next });
+            return next;
+        });
     };
 
     const updateFeedIngredients = (newIngredients) => {
         setFeedIngredients(newIngredients);
+        persistMutation('SAVE_SETTINGS', { key: 'feed_ingredients', value: newIngredients });
     };
 
     // Snapshots what was actually fed today (or a chosen date) — ingredients, quantities

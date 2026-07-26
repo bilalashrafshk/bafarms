@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-export default function Login({ onLoginSuccess }) {
+export default function Login({ onLoginSuccess, reauth = false, pendingCount = 0 }) {
     // Multi-state indicators
     const [authError, setAuthError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -136,7 +136,7 @@ export default function Login({ onLoginSuccess }) {
                 {/* Brand Branding Header */}
                 <div className="login-logo-header" style={{ marginBottom: '2.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                     <img src="/smartherd-portal/logo_white.png?v=2" alt="BA Farms Logo" style={{ height: '220px', width: 'auto', display: 'block', margin: '0 auto 1rem auto' }} />
-                    <span className="portal-tag">STAFF OPERATIONS</span>
+                    <span className="portal-tag">{reauth ? 'SESSION EXPIRED' : 'STAFF OPERATIONS'}</span>
                 </div>
 
                 {isLoading ? (
@@ -147,7 +147,9 @@ export default function Login({ onLoginSuccess }) {
                 ) : (
                     <>
                         <p className="login-instructions" style={{ marginBottom: '2.2rem' }}>
-                            Access to the internal herd registry, RFID trace ledgers, and feed formulations is restricted to authorized staff only. Sign in with your registered Google account to continue.
+                            {reauth
+                                ? `You've been signed out for security after a period away. ${pendingCount > 0 ? `Don't worry — ${pendingCount} unsaved change${pendingCount === 1 ? '' : 's'} ${pendingCount === 1 ? 'is' : 'are'} saved safely on this device and will sync automatically the moment you sign back in. ` : ''}Please sign in again to continue.`
+                                : 'Access to the internal herd registry, RFID trace ledgers, and feed formulations is restricted to authorized staff only. Sign in with your registered Google account to continue.'}
                         </p>
 
                         {/* Authentication errors panel */}

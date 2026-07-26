@@ -27,7 +27,11 @@ if (!process.env.SESSION_SECRET) {
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
 const SESSION_SECRET = process.env.SESSION_SECRET;
-const SESSION_TTL = '7d';
+// Long baseline TTL — nothing in this portal is highly sensitive, and the client
+// silently refreshes the token (see the `refresh` branch below) every time the
+// staff member is actively using the app, so this is really just the "how long can
+// you go without opening the app before you have to sign in again" ceiling.
+const SESSION_TTL = '30d';
 
 const getEmailList = (envVal, fallback) => {
     if (!envVal) return fallback;
@@ -79,7 +83,47 @@ module.exports = async (req, res) => {
         return res.status(500).json({ success: false, error: 'Server auth is not configured (missing GOOGLE_CLIENT_ID). Contact an administrator.' });
     }
 
-    const { credential } = req.body || {};
+    const { credential, refresh } = req.body || {};
+
+    // ─── SLIDING SESSION REFRESH ───
+    // Called silently by the client (on focus, on an interval) while a staff member
+    // is actively using the portal, so a valid session never dies mid-use — it only
+    // needs a fresh Google sign-in if the token has actually expired (i.e. the app
+    // hasn't been opened in SESSION_TTL). This mirrors how most dashboards keep an
+    // active user signed in indefinitely without resorting to a short, hard timeout.
+    if (refresh) {
+        const authHeader = req.headers['authorization'] || req.headers['Authorization'];
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ success: false, error: 'Missing session token.' });
+        }
+
+        try {
+            const oldToken = authHeader.slice(7);
+            const decoded = jwt.verify(oldToken, SESSION_SECRET); // throws if actually expired/invalid
+
+            // Re-check authorization rather than trusting the old token's claims — if
+            // the staff allowlist changed since the token was issued, that revocation
+            // should take effect on the next refresh, not just on a future re-login.
+            const authResult = verifyAndAuthorizeEmail(decoded.email);
+            if (!authResult.authorized) {
+                return res.status(403).json({ success: false, error: 'Access has been revoked.' });
+            }
+
+            const user = {
+                name: decoded.name,
+                email: decoded.email,
+                picture: decoded.picture,
+                role: authResult.role,
+                provider: decoded.provider || 'Google'
+            };
+            const newToken = jwt.sign(user, SESSION_SECRET, { expiresIn: SESSION_TTL });
+
+            return res.status(200).json({ success: true, token: newToken, user });
+        } catch (err) {
+            return res.status(401).json({ success: false, error: 'Session token expired or invalid. Please sign in again.' });
+        }
+    }
+
     if (!credential) {
         return res.status(400).json({ success: false, error: 'Missing Google credential.' });
     }

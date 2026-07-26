@@ -374,6 +374,42 @@ async function ensureTables(client) {
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
             );
+
+            -- Generic single-value config store for the admin-editable settings that used
+            -- to be device-local only (breed roster, med categories, system params,
+            -- quarantine protocols, TMR recipe/prices, feed stock item list, opening
+            -- stock, mineral split ratio) — editing these on one device now persists for
+            -- every device/staff member instead of silently living only in that browser's
+            -- localStorage.
+            CREATE TABLE IF NOT EXISTS ba_settings (
+                key VARCHAR(50) PRIMARY KEY,
+                value JSONB NOT NULL,
+                updated_by VARCHAR(150),
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS ba_feed_purchases (
+                id VARCHAR(50) PRIMARY KEY,
+                item_id VARCHAR(50) NOT NULL,
+                date DATE NOT NULL,
+                quantity NUMERIC NOT NULL DEFAULT 0,
+                rate NUMERIC NOT NULL DEFAULT 0,
+                supplier VARCHAR(150),
+                notes TEXT,
+                created_by VARCHAR(150),
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS ba_feed_stock_issues (
+                id VARCHAR(50) PRIMARY KEY,
+                item_id VARCHAR(50) NOT NULL,
+                date DATE NOT NULL,
+                pen VARCHAR(20) NOT NULL DEFAULT 'ALL',
+                quantity NUMERIC NOT NULL DEFAULT 0,
+                notes TEXT,
+                created_by VARCHAR(150),
+                created_at TIMESTAMP DEFAULT NOW()
+            );
         `);
         return;
     }
@@ -549,6 +585,36 @@ async function ensureTables(client) {
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW()
         );
+
+        CREATE TABLE IF NOT EXISTS ba_settings (
+            key VARCHAR(50) PRIMARY KEY,
+            value JSONB NOT NULL,
+            updated_by VARCHAR(150),
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS ba_feed_purchases (
+            id VARCHAR(50) PRIMARY KEY,
+            item_id VARCHAR(50) NOT NULL,
+            date DATE NOT NULL,
+            quantity NUMERIC NOT NULL DEFAULT 0,
+            rate NUMERIC NOT NULL DEFAULT 0,
+            supplier VARCHAR(150),
+            notes TEXT,
+            created_by VARCHAR(150),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS ba_feed_stock_issues (
+            id VARCHAR(50) PRIMARY KEY,
+            item_id VARCHAR(50) NOT NULL,
+            date DATE NOT NULL,
+            pen VARCHAR(20) NOT NULL DEFAULT 'ALL',
+            quantity NUMERIC NOT NULL DEFAULT 0,
+            notes TEXT,
+            created_by VARCHAR(150),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
     `);
 }
 
@@ -585,7 +651,17 @@ const HERD_ACTIONS = new Set([
     'ADD_ANIMAL', 'LOG_WEIGHT', 'LOG_TREATMENT', 'TRANSITION_STATUS', 'LOG_EVENT',
     'DELETE_ANIMAL', 'UPDATE_ANIMAL', 'RECORD_DEATH', 'DELETE_WEIGHT_LOG', 'DELETE_TREATMENT',
     'LOG_FEED', 'DELETE_FEED_LOG', 'UPDATE_WEIGHT_LOGS_BATCH',
-    'SAVE_RATION_PLAN', 'DELETE_RATION_PLAN', 'SAVE_PEN', 'DELETE_PEN'
+    'SAVE_RATION_PLAN', 'DELETE_RATION_PLAN', 'SAVE_PEN', 'DELETE_PEN',
+    'SAVE_SETTINGS', 'ADD_FEED_PURCHASE', 'DELETE_FEED_PURCHASE',
+    'ADD_FEED_STOCK_ISSUE', 'DELETE_FEED_STOCK_ISSUE'
+]);
+
+// Allowlist of ba_settings keys the client is permitted to write — keeps SAVE_SETTINGS
+// from becoming an arbitrary key-value store for anything a compromised/buggy client
+// happens to send.
+const SETTINGS_KEYS = new Set([
+    'breeds_config', 'med_categories', 'system_params', 'quarantine_protocols',
+    'feed_ingredients', 'feed_stock_items', 'feed_opening_stock', 'mineral_split_ratio'
 ]);
 const SALES_ACTIONS = new Set([
     'UPDATE_ORDER_STATUS', 'DELETE_ORDER', 'UPDATE_ENQUIRY_STATUS', 'DELETE_ENQUIRY',
@@ -823,6 +899,15 @@ module.exports = async (req, res) => {
             const pensRes = canHerd
                 ? await client.query('SELECT * FROM ba_pens ORDER BY id ASC')
                 : { rows: [] };
+            const settingsRes = canHerd
+                ? await client.query('SELECT key, value FROM ba_settings')
+                : { rows: [] };
+            const feedPurchasesRes = canHerd
+                ? await client.query('SELECT * FROM ba_feed_purchases ORDER BY date DESC, created_at DESC')
+                : { rows: [] };
+            const feedStockIssuesRes = canHerd
+                ? await client.query('SELECT * FROM ba_feed_stock_issues ORDER BY date DESC, created_at DESC')
+                : { rows: [] };
             const ordersRes = canSales
                 ? await client.query('SELECT * FROM ba_orders ORDER BY created_at DESC')
                 : { rows: [] };
@@ -917,6 +1002,30 @@ module.exports = async (req, res) => {
                 id: row.id,
                 rationPlanId: row.ration_plan_id || null,
                 cycleStartDate: row.cycle_start_date ? formatDate(row.cycle_start_date) : null,
+                notes: row.notes || ''
+            }));
+
+            const settings = {};
+            settingsRes.rows.forEach(row => {
+                settings[row.key] = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+            });
+
+            const feedPurchases = feedPurchasesRes.rows.map(row => ({
+                id: row.id,
+                itemId: row.item_id,
+                date: formatDate(row.date),
+                quantity: parseFloat(row.quantity || 0),
+                rate: parseFloat(row.rate || 0),
+                supplier: row.supplier || '',
+                notes: row.notes || ''
+            }));
+
+            const feedStockIssues = feedStockIssuesRes.rows.map(row => ({
+                id: row.id,
+                itemId: row.item_id,
+                date: formatDate(row.date),
+                pen: row.pen,
+                quantity: parseFloat(row.quantity || 0),
                 notes: row.notes || ''
             }));
 
@@ -1029,7 +1138,7 @@ module.exports = async (req, res) => {
                 accessHerd: canHerd
             } : null;
 
-            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, feedLogs, rationPlans, pens, orders, meatCuts, enquiries, quotations, specSheets, session: sessionOut, staffPermissions });
+            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, feedLogs, rationPlans, pens, settings, feedPurchases, feedStockIssues, orders, meatCuts, enquiries, quotations, specSheets, session: sessionOut, staffPermissions });
         }
 
         // ─── POST ENDPOINT: LOG TRANSACTION DATA ───
@@ -1365,6 +1474,88 @@ module.exports = async (req, res) => {
             if (action === 'DELETE_PEN') {
                 const { id } = payload;
                 await client.query('DELETE FROM ba_pens WHERE id = $1', [id]);
+                return res.status(200).json({ success: true });
+            }
+
+            // Generic settings upsert — covers the breed roster, med categories, system
+            // params, quarantine protocols, TMR recipe/prices, feed stock item list,
+            // opening stock and mineral split ratio. All of these used to be device-local
+            // only; routing them through here means an edit made on one device/by one
+            // staff member is never silently invisible/lost on another.
+            if (action === 'SAVE_SETTINGS') {
+                const { key, value } = payload;
+
+                if (!key || !SETTINGS_KEYS.has(key)) {
+                    return res.status(400).json({ success: false, error: "Unknown or missing settings key" });
+                }
+                if (value === undefined) {
+                    return res.status(400).json({ success: false, error: "Settings value is required" });
+                }
+
+                await client.query(`
+                    INSERT INTO ba_settings (key, value, updated_by, updated_at)
+                    VALUES ($1, $2, $3, NOW())
+                    ON CONFLICT (key) DO UPDATE SET
+                        value = EXCLUDED.value,
+                        updated_by = EXCLUDED.updated_by,
+                        updated_at = NOW()
+                `, [key, JSON.stringify(value), session ? session.email : null]);
+
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'ADD_FEED_PURCHASE') {
+                const { id, itemId, date, quantity, rate, supplier, notes } = payload;
+
+                if (!id || !itemId || !date) {
+                    return res.status(400).json({ success: false, error: "Purchase id, item and date are required" });
+                }
+
+                await client.query(`
+                    INSERT INTO ba_feed_purchases (id, item_id, date, quantity, rate, supplier, notes, created_by, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                    ON CONFLICT (id) DO UPDATE SET
+                        item_id = EXCLUDED.item_id,
+                        date = EXCLUDED.date,
+                        quantity = EXCLUDED.quantity,
+                        rate = EXCLUDED.rate,
+                        supplier = EXCLUDED.supplier,
+                        notes = EXCLUDED.notes
+                `, [id, itemId, date, quantity || 0, rate || 0, supplier || null, notes || null, session ? session.email : null]);
+
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'DELETE_FEED_PURCHASE') {
+                const { id } = payload;
+                await client.query('DELETE FROM ba_feed_purchases WHERE id = $1', [id]);
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'ADD_FEED_STOCK_ISSUE') {
+                const { id, itemId, date, pen, quantity, notes } = payload;
+
+                if (!id || !itemId || !date) {
+                    return res.status(400).json({ success: false, error: "Issue id, item and date are required" });
+                }
+
+                await client.query(`
+                    INSERT INTO ba_feed_stock_issues (id, item_id, date, pen, quantity, notes, created_by, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                    ON CONFLICT (id) DO UPDATE SET
+                        item_id = EXCLUDED.item_id,
+                        date = EXCLUDED.date,
+                        pen = EXCLUDED.pen,
+                        quantity = EXCLUDED.quantity,
+                        notes = EXCLUDED.notes
+                `, [id, itemId, date, pen || 'ALL', quantity || 0, notes || null, session ? session.email : null]);
+
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'DELETE_FEED_STOCK_ISSUE') {
+                const { id } = payload;
+                await client.query('DELETE FROM ba_feed_stock_issues WHERE id = $1', [id]);
                 return res.status(200).json({ success: true });
             }
 
