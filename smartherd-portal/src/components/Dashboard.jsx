@@ -2,33 +2,34 @@ import React, { useContext } from 'react';
 import { FarmContext } from '../context/FarmContext';
 
 export default function Dashboard({ onNavigate }) {
-    const { animals, weightLogs, treatments, feedIngredients, transitionAnimalStatus, systemParams, orders } = useContext(FarmContext);
+    const { animals, weightLogs, treatments, feedLogs, transitionAnimalStatus, systemParams, orders } = useContext(FarmContext);
 
     // 1. DYNAMIC CALCULATIONS
 
-    // A. Calculate Current Feed Cost per Animal (PKR/Day)
-    // Formula: Sum of (DM Target * Wet Factor * PKR Price per wet kg)
-    const incorporateMoisture = (() => {
-        try {
-            const stored = localStorage.getItem('ba_tmr_incorporate_moisture');
-            return stored !== null ? JSON.parse(stored) : true;
-        } catch (e) {
-            return true;
-        }
-    })();
+    // A. Actual Daily Feed Cost per Animal (PKR/Day)
+    // Derived from the logged feed-log ledger (what was actually fed and its actual
+    // cost each day), not the live TMR recipe — rations and ingredient prices change
+    // day to day, so a recipe snapshot would be stale/misleading. Averaged across all
+    // days that have a feed log, split across the current active herd. Null (shown as
+    // "—") until at least one feeding has been logged, rather than defaulting to a
+    // fabricated number.
+    const activeAnimalCount = animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased').length;
+    const feedDaysLogged = new Set((feedLogs || []).map(f => f.date)).size;
+    const totalLoggedFeedCost = (feedLogs || []).reduce((sum, f) => sum + (f.totalCost || 0), 0);
+    const dailyCostPerAnimal = (feedDaysLogged > 0 && activeAnimalCount > 0)
+        ? totalLoggedFeedCost / feedDaysLogged / activeAnimalCount
+        : null;
 
-    const dailyCostPerAnimal = feedIngredients ? feedIngredients.reduce((total, ing) => {
-        const moisture = incorporateMoisture ? (ing.moisture ?? 0) : 0;
-        const wetFactor = moisture < 100 ? (100 / (100 - moisture)) : 1.0;
-        const wetWt = ing.dmTarget * wetFactor;
-        return total + (wetWt * ing.price);
-    }, 0) : 0;
-
-    // B. Calculate Herd Average ADG
+    // B. Herd Average ADG — from actual weight logs only. Null (shown as "—") until
+    // weight has actually been logged; no fallback/target default.
     const logsWithAdg = weightLogs.filter(w => w.adg > 0);
     const avgHerdAdg = logsWithAdg.length > 0
         ? parseFloat((logsWithAdg.reduce((sum, log) => sum + log.adg, 0) / logsWithAdg.length).toFixed(2))
-        : 1.25;
+        : null;
+
+    // A2. Actual Cost per kg Gained = actual logged feed cost/day ÷ actual herd ADG.
+    // Requires both real feeding logs and real weight logs; null otherwise.
+    const costPerKgGain = (dailyCostPerAnimal !== null && avgHerdAdg) ? dailyCostPerAnimal / avgHerdAdg : null;
 
     // C. Trigger Alerts for Underperforming Calves (ADG < 1.0 kg/day)
     const alertCalves = [];
@@ -232,10 +233,10 @@ export default function Dashboard({ onNavigate }) {
                         <h3>Average Daily Gain</h3>
                         <div class="stat-icon"><i class="fa-solid fa-weight-scale"></i></div>
                     </div>
-                    <div class="stat-val" style={{ color: avgHerdAdg >= 1.2 ? 'var(--primary-green-light)' : 'var(--accent-gold)' }}>
-                        {animals.length > 0 ? avgHerdAdg : '0.00'} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>kg/day</small>
+                    <div class="stat-val" style={avgHerdAdg !== null ? { color: avgHerdAdg >= 1.2 ? 'var(--primary-green-light)' : 'var(--accent-gold)' } : undefined}>
+                        {avgHerdAdg !== null ? avgHerdAdg : '—'} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>kg/day</small>
                     </div>
-                    <span class="stat-lbl">Target: 1.30 kg/day</span>
+                    <span class="stat-lbl">{avgHerdAdg !== null ? 'Target: 1.30 kg/day' : 'No weight logged yet'}</span>
                 </div>
 
                 {/* Feed Cost */}
@@ -244,23 +245,38 @@ export default function Dashboard({ onNavigate }) {
                         <h3>Daily Feed Cost</h3>
                         <div class="stat-icon"><i class="fa-solid fa-scale-balanced"></i></div>
                     </div>
-                    <div class="stat-val" style={{ color: dailyCostPerAnimal <= 300 ? 'var(--text-pure)' : 'hsl(0, 75%, 55%)' }}>
-                        {animals.length > 0 ? Math.round(dailyCostPerAnimal) : 0} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR/day</small>
+                    <div class="stat-val" style={dailyCostPerAnimal !== null ? { color: dailyCostPerAnimal <= 300 ? 'var(--text-pure)' : 'hsl(0, 75%, 55%)' } : undefined}>
+                        {dailyCostPerAnimal !== null ? Math.round(dailyCostPerAnimal) : '—'} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR/day</small>
                     </div>
 
                     {/* Live Dials */}
-                    <div class="budget-gauge-box">
-                        <div class="gauge-track">
-                            <div
-                                class={`gauge-bar ${dailyCostPerAnimal > 300 ? 'danger' : ''}`}
-                                style={{ width: `${animals.length > 0 ? Math.min(100, (dailyCostPerAnimal / 350) * 100) : 0}%` }}
-                            ></div>
+                    {dailyCostPerAnimal !== null && (
+                        <div class="budget-gauge-box">
+                            <div class="gauge-track">
+                                <div
+                                    class={`gauge-bar ${dailyCostPerAnimal > 300 ? 'danger' : ''}`}
+                                    style={{ width: `${Math.min(100, (dailyCostPerAnimal / 350) * 100)}%` }}
+                                ></div>
+                            </div>
+                            <div class="gauge-labels">
+                                <span>Target: 300 PKR</span>
+                                <span>Max: 350 PKR</span>
+                            </div>
                         </div>
-                        <div class="gauge-labels">
-                            <span>Target: 300 PKR</span>
-                            <span>Max: 350 PKR</span>
-                        </div>
+                    )}
+                    <span class="stat-lbl" style={{ color: 'var(--text-muted)' }}>{dailyCostPerAnimal !== null ? 'Avg. of logged feedings' : 'No feeding logged yet'}</span>
+                </div>
+
+                {/* Cost per kg Gained */}
+                <div class="glass-panel stat-box">
+                    <div class="stat-header">
+                        <h3>Cost / kg Gain</h3>
+                        <div class="stat-icon"><i class="fa-solid fa-money-bill-trend-up"></i></div>
                     </div>
+                    <div class="stat-val">
+                        {costPerKgGain !== null ? Math.round(costPerKgGain) : '—'} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR/kg</small>
+                    </div>
+                    <span class="stat-lbl" style={{ color: 'var(--text-muted)' }}>{costPerKgGain !== null ? 'Logged feed cost ÷ actual ADG' : 'Needs feeding + weight logs'}</span>
                 </div>
 
             </div>
