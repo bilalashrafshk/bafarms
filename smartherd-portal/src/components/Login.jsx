@@ -74,20 +74,6 @@ export default function Login({ onLoginSuccess, reauth = false, pendingCount = 0
         }
     };
 
-    const handleDevLogin = () => {
-        playBeep('success');
-        onLoginSuccess({
-            email: 'admin@bafarms.com',
-            name: 'BA Farms Admin',
-            role: 'Internal Corporate Staff',
-            isAdmin: true,
-            accessSales: true,
-            accessHerd: true,
-            provider: 'dev',
-            token: 'dev-token'
-        });
-    };
-
     // Initialize Google OneTap & Button mounting
     useEffect(() => {
         if (!window.google) {
@@ -163,32 +149,6 @@ export default function Login({ onLoginSuccess, reauth = false, pendingCount = 0
                         {/* Google OAuth GSI Button mount */}
                         <div className="google-btn-wrapper" style={{ margin: '1rem 0 0.5rem' }}>
                             <div ref={googleBtnRef} className="google-btn-mount"></div>
-                        </div>
-
-                        <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: '1px dashed rgba(255,255,255,0.1)' }}>
-                            <button
-                                onClick={handleDevLogin}
-                                type="button"
-                                style={{
-                                    width: '100%',
-                                    padding: '0.75rem 1.25rem',
-                                    borderRadius: '50px',
-                                    background: 'rgba(255, 193, 7, 0.1)',
-                                    border: '1px solid var(--accent-gold-glow)',
-                                    color: 'var(--accent-gold)',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '0.5rem',
-                                    fontWeight: '600',
-                                    fontSize: '0.9rem',
-                                    transition: 'all 0.2s ease'
-                                }}
-                            >
-                                <i className="fa-solid fa-user-shield"></i>
-                                <span>Staff / Demo Bypass Login</span>
-                            </button>
                         </div>
                     </>
                 )}

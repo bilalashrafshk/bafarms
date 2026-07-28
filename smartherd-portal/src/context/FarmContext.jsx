@@ -6,12 +6,7 @@ const loadStoredData = (key, defaultVal) => {
     try {
         const stored = localStorage.getItem(key);
         if (stored) {
-            const parsed = JSON.parse(stored);
-            if (false) { // seed detection removed — no more demo data
-                localStorage.removeItem(key);
-                return defaultVal;
-            }
-            return parsed;
+            return JSON.parse(stored);
         }
         return defaultVal;
     } catch (e) {
