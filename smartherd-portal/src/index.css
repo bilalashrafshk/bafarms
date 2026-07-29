@@ -261,6 +261,14 @@ body {
     position: relative;
     overflow: hidden;
     transition: var(--transition-smooth);
+    /* Flex items with overflow != visible get an automatic min-height of 0
+       (CSS flexbox spec), so inside a flex column (e.g. .page-content) this
+       panel could get squeezed shorter than its content by the layout engine
+       — and since overflow is hidden, the squeezed-out content (e.g. herd
+       table rows past the fold) just vanished with no scrollbar to reach it.
+       flex-shrink: 0 keeps it at its natural content height so the actual
+       page scroll container (.page-content) grows and scrolls instead. */
+    flex-shrink: 0;
 }
 
 .glass-panel:hover {
