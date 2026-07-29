@@ -15,13 +15,15 @@ import Settings from './components/Settings';
 import SalesManager from './components/SalesManager';
 import ListingsManager from './components/ListingsManager';
 import EnquiriesManager from './components/EnquiriesManager';
+import { formatDate } from './utils/formatDate';
 
 function AppContent() {
     const [activeTab, setActiveTab] = useState('dashboard');
     const {
         animals, logWeight, addTreatment, addAnimal, transitionAnimalStatus, fetchLoading, dbUnconfigured,
         isLoggedIn, staffUser, handleLoginSuccess, handleLogout, breedsConfig, medCategories, systemParams, quarantineProtocols,
-        enquiries, pendingMutations, failedMutations, isSyncing, retryFailedMutation, dismissFailedMutation, sessionExpired
+        enquiries, pendingMutations, failedMutations, isSyncing, retryFailedMutation, dismissFailedMutation, sessionExpired,
+        pendingApprovals, approvePendingChange, rejectPendingChange
     } = useContext(FarmContext);
 
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
@@ -30,9 +32,39 @@ function AppContent() {
     const canAccessSales = staffUser?.accessSales !== false;
     const canAccessHerd = staffUser?.accessHerd !== false;
     const isPermissionsAdmin = staffUser?.isAdmin === true || isAdmin;
+    // Strictly the DB-backed Super Admin flag (not the broader "Internal Corporate
+    // Staff" role) — this is the only flag the herd sensitive-field approval queue
+    // cares about, matching the server-side gate in api/farm.js.
+    const isSuperAdmin = staffUser?.isAdmin === true;
 
     const [showSyncPanel, setShowSyncPanel] = useState(false);
     const [showMobileMore, setShowMobileMore] = useState(false);
+    const [showApprovalsModal, setShowApprovalsModal] = useState(false);
+    const [rejectingId, setRejectingId] = useState(null);
+    const [rejectNote, setRejectNote] = useState('');
+    // Auto-open the approval queue once per session the moment a super admin logs
+    // in (or reloads) with at least one open request — this is the "popup on login"
+    // the review workflow is built around. Only fires once so re-rendering or the
+    // list shrinking as items are resolved doesn't keep forcing it back open.
+    const autoOpenedApprovalsRef = useRef(false);
+    useEffect(() => {
+        if (isSuperAdmin && pendingApprovals.length > 0 && !autoOpenedApprovalsRef.current) {
+            autoOpenedApprovalsRef.current = true;
+            setShowApprovalsModal(true);
+        }
+    }, [isSuperAdmin, pendingApprovals.length]);
+
+    const handleApprove = async (approval) => {
+        const result = await approvePendingChange(approval);
+        if (!result.success) alert(result.error || 'Could not approve request.');
+    };
+
+    const handleReject = async (approvalId) => {
+        const result = await rejectPendingChange(approvalId, rejectNote.trim() || null);
+        if (!result.success) alert(result.error || 'Could not reject request.');
+        setRejectingId(null);
+        setRejectNote('');
+    };
 
     // Global HUD Scanner States
     const [scannedTag, setScannedTag] = useState(null);
@@ -350,6 +382,19 @@ function AppContent() {
                             >
                                 <i className="fa-solid fa-triangle-exclamation"></i>
                                 <span>Sync Issues ({failedMutations.length})</span>
+                            </div>
+                        )}
+
+                        {/* Super-admin review queue for staged sensitive-field edits/deletes */}
+                        {isSuperAdmin && pendingApprovals.length > 0 && (
+                            <div
+                                className="farm-badge"
+                                style={{ borderColor: 'rgba(13, 110, 253, 0.4)', color: 'hsl(211, 90%, 68%)', cursor: 'pointer' }}
+                                title="Staff have staged edits/deletes awaiting your approval — click to review."
+                                onClick={() => setShowApprovalsModal(true)}
+                            >
+                                <i className="fa-solid fa-user-shield"></i>
+                                <span>Approvals ({pendingApprovals.length})</span>
                             </div>
                         )}
 
@@ -723,6 +768,77 @@ function AppContent() {
                                         <button class="btn btn-secondary" style={{ minHeight: '32px', padding: '0.35rem 0.8rem', fontSize: '0.75rem' }} onClick={() => retryFailedMutation(item.id)}>Retry</button>
                                         <button class="btn btn-secondary" style={{ minHeight: '32px', padding: '0.35rem 0.8rem', fontSize: '0.75rem' }} onClick={() => dismissFailedMutation(item.id)}>Dismiss</button>
                                     </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Super-admin approval queue — staged sensitive-field edits (purchase price,
+                entry weight) and delete requests from non-admin staff. Auto-opens on
+                login when there's something to review; also reopenable via the header
+                badge above at any time. */}
+            {showApprovalsModal && (
+                <div class="rfid-hud-overlay" onClick={() => { setShowApprovalsModal(false); setRejectingId(null); setRejectNote(''); }}>
+                    <div class="rfid-hud-card glass-panel" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
+                        <div class="rfid-hud-header">
+                            <span class="hud-status-title">🛡️ Staff Requests Awaiting Approval</span>
+                            <button class="hud-close" onClick={() => { setShowApprovalsModal(false); setRejectingId(null); setRejectNote(''); }}>
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                        <div class="rfid-hud-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                            {pendingApprovals.length === 0 ? (
+                                <p class="unregistered-help-text">Nothing awaiting approval.</p>
+                            ) : pendingApprovals.map(item => (
+                                <div key={item.id} class="hud-detail-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.6rem' }}>
+                                    <strong class="hud-value">
+                                        {item.action === 'DELETE_ANIMAL' ? 'Delete' : 'Edit'} — {item.animalRfid || `Animal #${item.animalId}`} ({item.animalBreed || '—'})
+                                    </strong>
+                                    <span class="hud-label">Requested by {item.requestedBy} · {formatDate(item.requestedAt)}</span>
+
+                                    {item.action === 'UPDATE_ANIMAL' && item.payload && (
+                                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                            {item.payload.entryWeight !== undefined && (
+                                                <div>Entry Weight: <strong style={{ color: 'var(--text-pure)' }}>{item.previousSnapshot?.entryWeight}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{item.payload.entryWeight}</strong> kg</div>
+                                            )}
+                                            {item.payload.purchasePrice !== undefined && (
+                                                <div>Purchase Price: <strong style={{ color: 'var(--text-pure)' }}>{item.previousSnapshot?.purchasePrice?.toLocaleString()}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{item.payload.purchasePrice?.toLocaleString()}</strong> PKR</div>
+                                            )}
+                                        </div>
+                                    )}
+                                    {item.action === 'DELETE_ANIMAL' && (
+                                        <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>
+                                            This will permanently remove the animal and its weight/treatment history.
+                                        </div>
+                                    )}
+
+                                    {rejectingId === item.id ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', width: '100%', marginTop: '0.3rem' }}>
+                                            <input
+                                                type="text"
+                                                class="form-control"
+                                                placeholder="Reason for rejecting (optional)"
+                                                value={rejectNote}
+                                                onChange={(e) => setRejectNote(e.target.value)}
+                                                autoFocus
+                                            />
+                                            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                                                <button class="btn btn-secondary" style={{ minHeight: '32px', padding: '0.35rem 0.8rem', fontSize: '0.75rem' }} onClick={() => { setRejectingId(null); setRejectNote(''); }}>Cancel</button>
+                                                <button class="btn btn-secondary" style={{ minHeight: '32px', padding: '0.35rem 0.8rem', fontSize: '0.75rem', borderColor: 'rgba(220, 53, 69, 0.4)', color: 'hsl(0, 75%, 65%)' }} onClick={() => handleReject(item.id)}>Confirm Reject</button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.3rem' }}>
+                                            <button class="btn btn-primary" style={{ minHeight: '32px', padding: '0.35rem 0.8rem', fontSize: '0.75rem' }} onClick={() => handleApprove(item)}>
+                                                <i className="fa-solid fa-check"></i> Approve
+                                            </button>
+                                            <button class="btn btn-secondary" style={{ minHeight: '32px', padding: '0.35rem 0.8rem', fontSize: '0.75rem' }} onClick={() => setRejectingId(item.id)}>
+                                                <i className="fa-solid fa-xmark"></i> Reject
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>

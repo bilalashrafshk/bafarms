@@ -231,6 +231,45 @@ async function ensureColumns(client) {
             created_at TIMESTAMP DEFAULT NOW()
         )
     `);
+
+    // Approval queue for sensitive herd changes made by non-super-admin staff: edits to
+    // an animal's purchase price / entry (gross) weight, and any animal deletion, are
+    // staged here instead of writing straight to ba_animals — a super admin (is_admin=true)
+    // must approve or reject before the change/delete actually lands. `payload` holds the
+    // proposed new field values (UPDATE_ANIMAL) or is NULL (DELETE_ANIMAL, the whole row is
+    // already captured in previous_snapshot). Reusing the SAME action names as the direct
+    // mutations (UPDATE_ANIMAL/DELETE_ANIMAL) rather than inventing separate request actions
+    // keeps this enforced server-side regardless of what the client sends.
+    // animal_id is deliberately NOT a foreign key here (unlike ba_events): an approved
+    // deletion request needs its own row to survive as a permanent audit record even
+    // after the animal it referred to is gone from ba_animals. animal_rfid/animal_breed
+    // are captured at request time for the same reason — a live join to ba_animals
+    // would go blank the moment the animal is deleted, erasing exactly the detail an
+    // audit trail exists to preserve.
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS ba_pending_approvals (
+            id SERIAL PRIMARY KEY,
+            action VARCHAR(30) NOT NULL,
+            animal_id INTEGER,
+            animal_rfid VARCHAR(50),
+            animal_breed VARCHAR(60),
+            payload JSONB,
+            previous_snapshot JSONB,
+            requested_by VARCHAR(150) NOT NULL,
+            requested_at TIMESTAMP DEFAULT NOW(),
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            reviewed_by VARCHAR(150),
+            reviewed_at TIMESTAMP,
+            review_note TEXT
+        )
+    `);
+    // Self-heal a table created before this schema settled: drop the cascading FK
+    // (so approval history survives an approved delete) and backfill the new columns.
+    await client.query(`
+        ALTER TABLE ba_pending_approvals DROP CONSTRAINT IF EXISTS ba_pending_approvals_animal_id_fkey;
+        ALTER TABLE ba_pending_approvals ADD COLUMN IF NOT EXISTS animal_rfid VARCHAR(50);
+        ALTER TABLE ba_pending_approvals ADD COLUMN IF NOT EXISTS animal_breed VARCHAR(60);
+    `);
 }
 
 // Self-healing database provision: creates tables and inserts baseline seeds on first boot
@@ -679,7 +718,7 @@ const SALES_ACTIONS = new Set([
     'SAVE_QUOTATION', 'UPDATE_QUOTATION_STATUS', 'DELETE_QUOTATION',
     'SAVE_SPEC_SHEET', 'DELETE_SPEC_SHEET', 'ADD_MEAT_CUT', 'UPDATE_MEAT_CUT', 'DELETE_MEAT_CUT'
 ]);
-const ADMIN_ONLY_ACTIONS = new Set(['RESET_DATABASE', 'UPDATE_STAFF_PERMISSIONS']);
+const ADMIN_ONLY_ACTIONS = new Set(['RESET_DATABASE', 'UPDATE_STAFF_PERMISSIONS', 'APPROVE_PENDING_CHANGE', 'REJECT_PENDING_CHANGE']);
 
 // Insert 6 default meat cuts if ba_meat_cuts is empty
 async function ensureDefaultCuts(client) {
@@ -936,6 +975,32 @@ module.exports = async (req, res) => {
                 ? await client.query('SELECT email, is_admin, access_sales, access_herd FROM ba_staff_permissions ORDER BY email ASC')
                 : { rows: [] };
 
+            // Super-admin's review queue: every open request from any staff member,
+            // regardless of who's logged in — this is what the login-triggered
+            // approval popup is built from. animal_rfid/animal_breed are read straight
+            // off ba_pending_approvals (captured at request time) rather than joined
+            // live to ba_animals, so they still display correctly for an approved
+            // deletion, where the animal itself is already gone.
+            const pendingApprovalsRes = (isStaff && perms && perms.isAdmin)
+                ? await client.query(`SELECT * FROM ba_pending_approvals WHERE status = 'pending' ORDER BY requested_at ASC`)
+                : { rows: [] };
+
+            // A staff member's own recent requests (any status) — lets a non-admin who
+            // submitted a sensitive-field edit or delete request see whether it's still
+            // pending, was approved, or was rejected (and why).
+            const myRequestsRes = (isStaff && canHerd)
+                ? await client.query(`
+                    SELECT * FROM ba_pending_approvals WHERE requested_by = $1 ORDER BY requested_at DESC LIMIT 30
+                `, [session.email.toLowerCase().trim()])
+                : { rows: [] };
+
+            // Super-admin's all-time approval history (any status) — backs the searchable
+            // "Approvals" audit tab in Settings, separate from the live pendingApprovals
+            // queue above which only ever shows open requests.
+            const allApprovalsRes = (isStaff && perms && perms.isAdmin)
+                ? await client.query(`SELECT * FROM ba_pending_approvals ORDER BY requested_at DESC LIMIT 500`)
+                : { rows: [] };
+
             const animals = animalsRes.rows.map(row => ({
                 id: row.id,
                 rfid: row.rfid,
@@ -1140,6 +1205,25 @@ module.exports = async (req, res) => {
                 accessHerd: r.access_herd
             }));
 
+            const mapApproval = (row) => ({
+                id: row.id,
+                action: row.action,
+                animalId: row.animal_id,
+                animalRfid: row.animal_rfid || null,
+                animalBreed: row.animal_breed || null,
+                payload: row.payload,
+                previousSnapshot: row.previous_snapshot,
+                requestedBy: row.requested_by,
+                requestedAt: row.requested_at,
+                status: row.status,
+                reviewedBy: row.reviewed_by || null,
+                reviewedAt: row.reviewed_at || null,
+                reviewNote: row.review_note || null
+            });
+            const pendingApprovals = pendingApprovalsRes.rows.map(mapApproval);
+            const myRequests = myRequestsRes.rows.map(mapApproval);
+            const allApprovals = allApprovalsRes.rows.map(mapApproval);
+
             const sessionOut = isStaff ? {
                 name: session.name,
                 email: session.email,
@@ -1150,7 +1234,7 @@ module.exports = async (req, res) => {
                 accessHerd: canHerd
             } : null;
 
-            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, feedLogs, rationPlans, pens, settings, feedPurchases, feedStockIssues, orders, meatCuts, enquiries, quotations, specSheets, session: sessionOut, staffPermissions });
+            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, feedLogs, rationPlans, pens, settings, feedPurchases, feedStockIssues, orders, meatCuts, enquiries, quotations, specSheets, session: sessionOut, staffPermissions, pendingApprovals, myRequests, allApprovals });
         }
 
         // ─── POST ENDPOINT: LOG TRANSACTION DATA ───
@@ -1278,12 +1362,80 @@ module.exports = async (req, res) => {
 
             if (action === 'DELETE_ANIMAL') {
                 const { animalId } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+
+                // Non-super-admins can't hard-delete an animal — stage a delete request
+                // for a super admin to approve instead of touching ba_animals at all.
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE animal_id = $1 AND action = 'DELETE_ANIMAL' AND status = 'pending'`,
+                        [animalId]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const animalRes = await client.query('SELECT * FROM ba_animals WHERE id = $1', [animalId]);
+                        if (animalRes.rows.length === 0) {
+                            return res.status(404).json({ success: false, error: 'Animal not found.' });
+                        }
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, animal_id, animal_rfid, animal_breed, payload, previous_snapshot, requested_by)
+                            VALUES ('DELETE_ANIMAL', $1, $2, $3, NULL, $4, $5)
+                        `, [animalId, animalRes.rows[0].rfid, animalRes.rows[0].breed, JSON.stringify(animalRes.rows[0]), session.email.toLowerCase().trim()]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
+
                 await client.query('DELETE FROM ba_animals WHERE id = $1', [animalId]);
                 return res.status(200).json({ success: true });
             }
 
             if (action === 'UPDATE_ANIMAL') {
                 const { id, rfid, breed, entryDate, entryWeight, targetWeight, purchasePrice, source, status, pen, price, desc, images } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+
+                const currentRes = await client.query('SELECT entry_weight, purchase_price FROM ba_animals WHERE id = $1', [id]);
+                if (currentRes.rows.length === 0) {
+                    return res.status(404).json({ success: false, error: 'Animal not found.' });
+                }
+                const current = currentRes.rows[0];
+                const newEntryWeight = parseFloat(entryWeight);
+                const newPurchasePrice = parseFloat(purchasePrice);
+                const entryWeightChanged = newEntryWeight !== parseFloat(current.entry_weight);
+                const purchasePriceChanged = newPurchasePrice !== parseFloat(current.purchase_price);
+
+                // Non-super-admins can't directly overwrite purchase price or entry (gross)
+                // weight — those two fields are queued for super-admin approval instead.
+                // Every other field (breed, source, status, pen, target weight, dates,
+                // listing price/desc/images) still saves immediately for any staff member
+                // with Herd access, same as before.
+                if (!isAdmin && (entryWeightChanged || purchasePriceChanged)) {
+                    const changes = {};
+                    if (entryWeightChanged) changes.entryWeight = newEntryWeight;
+                    if (purchasePriceChanged) changes.purchasePrice = newPurchasePrice;
+
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE animal_id = $1 AND action = 'UPDATE_ANIMAL' AND status = 'pending'`,
+                        [id]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, animal_id, animal_rfid, animal_breed, payload, previous_snapshot, requested_by)
+                            VALUES ('UPDATE_ANIMAL', $1, $2, $3, $4, $5, $6)
+                        `, [
+                            id, rfid, breed, JSON.stringify(changes),
+                            JSON.stringify({ entryWeight: parseFloat(current.entry_weight), purchasePrice: parseFloat(current.purchase_price) }),
+                            session.email.toLowerCase().trim()
+                        ]);
+                    }
+
+                    await client.query(`
+                        UPDATE ba_animals
+                        SET rfid = $1, breed = $2, entry_date = $3, target_weight = $4, source = $5, status = $6, pen = $7, price = $8, description = $9, images = $10
+                        WHERE id = $11
+                    `, [rfid, breed, entryDate, targetWeight, source, status, pen || null, price || null, desc || null, images ? JSON.stringify(images) : null, id]);
+
+                    return res.status(200).json({ success: true, pending: true, pendingFields: Object.keys(changes) });
+                }
+
                 await client.query(`
                     UPDATE ba_animals
                     SET rfid = $1, breed = $2, entry_date = $3, entry_weight = $4, target_weight = $5, purchase_price = $6, source = $7, status = $8, pen = $9, price = $10, description = $11, images = $12
@@ -1293,6 +1445,75 @@ module.exports = async (req, res) => {
                     price || null, desc || null, images ? JSON.stringify(images) : null,
                     id
                 ]);
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'APPROVE_PENDING_CHANGE') {
+                const { approvalId } = payload;
+                const appRes = await client.query(`SELECT * FROM ba_pending_approvals WHERE id = $1 AND status = 'pending'`, [approvalId]);
+                if (appRes.rows.length === 0) {
+                    return res.status(404).json({ success: false, error: 'Request not found or already resolved.' });
+                }
+                const approval = appRes.rows[0];
+                const changes = typeof approval.payload === 'string' ? JSON.parse(approval.payload) : approval.payload;
+                const today = new Date().toISOString().split('T')[0];
+
+                if (approval.action === 'UPDATE_ANIMAL') {
+                    const sets = [];
+                    const vals = [];
+                    let i = 1;
+                    if (changes && changes.entryWeight !== undefined) { sets.push(`entry_weight = $${i++}`); vals.push(changes.entryWeight); }
+                    if (changes && changes.purchasePrice !== undefined) { sets.push(`purchase_price = $${i++}`); vals.push(changes.purchasePrice); }
+                    if (sets.length > 0) {
+                        vals.push(approval.animal_id);
+                        await client.query(`UPDATE ba_animals SET ${sets.join(', ')} WHERE id = $${i}`, vals);
+                    }
+
+                    // Permanent audit trail entry on the animal's own activity timeline
+                    // (ba_pending_approvals already records the decision, but ba_events is
+                    // what ActivityFeed reads, so this is what surfaces it there too).
+                    const fieldSummary = [
+                        changes && changes.entryWeight !== undefined ? `Entry Weight → ${changes.entryWeight} kg` : null,
+                        changes && changes.purchasePrice !== undefined ? `Purchase Price → ${changes.purchasePrice.toLocaleString()} PKR` : null
+                    ].filter(Boolean).join(', ');
+                    await client.query(`
+                        INSERT INTO ba_events (animal_id, date, event_type, note)
+                        VALUES ($1, $2, 'approval_decision', $3)
+                    `, [approval.animal_id, today, `Approved edit — ${fieldSummary} (requested by ${approval.requested_by})`]);
+                } else if (approval.action === 'DELETE_ANIMAL') {
+                    await client.query('DELETE FROM ba_animals WHERE id = $1', [approval.animal_id]);
+                    // No ba_events row here — the animal (and its event history) is gone the
+                    // instant this runs. The ba_pending_approvals row itself, which is never
+                    // cascade-deleted, is the permanent audit record for this decision.
+                }
+
+                await client.query(
+                    `UPDATE ba_pending_approvals SET status = 'approved', reviewed_by = $1, reviewed_at = NOW() WHERE id = $2`,
+                    [session.email.toLowerCase().trim(), approvalId]
+                );
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'REJECT_PENDING_CHANGE') {
+                const { approvalId, note } = payload;
+                const result = await client.query(
+                    `UPDATE ba_pending_approvals SET status = 'rejected', reviewed_by = $1, reviewed_at = NOW(), review_note = $2 WHERE id = $3 AND status = 'pending' RETURNING animal_id, action, requested_by`,
+                    [session.email.toLowerCase().trim(), note || null, approvalId]
+                );
+                if (result.rowCount === 0) {
+                    return res.status(404).json({ success: false, error: 'Request not found or already resolved.' });
+                }
+
+                // Rejecting never touches ba_animals, so the animal is guaranteed to still
+                // exist — safe to log this on its timeline regardless of request type.
+                const resolved = result.rows[0];
+                const today = new Date().toISOString().split('T')[0];
+                const label = resolved.action === 'DELETE_ANIMAL' ? 'deletion' : 'edit';
+                await client.query(`
+                    INSERT INTO ba_events (animal_id, date, event_type, note)
+                    VALUES ($1, $2, 'approval_decision', $3)
+                `, [resolved.animal_id, today, `Rejected ${label} request from ${resolved.requested_by}${note ? ` — ${note}` : ''}`]);
+
                 return res.status(200).json({ success: true });
             }
 

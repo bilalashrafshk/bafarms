@@ -7,7 +7,8 @@ export default function Settings() {
         medCategories, updateMedCategories,
         systemParams, updateSystemParams,
         quarantineProtocols, updateQuarantineProtocols,
-        staffUser, staffPermissions, updateStaffPermission
+        staffUser, staffPermissions, updateStaffPermission,
+        allApprovals
     } = useContext(FarmContext);
 
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
@@ -46,6 +47,20 @@ export default function Settings() {
 
     // Tabs inside settings
     const [activeSettingsTab, setActiveSettingsTab] = useState('general');
+
+    // Local state for the Approvals audit tab
+    const [approvalsSearch, setApprovalsSearch] = useState('');
+    const [approvalsStatusFilter, setApprovalsStatusFilter] = useState('All');
+
+    const filteredApprovals = allApprovals.filter(a => {
+        const matchesStatus = approvalsStatusFilter === 'All' || a.status === approvalsStatusFilter.toLowerCase();
+        const q = approvalsSearch.trim().toLowerCase();
+        const matchesSearch = !q ||
+            (a.animalRfid || '').toLowerCase().includes(q) ||
+            (a.animalBreed || '').toLowerCase().includes(q) ||
+            (a.requestedBy || '').toLowerCase().includes(q);
+        return matchesStatus && matchesSearch;
+    });
 
     // General params submission
     const handleSaveParams = (e) => {
@@ -249,6 +264,14 @@ export default function Settings() {
                         onClick={() => setActiveSettingsTab('staffAccess')}
                     >
                         🔐 Staff Access
+                    </button>
+                )}
+                {isPermsAdmin && (
+                    <button
+                        class={`filter-btn ${activeSettingsTab === 'approvals' ? 'active' : ''}`}
+                        onClick={() => setActiveSettingsTab('approvals')}
+                    >
+                        🛡️ Approvals
                     </button>
                 )}
             </div>
@@ -686,6 +709,88 @@ export default function Settings() {
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* TAB CONTENT: APPROVALS AUDIT HISTORY (Super-Admin Only) */}
+            {activeSettingsTab === 'approvals' && isPermsAdmin && (
+                <div class="glass-panel animate-scale-up">
+                    <h3 class="panel-title"><i class="fa-solid fa-user-shield"></i> Sensitive-Field Approval History</h3>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginTop: '-0.5rem', marginBottom: '1rem' }}>
+                        Every entry-weight/purchase-price edit and animal deletion request submitted by non-admin staff, all-time — including who requested it, who reviewed it, and any rejection reason. Live open requests are also reviewable from the Approvals badge in the header.
+                    </p>
+
+                    <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <input
+                            type="text"
+                            class="form-control"
+                            style={{ maxWidth: '280px' }}
+                            placeholder="Search tag, breed, or requester..."
+                            value={approvalsSearch}
+                            onChange={e => setApprovalsSearch(e.target.value)}
+                        />
+                        {['All', 'Pending', 'Approved', 'Rejected'].map(s => (
+                            <button
+                                key={s}
+                                class={`filter-btn ${approvalsStatusFilter === s ? 'active' : ''}`}
+                                onClick={() => setApprovalsStatusFilter(s)}
+                            >
+                                {s} {s !== 'All' && `(${allApprovals.filter(a => a.status === s.toLowerCase()).length})`}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div class="table-wrapper">
+                        <table class="data-table" style={{ fontSize: '0.85rem' }}>
+                            <thead>
+                                <tr>
+                                    <th>ANIMAL</th>
+                                    <th>REQUEST</th>
+                                    <th>REQUESTED BY</th>
+                                    <th>REQUESTED AT</th>
+                                    <th>STATUS</th>
+                                    <th>REVIEWED BY</th>
+                                    <th>NOTE</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredApprovals.map(a => (
+                                    <tr key={a.id}>
+                                        <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>{a.animalRfid || `#${a.animalId}`} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({a.animalBreed || '—'})</span></td>
+                                        <td>
+                                            {a.action === 'DELETE_ANIMAL' ? 'Delete' : 'Edit'}
+                                            {a.action === 'UPDATE_ANIMAL' && a.payload && (
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                                    {a.payload.entryWeight !== undefined && <div>Entry Weight → {a.payload.entryWeight} kg</div>}
+                                                    {a.payload.purchasePrice !== undefined && <div>Purchase Price → {a.payload.purchasePrice.toLocaleString()} PKR</div>}
+                                                </div>
+                                            )}
+                                        </td>
+                                        <td>{a.requestedBy}</td>
+                                        <td>{new Date(a.requestedAt).toLocaleString()}</td>
+                                        <td>
+                                            <span style={{
+                                                fontSize: '0.72rem', padding: '0.1rem 0.5rem', borderRadius: '4px',
+                                                background: a.status === 'approved' ? 'rgba(25,135,84,0.12)' : a.status === 'rejected' ? 'rgba(220,53,69,0.12)' : 'rgba(255,193,7,0.12)',
+                                                color: a.status === 'approved' ? 'var(--primary-green-light)' : a.status === 'rejected' ? 'hsl(0, 75%, 65%)' : 'hsl(43,90%,53%)'
+                                            }}>
+                                                {a.status.toUpperCase()}
+                                            </span>
+                                        </td>
+                                        <td>{a.reviewedBy || '—'}</td>
+                                        <td style={{ color: a.reviewNote ? 'hsl(0, 75%, 70%)' : 'var(--text-muted)' }}>{a.reviewNote || '—'}</td>
+                                    </tr>
+                                ))}
+                                {filteredApprovals.length === 0 && (
+                                    <tr>
+                                        <td colSpan={7} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                            No approval requests match your filters.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             )}

@@ -9,6 +9,7 @@ const EVENT_META = {
     deceased:      { icon: 'fa-skull',              color: 'hsl(0,50%,50%)' },
     treatment:     { icon: 'fa-syringe',            color: 'hsl(280,60%,65%)' },
     weight:        { icon: 'fa-weight-scale',       color: 'hsl(160,55%,50%)' },
+    approval_decision: { icon: 'fa-user-shield',    color: 'var(--accent-gold)' },
 };
 
 export default function ActivityFeed() {

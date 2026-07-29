@@ -161,6 +161,18 @@ export const FarmProvider = ({ children }) => {
     // Admin-only roster of per-user Sales/Herd access (populated from GET when the
     // logged-in user is an admin; empty for everyone else).
     const [staffPermissions, setStaffPermissions] = useState([]);
+    // Super-admin's live review queue of staged sensitive-field edits/deletes from
+    // non-admin staff (populated from GET when the logged-in user is an admin; empty
+    // for everyone else). Drives the login-triggered approval popup.
+    const [pendingApprovals, setPendingApprovals] = useState([]);
+    // A non-admin staff member's own request history (any status) — lets them see
+    // whether their sensitive edit/delete request is still pending, was approved, or
+    // was rejected (and why).
+    const [myRequests, setMyRequests] = useState([]);
+    // Super-admin's all-time approval history (any status, up to 500 most recent) —
+    // backs the searchable Approvals audit tab in Settings, distinct from the live
+    // pendingApprovals queue which only ever holds open requests.
+    const [allApprovals, setAllApprovals] = useState([]);
 
     const handleLoginSuccess = (userSession) => {
         localStorage.setItem('ba_staff_logged_in', 'true');
@@ -233,6 +245,23 @@ export const FarmProvider = ({ children }) => {
         });
         const data = await res.json().catch(() => ({}));
         return { res, data };
+    };
+
+    // Cheap re-fetch used after a staged sensitive-field edit/delete request or an
+    // approve/reject decision, so the requester's/admin's approval lists reflect the
+    // new state immediately instead of waiting for the next login/page load.
+    const refreshApprovals = async () => {
+        try {
+            const res = await fetch('/api/farm', { headers: authHeaders() });
+            const data = await res.json().catch(() => ({}));
+            if (data.success) {
+                setPendingApprovals(data.pendingApprovals || []);
+                setMyRequests(data.myRequests || []);
+                setAllApprovals(data.allApprovals || []);
+            }
+        } catch (err) {
+            // Best-effort — the lists will catch up on next login/page load anyway.
+        }
     };
 
     const flushQueue = () => {
@@ -1036,6 +1065,9 @@ export const FarmProvider = ({ children }) => {
                         });
                     }
                     setStaffPermissions(data.staffPermissions || []);
+                    setPendingApprovals(data.pendingApprovals || []);
+                    setMyRequests(data.myRequests || []);
+                    setAllApprovals(data.allApprovals || []);
                 } else if (data.unconfigured) {
                     setDbUnconfigured(true);
                     console.warn("Neon Database connection string unconfigured. Utilizing offline localStorage backup.");
@@ -1213,7 +1245,28 @@ export const FarmProvider = ({ children }) => {
         persistMutation('TRANSITION_STATUS', { animalId: parseInt(animalId), status: nextStatus, date: today, note: `→ ${nextStatus}` });
     };
 
+    // Only Super Admins can hard-delete an animal directly. Everyone else's request
+    // is staged server-side as a pending approval instead — this function is
+    // deliberately non-optimistic for that path (mirroring recordSale) so the animal
+    // never disappears from a non-admin's view before a super admin actually signs
+    // off on the deletion.
     const deleteAnimal = async (animalId) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+
+        if (!isAdmin) {
+            try {
+                const { res, data } = await sendMutationToServer('DELETE_ANIMAL', { animalId });
+                if (!res.ok || data.success === false) {
+                    return { success: false, error: data.error || 'Delete request could not be submitted.' };
+                }
+                refreshApprovals();
+                return { success: true, pending: true };
+            } catch (err) {
+                console.error('DELETE_ANIMAL (pending) failed:', err);
+                return { success: false, error: 'Network error — request was not submitted. Please try again.' };
+            }
+        }
+
         // 1. Sync UI locally
         setAnimals(prev => prev.filter(a => a.id !== animalId));
         setWeightLogs(prev => prev.filter(w => w.animalId !== animalId));
@@ -1221,10 +1274,40 @@ export const FarmProvider = ({ children }) => {
 
         // 2. Queue DB transaction durably
         persistMutation('DELETE_ANIMAL', { animalId });
+        return { success: true };
     };
 
     const updateAnimal = async (updatedAnimal) => {
         const existing = animals.find(a => a.id === updatedAnimal.id);
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+
+        const newEntryWeight = updatedAnimal.entryWeight !== undefined ? parseFloat(updatedAnimal.entryWeight) : existing?.entryWeight;
+        const newPurchasePrice = updatedAnimal.purchasePrice !== undefined ? parseFloat(updatedAnimal.purchasePrice) : existing?.purchasePrice;
+        const sensitiveChanged = !!existing && (
+            newEntryWeight !== existing.entryWeight || newPurchasePrice !== existing.purchasePrice
+        );
+
+        // Non-admins can freely edit every field EXCEPT entry (gross) weight and
+        // purchase price — those two are staged for super-admin approval instead of
+        // being applied locally, so wait for the server's verdict before touching
+        // local state (same non-optimistic pattern as recordSale). Every other field
+        // in the same submission still saves immediately server-side.
+        if (!isAdmin && sensitiveChanged) {
+            try {
+                const { res, data } = await sendMutationToServer('UPDATE_ANIMAL', updatedAnimal);
+                if (!res.ok || data.success === false) {
+                    return { success: false, error: data.error || 'Update could not be saved.' };
+                }
+                setAnimals(prev => prev.map(a => a.id === updatedAnimal.id
+                    ? { ...a, ...updatedAnimal, entryWeight: existing.entryWeight, purchasePrice: existing.purchasePrice }
+                    : a));
+                refreshApprovals();
+                return { success: true, pending: true, pendingFields: data.pendingFields || [] };
+            } catch (err) {
+                console.error('UPDATE_ANIMAL (pending) failed:', err);
+                return { success: false, error: 'Network error — change was not saved. Please try again.' };
+            }
+        }
 
         // 1. Sync UI locally
         setAnimals(prev => prev.map(a => a.id === updatedAnimal.id ? { ...a, ...updatedAnimal } : a));
@@ -1234,7 +1317,6 @@ export const FarmProvider = ({ children }) => {
         // to ADG on every log that follows it (same chain recalculation as editing a
         // weight log directly).
         if (existing) {
-            const newEntryWeight = updatedAnimal.entryWeight !== undefined ? parseFloat(updatedAnimal.entryWeight) : existing.entryWeight;
             const newEntryDate = updatedAnimal.entryDate ?? existing.entryDate;
             if (newEntryWeight !== existing.entryWeight || newEntryDate !== existing.entryDate) {
                 const baselineLog = weightLogs
@@ -1248,6 +1330,62 @@ export const FarmProvider = ({ children }) => {
 
         // 2. Queue DB transaction durably
         persistMutation('UPDATE_ANIMAL', updatedAnimal);
+        return { success: true };
+    };
+
+    // Admin-only: approve a staged sensitive-field edit or delete request. Applies
+    // the change locally (rippling ADG the same way a direct admin edit would) only
+    // after the server confirms the approval, then drops it from the live queue.
+    const approvePendingChange = async (approval) => {
+        try {
+            const { res, data } = await sendMutationToServer('APPROVE_PENDING_CHANGE', { approvalId: approval.id });
+            if (!res.ok || data.success === false) {
+                return { success: false, error: data.error || 'Could not approve request.' };
+            }
+
+            if (approval.action === 'UPDATE_ANIMAL') {
+                const changes = approval.payload || {};
+                const existing = animals.find(a => a.id === approval.animalId);
+                setAnimals(prev => prev.map(a => a.id === approval.animalId ? { ...a, ...changes } : a));
+
+                if (existing && changes.entryWeight !== undefined && changes.entryWeight !== existing.entryWeight) {
+                    const baselineLog = weightLogs
+                        .filter(w => w.animalId === approval.animalId)
+                        .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+                    if (baselineLog) {
+                        recalcWeightChain(approval.animalId, baselineLog.id, { date: baselineLog.date, weight: changes.entryWeight });
+                    }
+                }
+            } else if (approval.action === 'DELETE_ANIMAL') {
+                setAnimals(prev => prev.filter(a => a.id !== approval.animalId));
+                setWeightLogs(prev => prev.filter(w => w.animalId !== approval.animalId));
+                setTreatments(prev => prev.filter(t => t.animalId !== approval.animalId));
+            }
+
+            setPendingApprovals(prev => prev.filter(p => p.id !== approval.id));
+            setAllApprovals(prev => prev.map(p => p.id === approval.id ? { ...p, status: 'approved' } : p));
+            return { success: true };
+        } catch (err) {
+            console.error('APPROVE_PENDING_CHANGE failed:', err);
+            return { success: false, error: 'Network error — approval was not recorded. Please try again.' };
+        }
+    };
+
+    // Admin-only: reject a staged request with an optional short reason, visible to
+    // the requester via their myRequests history.
+    const rejectPendingChange = async (approvalId, note) => {
+        try {
+            const { res, data } = await sendMutationToServer('REJECT_PENDING_CHANGE', { approvalId, note });
+            if (!res.ok || data.success === false) {
+                return { success: false, error: data.error || 'Could not reject request.' };
+            }
+            setPendingApprovals(prev => prev.filter(p => p.id !== approvalId));
+            setAllApprovals(prev => prev.map(p => p.id === approvalId ? { ...p, status: 'rejected', reviewNote: note || null } : p));
+            return { success: true };
+        } catch (err) {
+            console.error('REJECT_PENDING_CHANGE failed:', err);
+            return { success: false, error: 'Network error — rejection was not recorded. Please try again.' };
+        }
     };
 
     const deleteWeightLog = async (logId) => {
@@ -1763,7 +1901,12 @@ export const FarmProvider = ({ children }) => {
             retryFailedMutation,
             dismissFailedMutation,
             staffPermissions,
-            updateStaffPermission
+            updateStaffPermission,
+            pendingApprovals,
+            myRequests,
+            allApprovals,
+            approvePendingChange,
+            rejectPendingChange
         }}>
             {children}
         </FarmContext.Provider>

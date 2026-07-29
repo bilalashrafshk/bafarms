@@ -5,14 +5,34 @@ import autoTable from 'jspdf-autotable';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 
+// Accessors used to sort the herd table by column. Defined outside the component
+// since they don't depend on props/state.
+const SORT_ACCESSORS = {
+    tag: (a) => a.rfid,
+    breed: (a) => a.breed,
+    weight: (a) => a.currentWeight,
+    gain: (a) => a.currentWeight - a.entryWeight,
+    cost: (a) => a.purchasePrice,
+    costPerKg: (a) => (a.entryWeight ? a.purchasePrice / a.entryWeight : 0),
+    pen: (a) => a.pen || '',
+    status: (a) => a.status
+};
+
 export default function HerdRegistry() {
-    const { animals, addAnimal, updateAnimal, deleteAnimal, recordDeath, transitionAnimalStatus, breedsConfig, updateBreedsConfig } = useContext(FarmContext);
+    const { animals, addAnimal, updateAnimal, deleteAnimal, recordDeath, transitionAnimalStatus, breedsConfig, updateBreedsConfig, staffUser, myRequests } = useContext(FarmContext);
+
+    // Strictly the DB-backed Super Admin flag — non-admins can add animals freely
+    // but have entry weight/purchase price edits and deletes staged for approval.
+    const isSuperAdmin = staffUser?.isAdmin === true;
 
     // UI State
     const [search, setSearch] = useState('');
     const [filterStatus, setFilterStatus] = useState('All');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingAnimal, setEditingAnimal] = useState(null);
+    const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+    const [notice, setNotice] = useState(null);
+    const [showMyRequests, setShowMyRequests] = useState(false);
 
     // Deceased modal state
     const [deathAnimal, setDeathAnimal] = useState(null);
@@ -36,7 +56,7 @@ export default function HerdRegistry() {
 
     const exportCSV = () => {
         const headers = ['RFID,Breed,Entry Date,Entry Weight (kg),Current Weight (kg),Total Gain (kg),Purchase Cost (PKR),Cost per KG (PKR),Source,Pen,Status'];
-        const rows = filteredAnimals.map(a =>
+        const rows = sortedAnimals.map(a =>
             [a.rfid, a.breed, formatDate(a.entryDate), a.entryWeight, a.currentWeight,
              (a.currentWeight - a.entryWeight).toFixed(1), a.purchasePrice,
              a.entryWeight ? (a.purchasePrice / a.entryWeight).toFixed(0) : '', a.source || '', a.pen || '', a.status].join(',')
@@ -67,7 +87,7 @@ export default function HerdRegistry() {
         autoTable(doc, {
             startY: 27,
             head: [['Tag', 'Breed', 'Entry Date', 'Entry Wt (kg)', 'Current Wt (kg)', 'Gain (kg)', 'Cost (PKR)', 'Cost/kg (PKR)', 'Source', 'Pen', 'Status']],
-            body: filteredAnimals.map(a => [
+            body: sortedAnimals.map(a => [
                 a.rfid,
                 a.breed,
                 formatDate(a.entryDate),
@@ -128,7 +148,7 @@ export default function HerdRegistry() {
         setDeathCause('Disease');
     };
 
-const handleSubmit = (e) => {
+const handleSubmit = async (e) => {
         e.preventDefault();
         if (!entryWeight || !purchasePrice) return;
 
@@ -155,11 +175,18 @@ const handleSubmit = (e) => {
         };
 
         if (editingAnimal) {
-            updateAnimal({
+            const result = await updateAnimal({
                 id: editingAnimal.id,
                 currentWeight: editingAnimal.currentWeight, // preserve current weight
                 ...payload
             });
+            if (result?.success === false) {
+                setNotice({ type: 'error', text: result.error || 'Update could not be saved.' });
+                return;
+            }
+            if (result?.pending) {
+                setNotice({ type: 'pending', text: `Entry Weight / Purchase Price change for ${payload.rfid} needs Super Admin approval. Every other field was saved.` });
+            }
         } else {
             addAnimal(payload);
         }
@@ -186,6 +213,15 @@ const handleSubmit = (e) => {
         setDeathAnimal(null);
     };
 
+    // This staff member's own open (pending) requests, keyed by animal — drives the
+    // per-row "Pending Approval" chip so a non-admin can see at a glance which of
+    // their edits/deletes are still awaiting a super admin's sign-off.
+    const myPendingByAnimal = React.useMemo(() => {
+        const map = {};
+        myRequests.filter(r => r.status === 'pending').forEach(r => { map[r.animalId] = r; });
+        return map;
+    }, [myRequests]);
+
     // Filter and Search Logic
     const filteredAnimals = animals.filter(animal => {
         const matchesSearch = (
@@ -201,6 +237,41 @@ const handleSubmit = (e) => {
     const totalPurchaseCost = filteredAnimals.reduce((sum, a) => sum + (a.purchasePrice || 0), 0);
     const totalGrossWeight = filteredAnimals.reduce((sum, a) => sum + (a.entryWeight || 0), 0);
     const avgCostPerKg = totalGrossWeight > 0 ? totalPurchaseCost / totalGrossWeight : 0;
+
+    // Column sorting — click a header to sort by it, click again to reverse direction
+    const handleSort = (key) => {
+        setSortConfig(prev => prev.key === key
+            ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+            : { key, direction: 'asc' });
+    };
+
+    const sortedAnimals = React.useMemo(() => {
+        if (!sortConfig.key) return filteredAnimals;
+        const accessor = SORT_ACCESSORS[sortConfig.key];
+        const sorted = [...filteredAnimals].sort((a, b) => {
+            const valA = accessor(a);
+            const valB = accessor(b);
+            if (typeof valA === 'string') return valA.localeCompare(valB);
+            return valA - valB;
+        });
+        if (sortConfig.direction === 'desc') sorted.reverse();
+        return sorted;
+    }, [filteredAnimals, sortConfig]);
+
+    const renderSortIcon = (key) => {
+        if (sortConfig.key !== key) {
+            return <i className="fa-solid fa-sort" style={{ opacity: 0.25, marginLeft: '0.4rem', fontSize: '0.7rem' }}></i>;
+        }
+        return sortConfig.direction === 'asc'
+            ? <i className="fa-solid fa-sort-up" style={{ marginLeft: '0.4rem', fontSize: '0.7rem', color: 'var(--accent-gold)' }}></i>
+            : <i className="fa-solid fa-sort-down" style={{ marginLeft: '0.4rem', fontSize: '0.7rem', color: 'var(--accent-gold)' }}></i>;
+    };
+
+    const sortableTh = (label, key) => (
+        <th onClick={() => handleSort(key)} style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }} title="Click to sort">
+            {label}{renderSortIcon(key)}
+        </th>
+    );
 
     return (
         <div class="glass-panel">
@@ -218,7 +289,17 @@ const handleSubmit = (e) => {
                     />
                 </div>
 
-                <div style={{ display: 'flex', gap: '0.6rem' }}>
+                <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                    {!isSuperAdmin && myRequests.length > 0 && (
+                        <button
+                            class="btn btn-secondary"
+                            style={{ borderColor: 'rgba(255,193,7,0.3)', color: 'hsl(43,90%,53%)' }}
+                            onClick={() => setShowMyRequests(true)}
+                            title="View the status of your submitted edit/delete requests"
+                        >
+                            <i class="fa-solid fa-hourglass-half"></i> My Requests ({myRequests.filter(r => r.status === 'pending').length})
+                        </button>
+                    )}
                     <button class="btn btn-secondary" onClick={exportCSV} title="Export current view to CSV">
                         <i class="fa-solid fa-file-csv"></i> Export CSV
                     </button>
@@ -230,6 +311,21 @@ const handleSubmit = (e) => {
                     </button>
                 </div>
             </div>
+
+            {notice && (
+                <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem',
+                    padding: '0.6rem 1rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.85rem',
+                    background: notice.type === 'error' ? 'rgba(220, 53, 69, 0.08)' : 'rgba(255,193,7,0.08)',
+                    border: `1px solid ${notice.type === 'error' ? 'rgba(220, 53, 69, 0.3)' : 'rgba(255,193,7,0.3)'}`,
+                    color: notice.type === 'error' ? 'hsl(0, 75%, 70%)' : 'hsl(43,90%,53%)'
+                }}>
+                    <span><i className={`fa-solid ${notice.type === 'error' ? 'fa-triangle-exclamation' : 'fa-hourglass-half'}`}></i> {notice.text}</span>
+                    <button class="modal-close-btn" style={{ position: 'static' }} onClick={() => setNotice(null)}>
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            )}
 
             {/* Filtering toggles */}
             <div class="table-filters">
@@ -260,19 +356,19 @@ const handleSubmit = (e) => {
                 <table className="data-table">
                     <thead>
                         <tr>
-                            <th>TAG</th>
-                            <th>BREED</th>
-                            <th>WT (KG)</th>
-                            <th>GAIN</th>
-                            <th>COST (PKR)</th>
-                            <th>COST/KG</th>
-                            <th>PEN</th>
-                            <th>STATUS</th>
+                            {sortableTh('TAG', 'tag')}
+                            {sortableTh('BREED', 'breed')}
+                            {sortableTh('WT (KG)', 'weight')}
+                            {sortableTh('GAIN', 'gain')}
+                            {sortableTh('COST (PKR)', 'cost')}
+                            {sortableTh('COST/KG', 'costPerKg')}
+                            {sortableTh('PEN', 'pen')}
+                            {sortableTh('STATUS', 'status')}
                             <th style={{ textAlign: 'center' }}>ACTIONS</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {filteredAnimals.map((animal) => (
+                        {sortedAnimals.map((animal) => (
                             <tr key={animal.id}>
                                 <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)' }}>
                                     {animal.rfid}
@@ -293,6 +389,14 @@ const handleSubmit = (e) => {
                                     <span className={`badge-status ${animal.status.toLowerCase()}`}>
                                         {animal.status}
                                     </span>
+                                    {myPendingByAnimal[animal.id] && (
+                                        <span
+                                            title={`${myPendingByAnimal[animal.id].action === 'DELETE_ANIMAL' ? 'Deletion' : 'Edit'} request awaiting Super Admin approval`}
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'rgba(255,193,7,0.12)', color: 'hsl(43,90%,53%)', marginLeft: '0.4rem' }}
+                                        >
+                                            <i className="fa-solid fa-hourglass-half"></i> Pending
+                                        </span>
+                                    )}
                                 </td>
                                 <td>
                                     <div className="herd-actions-group" style={{ display: 'flex', gap: '0.3rem', justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -314,18 +418,23 @@ const handleSubmit = (e) => {
                                                 ☠
                                             </button>
                                         )}
-                                        <button className="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem', borderColor: 'rgba(220, 53, 69, 0.2)', color: 'hsl(0, 75%, 65%)', background: 'rgba(220, 53, 69, 0.02)' }} onClick={() => {
-                                            if (window.confirm(`Delete ${animal.rfid}?`)) {
-                                                deleteAnimal(animal.id);
+                                        <button className="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem', borderColor: 'rgba(220, 53, 69, 0.2)', color: 'hsl(0, 75%, 65%)', background: 'rgba(220, 53, 69, 0.02)' }} onClick={async () => {
+                                            const confirmMsg = isSuperAdmin ? `Delete ${animal.rfid}?` : `Request deletion of ${animal.rfid}? A Super Admin will need to approve it.`;
+                                            if (!window.confirm(confirmMsg)) return;
+                                            const result = await deleteAnimal(animal.id);
+                                            if (result?.success === false) {
+                                                setNotice({ type: 'error', text: result.error || 'Delete could not be submitted.' });
+                                            } else if (result?.pending) {
+                                                setNotice({ type: 'pending', text: `Deletion of ${animal.rfid} needs Super Admin approval.` });
                                             }
-                                        }} title="Delete">
+                                        }} title={isSuperAdmin ? 'Delete' : 'Request Deletion'}>
                                             <i className="fa-solid fa-trash-can"></i>
                                         </button>
                                     </div>
                                 </td>
                             </tr>
                         ))}
-                        {filteredAnimals.length === 0 && (
+                        {sortedAnimals.length === 0 && (
                             <tr>
                                 <td colSpan="9" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                                     <i className="fa-solid fa-cow" style={{ fontSize: '2rem', marginBottom: '0.5rem', display: 'block' }}></i>
@@ -413,10 +522,16 @@ const handleSubmit = (e) => {
                                     <div class="form-group" style={{ marginBottom: 0 }}>
                                         <label>Entry Weight (kg) *</label>
                                         <input type="number" class="form-control" placeholder="e.g. 120" value={entryWeight} onChange={(e) => setEntryWeight(e.target.value)} required />
+                                        {editingAnimal && !isSuperAdmin && (
+                                            <small style={{ color: 'hsl(43,90%,53%)', fontSize: '0.7rem' }}>Changes need Super Admin approval</small>
+                                        )}
                                     </div>
                                     <div class="form-group" style={{ marginBottom: 0 }}>
                                         <label>Purchase Cost (PKR) *</label>
                                         <input type="number" class="form-control" placeholder="e.g. 150000" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} required />
+                                        {editingAnimal && !isSuperAdmin && (
+                                            <small style={{ color: 'hsl(43,90%,53%)', fontSize: '0.7rem' }}>Changes need Super Admin approval</small>
+                                        )}
                                     </div>
                                     <div class="form-group" style={{ marginBottom: 0 }}>
                                         <label>Target Weight (kg)</label>
@@ -511,6 +626,47 @@ const handleSubmit = (e) => {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {/* MY REQUESTS — a non-admin's own edit/delete request history & status */}
+            {showMyRequests && createPortal(
+                <div class="modal-overlay" onClick={() => setShowMyRequests(false)}>
+                    <div class="glass-panel modal-container" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
+                        <button class="modal-close-btn" onClick={() => setShowMyRequests(false)}>
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+
+                        <h2 class="panel-title" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.6rem', marginBottom: '1rem' }}>
+                            <i class="fa-solid fa-hourglass-half"></i> My Requests
+                        </h2>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '60vh', overflowY: 'auto' }}>
+                            {myRequests.length === 0 ? (
+                                <p class="unregistered-help-text">You haven't submitted any edit/delete requests.</p>
+                            ) : myRequests.map(item => (
+                                <div key={item.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <strong style={{ color: 'var(--text-pure)' }}>
+                                            {item.action === 'DELETE_ANIMAL' ? 'Delete' : 'Edit'} — {item.animalRfid || `Animal #${item.animalId}`}
+                                        </strong>
+                                        <span style={{
+                                            fontSize: '0.7rem', padding: '0.1rem 0.5rem', borderRadius: '4px',
+                                            background: item.status === 'approved' ? 'rgba(25,135,84,0.12)' : item.status === 'rejected' ? 'rgba(220,53,69,0.12)' : 'rgba(255,193,7,0.12)',
+                                            color: item.status === 'approved' ? 'var(--primary-green-light)' : item.status === 'rejected' ? 'hsl(0, 75%, 65%)' : 'hsl(43,90%,53%)'
+                                        }}>
+                                            {item.status.toUpperCase()}
+                                        </span>
+                                    </div>
+                                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Submitted {formatDate(item.requestedAt)}</span>
+                                    {item.status === 'rejected' && item.reviewNote && (
+                                        <span style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Reason: {item.reviewNote}</span>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>,
                 document.body
