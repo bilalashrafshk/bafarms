@@ -33,10 +33,11 @@ export default function HerdRegistry() {
     const CUSTOM_BREED_OPTION = '__custom__';
 
     const exportCSV = () => {
-        const headers = ['RFID,Breed,Entry Date,Entry Weight (kg),Current Weight (kg),Total Gain (kg),Purchase Cost (PKR),Source,Pen,Status'];
+        const headers = ['RFID,Breed,Entry Date,Entry Weight (kg),Current Weight (kg),Total Gain (kg),Purchase Cost (PKR),Cost per KG (PKR),Source,Pen,Status'];
         const rows = filteredAnimals.map(a =>
             [a.rfid, a.breed, formatDate(a.entryDate), a.entryWeight, a.currentWeight,
-             (a.currentWeight - a.entryWeight).toFixed(1), a.purchasePrice, a.source || '', a.pen || '', a.status].join(',')
+             (a.currentWeight - a.entryWeight).toFixed(1), a.purchasePrice,
+             a.entryWeight ? (a.purchasePrice / a.entryWeight).toFixed(0) : '', a.source || '', a.pen || '', a.status].join(',')
         );
         const csv = [...headers, ...rows].join('\n');
         const blob = new Blob([csv], { type: 'text/csv' });
@@ -156,6 +157,11 @@ const handleSubmit = (e) => {
         return matchesSearch && matchesFilter;
     });
 
+    // Overall purchase average = total purchase cost / total gross (entry) weight, across the current view
+    const totalPurchaseCost = filteredAnimals.reduce((sum, a) => sum + (a.purchasePrice || 0), 0);
+    const totalGrossWeight = filteredAnimals.reduce((sum, a) => sum + (a.entryWeight || 0), 0);
+    const avgCostPerKg = totalGrossWeight > 0 ? totalPurchaseCost / totalGrossWeight : 0;
+
     return (
         <div class="glass-panel">
 
@@ -192,6 +198,20 @@ const handleSubmit = (e) => {
                 <button class={`filter-btn ${filterStatus === 'Sold' ? 'active' : ''}`} onClick={() => setFilterStatus('Sold')}>Sold ({animals.filter(a => a.status === 'Sold').length})</button>
             </div>
 
+            {/* Average purchase price per kg of gross (entry) weight, across the current view */}
+            <div class="dashboard-grid" style={{ marginBottom: '1rem' }}>
+                <div class="glass-panel stat-box">
+                    <div class="stat-header">
+                        <h3>Avg Purchase Price / Gross Weight</h3>
+                        <div class="stat-icon"><i class="fa-solid fa-scale-balanced"></i></div>
+                    </div>
+                    <div class="stat-val">{Math.round(avgCostPerKg).toLocaleString()} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR/kg</small></div>
+                    <span class="stat-lbl">
+                        <i class="fa-solid fa-cow"></i> {totalPurchaseCost.toLocaleString()} PKR ÷ {totalGrossWeight.toLocaleString()} kg across {filteredAnimals.length} animal{filteredAnimals.length === 1 ? '' : 's'}
+                    </span>
+                </div>
+            </div>
+
             {/* Main Ledger Table */}
             <div className="table-wrapper">
                 <table className="data-table">
@@ -202,6 +222,7 @@ const handleSubmit = (e) => {
                             <th>WT (KG)</th>
                             <th>GAIN</th>
                             <th>COST (PKR)</th>
+                            <th>COST/KG</th>
                             <th>PEN</th>
                             <th>STATUS</th>
                             <th style={{ textAlign: 'center' }}>ACTIONS</th>
@@ -219,6 +240,9 @@ const handleSubmit = (e) => {
                                     +{parseFloat((animal.currentWeight - animal.entryWeight).toFixed(1))} kg
                                 </td>
                                 <td>{animal.purchasePrice.toLocaleString()}</td>
+                                <td style={{ color: 'var(--text-muted)' }}>
+                                    {animal.entryWeight ? `${Math.round(animal.purchasePrice / animal.entryWeight).toLocaleString()} /kg` : '—'}
+                                </td>
                                 <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '600' }}>
                                     {animal.pen ? <span style={{ color: 'var(--accent-gold)' }}>{animal.pen}</span> : <span style={{ opacity: 0.4 }}>—</span>}
                                 </td>
@@ -260,7 +284,7 @@ const handleSubmit = (e) => {
                         ))}
                         {filteredAnimals.length === 0 && (
                             <tr>
-                                <td colSpan="8" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                                <td colSpan="9" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                                     <i className="fa-solid fa-cow" style={{ fontSize: '2rem', marginBottom: '0.5rem', display: 'block' }}></i>
                                     No animal records matching your filters were found in the database.
                                 </td>
