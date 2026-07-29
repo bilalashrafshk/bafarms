@@ -775,6 +775,27 @@ export const FarmProvider = ({ children }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // Any feed stock item that's its own canonical ingredient (i.e. not a split component
+    // like limestone/mineralPack, which both share the combined "minerals" ingredient id)
+    // but has no matching feedIngredients entry gets one auto-created here. This covers
+    // stock items that were added before ration ingredients were required to be paired
+    // (or added directly to the ledger some other way) — without this, they're real,
+    // purchasable stock but silently invisible in the Ration Plans "Add Ingredient" list,
+    // since that list is only ever built from feedIngredients.
+    useEffect(() => {
+        const missing = feedStockItems
+            .filter(item => item.derivedFromIngredientId && item.derivedFromIngredientId === item.id)
+            .filter(item => !feedIngredients.some(i => i.id === item.id));
+        if (missing.length === 0) return;
+        setFeedIngredients(prev => {
+            const stillMissing = missing.filter(item => !prev.some(i => i.id === item.id));
+            if (stillMissing.length === 0) return prev;
+            const next = [...prev, ...stillMissing.map(item => ({ id: item.id, name: item.name, dmTarget: 0, price: 0, isDefault: false }))];
+            persistMutation('SAVE_SETTINGS', { key: 'feed_ingredients', value: next });
+            return next;
+        });
+    }, [feedStockItems, feedIngredients]);
+
     const updateFeedStockItems = (newItems) => {
         setFeedStockItems(newItems);
         persistMutation('SAVE_SETTINGS', { key: 'feed_stock_items', value: newItems });
