@@ -212,8 +212,20 @@ export default function FeedStock() {
     const handleRemoveFormulaRow = (idx) => {
         setFormulaDraft(prev => prev.filter((_, i) => i !== idx));
     };
+    // Mass balance: kg of raw material in must equal kg of premix out (no water/loss
+    // tracked), so every formula's qtyPerKg values must sum to exactly 1kg per kg of
+    // premix produced — otherwise a batch would credit more (or less) premix stock than
+    // the raw materials it actually deducted justify.
+    const formulaSum = formulaDraft.reduce((sum, r) => sum + (parseFloat(r.qtyPerKg) || 0), 0);
+    const FORMULA_TOLERANCE = 0.005;
+    const formulaIsBalanced = Math.abs(formulaSum - 1) <= FORMULA_TOLERANCE;
+
     const handleSaveFormula = () => {
         if (!isAdmin || !selectedPremixId) return;
+        if (!formulaIsBalanced) {
+            window.alert(`Formula doesn't add up: ${formulaSum.toFixed(3)} kg of raw material per kg of premix (needs to total 1.000 kg, i.e. 100%). Adjust the quantities before saving.`);
+            return;
+        }
         updatePremixFormula(selectedPremixId, formulaDraft.map(r => ({
             stockItemId: r.stockItemId,
             qtyPerKg: parseFloat(r.qtyPerKg) || 0
@@ -829,12 +841,19 @@ export default function FeedStock() {
                                             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>No raw materials added to this formula yet.</p>
                                         )}
                                     </div>
+                                    {formulaDraft.length > 0 && (
+                                        <p style={{ fontSize: '0.82rem', marginTop: '0.8rem', marginBottom: 0, color: formulaIsBalanced ? 'var(--primary-green-light)' : 'hsl(0,75%,65%)' }}>
+                                            <i class={`fa-solid ${formulaIsBalanced ? 'fa-circle-check' : 'fa-triangle-exclamation'}`}></i>{' '}
+                                            Total: {formulaSum.toFixed(3)} kg per kg of premix ({Math.round(formulaSum * 100)}%)
+                                            {!formulaIsBalanced && ' — must total 1.000 kg (100%) before this formula can be saved'}
+                                        </p>
+                                    )}
                                     {isAdmin && (
                                         <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem' }}>
                                             <button type="button" class="btn btn-secondary" onClick={handleAddFormulaRow} disabled={formulaDraft.length >= rawMaterialItems.length}>
                                                 <i class="fa-solid fa-plus"></i> Add Raw Material
                                             </button>
-                                            <button type="button" class="btn btn-primary" onClick={handleSaveFormula}>
+                                            <button type="button" class="btn btn-primary" onClick={handleSaveFormula} disabled={!formulaIsBalanced}>
                                                 <i class="fa-solid fa-floppy-disk"></i> Save Formula
                                             </button>
                                         </div>
