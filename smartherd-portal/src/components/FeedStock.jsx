@@ -87,11 +87,24 @@ export default function FeedStock() {
     const [pRate, setPRate] = useState('');
     const [pSupplier, setPSupplier] = useState('');
     const [pNotes, setPNotes] = useState('');
+    // Lets an admin add a brand-new stock item right from the purchase form (e.g. a feed
+    // that's never been bought before) instead of a round trip to the Stock Ledger tab first.
+    const [pNewItemName, setPNewItemName] = useState('');
 
     const handleAddPurchase = (e) => {
         e.preventDefault();
-        if (!isAdmin || !pItemId || !pQty || !pRate) return;
-        addFeedPurchase({ date: pDate, itemId: pItemId, quantity: pQty, rate: pRate, supplier: pSupplier, notes: pNotes });
+        if (!isAdmin || !pQty || !pRate) return;
+        let itemId = pItemId;
+        if (itemId === '__new__') {
+            if (!pNewItemName.trim()) return;
+            const newItem = { id: 'item_' + Date.now(), name: pNewItemName.trim(), unit: 'kg', isDefault: false };
+            updateFeedStockItems([...feedStockItems, newItem]);
+            itemId = newItem.id;
+        }
+        if (!itemId) return;
+        addFeedPurchase({ date: pDate, itemId, quantity: pQty, rate: pRate, supplier: pSupplier, notes: pNotes });
+        setPItemId('');
+        setPNewItemName('');
         setPQty('');
         setPRate('');
         setPSupplier('');
@@ -463,8 +476,15 @@ export default function FeedStock() {
                                     <select class="form-control" value={pItemId} onChange={e => setPItemId(e.target.value)} required>
                                         <option value="">Select item…</option>
                                         {feedStockItems.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                                        <option value="__new__">+ Add new item…</option>
                                     </select>
                                 </div>
+                                {pItemId === '__new__' && (
+                                    <div class="form-group">
+                                        <label>New Item Name</label>
+                                        <input type="text" class="form-control" placeholder="e.g. Molasses" value={pNewItemName} onChange={e => setPNewItemName(e.target.value)} required />
+                                    </div>
+                                )}
                                 <div class="form-group">
                                     <label>Quantity (kg)</label>
                                     <input type="number" step="0.01" class="form-control" placeholder="e.g. 500" value={pQty} onChange={e => setPQty(e.target.value)} required />
