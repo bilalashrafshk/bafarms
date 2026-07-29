@@ -5,72 +5,50 @@ export default function RationPlans() {
     const {
         rationPlans, saveRationPlan, duplicateRationPlan, deleteRationPlan,
         pens, savePen, deletePen, getPenRationRow,
-        animals, feedIngredients, updateFeedIngredients, staffUser
+        animals, feedIngredients, getIngredientStockPrice, addStockTrackedIngredient, staffUser
     } = useContext(FarmContext);
 
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
 
     const [activeTab, setActiveTab] = useState('plans');
 
-    // ─── INGREDIENT COST EDITOR STATE (procurement settings — kept off the TMR page) ───
-    const [costDraft, setCostDraft] = useState(() => feedIngredients.map(i => ({ ...i })));
-    const [costSaved, setCostSaved] = useState(false);
-    const [isAddCostFormOpen, setIsAddCostFormOpen] = useState(false);
-    const [newCostName, setNewCostName] = useState('');
-    const [newCostPrice, setNewCostPrice] = useState('');
+    // Only ingredients backed by a real feed-stock item can be scheduled into a Ration Plan —
+    // that's what lets cost figures come straight from the purchase ledger instead of a
+    // manually-typed number that can drift from reality. Legacy untracked ingredients (from
+    // before this existed) still display wherever they're already in use, priced at whatever
+    // static value they were last saved with.
+    const stockTrackedIngredients = feedIngredients.filter(i => getIngredientStockPrice(i.id) !== null);
 
-    React.useEffect(() => {
-        setCostDraft(feedIngredients.map(i => ({ ...i })));
-    }, [feedIngredients]);
+    const [isAddIngredientFormOpen, setIsAddIngredientFormOpen] = useState(false);
+    const [newStockIngredientName, setNewStockIngredientName] = useState('');
 
-    const handleCostFieldChange = (id, field, value) => {
-        setCostDraft(prev => prev.map(i => (i.id === id ? { ...i, [field]: value } : i)));
-    };
-
-    const handleSaveCosts = (e) => {
+    const handleAddStockIngredient = (e) => {
         e.preventDefault();
-        if (!isAdmin) return;
-        updateFeedIngredients(costDraft.map(i => ({
-            ...i,
-            price: parseFloat(i.price) || 0
-        })));
-        setCostSaved(true);
-        setTimeout(() => setCostSaved(false), 2000);
+        if (!isAdmin || !newStockIngredientName.trim()) return;
+        addStockTrackedIngredient(newStockIngredientName.trim());
+        setNewStockIngredientName('');
+        setIsAddIngredientFormOpen(false);
     };
 
-    const handleAddCostIngredient = (e) => {
-        e.preventDefault();
-        if (!isAdmin || !newCostName.trim() || !newCostPrice) return;
-        const newIng = {
-            id: 'custom_' + Date.now(),
-            name: newCostName.trim(),
-            dmTarget: 0,
-            price: parseFloat(newCostPrice) || 0,
-            isDefault: false
-        };
-        updateFeedIngredients([...feedIngredients, newIng]);
-        setNewCostName('');
-        setNewCostPrice('');
-        setIsAddCostFormOpen(false);
-    };
-
-    const handleDeleteCostIngredient = (id) => {
-        if (!isAdmin) return;
-        if (window.confirm('Remove this ingredient from the master list? It will disappear from the TMR recipe and any Ration Plans referencing it.')) {
-            updateFeedIngredients(feedIngredients.filter(i => i.id !== id));
-        }
-    };
-
-    // Estimated cost/day for a week's ingredient quantities. Procurement price is set
-    // per Ration Plan (ingredientPrices, an override map keyed by ingredient id) — any
-    // ingredient the plan hasn't priced falls back to the global default price below.
-    const estimateWeekCost = (weekIngredients, ingredientPrices) => {
+    // Estimated cost/day for a week's ingredient quantities, priced live off the feed stock
+    // ledger's weighted-average rate — no manual entry, nothing to fall out of sync.
+    const estimateWeekCost = (weekIngredients) => {
         return Object.entries(weekIngredients || {}).reduce((sum, [id, qty]) => {
+            const stockPrice = getIngredientStockPrice(id);
             const ing = feedIngredients.find(i => i.id === id);
-            const override = ingredientPrices?.[id];
-            const price = (override !== undefined && override !== null && override !== '') ? (parseFloat(override) || 0) : (ing?.price || 0);
+            const price = stockPrice !== null ? stockPrice : (ing?.price || 0);
             return sum + (parseFloat(qty) || 0) * price;
         }, 0);
+    };
+
+    // Same as above, but averages across the 7 days for a day-by-day week instead of
+    // reading a single ingredients object.
+    const estimateWeekAvgCost = (week) => {
+        if (week.scheduleMode === 'day' && week.dailyIngredients && Object.keys(week.dailyIngredients).length > 0) {
+            const days = Object.values(week.dailyIngredients);
+            return days.reduce((sum, dayIng) => sum + estimateWeekCost(dayIng), 0) / days.length;
+        }
+        return estimateWeekCost(week.ingredients);
     };
 
     // ─── PLAN EDITOR STATE ───
@@ -81,15 +59,12 @@ export default function RationPlans() {
     const [formIsDefault, setFormIsDefault] = useState(false);
     const [formIngredientIds, setFormIngredientIds] = useState([]);
     const [formWeeks, setFormWeeks] = useState([]);
-    // Per-plan procurement price overrides (PKR/kg), keyed by ingredient id. Blank/unset
-    // means "use the global default price" — only ingredients this plan prices
-    // differently need an entry here.
-    const [formIngredientPrices, setFormIngredientPrices] = useState({});
     const [addIngredientChoice, setAddIngredientChoice] = useState('');
     const [saveConfirm, setSaveConfirm] = useState(false);
     const [isNewIngredientFormOpen, setIsNewIngredientFormOpen] = useState(false);
     const [newIngredientName, setNewIngredientName] = useState('');
-    const [newIngredientPrice, setNewIngredientPrice] = useState('');
+
+    const DAYS_OF_WEEK = [1, 2, 3, 4, 5, 6, 7];
 
     const blankWeek = (weekNum, ingredientIds, prevWeek) => ({
         week: weekNum,
@@ -97,6 +72,11 @@ export default function RationPlans() {
         liveWeightMax: '',
         targetAdg: prevWeek ? prevWeek.targetAdg : '',
         note: '',
+        // scheduleMode 'week' feeds the same ration every day; 'day' steps the diet across
+        // the 7 days of this bracket (dailyIngredients, keyed 1-7) — mainly for a starting/
+        // adaptation week where grain is introduced gradually rather than fed flat.
+        scheduleMode: 'week',
+        dailyIngredients: {},
         ingredients: ingredientIds.reduce((acc, id) => {
             acc[id] = prevWeek?.ingredients?.[id] ?? 0;
             return acc;
@@ -105,16 +85,15 @@ export default function RationPlans() {
 
     const openNewPlan = () => {
         const defaultIds = ['silage', 'maizeGrain', 'glutenFeed', 'straw', 'urea', 'minerals'].filter(id =>
-            feedIngredients.some(i => i.id === id)
+            stockTrackedIngredients.some(i => i.id === id)
         );
         setEditingId('new');
         setFormName('');
         setFormDesc('');
         setFormAdgFloor(1.0);
         setFormIsDefault(false);
-        setFormIngredientIds(defaultIds.length ? defaultIds : feedIngredients.map(i => i.id));
+        setFormIngredientIds(defaultIds.length ? defaultIds : stockTrackedIngredients.map(i => i.id));
         setFormWeeks([blankWeek(1, defaultIds, null)]);
-        setFormIngredientPrices({});
     };
 
     const openEditPlan = (plan) => {
@@ -126,8 +105,14 @@ export default function RationPlans() {
         setFormAdgFloor(plan.adgFloor ?? 1.0);
         setFormIsDefault(!!plan.isDefault);
         setFormIngredientIds([...idSet]);
-        setFormWeeks((plan.weeks || []).map(w => ({ ...w, ingredients: { ...w.ingredients } })));
-        setFormIngredientPrices({ ...(plan.ingredientPrices || {}) });
+        setFormWeeks((plan.weeks || []).map(w => ({
+            ...w,
+            ingredients: { ...w.ingredients },
+            scheduleMode: w.scheduleMode === 'day' ? 'day' : 'week',
+            dailyIngredients: w.dailyIngredients
+                ? Object.fromEntries(Object.entries(w.dailyIngredients).map(([day, ing]) => [day, { ...ing }]))
+                : {}
+        })));
     };
 
     const closeEditor = () => {
@@ -141,23 +126,15 @@ export default function RationPlans() {
         setAddIngredientChoice('');
     };
 
-    // Lets an admin create a brand-new ingredient (e.g. a specific mineral blend) and
-    // add it as a schedule column in one step, instead of a round trip to the
-    // Ingredient Costs tab first.
+    // Lets an admin create a brand-new stock-tracked ingredient (e.g. a specific mineral
+    // blend) and add it as a schedule column in one step. It's automatically priced from
+    // whatever it's purchased at in Feed Stock — nothing to type in here.
     const handleCreateAndAddIngredient = (e) => {
         e.preventDefault();
         if (!isAdmin || !newIngredientName.trim()) return;
-        const newIng = {
-            id: 'custom_' + Date.now(),
-            name: newIngredientName.trim(),
-            dmTarget: 0,
-            price: parseFloat(newIngredientPrice) || 0,
-            isDefault: false
-        };
-        updateFeedIngredients([...feedIngredients, newIng]);
-        setFormIngredientIds(prev => [...prev, newIng.id]);
+        const newId = addStockTrackedIngredient(newIngredientName.trim());
+        if (newId) setFormIngredientIds(prev => [...prev, newId]);
         setNewIngredientName('');
-        setNewIngredientPrice('');
         setIsNewIngredientFormOpen(false);
     };
 
@@ -166,17 +143,15 @@ export default function RationPlans() {
         setFormWeeks(prev => prev.map(w => {
             const ing = { ...w.ingredients };
             delete ing[id];
-            return { ...w, ingredients: ing };
+            const dailyIngredients = w.dailyIngredients
+                ? Object.fromEntries(Object.entries(w.dailyIngredients).map(([day, dayIng]) => {
+                    const d = { ...dayIng };
+                    delete d[id];
+                    return [day, d];
+                }))
+                : w.dailyIngredients;
+            return { ...w, ingredients: ing, dailyIngredients };
         }));
-        setFormIngredientPrices(prev => {
-            const next = { ...prev };
-            delete next[id];
-            return next;
-        });
-    };
-
-    const handlePlanPriceChange = (id, value) => {
-        setFormIngredientPrices(prev => ({ ...prev, [id]: value }));
     };
 
     const handleWeekFieldChange = (index, field, value) => {
@@ -185,6 +160,31 @@ export default function RationPlans() {
 
     const handleWeekIngredientChange = (index, ingId, value) => {
         setFormWeeks(prev => prev.map((w, i) => (i === index ? { ...w, ingredients: { ...w.ingredients, [ingId]: value } } : w)));
+    };
+
+    // Flip a week between "same ration every day" and "different ration per day" —
+    // switching into day mode for the first time seeds all 7 days from the current
+    // whole-week quantities so nothing is lost, just editable per day from there.
+    const handleToggleWeekMode = (index) => {
+        setFormWeeks(prev => prev.map((w, i) => {
+            if (i !== index) return w;
+            const nextMode = w.scheduleMode === 'day' ? 'week' : 'day';
+            if (nextMode === 'day' && (!w.dailyIngredients || Object.keys(w.dailyIngredients).length === 0)) {
+                const seeded = {};
+                DAYS_OF_WEEK.forEach(day => { seeded[day] = { ...w.ingredients }; });
+                return { ...w, scheduleMode: nextMode, dailyIngredients: seeded };
+            }
+            return { ...w, scheduleMode: nextMode };
+        }));
+    };
+
+    const handleDailyIngredientChange = (weekIndex, day, ingId, value) => {
+        setFormWeeks(prev => prev.map((w, i) => {
+            if (i !== weekIndex) return w;
+            const dailyIngredients = { ...(w.dailyIngredients || {}) };
+            dailyIngredients[day] = { ...(dailyIngredients[day] || {}), [ingId]: value };
+            return { ...w, dailyIngredients };
+        }));
     };
 
     const handleAddWeek = () => {
@@ -204,23 +204,35 @@ export default function RationPlans() {
             ? `plan-${formName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}-${Date.now().toString(36)}`
             : editingId;
 
-        const weeks = formWeeks.map(w => ({
-            week: parseInt(w.week) || 0,
-            liveWeightMin: parseFloat(w.liveWeightMin) || 0,
-            liveWeightMax: parseFloat(w.liveWeightMax) || 0,
-            targetAdg: parseFloat(w.targetAdg) || 0,
-            note: w.note || '',
-            ingredients: formIngredientIds.reduce((acc, ingId) => {
-                acc[ingId] = parseFloat(w.ingredients[ingId]) || 0;
-                return acc;
-            }, {})
-        }));
-
-        const ingredientPrices = formIngredientIds.reduce((acc, ingId) => {
-            const v = formIngredientPrices[ingId];
-            if (v !== undefined && v !== '') acc[ingId] = parseFloat(v) || 0;
-            return acc;
-        }, {});
+        const weeks = formWeeks.map(w => {
+            const scheduleMode = w.scheduleMode === 'day' ? 'day' : 'week';
+            const record = {
+                week: parseInt(w.week) || 0,
+                liveWeightMin: parseFloat(w.liveWeightMin) || 0,
+                liveWeightMax: parseFloat(w.liveWeightMax) || 0,
+                targetAdg: parseFloat(w.targetAdg) || 0,
+                note: w.note || '',
+                scheduleMode,
+                // In day mode this whole-week field is just a Day-1 fallback for any code
+                // path that doesn't know about dailyIngredients — the real per-day figures
+                // live in dailyIngredients below.
+                ingredients: formIngredientIds.reduce((acc, ingId) => {
+                    const source = scheduleMode === 'day' ? w.dailyIngredients?.[1] : w.ingredients;
+                    acc[ingId] = parseFloat(source?.[ingId]) || 0;
+                    return acc;
+                }, {})
+            };
+            if (scheduleMode === 'day') {
+                record.dailyIngredients = DAYS_OF_WEEK.reduce((dacc, day) => {
+                    dacc[day] = formIngredientIds.reduce((acc, ingId) => {
+                        acc[ingId] = parseFloat(w.dailyIngredients?.[day]?.[ingId]) || 0;
+                        return acc;
+                    }, {});
+                    return dacc;
+                }, {});
+            }
+            return record;
+        });
 
         saveRationPlan({
             id,
@@ -228,8 +240,7 @@ export default function RationPlans() {
             description: formDesc.trim(),
             adgFloor: parseFloat(formAdgFloor) || 1.0,
             isDefault: formIsDefault,
-            weeks,
-            ingredientPrices
+            weeks
         });
 
         setSaveConfirm(true);
@@ -303,7 +314,7 @@ export default function RationPlans() {
                 <div style={{ background: 'rgba(74, 144, 217, 0.06)', border: '1px solid rgba(74, 144, 217, 0.18)', borderRadius: '8px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
                     <i class="fa-solid fa-circle-info" style={{ color: '#4a90d9', fontSize: '1.1rem', marginTop: '0.15rem' }}></i>
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: '1.5' }}>
-                        <strong style={{ color: 'var(--text-pure)' }}>How this works:</strong> <strong>Ingredient Costs</strong> sets the default procurement price per kg. Then build a weekly schedule under <strong>Ration Plans</strong> (or use the pre-loaded "Baseline" plan) — each plan can optionally override the price per ingredient for its own cost scenario, falling back to the default when left blank. Finally, switch to <strong>Pen Assignment</strong> to link a plan and cycle start date to each pen — the TMR Calculator will then auto-fill each pen's daily batch from the plan, with no cost figures cluttering that page.
+                        <strong style={{ color: 'var(--text-pure)' }}>How this works:</strong> Build a weekly schedule under <strong>Ration Plans</strong> (or use the pre-loaded "Baseline" plan) — only ingredients with real Feed Stock inventory can be scheduled, and every cost figure is priced live off that ingredient's current average purchase rate in <strong>Feed Pricing</strong>, so there's nothing to type in or keep in sync. Finally, switch to <strong>Pen Assignment</strong> to link a plan and cycle start date to each pen — the TMR Calculator will then auto-fill each pen's daily batch from the plan, with no cost figures cluttering that page.
                     </span>
                 </div>
             )}
@@ -316,7 +327,7 @@ export default function RationPlans() {
                     <i class="fa-solid fa-warehouse"></i> Pen Assignment
                 </button>
                 <button class={`filter-btn ${activeTab === 'costs' ? 'active' : ''}`} onClick={() => setActiveTab('costs')}>
-                    <i class="fa-solid fa-money-bill-wave"></i> Ingredient Costs
+                    <i class="fa-solid fa-money-bill-wave"></i> Feed Pricing
                 </button>
             </div>
 
@@ -348,7 +359,7 @@ export default function RationPlans() {
                                 </thead>
                                 <tbody>
                                     {rationPlans.map(plan => {
-                                        const weekCosts = (plan.weeks || []).map(w => estimateWeekCost(w.ingredients, plan.ingredientPrices));
+                                        const weekCosts = (plan.weeks || []).map(w => estimateWeekAvgCost(w));
                                         const minCost = weekCosts.length ? Math.min(...weekCosts) : null;
                                         const maxCost = weekCosts.length ? Math.max(...weekCosts) : null;
                                         return (
@@ -430,7 +441,7 @@ export default function RationPlans() {
                                         <label style={{ fontSize: '0.75rem' }}>Add Ingredient Column</label>
                                         <select class="form-control" value={addIngredientChoice} onChange={e => setAddIngredientChoice(e.target.value)}>
                                             <option value="">Select ingredient…</option>
-                                            {feedIngredients.filter(i => !formIngredientIds.includes(i.id)).map(i => (
+                                            {stockTrackedIngredients.filter(i => !formIngredientIds.includes(i.id)).map(i => (
                                                 <option key={i.id} value={i.id}>{i.name}</option>
                                             ))}
                                         </select>
@@ -450,46 +461,12 @@ export default function RationPlans() {
                                             <label style={{ fontSize: '0.75rem' }}>New Ingredient Name</label>
                                             <input type="text" class="form-control" placeholder="e.g. Custom Mineral Mix" value={newIngredientName} onChange={e => setNewIngredientName(e.target.value)} />
                                         </div>
-                                        <div class="form-group" style={{ marginBottom: 0, minWidth: '140px' }}>
-                                            <label style={{ fontSize: '0.75rem' }}>Price (PKR/kg)</label>
-                                            <input type="number" step="0.1" class="form-control" placeholder="e.g. 45" value={newIngredientPrice} onChange={e => setNewIngredientPrice(e.target.value)} />
-                                        </div>
                                         <button type="button" class="btn btn-primary" onClick={handleCreateAndAddIngredient} disabled={!newIngredientName.trim()}>
                                             <i class="fa-solid fa-plus"></i> Create &amp; Add Column
                                         </button>
                                         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', width: '100%' }}>
-                                            Adds this ingredient to the master list (also editable later in Ingredient Costs) and inserts it as a schedule column here.
+                                            Also registers it as a Feed Stock item — buy it from the Purchases tab and its price here updates automatically.
                                         </span>
-                                    </div>
-                                )}
-
-                                {/* Per-plan procurement price overrides */}
-                                {formIngredientIds.length > 0 && (
-                                    <div style={{ marginBottom: '1rem', background: 'rgba(0,0,0,0.15)', padding: '0.8rem', borderRadius: '8px' }}>
-                                        <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '0.5rem' }}>
-                                            Procurement Price for this Plan (PKR/kg)
-                                        </label>
-                                        <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
-                                            {formIngredientIds.map(id => {
-                                                const ing = feedIngredients.find(i => i.id === id);
-                                                return (
-                                                    <div class="form-group" key={id} style={{ marginBottom: 0, minWidth: '140px' }}>
-                                                        <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{ing?.name || id}</label>
-                                                        <input
-                                                            type="number"
-                                                            step="0.1"
-                                                            class="form-control"
-                                                            placeholder={`${ing?.price ?? 0} (default)`}
-                                                            value={formIngredientPrices[id] ?? ''}
-                                                            onChange={e => handlePlanPriceChange(id, e.target.value)}
-                                                        />
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                        <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.5rem' }}>
-                                            Leave blank to use the default price set in Ingredient Costs. Only fill in a value here to override the price for this specific plan.
-                                        </small>
                                     </div>
                                 )}
 
@@ -502,6 +479,7 @@ export default function RationPlans() {
                                                 <th>LIVE WT MIN</th>
                                                 <th>LIVE WT MAX</th>
                                                 <th>TARGET ADG</th>
+                                                <th style={{ whiteSpace: 'nowrap' }}>DIET</th>
                                                 {formIngredientIds.map(id => {
                                                     const ing = feedIngredients.find(i => i.id === id);
                                                     return (
@@ -519,8 +497,11 @@ export default function RationPlans() {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {formWeeks.map((w, idx) => (
-                                                <tr key={idx}>
+                                            {formWeeks.map((w, idx) => {
+                                                const isDayMode = w.scheduleMode === 'day';
+                                                return (
+                                                <React.Fragment key={idx}>
+                                                <tr>
                                                     <td>
                                                         <input type="number" class="form-control" style={{ width: '55px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.week} onChange={e => handleWeekFieldChange(idx, 'week', e.target.value)} />
                                                     </td>
@@ -533,16 +514,31 @@ export default function RationPlans() {
                                                     <td>
                                                         <input type="number" step="0.01" class="form-control" style={{ width: '75px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.targetAdg} onChange={e => handleWeekFieldChange(idx, 'targetAdg', e.target.value)} />
                                                     </td>
+                                                    <td>
+                                                        <button
+                                                            type="button"
+                                                            class="btn btn-secondary"
+                                                            style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+                                                            onClick={() => handleToggleWeekMode(idx)}
+                                                            title={isDayMode ? 'Same ration every day of this week' : 'Set a different ration for each of the 7 days'}
+                                                        >
+                                                            <i class={`fa-solid ${isDayMode ? 'fa-calendar-days' : 'fa-calendar-week'}`}></i> {isDayMode ? 'Per Day' : 'Per Week'}
+                                                        </button>
+                                                    </td>
                                                     {formIngredientIds.map(id => (
                                                         <td key={id}>
-                                                            <input type="number" step="0.001" class="form-control" style={{ width: '75px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.ingredients[id] ?? 0} onChange={e => handleWeekIngredientChange(idx, id, e.target.value)} />
+                                                            {isDayMode ? (
+                                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Set below ↓</span>
+                                                            ) : (
+                                                                <input type="number" step="0.001" class="form-control" style={{ width: '75px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.ingredients[id] ?? 0} onChange={e => handleWeekIngredientChange(idx, id, e.target.value)} />
+                                                            )}
                                                         </td>
                                                     ))}
                                                     <td>
                                                         <input type="text" class="form-control" style={{ minWidth: '160px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.note} onChange={e => handleWeekFieldChange(idx, 'note', e.target.value)} placeholder="e.g. adaptation week" />
                                                     </td>
                                                     <td style={{ whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
-                                                        {Math.round(estimateWeekCost(w.ingredients, formIngredientPrices))} PKR
+                                                        {Math.round(estimateWeekAvgCost(w))} PKR{isDayMode && <span style={{ fontSize: '0.68rem' }}> avg</span>}
                                                     </td>
                                                     <td style={{ textAlign: 'center' }}>
                                                         <button type="button" onClick={() => handleRemoveWeek(idx)} style={{ background: 'none', border: 'none', color: 'hsl(0,75%,60%)', cursor: 'pointer' }} title="Remove week">
@@ -550,7 +546,54 @@ export default function RationPlans() {
                                                         </button>
                                                     </td>
                                                 </tr>
-                                            ))}
+                                                {isDayMode && (
+                                                    <tr>
+                                                        <td colSpan={8 + formIngredientIds.length} style={{ background: 'rgba(0,0,0,0.15)', padding: '0.7rem' }}>
+                                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                                                                <i class="fa-solid fa-calendar-days"></i> Daily diet for Week {w.week || idx + 1} — Day 1 is the pen's first day in this bracket (from its cycle start date).
+                                                            </div>
+                                                            <div class="table-wrapper">
+                                                                <table class="data-table" style={{ fontSize: '0.78rem' }}>
+                                                                    <thead>
+                                                                        <tr>
+                                                                            <th style={{ width: '60px' }}>DAY</th>
+                                                                            {formIngredientIds.map(id => {
+                                                                                const ing = feedIngredients.find(i => i.id === id);
+                                                                                return <th key={id} style={{ whiteSpace: 'nowrap' }}>{ing?.name || id}</th>;
+                                                                            })}
+                                                                            <th style={{ whiteSpace: 'nowrap' }}>EST. COST/DAY</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        {DAYS_OF_WEEK.map(day => (
+                                                                            <tr key={day}>
+                                                                                <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>Day {day}</td>
+                                                                                {formIngredientIds.map(id => (
+                                                                                    <td key={id}>
+                                                                                        <input
+                                                                                            type="number"
+                                                                                            step="0.001"
+                                                                                            class="form-control"
+                                                                                            style={{ width: '75px', minHeight: '30px', height: '30px', padding: '0.15rem 0.4rem' }}
+                                                                                            value={w.dailyIngredients?.[day]?.[id] ?? 0}
+                                                                                            onChange={e => handleDailyIngredientChange(idx, day, id, e.target.value)}
+                                                                                        />
+                                                                                    </td>
+                                                                                ))}
+                                                                                <td style={{ whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                                                                                    {Math.round(estimateWeekCost(w.dailyIngredients?.[day]))} PKR
+                                                                                </td>
+                                                                            </tr>
+                                                                        ))}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                                </React.Fragment>
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>
@@ -657,6 +700,7 @@ export default function RationPlans() {
                                                     {resolved ? (
                                                         <span>
                                                             Week {resolved.week.week}
+                                                            {resolved.usesDailyDiet && resolved.dayInWeek && <span style={{ color: 'var(--primary-green-light)' }}> · Day {resolved.dayInWeek}</span>}
                                                             {resolved.isAdaptationWeek && <span style={{ color: 'var(--accent-gold)' }}> (adaptation)</span>}
                                                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                                                                 {resolved.matchedByWeight ? 'Matched by weight' : 'Matched by cycle day (no weigh-in yet)'} · target {resolved.week.targetAdg} kg/day
@@ -695,95 +739,68 @@ export default function RationPlans() {
                 </div>
             )}
 
-            {/* ═══ TAB: INGREDIENT COSTS ═══ */}
+            {/* ═══ TAB: FEED PRICING ═══ */}
             {activeTab === 'costs' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
                     <div style={{ background: 'rgba(255, 193, 7, 0.05)', border: '1px solid rgba(255, 193, 7, 0.15)', borderRadius: '8px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
                         <i class="fa-solid fa-circle-info" style={{ color: 'var(--accent-gold)', fontSize: '1.1rem', marginTop: '0.15rem' }}></i>
                         <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: '1.5' }}>
-                            This is the <strong>default</strong> procurement price (PKR/kg), used whenever a Ration Plan doesn't set its own override. It drives cost figures across the portal (Ration Plan cost estimates, Feed &amp; Growth Report) and is also what the TMR Calculator's manual "All Pens" recipe (no plan attached) uses. To price an ingredient differently for a specific plan, set an override on that plan's editor instead — this page never lives on the TMR Calculator, which only shows quantities to feed, never prices.
+                            Prices here are <strong>read-only</strong> — each ingredient's current weighted-average cost per kg, pulled live from its purchase history in Feed Stock. It drives every cost figure across the portal (Ration Plan estimates, TMR Calculator, Feed &amp; Growth Report). To change what an ingredient costs, record a purchase at the new rate in <strong>Feed Stock → Purchases</strong> — there's nothing to edit here.
                         </span>
                     </div>
 
                     <div class="glass-panel">
                         <div class="form-header-bar" style={{ marginBottom: '1rem' }}>
-                            <h3 class="panel-title" style={{ margin: 0 }}><i class="fa-solid fa-money-bill-wave"></i> Feed Ingredient Costs</h3>
+                            <h3 class="panel-title" style={{ margin: 0 }}><i class="fa-solid fa-money-bill-wave"></i> Feed Ingredient Pricing</h3>
                             {isAdmin && (
-                                <button type="button" class="btn btn-secondary btn-sm" onClick={() => setIsAddCostFormOpen(!isAddCostFormOpen)}>
-                                    <i class={`fa-solid ${isAddCostFormOpen ? 'fa-xmark' : 'fa-plus'}`}></i> {isAddCostFormOpen ? 'Cancel' : 'Add Ingredient'}
+                                <button type="button" class="btn btn-secondary btn-sm" onClick={() => setIsAddIngredientFormOpen(!isAddIngredientFormOpen)}>
+                                    <i class={`fa-solid ${isAddIngredientFormOpen ? 'fa-xmark' : 'fa-plus'}`}></i> {isAddIngredientFormOpen ? 'Cancel' : 'Add Ingredient'}
                                 </button>
                             )}
                         </div>
 
-                        {isAddCostFormOpen && (
-                            <form onSubmit={handleAddCostIngredient} style={{ background: 'rgba(0, 0, 0, 0.2)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '0.8rem 1rem', marginBottom: '1.2rem' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr auto', gap: '0.8rem', alignItems: 'flex-end' }}>
+                        {isAddIngredientFormOpen && (
+                            <form onSubmit={handleAddStockIngredient} style={{ background: 'rgba(0, 0, 0, 0.2)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '0.8rem 1rem', marginBottom: '1.2rem' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '2fr auto', gap: '0.8rem', alignItems: 'flex-end' }}>
                                     <div class="form-group" style={{ marginBottom: 0 }}>
                                         <label style={{ fontSize: '0.75rem' }}>Name</label>
-                                        <input type="text" class="form-control" placeholder="e.g. Molasses" value={newCostName} onChange={e => setNewCostName(e.target.value)} required />
-                                    </div>
-                                    <div class="form-group" style={{ marginBottom: 0 }}>
-                                        <label style={{ fontSize: '0.75rem' }}>Price (PKR/kg)</label>
-                                        <input type="number" step="0.1" class="form-control" placeholder="e.g. 45" value={newCostPrice} onChange={e => setNewCostPrice(e.target.value)} required />
+                                        <input type="text" class="form-control" placeholder="e.g. Molasses" value={newStockIngredientName} onChange={e => setNewStockIngredientName(e.target.value)} required />
                                     </div>
                                     <button type="submit" class="btn btn-primary">Add</button>
                                 </div>
+                                <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.5rem' }}>
+                                    Registers it as a Feed Stock item too — its price appears here as soon as you record a purchase.
+                                </small>
                             </form>
                         )}
 
-                        <form onSubmit={handleSaveCosts}>
-                            <div class="table-wrapper" style={{ marginBottom: '1rem' }}>
-                                <table class="data-table" style={{ fontSize: '0.85rem' }}>
-                                    <thead>
-                                        <tr>
-                                            <th>INGREDIENT</th>
-                                            <th>PRICE (PKR/KG)</th>
-                                            {isAdmin && <th style={{ width: '60px', textAlign: 'center' }}>REMOVE</th>}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {costDraft.map(ing => (
+                        <div class="table-wrapper">
+                            <table class="data-table" style={{ fontSize: '0.85rem' }}>
+                                <thead>
+                                    <tr>
+                                        <th>INGREDIENT</th>
+                                        <th>CURRENT AVG PRICE (PKR/KG)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {feedIngredients.map(ing => {
+                                        const stockPrice = getIngredientStockPrice(ing.id);
+                                        return (
                                             <tr key={ing.id}>
                                                 <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{ing.name}</td>
                                                 <td>
-                                                    <input
-                                                        type="number"
-                                                        step="0.1"
-                                                        class="form-control"
-                                                        style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', maxWidth: '110px' }}
-                                                        value={ing.price}
-                                                        onChange={e => handleCostFieldChange(ing.id, 'price', e.target.value)}
-                                                        disabled={!isAdmin}
-                                                    />
+                                                    {stockPrice !== null
+                                                        ? `${stockPrice.toFixed(2)} PKR`
+                                                        : <span style={{ color: 'var(--text-muted)' }} title="No matching Feed Stock item — legacy price used">{(ing.price || 0).toFixed(2)} PKR (not stock-tracked)</span>
+                                                    }
                                                 </td>
-                                                {isAdmin && (
-                                                    <td style={{ textAlign: 'center' }}>
-                                                        {ing.isDefault ? (
-                                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-lock" title="Baseline ingredients cannot be removed"></i></span>
-                                                        ) : (
-                                                            <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => handleDeleteCostIngredient(ing.id)}>
-                                                                <i class="fa-solid fa-trash-can"></i>
-                                                            </button>
-                                                        )}
-                                                    </td>
-                                                )}
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                            {isAdmin && (
-                                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Costs</button>
-                                    {costSaved && (
-                                        <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
-                                            <i class="fa-solid fa-circle-check"></i> Saved!
-                                        </span>
-                                    )}
-                                </div>
-                            )}
-                        </form>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             )}

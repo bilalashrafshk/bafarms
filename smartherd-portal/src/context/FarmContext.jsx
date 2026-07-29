@@ -897,6 +897,38 @@ export const FarmProvider = ({ children }) => {
         });
     };
 
+    // Live weighted-average price for a ration ingredient, sourced straight from the stock
+    // ledger instead of a manually-typed number — so Ration Plans / TMR costing always reflect
+    // what was actually paid for feed still sitting in store. Handles the "minerals" case where
+    // one ingredient's consumption is split across two stock items (see mineralSplitRatio).
+    // Returns null when the ingredient has no matching stock item at all (not stock-tracked).
+    const getIngredientStockPrice = (ingredientId) => {
+        const ledger = getFeedStockLedger();
+        const linked = feedStockItems.filter(item => item.id === ingredientId || item.derivedFromIngredientId === ingredientId);
+        if (linked.length === 0) return null;
+        if (linked.length === 1) {
+            return ledger.find(l => l.item.id === linked[0].id)?.avgRate || 0;
+        }
+        return linked.reduce((sum, item) => {
+            const rate = ledger.find(l => l.item.id === item.id)?.avgRate || 0;
+            const share = item.id === 'limestone' ? mineralSplitRatio : item.id === 'mineralPack' ? (1 - mineralSplitRatio) : (1 / linked.length);
+            return sum + rate * share;
+        }, 0);
+    };
+
+    // Creates a paired feedStockItems + feedIngredients entry for a brand-new raw material —
+    // the single "add item" path shared by the Stock Ledger, Purchases, and Ration Plans forms,
+    // so anything you can buy you can immediately ration, and anything you can ration is always
+    // backed by real trackable stock (no untracked "custom_" ingredients with a typed-in price).
+    const addStockTrackedIngredient = (name) => {
+        const trimmed = (name || '').trim();
+        if (!trimmed) return null;
+        const id = 'item_' + Date.now();
+        updateFeedStockItems([...feedStockItems, { id, name: trimmed, unit: 'kg', isDefault: false, derivedFromIngredientId: id }]);
+        updateFeedIngredients([...feedIngredients, { id, name: trimmed, dmTarget: 0, price: 0, isDefault: false }]);
+        return id;
+    };
+
     // ─── PREMIX PRODUCTION (e.g. "Wanda") ───
     // Some farms don't feed raw materials straight into the TMR — they first blend a chosen
     // subset of feedStockItems into a house premix, bag it, and feed the premix itself day
@@ -1789,12 +1821,25 @@ export const FarmProvider = ({ children }) => {
             week = plan.weeks[0];
         }
 
+        // A week can either feed the same ration every day (week.ingredients) or step the
+        // diet day-by-day within that week (week.dailyIngredients, keyed 1-7) — the latter is
+        // mainly for adaptation/starting weeks where grain is introduced gradually. Which
+        // calendar day of *this* week bracket we're on is always daysOnFeed mod 7, regardless
+        // of whether the bracket itself was matched by weight or by cycle day.
+        const dayInWeek = daysOnFeed !== null ? (daysOnFeed % 7) + 1 : null;
+        const usesDailyDiet = week.scheduleMode === 'day' && week.dailyIngredients && Object.keys(week.dailyIngredients).length > 0;
+        const resolvedIngredients = usesDailyDiet
+            ? (week.dailyIngredients[dayInWeek] || week.dailyIngredients[1] || week.ingredients || {})
+            : (week.ingredients || {});
+
         return {
             plan,
-            week,
+            week: { ...week, ingredients: resolvedIngredients },
             headCount,
             avgWeight,
             daysOnFeed,
+            dayInWeek,
+            usesDailyDiet,
             matchedByWeight,
             isAdaptationWeek: week.week === 1
         };
@@ -1986,6 +2031,8 @@ export const FarmProvider = ({ children }) => {
             deleteFeedStockIssue,
             getFeedStockLedger,
             getCombinedFeedIssues,
+            getIngredientStockPrice,
+            addStockTrackedIngredient,
             mineralSplitRatio,
             setMineralSplitRatio,
             premixTypes,

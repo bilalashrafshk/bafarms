@@ -5,7 +5,7 @@ import { formatDate } from '../utils/formatDate';
 export default function TMRCalculator() {
     const {
         feedIngredients, animals, staffUser, feedLogs, logFeed, deleteFeedLog,
-        pens, getPenRationRow
+        pens, getPenRationRow, getIngredientStockPrice
     } = useContext(FarmContext);
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
 
@@ -66,16 +66,14 @@ export default function TMRCalculator() {
     // decimals are preserved all the way through to the batch table and feed log).
     // Plan-driven quantities are already as-fed kg/head/day straight from the Ration
     // Plan's weekly schedule — just scale by head count, keeping full decimal precision.
-    // Price comes from this plan's own ingredientPrices override when set (procurement
-    // cost is configured per Ration Plan, not globally), falling back to the global
-    // feed ingredient price for any ingredient the plan hasn't overridden.
+    // Price is always the live weighted-average rate from the Feed Stock ledger — nothing
+    // is typed in per plan. Legacy ingredients with no matching stock item fall back to
+    // whatever static price they were last saved with.
     const planIngredientRows = isPlanDriven
         ? Object.entries(resolvedPlanRow.week.ingredients).map(([id, qty]) => {
             const ing = feedIngredients.find(i => i.id === id) || { id, name: id, price: 0 };
-            const overridePrice = resolvedPlanRow.plan.ingredientPrices?.[id];
-            const price = (overridePrice !== undefined && overridePrice !== null && overridePrice !== '')
-                ? (parseFloat(overridePrice) || 0)
-                : (ing.price || 0);
+            const stockPrice = getIngredientStockPrice(id);
+            const price = stockPrice !== null ? stockPrice : (ing.price || 0);
             const qtyPerHead = planOverrides[id] !== undefined ? planOverrides[id] : qty;
             return {
                 id,
@@ -125,7 +123,8 @@ export default function TMRCalculator() {
     const handleLogFeed = () => {
         if (!isPlanDriven) return;
         const pen = selectedTMRPen;
-        const notes = `Auto-filled from ${resolvedPlanRow.plan.name}, Week ${resolvedPlanRow.week.week}${resolvedPlanRow.matchedByWeight ? '' : ' (matched by cycle day)'}`;
+        const dayNote = resolvedPlanRow.usesDailyDiet && resolvedPlanRow.dayInWeek ? `, Day ${resolvedPlanRow.dayInWeek}` : '';
+        const notes = `Auto-filled from ${resolvedPlanRow.plan.name}, Week ${resolvedPlanRow.week.week}${dayNote}${resolvedPlanRow.matchedByWeight ? '' : ' (matched by cycle day)'}`;
         logFeed({
             date: logDate,
             pen,
@@ -167,6 +166,7 @@ export default function TMRCalculator() {
                             <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0.8rem 1rem', marginBottom: '1.2rem' }}>
                                 <div style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
                                     {resolvedPlanRow.plan.name} — Week {resolvedPlanRow.week.week}
+                                    {resolvedPlanRow.usesDailyDiet && resolvedPlanRow.dayInWeek && <span style={{ marginLeft: '0.5rem', color: 'var(--primary-green-light)', fontSize: '0.75rem' }}>DAY {resolvedPlanRow.dayInWeek} OF 7</span>}
                                     {resolvedPlanRow.isAdaptationWeek && <span style={{ marginLeft: '0.5rem', color: 'var(--accent-gold)', fontSize: '0.75rem' }}>ADAPTATION WEEK</span>}
                                 </div>
                                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
@@ -174,6 +174,7 @@ export default function TMRCalculator() {
                                         ? `Matched by average weight (${resolvedPlanRow.avgWeight.toFixed(1)} kg across ${resolvedPlanRow.headCount} head)`
                                         : 'No weigh-in yet for this pen — matched by cycle day instead of actual weight'}
                                     {' · '}Target ADG {resolvedPlanRow.week.targetAdg} kg/day
+                                    {resolvedPlanRow.usesDailyDiet && !resolvedPlanRow.dayInWeek && ' · No cycle start date set — using Day 1 diet until one is set'}
                                 </div>
                                 {resolvedPlanRow.week.note && (
                                     <div style={{ fontSize: '0.76rem', color: 'var(--accent-gold)', marginTop: '0.3rem', fontStyle: 'italic' }}>

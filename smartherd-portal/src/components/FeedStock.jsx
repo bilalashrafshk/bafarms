@@ -11,7 +11,7 @@ import { formatDate } from '../utils/formatDate';
 export default function FeedStock() {
     const {
         staffUser, animals, pens, feedLogs,
-        feedStockItems, updateFeedStockItems,
+        feedStockItems, updateFeedStockItems, addStockTrackedIngredient,
         feedOpeningStock, setItemOpeningStock,
         feedPurchases, addFeedPurchase, deleteFeedPurchase,
         feedStockIssues, addFeedStockIssue, deleteFeedStockIssue,
@@ -48,8 +48,7 @@ export default function FeedStock() {
     const handleAddItem = (e) => {
         e.preventDefault();
         if (!isAdmin || !newItemName.trim()) return;
-        const newItem = { id: 'item_' + Date.now(), name: newItemName.trim(), unit: 'kg', isDefault: false };
-        updateFeedStockItems([...feedStockItems, newItem]);
+        addStockTrackedIngredient(newItemName.trim());
         setNewItemName('');
         setIsAddItemFormOpen(false);
     };
@@ -97,9 +96,7 @@ export default function FeedStock() {
         let itemId = pItemId;
         if (itemId === '__new__') {
             if (!pNewItemName.trim()) return;
-            const newItem = { id: 'item_' + Date.now(), name: pNewItemName.trim(), unit: 'kg', isDefault: false };
-            updateFeedStockItems([...feedStockItems, newItem]);
-            itemId = newItem.id;
+            itemId = addStockTrackedIngredient(pNewItemName.trim());
         }
         if (!itemId) return;
         addFeedPurchase({ date: pDate, itemId, quantity: pQty, rate: pRate, supplier: pSupplier, notes: pNotes });
