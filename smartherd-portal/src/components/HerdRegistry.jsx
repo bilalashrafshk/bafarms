@@ -1,5 +1,7 @@
 import React, { useContext, useState } from 'react';
 import { createPortal } from 'react-dom';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 
@@ -47,6 +49,44 @@ export default function HerdRegistry() {
         link.download = `BA_Farms_Herd_${new Date().toISOString().split('T')[0]}.csv`;
         link.click();
         URL.revokeObjectURL(url);
+    };
+
+    const exportPDF = () => {
+        const totalCost = filteredAnimals.reduce((sum, a) => sum + (a.purchasePrice || 0), 0);
+        const totalWeight = filteredAnimals.reduce((sum, a) => sum + (a.entryWeight || 0), 0);
+        const avgPerKg = totalWeight > 0 ? totalCost / totalWeight : 0;
+
+        const doc = new jsPDF({ orientation: 'landscape' });
+
+        doc.setFontSize(16);
+        doc.text('BA Farms — Herd Registry', 14, 15);
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text(`Generated ${formatDate(new Date().toISOString())} · ${filteredAnimals.length} animal${filteredAnimals.length === 1 ? '' : 's'} · Avg Purchase Price/Gross Weight: ${Math.round(avgPerKg).toLocaleString()} PKR/kg`, 14, 21);
+
+        autoTable(doc, {
+            startY: 27,
+            head: [['Tag', 'Breed', 'Entry Date', 'Entry Wt (kg)', 'Current Wt (kg)', 'Gain (kg)', 'Cost (PKR)', 'Cost/kg (PKR)', 'Source', 'Pen', 'Status']],
+            body: filteredAnimals.map(a => [
+                a.rfid,
+                a.breed,
+                formatDate(a.entryDate),
+                a.entryWeight,
+                a.currentWeight,
+                (a.currentWeight - a.entryWeight).toFixed(1),
+                a.purchasePrice.toLocaleString(),
+                a.entryWeight ? Math.round(a.purchasePrice / a.entryWeight).toLocaleString() : '—',
+                a.source || '—',
+                a.pen || '—',
+                a.status
+            ]),
+            foot: [['', '', '', totalWeight.toLocaleString(), '', '', totalCost.toLocaleString(), Math.round(avgPerKg).toLocaleString(), '', '', 'TOTAL / AVG']],
+            styles: { fontSize: 8 },
+            headStyles: { fillColor: [25, 90, 60] },
+            footStyles: { fillColor: [230, 230, 230], textColor: 20, fontStyle: 'bold' }
+        });
+
+        doc.save(`BA_Farms_Herd_${new Date().toISOString().split('T')[0]}.pdf`);
     };
 
     const openRegisterModal = () => {
@@ -181,6 +221,9 @@ const handleSubmit = (e) => {
                 <div style={{ display: 'flex', gap: '0.6rem' }}>
                     <button class="btn btn-secondary" onClick={exportCSV} title="Export current view to CSV">
                         <i class="fa-solid fa-file-csv"></i> Export CSV
+                    </button>
+                    <button class="btn btn-secondary" onClick={exportPDF} title="Export current view to PDF">
+                        <i class="fa-solid fa-file-pdf"></i> Export PDF
                     </button>
                     <button class="btn btn-primary" onClick={openRegisterModal}>
                         <i class="fa-solid fa-plus"></i> Register New Calf
