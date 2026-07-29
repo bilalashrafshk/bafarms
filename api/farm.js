@@ -711,7 +711,8 @@ const HERD_ACTIONS = new Set([
 // happens to send.
 const SETTINGS_KEYS = new Set([
     'breeds_config', 'med_categories', 'system_params', 'quarantine_protocols',
-    'feed_ingredients', 'feed_stock_items', 'feed_opening_stock', 'mineral_split_ratio'
+    'feed_ingredients', 'feed_stock_items', 'feed_opening_stock', 'mineral_split_ratio',
+    'premix_types', 'premix_formulas', 'premix_batches'
 ]);
 const SALES_ACTIONS = new Set([
     'UPDATE_ORDER_STATUS', 'DELETE_ORDER', 'UPDATE_ENQUIRY_STATUS', 'DELETE_ENQUIRY',

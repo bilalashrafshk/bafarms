@@ -16,7 +16,10 @@ export default function FeedStock() {
         feedPurchases, addFeedPurchase, deleteFeedPurchase,
         feedStockIssues, addFeedStockIssue, deleteFeedStockIssue,
         getFeedStockLedger, getCombinedFeedIssues,
-        mineralSplitRatio, setMineralSplitRatio
+        mineralSplitRatio, setMineralSplitRatio,
+        premixTypes, addPremixType, deletePremixType,
+        premixFormulas, updatePremixFormula,
+        premixBatches, addPremixBatch, deletePremixBatch
     } = useContext(FarmContext);
 
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
@@ -148,6 +151,110 @@ export default function FeedStock() {
     const totalConsumptionValue = filteredIssues.reduce((sum, iss) => sum + iss.quantity * (ledgerByItemId[iss.itemId]?.avgRate || 0), 0);
 
     const itemName = (id) => feedStockItems.find(i => i.id === id)?.name || id;
+    const penLabel = (pen) => pen === 'ALL' ? 'All Pens' : pen === 'PRODUCTION' ? 'Premix Production' : `Pen ${pen}`;
+
+    // ─── PREMIX PRODUCTION (e.g. "Wanda") ───
+    const [isAddPremixFormOpen, setIsAddPremixFormOpen] = useState(false);
+    const [newPremixName, setNewPremixName] = useState('');
+
+    const handleAddPremixType = (e) => {
+        e.preventDefault();
+        if (!isAdmin || !newPremixName.trim()) return;
+        const id = addPremixType(newPremixName.trim());
+        setNewPremixName('');
+        setIsAddPremixFormOpen(false);
+        if (id) setSelectedPremixId(id);
+    };
+
+    const handleDeletePremixType = (id) => {
+        if (!isAdmin) return;
+        if (window.confirm('Remove this premix? Its formula and stock line are removed too. Past batch history stays on record but will no longer reference a live formula.')) {
+            deletePremixType(id);
+            if (selectedPremixId === id) setSelectedPremixId('');
+        }
+    };
+
+    // Raw materials a formula can draw from — every stock item except premix items
+    // themselves, so a premix can't (accidentally) be defined in terms of another premix.
+    const rawMaterialItems = feedStockItems.filter(i => !i.isPremix);
+
+    const [selectedPremixId, setSelectedPremixId] = useState(() => premixTypes[0]?.id || '');
+    React.useEffect(() => {
+        if (!selectedPremixId && premixTypes.length) setSelectedPremixId(premixTypes[0].id);
+    }, [premixTypes]);
+
+    const [formulaDraft, setFormulaDraft] = useState([]);
+    React.useEffect(() => {
+        setFormulaDraft((premixFormulas[selectedPremixId] || []).map(r => ({ ...r })));
+    }, [selectedPremixId, premixFormulas]);
+
+    const handleFormulaRowChange = (idx, field, value) => {
+        setFormulaDraft(prev => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r));
+    };
+    const handleAddFormulaRow = () => {
+        const firstUnused = rawMaterialItems.find(i => !formulaDraft.some(r => r.stockItemId === i.id));
+        if (!firstUnused) return;
+        setFormulaDraft(prev => [...prev, { stockItemId: firstUnused.id, qtyPerKg: '' }]);
+    };
+    const handleRemoveFormulaRow = (idx) => {
+        setFormulaDraft(prev => prev.filter((_, i) => i !== idx));
+    };
+    const handleSaveFormula = () => {
+        if (!isAdmin || !selectedPremixId) return;
+        updatePremixFormula(selectedPremixId, formulaDraft.map(r => ({
+            stockItemId: r.stockItemId,
+            qtyPerKg: parseFloat(r.qtyPerKg) || 0
+        })));
+    };
+
+    // ─── LOG A BATCH ───
+    const [bPremixId, setBPremixId] = useState('');
+    const [bDate, setBDate] = useState(todayStr);
+    const [bBagWeight, setBBagWeight] = useState('');
+    const [bBagCount, setBBagCount] = useState('');
+    const [bTotalKg, setBTotalKg] = useState('');
+    const [bNotes, setBNotes] = useState('');
+
+    // Bags are free-weight (no fixed 25kg/50kg assumption) — entering bag weight × count
+    // is just a convenience that fills in total kg; total kg can also be typed directly.
+    const handleBagFieldChange = (field, value) => {
+        if (field === 'bagWeight') setBBagWeight(value);
+        if (field === 'bagCount') setBBagCount(value);
+        const w = field === 'bagWeight' ? parseFloat(value) || 0 : parseFloat(bBagWeight) || 0;
+        const c = field === 'bagCount' ? parseFloat(value) || 0 : parseFloat(bBagCount) || 0;
+        if (w > 0 && c > 0) setBTotalKg((w * c).toString());
+    };
+
+    const batchPreview = useMemo(() => {
+        const totalKg = parseFloat(bTotalKg) || 0;
+        if (!bPremixId || totalKg <= 0) return null;
+        const formula = premixFormulas[bPremixId] || [];
+        const rows = formula.map(row => {
+            const rate = ledgerByItemId[row.stockItemId]?.avgRate || 0;
+            const qty = totalKg * (parseFloat(row.qtyPerKg) || 0);
+            return { stockItemId: row.stockItemId, qty, rate, cost: qty * rate, available: ledgerByItemId[row.stockItemId]?.closingQty ?? 0 };
+        });
+        const totalCost = rows.reduce((sum, r) => sum + r.cost, 0);
+        return { rows, totalCost, costPerKg: totalKg > 0 ? totalCost / totalKg : 0 };
+    }, [bPremixId, bTotalKg, premixFormulas, ledgerByItemId]);
+
+    const handleLogBatch = (e) => {
+        e.preventDefault();
+        if (!isAdmin || !bPremixId || !bTotalKg) return;
+        addPremixBatch({
+            premixTypeId: bPremixId, date: bDate, totalKg: bTotalKg,
+            bagWeight: bBagWeight, bagCount: bBagCount, notes: bNotes
+        });
+        setBBagWeight('');
+        setBBagCount('');
+        setBTotalKg('');
+        setBNotes('');
+    };
+
+    const sortedBatches = useMemo(() =>
+        [...premixBatches].sort((a, b) => new Date(b.date) - new Date(a.date)),
+        [premixBatches]
+    );
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -179,6 +286,9 @@ export default function FeedStock() {
                 </button>
                 <button class={`filter-btn ${activeTab === 'issues' ? 'active' : ''}`} onClick={() => setActiveTab('issues')}>
                     <i class="fa-solid fa-dolly"></i> Issues by Pen
+                </button>
+                <button class={`filter-btn ${activeTab === 'premix' ? 'active' : ''}`} onClick={() => setActiveTab('premix')}>
+                    <i class="fa-solid fa-flask"></i> Premix Production
                 </button>
             </div>
 
@@ -416,9 +526,13 @@ export default function FeedStock() {
                                             <td>{p.supplier || '—'}</td>
                                             {isAdmin && (
                                                 <td style={{ textAlign: 'center' }}>
-                                                    <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => deleteFeedPurchase(p.id)}>
-                                                        <i class="fa-solid fa-trash-can"></i>
-                                                    </button>
+                                                    {p.supplier === 'In-house production' ? (
+                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Credited by a premix batch — undo it from the Premix Production tab instead"><i class="fa-solid fa-lock"></i></span>
+                                                    ) : (
+                                                        <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => deleteFeedPurchase(p.id)}>
+                                                            <i class="fa-solid fa-trash-can"></i>
+                                                        </button>
+                                                    )}
                                                 </td>
                                             )}
                                         </tr>
@@ -511,7 +625,7 @@ export default function FeedStock() {
                                 <tbody>
                                     {perPenCost.map(row => (
                                         <tr key={row.pen}>
-                                            <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>{row.pen === 'ALL' ? 'All Pens' : `Pen ${row.pen}`}</td>
+                                            <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>{penLabel(row.pen)}</td>
                                             <td>{row.qty.toFixed(2)} kg</td>
                                             <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(row.cost).toLocaleString()} PKR</strong></td>
                                         </tr>
@@ -548,11 +662,13 @@ export default function FeedStock() {
                                         <tr key={iss.id}>
                                             <td>{formatDate(iss.date)}</td>
                                             <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(iss.itemId)}</td>
-                                            <td>{iss.pen === 'ALL' ? 'All Pens' : `Pen ${iss.pen}`}</td>
+                                            <td>{penLabel(iss.pen)}</td>
                                             <td>{iss.quantity.toFixed(2)} kg</td>
                                             <td>
                                                 {iss.source === 'auto' ? (
                                                     <span style={{ fontSize: '0.72rem', color: 'var(--primary-green-light)' }}><i class="fa-solid fa-arrows-rotate"></i> TMR log</span>
+                                                ) : iss.pen === 'PRODUCTION' ? (
+                                                    <span style={{ fontSize: '0.72rem', color: 'var(--accent-gold)' }}><i class="fa-solid fa-flask"></i> Premix batch</span>
                                                 ) : (
                                                     <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-pen"></i> Manual</span>
                                                 )}
@@ -562,6 +678,8 @@ export default function FeedStock() {
                                                 <td style={{ textAlign: 'center' }}>
                                                     {iss.source === 'auto' ? (
                                                         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Auto-synced from a TMR feed log — edit or delete it from the TMR Calculator's Recent Feed History instead"><i class="fa-solid fa-lock"></i></span>
+                                                    ) : iss.pen === 'PRODUCTION' ? (
+                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Consumed by a premix batch — undo it from the Premix Production tab instead"><i class="fa-solid fa-lock"></i></span>
                                                     ) : (
                                                         <button
                                                             type="button"
@@ -581,10 +699,236 @@ export default function FeedStock() {
                                             )}
                                         </tr>
                                     ))}
-                                    {filteredIssues.length === 0 && (
+                    {filteredIssues.length === 0 && (
                                         <tr>
                                             <td colSpan={isAdmin ? 7 : 6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No issues logged in this date range.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ═══ TAB: PREMIX PRODUCTION ═══ */}
+            {activeTab === 'premix' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+
+                    {isAdmin && (
+                        <div style={{ background: 'rgba(74, 144, 217, 0.06)', border: '1px solid rgba(74, 144, 217, 0.18)', borderRadius: '8px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
+                            <i class="fa-solid fa-circle-info" style={{ color: '#4a90d9', fontSize: '1.1rem', marginTop: '0.15rem' }}></i>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: '1.5' }}>
+                                <strong style={{ color: 'var(--text-pure)' }}>How this works:</strong> Define one or more house premixes (e.g. "Wanda") with a <strong>Formula</strong> — which raw materials from the store, and how many kg of each go into 1 kg of premix. Then <strong>Log a Batch</strong> whenever you actually mix and bag one: it deducts those raw materials from stock and credits the premix's own stock, priced at what that batch actually cost to make. Each premix also appears as its own line in the Stock Ledger and as an ingredient in the TMR recipe — feed it (and log it) exactly like Silage or Maize.
+                            </span>
+                        </div>
+                    )}
+
+                    <div class="glass-panel">
+                        <div class="form-header-bar" style={{ marginBottom: '1rem' }}>
+                            <h3 class="panel-title" style={{ margin: 0 }}><i class="fa-solid fa-flask"></i> Premix Types</h3>
+                            {isAdmin && (
+                                <button type="button" class="btn btn-secondary btn-sm" onClick={() => setIsAddPremixFormOpen(!isAddPremixFormOpen)}>
+                                    <i class={`fa-solid ${isAddPremixFormOpen ? 'fa-xmark' : 'fa-plus'}`}></i> {isAddPremixFormOpen ? 'Cancel' : 'Add Premix'}
+                                </button>
+                            )}
+                        </div>
+
+                        {isAddPremixFormOpen && (
+                            <form onSubmit={handleAddPremixType} style={{ background: 'rgba(0, 0, 0, 0.2)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '0.8rem 1rem', marginBottom: '1.2rem' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '2fr auto', gap: '0.8rem', alignItems: 'flex-end' }}>
+                                    <div class="form-group" style={{ marginBottom: 0 }}>
+                                        <label style={{ fontSize: '0.75rem' }}>Premix Name</label>
+                                        <input type="text" class="form-control" placeholder="e.g. Wanda" value={newPremixName} onChange={e => setNewPremixName(e.target.value)} required />
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">Add</button>
+                                </div>
+                            </form>
+                        )}
+
+                        <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                            {premixTypes.map(p => (
+                                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', padding: '0.35rem 0.5rem 0.35rem 0.9rem' }}>
+                                    <span style={{ fontSize: '0.82rem', fontWeight: '600', color: 'var(--text-pure)' }}>{p.name}</span>
+                                    {isAdmin && (
+                                        <button type="button" class="btn btn-secondary" style={{ padding: '0.1rem 0.4rem', minHeight: '24px', height: '24px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => handleDeletePremixType(p.id)}>
+                                            <i class="fa-solid fa-trash-can" style={{ fontSize: '0.7rem' }}></i>
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                            {premixTypes.length === 0 && (
+                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>No premix types yet — add one above to get started.</p>
+                            )}
+                        </div>
+                    </div>
+
+                    {premixTypes.length > 0 && (
+                        <div class="glass-panel">
+                            <h3 class="panel-title"><i class="fa-solid fa-list-check"></i> Formula</h3>
+                            <div class="form-group" style={{ maxWidth: '280px' }}>
+                                <label style={{ fontSize: '0.75rem' }}>Premix</label>
+                                <select class="form-control" value={selectedPremixId} onChange={e => setSelectedPremixId(e.target.value)}>
+                                    <option value="">Select premix…</option>
+                                    {premixTypes.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                </select>
+                            </div>
+
+                            {selectedPremixId && (
+                                <div style={{ marginTop: '1rem' }}>
+                                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 0 }}>
+                                        kg of raw material needed per 1 kg of {premixTypes.find(p => p.id === selectedPremixId)?.name} produced.
+                                    </p>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                                        {formulaDraft.map((row, idx) => (
+                                            <div key={idx} style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                                                <select
+                                                    class="form-control" style={{ flex: 1 }}
+                                                    value={row.stockItemId}
+                                                    onChange={e => handleFormulaRowChange(idx, 'stockItemId', e.target.value)}
+                                                    disabled={!isAdmin}
+                                                >
+                                                    {rawMaterialItems.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                                                </select>
+                                                <input
+                                                    type="number" step="0.001" class="form-control" style={{ width: '140px' }}
+                                                    placeholder="kg / kg premix" value={row.qtyPerKg}
+                                                    onChange={e => handleFormulaRowChange(idx, 'qtyPerKg', e.target.value)}
+                                                    disabled={!isAdmin}
+                                                />
+                                                {isAdmin && (
+                                                    <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => handleRemoveFormulaRow(idx)}>
+                                                        <i class="fa-solid fa-trash-can"></i>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+                                        {formulaDraft.length === 0 && (
+                                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>No raw materials added to this formula yet.</p>
+                                        )}
+                                    </div>
+                                    {isAdmin && (
+                                        <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem' }}>
+                                            <button type="button" class="btn btn-secondary" onClick={handleAddFormulaRow} disabled={formulaDraft.length >= rawMaterialItems.length}>
+                                                <i class="fa-solid fa-plus"></i> Add Raw Material
+                                            </button>
+                                            <button type="button" class="btn btn-primary" onClick={handleSaveFormula}>
+                                                <i class="fa-solid fa-floppy-disk"></i> Save Formula
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {isAdmin && premixTypes.length > 0 && (
+                        <div class="glass-panel">
+                            <h3 class="panel-title"><i class="fa-solid fa-circle-plus"></i> Log a Batch</h3>
+                            <form onSubmit={handleLogBatch} class="form-grid-3" style={{ alignItems: 'flex-end' }}>
+                                <div class="form-group">
+                                    <label>Premix</label>
+                                    <select class="form-control" value={bPremixId} onChange={e => setBPremixId(e.target.value)} required>
+                                        <option value="">Select premix…</option>
+                                        {premixTypes.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Date</label>
+                                    <input type="date" class="form-control" value={bDate} max={todayStr} onChange={e => setBDate(e.target.value)} required />
+                                </div>
+                                <div class="form-group">
+                                    <label>Bag Weight (kg, optional)</label>
+                                    <input type="number" step="0.01" class="form-control" placeholder="any weight" value={bBagWeight} onChange={e => handleBagFieldChange('bagWeight', e.target.value)} />
+                                </div>
+                                <div class="form-group">
+                                    <label>Bag Count (optional)</label>
+                                    <input type="number" step="1" class="form-control" placeholder="e.g. 10" value={bBagCount} onChange={e => handleBagFieldChange('bagCount', e.target.value)} />
+                                </div>
+                                <div class="form-group">
+                                    <label>Total Produced (kg)</label>
+                                    <input type="number" step="0.01" class="form-control" placeholder="e.g. 250" value={bTotalKg} onChange={e => setBTotalKg(e.target.value)} required />
+                                </div>
+                                <div class="form-group">
+                                    <label>Notes</label>
+                                    <input type="text" class="form-control" placeholder="Optional" value={bNotes} onChange={e => setBNotes(e.target.value)} />
+                                </div>
+
+                                {batchPreview && (
+                                    <div style={{ gridColumn: '1 / -1', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0.8rem 1rem' }}>
+                                        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>This batch will consume:</p>
+                                        <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.82rem', color: 'var(--text-pure)' }}>
+                                            {batchPreview.rows.map(r => (
+                                                <li key={r.stockItemId} style={{ color: r.qty > r.available ? 'hsl(0,75%,65%)' : 'var(--text-pure)' }}>
+                                                    {itemName(r.stockItemId)}: {r.qty.toFixed(2)} kg ({Math.round(r.cost).toLocaleString()} PKR)
+                                                    {r.qty > r.available && <span> — only {r.available.toFixed(2)} kg in stock!</span>}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                        <p style={{ fontSize: '0.85rem', marginTop: '0.6rem', marginBottom: 0 }}>
+                                            <strong style={{ color: 'var(--accent-gold)' }}>Cost/kg: {batchPreview.costPerKg.toFixed(2)} PKR</strong>
+                                        </p>
+                                    </div>
+                                )}
+
+                                <div style={{ gridColumn: '1 / -1' }}>
+                                    <button type="submit" class="btn btn-primary" style={{ minHeight: '44px' }}><i class="fa-solid fa-floppy-disk"></i> Log Batch</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    <div class="glass-panel">
+                        <h3 class="panel-title"><i class="fa-solid fa-clock-rotate-left"></i> Batch History</h3>
+                        <div class="table-wrapper">
+                            <table class="data-table" style={{ fontSize: '0.85rem' }}>
+                                <thead>
+                                    <tr>
+                                        <th>DATE</th>
+                                        <th>PREMIX</th>
+                                        <th>TOTAL PRODUCED</th>
+                                        <th>BAGS</th>
+                                        <th>COST/KG</th>
+                                        <th>MATERIALS USED</th>
+                                        {isAdmin && <th style={{ textAlign: 'center', width: '60px' }}>UNDO</th>}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {sortedBatches.map(b => (
+                                        <tr key={b.id}>
+                                            <td>{formatDate(b.date)}</td>
+                                            <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{b.premixTypeName || itemName(b.premixTypeId)}</td>
+                                            <td>{b.totalKg.toFixed(2)} kg</td>
+                                            <td>{b.bagCount > 0 ? `${b.bagCount} × ${b.bagWeight}kg` : '—'}</td>
+                                            <td>{b.costPerKg.toFixed(2)} PKR</td>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+                                                {(b.consumed || []).map(c => `${itemName(c.stockItemId)} ${c.quantity.toFixed(1)}kg`).join(', ') || '—'}
+                                            </td>
+                                            {isAdmin && (
+                                                <td style={{ textAlign: 'center' }}>
+                                                    <button
+                                                        type="button"
+                                                        class="btn btn-secondary"
+                                                        style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
+                                                        onClick={() => {
+                                                            if (window.confirm(`Undo this batch?\n\n${formatDate(b.date)} · ${b.premixTypeName} · ${b.totalKg.toFixed(2)} kg\n\nThis reverses the raw material deductions and the ${b.premixTypeName} stock it credited. This cannot be undone.`)) {
+                                                                deletePremixBatch(b.id);
+                                                            }
+                                                        }}
+                                                        title="Undo this batch"
+                                                    >
+                                                        <i class="fa-solid fa-trash-can"></i>
+                                                    </button>
+                                                </td>
+                                            )}
+                                        </tr>
+                                    ))}
+                                    {sortedBatches.length === 0 && (
+                                        <tr>
+                                            <td colSpan={isAdmin ? 7 : 6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                                No premix batches logged yet.
                                             </td>
                                         </tr>
                                     )}

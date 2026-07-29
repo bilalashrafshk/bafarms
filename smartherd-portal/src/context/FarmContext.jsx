@@ -897,6 +897,139 @@ export const FarmProvider = ({ children }) => {
         });
     };
 
+    // ─── PREMIX PRODUCTION (e.g. "Wanda") ───
+    // Some farms don't feed raw materials straight into the TMR — they first blend a chosen
+    // subset of feedStockItems into a house premix, bag it, and feed the premix itself day
+    // to day instead of mixing fresh. A premix type is just another feedStockItems +
+    // feedIngredients entry (so it slots into the store ledger and ration recipe exactly like
+    // Silage or Maize, with no special-casing anywhere else) plus two things nothing else has:
+    // a formula (which raw materials, and how many kg of each per kg of premix produced) and a
+    // dated batch log that converts raw material stock into premix stock — deducting the
+    // formula's raw materials via addFeedStockIssue (pen 'PRODUCTION') and crediting the
+    // premix's own stock via addFeedPurchase (rate = that batch's rolled-up material cost).
+    // Reusing those two existing functions means getFeedStockLedger needs no changes at all.
+    // Any number of differently-named premixes can be defined (not just one hardcoded "Wanda").
+    const [premixTypes, setPremixTypes] = useState(() => loadStoredData('ba_premix_types', []));
+    const [premixFormulas, setPremixFormulas] = useState(() => loadStoredData('ba_premix_formulas', {}));
+    const [premixBatches, setPremixBatches] = useState(() => loadStoredData('ba_premix_batches', []));
+
+    const addPremixType = (name) => {
+        const trimmed = (name || '').trim();
+        if (!trimmed) return null;
+        const id = 'premix_' + Date.now();
+        setPremixTypes(prev => {
+            const next = [...prev, { id, name: trimmed }];
+            persistMutation('SAVE_SETTINGS', { key: 'premix_types', value: next });
+            return next;
+        });
+        setPremixFormulas(prev => {
+            const next = { ...prev, [id]: [] };
+            persistMutation('SAVE_SETTINGS', { key: 'premix_formulas', value: next });
+            return next;
+        });
+        // derivedFromIngredientId points at itself: once Wanda-style premix is fed as a TMR
+        // ingredient, "Log This Feeding" quantities auto-sync to this stock item's Issued
+        // column exactly like every other ingredient (see getCombinedFeedIssues above).
+        updateFeedStockItems([...feedStockItems, { id, name: trimmed, unit: 'kg', isDefault: false, isPremix: true, derivedFromIngredientId: id }]);
+        updateFeedIngredients([...feedIngredients, { id, name: trimmed, dmTarget: 0, price: 0, isDefault: false, isPremix: true }]);
+        return id;
+    };
+
+    const deletePremixType = (id) => {
+        setPremixTypes(prev => {
+            const next = prev.filter(p => p.id !== id);
+            persistMutation('SAVE_SETTINGS', { key: 'premix_types', value: next });
+            return next;
+        });
+        setPremixFormulas(prev => {
+            const next = { ...prev };
+            delete next[id];
+            persistMutation('SAVE_SETTINGS', { key: 'premix_formulas', value: next });
+            return next;
+        });
+        updateFeedStockItems(feedStockItems.filter(i => i.id !== id));
+        updateFeedIngredients(feedIngredients.filter(i => i.id !== id));
+    };
+
+    // rows: [{ stockItemId, qtyPerKg }] — kg of that raw material needed per 1kg of premix
+    // produced. Any feedStockItems id can be added here freely, in any ratio.
+    const updatePremixFormula = (premixTypeId, rows) => {
+        setPremixFormulas(prev => {
+            const next = { ...prev, [premixTypeId]: rows };
+            persistMutation('SAVE_SETTINGS', { key: 'premix_formulas', value: next });
+            return next;
+        });
+    };
+
+    // Converts raw materials sitting in the store into a batch of premix. totalKg is the
+    // authoritative quantity produced — bagWeight/bagCount are optional, free-form (any
+    // weight) fields kept only for display/reference on the batch history, since farms don't
+    // necessarily use a fixed bag size.
+    const addPremixBatch = (batch) => {
+        const premixTypeId = batch.premixTypeId;
+        const premixType = premixTypes.find(p => p.id === premixTypeId);
+        const totalKg = parseFloat(batch.totalKg) || 0;
+        if (!premixType || totalKg <= 0) return null;
+
+        const formula = premixFormulas[premixTypeId] || [];
+        const ledger = getFeedStockLedger();
+        const rateFor = (stockItemId) => ledger.find(l => l.item.id === stockItemId)?.avgRate || 0;
+
+        const consumed = formula
+            .map(row => ({ stockItemId: row.stockItemId, quantity: totalKg * (parseFloat(row.qtyPerKg) || 0), rate: rateFor(row.stockItemId) }))
+            .filter(c => c.quantity > 0);
+
+        const totalMaterialCost = consumed.reduce((sum, c) => sum + c.quantity * c.rate, 0);
+        const costPerKg = totalMaterialCost / totalKg;
+        const date = batch.date || new Date().toISOString().split('T')[0];
+        const bagWeight = parseFloat(batch.bagWeight) || 0;
+        const bagCount = parseFloat(batch.bagCount) || 0;
+
+        const issueIds = consumed.map(c => addFeedStockIssue({
+            date, itemId: c.stockItemId, pen: 'PRODUCTION', quantity: c.quantity,
+            notes: `Used to produce ${totalKg.toFixed(2)} kg of ${premixType.name}`
+        }).id);
+
+        const purchaseRec = addFeedPurchase({
+            date, itemId: premixTypeId, quantity: totalKg, rate: costPerKg,
+            supplier: 'In-house production',
+            notes: batch.notes || `Batch of ${premixType.name} from ${consumed.length} raw material(s)`
+        });
+
+        // Keep this premix's ration/reference price honest — it should reflect what it
+        // actually cost to make from raw materials, not a manually-typed guess.
+        updateFeedIngredients(feedIngredients.map(ing => ing.id === premixTypeId ? { ...ing, price: costPerKg } : ing));
+
+        const record = {
+            id: `pb-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            premixTypeId,
+            premixTypeName: premixType.name,
+            date, totalKg, bagWeight, bagCount, costPerKg,
+            consumed, purchaseId: purchaseRec.id, issueIds,
+            notes: batch.notes || ''
+        };
+        setPremixBatches(prev => {
+            const next = [...prev, record];
+            persistMutation('SAVE_SETTINGS', { key: 'premix_batches', value: next });
+            return next;
+        });
+        return record;
+    };
+
+    // Reverses a batch entirely — undoes the raw-material deductions and the premix stock
+    // credit it created — then removes the batch record itself.
+    const deletePremixBatch = (id) => {
+        const batch = premixBatches.find(b => b.id === id);
+        if (!batch) return;
+        (batch.issueIds || []).forEach(issueId => deleteFeedStockIssue(issueId));
+        if (batch.purchaseId) deleteFeedPurchase(batch.purchaseId);
+        setPremixBatches(prev => {
+            const next = prev.filter(b => b.id !== id);
+            persistMutation('SAVE_SETTINGS', { key: 'premix_batches', value: next });
+            return next;
+        });
+    };
+
     // localStorage cache sync for animals/weights/treatments/events (portal reads these on
     // init before DB loads). These are just a read-on-init display cache, not the source of
     // truth (that's the DB + the durable pending-mutation queue, which persists itself
@@ -959,6 +1092,18 @@ export const FarmProvider = ({ children }) => {
     useEffect(() => {
         debouncedCacheWrite('ba_feed_stock_issues', feedStockIssues);
     }, [feedStockIssues]);
+
+    useEffect(() => {
+        debouncedCacheWrite('ba_premix_types', premixTypes);
+    }, [premixTypes]);
+
+    useEffect(() => {
+        debouncedCacheWrite('ba_premix_formulas', premixFormulas);
+    }, [premixFormulas]);
+
+    useEffect(() => {
+        debouncedCacheWrite('ba_premix_batches', premixBatches);
+    }, [premixBatches]);
 
     useEffect(() => {
         debouncedCacheWrite('ba_mineral_split_ratio', mineralSplitRatio);
@@ -1043,6 +1188,9 @@ export const FarmProvider = ({ children }) => {
                             if (s.feed_stock_items) setFeedStockItems(s.feed_stock_items);
                             if (s.feed_opening_stock) setFeedOpeningStock(s.feed_opening_stock);
                             if (s.mineral_split_ratio !== undefined) setMineralSplitRatioState(s.mineral_split_ratio);
+                            if (s.premix_types) setPremixTypes(s.premix_types);
+                            if (s.premix_formulas) setPremixFormulas(s.premix_formulas);
+                            if (s.premix_batches) setPremixBatches(s.premix_batches);
                         }
                         if (data.feedPurchases) setFeedPurchases(data.feedPurchases);
                         if (data.feedStockIssues) setFeedStockIssues(data.feedStockIssues);
@@ -1840,6 +1988,14 @@ export const FarmProvider = ({ children }) => {
             getCombinedFeedIssues,
             mineralSplitRatio,
             setMineralSplitRatio,
+            premixTypes,
+            addPremixType,
+            deletePremixType,
+            premixFormulas,
+            updatePremixFormula,
+            premixBatches,
+            addPremixBatch,
+            deletePremixBatch,
             rationPlans,
             pens,
             saveRationPlan,
