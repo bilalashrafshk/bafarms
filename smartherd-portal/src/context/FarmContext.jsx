@@ -1950,48 +1950,72 @@ export const FarmProvider = ({ children }) => {
             const khalPct = Math.min(130, Math.max(0, parseFloat(adaptRow?.custom?.khal ?? adaptRow?.custom?.khal_pct ?? adaptRow?.khalPct ?? adaptRow?.khal ?? 0)));
             const tooriKg = Math.max(0, parseFloat(adaptRow?.tooriKg) || 0); // Absolute kg/day
 
-            // Helper: find bracket quantity for an ingredient key or name in steady-state bracket
+            // Helper: normalized string matching against bracket keys or ingredient names
+            const normString = str => (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
             const getBracketQty = (key) => {
                 if (bracket[key] !== undefined) return parseFloat(bracket[key]) || 0;
+                const targetNorm = normString(key);
                 const matchingKey = Object.keys(bracket).find(k => {
-                    const ingName = (feedIngredients.find(i => i.id === k)?.name || k).toLowerCase();
-                    return k.toLowerCase() === key.toLowerCase() || ingName.includes(key.toLowerCase());
+                    const ingName = feedIngredients.find(i => i.id === k)?.name || k;
+                    const keyNorm = normString(k);
+                    const nameNorm = normString(ingName);
+                    return keyNorm === targetNorm || nameNorm.includes(targetNorm) || targetNorm.includes(nameNorm);
                 });
                 return matchingKey ? (parseFloat(bracket[matchingKey]) || 0) : 0;
             };
 
-            const maizeGrainQty = getBracketQty('maizeGrain') || getBracketQty('maize') || getBracketQty('grain') || getBracketQty('wanda');
-            const silageQty = getBracketQty('silage') || getBracketQty('forage');
+            // 1. Calculate total Wanda raw materials in steady-state bracket
+            let bracketWandaTotal = 0;
+            let bracketSilageTotal = 0;
+
+            Object.keys(bracket).forEach(ingId => {
+                const ingObj = feedIngredients.find(i => i.id === ingId);
+                const norm = normString(ingObj?.name || ingId);
+                const qty = parseFloat(bracket[ingId]) || 0;
+
+                if (norm.includes('silage') || norm.includes('forage')) {
+                    bracketSilageTotal += qty;
+                } else if (norm.includes('wanda') || norm.includes('maize') || norm.includes('grain') || norm.includes('gluten') || norm.includes('limestone') || norm.includes('mineral') || norm.includes('premix')) {
+                    bracketWandaTotal += qty;
+                }
+            });
+
+            if (bracketSilageTotal === 0) {
+                bracketSilageTotal = getBracketQty('silage') || getBracketQty('forage') || 4.0;
+            }
+
+            const baseWandaQty = bracketWandaTotal > 0 ? bracketWandaTotal : (getBracketQty('maizeGrain') || getBracketQty('wanda') || 2.5);
 
             forageAdLib = false;
             adLibForageId = null;
             resolvedIngredients = {};
 
-            // 1. Process all configured steady-state bracket ingredient columns:
+            // 2. Process all configured steady-state bracket ingredient columns:
             Object.keys(bracket).forEach(ingId => {
                 const ingObj = feedIngredients.find(i => i.id === ingId);
-                const name = (ingObj?.name || ingId).toLowerCase();
+                const norm = normString(ingObj?.name || ingId);
 
-                if (name.includes('urea')) {
+                if (norm.includes('urea')) {
                     // Urea is 0 during adaptation
                     resolvedIngredients[ingId] = 0;
-                } else if (name.includes('straw') || name.includes('toori')) {
+                } else if (norm.includes('straw') || norm.includes('toori')) {
                     // Toori is absolute kg/day from adaptation row
                     resolvedIngredients[ingId] = tooriKg;
-                } else if (forageType === 'chari' && (name.includes('silage') || ingId === 'silage')) {
+                } else if (forageType === 'chari' && norm.includes('silage')) {
                     // Silage is 0 during adaptation when forage_type is chari (Chari replaces it)
                     resolvedIngredients[ingId] = 0;
-                } else if (forageType === 'chari' && (name.includes('chari') || ingId === 'chari')) {
+                } else if (forageType === 'chari' && norm.includes('chari')) {
                     // Chari = bracket.maize_silage * (chari_pct / 100)
-                    const baseQty = silageQty || parseFloat(bracket[ingId]) || 0;
+                    const baseQty = bracketSilageTotal || parseFloat(bracket[ingId]) || 0;
                     resolvedIngredients[ingId] = baseQty * (chariPct / 100);
-                } else if (name.includes('silage')) {
+                } else if (norm.includes('silage')) {
                     // Silage adaptation when forage_type is silage
-                    const silageVal = adaptRow?.forageKg ? parseFloat(adaptRow.forageKg) : (silageQty * (chariPct / 100));
+                    const silageVal = adaptRow?.forageKg ? parseFloat(adaptRow.forageKg) : (bracketSilageTotal * (chariPct / 100));
                     resolvedIngredients[ingId] = silageVal;
-                } else if (name.includes('khal') || name.includes('cottonseed')) {
-                    // Cottonseed / Khal = bracket.maize_grain * (khal_pct / 100)
-                    resolvedIngredients[ingId] = maizeGrainQty * (khalPct / 100);
+                } else if (norm.includes('khal') || norm.includes('cottonseed')) {
+                    // Cottonseed / Khal = bracket.wanda * (khal_pct / 100)
+                    resolvedIngredients[ingId] = baseWandaQty * (khalPct / 100);
                 } else {
                     // Wanda ingredients (Maize Grain, Gluten Feed, Limestone/Minerals, Wanda, Premixes):
                     // Scale bracket quantity by wanda_pct / 100
@@ -2000,15 +2024,29 @@ export const FarmProvider = ({ children }) => {
                 }
             });
 
-            // 2. Ensure Chari is present if forageType === 'chari' and not in bracket keys
+            // 3. Ensure Chari is present if forageType === 'chari' and not in bracket keys
             if (forageType === 'chari') {
-                const hasChari = Object.keys(resolvedIngredients).some(k => k === 'chari' || (feedIngredients.find(i => i.id === k)?.name || '').toLowerCase().includes('chari'));
+                const hasChari = Object.keys(resolvedIngredients).some(k => {
+                    const norm = normString(feedIngredients.find(i => i.id === k)?.name || k);
+                    return norm.includes('chari');
+                });
                 if (!hasChari) {
-                    resolvedIngredients['chari'] = silageQty * (chariPct / 100);
+                    resolvedIngredients['chari'] = bracketSilageTotal * (chariPct / 100);
                 }
             }
 
-            // 3. RATION SAFETY GUARD: Flag and clamp any resolved ingredient quantity above 15 kg/head/day
+            // 4. If Cottonseed Cake / Khal is in adaptation row but not in bracket keys, resolve it
+            if (khalPct > 0) {
+                const hasKhal = Object.keys(resolvedIngredients).some(k => {
+                    const norm = normString(feedIngredients.find(i => i.id === k)?.name || k);
+                    return norm.includes('khal') || norm.includes('cottonseed');
+                });
+                if (!hasKhal) {
+                    resolvedIngredients['cottonseed'] = baseWandaQty * (khalPct / 100);
+                }
+            }
+
+            // 5. RATION SAFETY GUARD: Flag and clamp any resolved ingredient quantity above 15 kg/head/day
             Object.keys(resolvedIngredients).forEach(k => {
                 if (resolvedIngredients[k] > 15) {
                     console.error(`[RATION SAFETY GUARD] Resolved ingredient quantity ${resolvedIngredients[k]} kg for ${k} exceeds 15 kg/head/day safety limit! Clamping to 15 kg.`);
