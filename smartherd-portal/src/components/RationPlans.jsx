@@ -4,7 +4,7 @@ import { FarmContext } from '../context/FarmContext';
 export default function RationPlans() {
     const {
         rationPlans, saveRationPlan, duplicateRationPlan, deleteRationPlan,
-        rationPlansV2, rationRows, rationRowItems, importRationPlanCSV, updateRationPlanV2,
+        rationPlansV2, rationRows, rationRowItems, importRationPlanCSV, updateRationPlanV2, updateRationRow,
         pens, savePen, deletePen, getPenRationRow,
         animals, feedIngredients, getIngredientStockPrice, addStockTrackedIngredient, staffUser
     } = useContext(FarmContext);
@@ -238,6 +238,63 @@ export default function RationPlans() {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+    };
+
+    // ─── v2 BRACKET DETAIL VIEW/EDIT ───
+    // Lets a plan's actual imported bracket rows (previously only shown as a count) be
+    // read and corrected row-by-row without re-uploading a whole new CSV version. Server
+    // (UPDATE_RATION_ROW) re-checks the same bound/contiguity rules IMPORT_RATION_PLAN
+    // applies, so a bad edit can't silently break the sequence live pens resolve against.
+    const [expandedV2PlanId, setExpandedV2PlanId] = useState(null);
+    const [bracketFilterForage, setBracketFilterForage] = useState('all');
+    const [bracketFilterPhase, setBracketFilterPhase] = useState('all');
+    const [editingRowId, setEditingRowId] = useState(null);
+    const [rowEditWtMin, setRowEditWtMin] = useState('');
+    const [rowEditWtMax, setRowEditWtMax] = useState('');
+    const [rowEditTargetAdg, setRowEditTargetAdg] = useState('');
+    const [rowEditEstCost, setRowEditEstCost] = useState('');
+    const [rowEditItems, setRowEditItems] = useState({});
+    const [rowSavingId, setRowSavingId] = useState(null);
+    const [rowSaveErrors, setRowSaveErrors] = useState([]);
+
+    const toggleV2PlanExpanded = (planId) => {
+        setExpandedV2PlanId(prev => (prev === planId ? null : planId));
+        setEditingRowId(null);
+        setRowSaveErrors([]);
+        setBracketFilterForage('all');
+        setBracketFilterPhase('all');
+    };
+
+    const openEditRow = (row, ingredientIds) => {
+        setEditingRowId(row.id);
+        setRowEditWtMin(row.wtMin);
+        setRowEditWtMax(row.wtMax);
+        setRowEditTargetAdg(row.targetAdg);
+        setRowEditEstCost(row.estCostPerHeadPerDay ?? '');
+        const itemsByIng = {};
+        ingredientIds.forEach(id => { itemsByIng[id] = 0; });
+        rationRowItems.filter(i => i.rowId === row.id).forEach(i => { itemsByIng[i.ingredientId] = i.qtyKgPerHeadPerDay; });
+        setRowEditItems(itemsByIng);
+        setRowSaveErrors([]);
+    };
+
+    const handleSaveRow = async () => {
+        setRowSavingId(editingRowId);
+        const result = await updateRationRow({
+            rowId: editingRowId,
+            wtMin: parseFloat(rowEditWtMin),
+            wtMax: parseFloat(rowEditWtMax),
+            targetAdg: parseFloat(rowEditTargetAdg),
+            estCostPerHeadPerDay: rowEditEstCost !== '' && rowEditEstCost !== null ? parseFloat(rowEditEstCost) : null,
+            items: rowEditItems
+        });
+        setRowSavingId(null);
+        if (result.success) {
+            setEditingRowId(null);
+            setRowSaveErrors([]);
+        } else {
+            setRowSaveErrors(result.errors || ['Failed to save bracket.']);
+        }
     };
 
     // Smart auto-matching helper: matches an ingredient column to a Feed Stock item
@@ -874,8 +931,9 @@ export default function RationPlans() {
                                     </thead>
                                     <tbody>
                                         {rationPlansV2.map(plan => (
-                                            editingV2Id === plan.id ? (
-                                                <tr key={plan.id}>
+                                            <React.Fragment key={plan.id}>
+                                            {editingV2Id === plan.id ? (
+                                                <tr>
                                                     <td>
                                                         <input type="text" class="form-control" style={{ minWidth: '140px' }} value={v2EditName} onChange={e => setV2EditName(e.target.value)} />
                                                     </td>
@@ -901,7 +959,7 @@ export default function RationPlans() {
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                <tr key={plan.id}>
+                                                <tr>
                                                     <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
                                                         {plan.name}
                                                         {plan.isDefault && <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--accent-gold)' }}>DEFAULT</span>}
@@ -913,18 +971,50 @@ export default function RationPlans() {
                                                     <td>{pens.filter(p => p.planId === plan.id).length}</td>
                                                     <td>
                                                         <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                                            <button type="button" class={`btn btn-sm ${expandedV2PlanId === plan.id ? 'btn-primary' : 'btn-ghost'}`} title="View / edit brackets" onClick={() => toggleV2PlanExpanded(plan.id)}>
+                                                                <i class={`fa-solid ${expandedV2PlanId === plan.id ? 'fa-chevron-up' : 'fa-table-list'}`}></i>
+                                                            </button>
                                                             {isAdmin && (
                                                                 <button type="button" class="btn btn-ghost btn-sm" title="Edit name/settings" onClick={() => openEditV2Plan(plan)}>
-                                                                    <i class="fa-solid fa-pen"></i>
+                                                                    <i class="fa-solid fa-pen-to-square"></i>
                                                                 </button>
                                                             )}
                                                             <button type="button" class="btn btn-ghost btn-sm" title="Export as CSV" onClick={() => handleExportV2Plan(plan)}>
-                                                                <i class="fa-solid fa-download"></i>
+                                                                <i class="fa-solid fa-file-csv"></i>
                                                             </button>
                                                         </div>
                                                     </td>
                                                 </tr>
-                                            )
+                                            )}
+                                            {expandedV2PlanId === plan.id && (
+                                                <tr>
+                                                    <td colSpan={7} style={{ padding: 0, background: 'rgba(255,255,255,0.02)' }}>
+                                                        <BracketDetailPanel
+                                                            plan={plan}
+                                                            rationRows={rationRows}
+                                                            rationRowItems={rationRowItems}
+                                                            feedIngredients={feedIngredients}
+                                                            isAdmin={isAdmin}
+                                                            bracketFilterForage={bracketFilterForage}
+                                                            setBracketFilterForage={setBracketFilterForage}
+                                                            bracketFilterPhase={bracketFilterPhase}
+                                                            setBracketFilterPhase={setBracketFilterPhase}
+                                                            editingRowId={editingRowId}
+                                                            openEditRow={openEditRow}
+                                                            cancelEditRow={() => { setEditingRowId(null); setRowSaveErrors([]); }}
+                                                            rowEditWtMin={rowEditWtMin} setRowEditWtMin={setRowEditWtMin}
+                                                            rowEditWtMax={rowEditWtMax} setRowEditWtMax={setRowEditWtMax}
+                                                            rowEditTargetAdg={rowEditTargetAdg} setRowEditTargetAdg={setRowEditTargetAdg}
+                                                            rowEditEstCost={rowEditEstCost} setRowEditEstCost={setRowEditEstCost}
+                                                            rowEditItems={rowEditItems} setRowEditItems={setRowEditItems}
+                                                            rowSavingId={rowSavingId}
+                                                            rowSaveErrors={rowSaveErrors}
+                                                            handleSaveRow={handleSaveRow}
+                                                        />
+                                                    </td>
+                                                </tr>
+                                            )}
+                                            </React.Fragment>
                                         ))}
                                     </tbody>
                                 </table>
@@ -1603,6 +1693,154 @@ export default function RationPlans() {
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+// Detailed, filterable view of a single imported (v2) plan's bracket rows — the drill-down
+// that used to only show as a "333" count. Sorted/grouped the same way the CSV export is
+// (forage type → phase → day → weight) so the on-screen table and the exported file read
+// identically. Row-level edits (admin only) go through UPDATE_RATION_ROW, which re-validates
+// bounds + bracket contiguity against sibling rows before writing.
+function BracketDetailPanel({
+    plan, rationRows, rationRowItems, feedIngredients, isAdmin,
+    bracketFilterForage, setBracketFilterForage,
+    bracketFilterPhase, setBracketFilterPhase,
+    editingRowId, openEditRow, cancelEditRow,
+    rowEditWtMin, setRowEditWtMin,
+    rowEditWtMax, setRowEditWtMax,
+    rowEditTargetAdg, setRowEditTargetAdg,
+    rowEditEstCost, setRowEditEstCost,
+    rowEditItems, setRowEditItems,
+    rowSavingId, rowSaveErrors, handleSaveRow
+}) {
+    const allRows = rationRows.filter(r => r.planId === plan.id);
+    const forageTypes = [...new Set(allRows.map(r => r.forageType))].sort();
+
+    const ingredientIdSet = new Set();
+    allRows.forEach(row => {
+        rationRowItems.filter(i => i.rowId === row.id).forEach(i => ingredientIdSet.add(i.ingredientId));
+    });
+    const ingredientIds = [...ingredientIdSet];
+    const ingredientNameById = (id) => feedIngredients.find(f => f.id === id)?.name || id;
+
+    const filteredRows = allRows.filter(r =>
+        (bracketFilterForage === 'all' || r.forageType === bracketFilterForage) &&
+        (bracketFilterPhase === 'all' || r.phase === bracketFilterPhase)
+    ).sort((a, b) => {
+        if (a.forageType !== b.forageType) return a.forageType.localeCompare(b.forageType);
+        if (a.phase !== b.phase) return a.phase.localeCompare(b.phase);
+        const aDay = a.dayNo == null ? -1 : a.dayNo;
+        const bDay = b.dayNo == null ? -1 : b.dayNo;
+        if (aDay !== bDay) return aDay - bDay;
+        return a.wtMin - b.wtMin;
+    });
+
+    return (
+        <div style={{ padding: '1rem 1.2rem' }}>
+            <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', marginBottom: '0.8rem', flexWrap: 'wrap' }}>
+                <strong style={{ color: 'var(--text-pure)', fontSize: '0.85rem' }}>
+                    <i class="fa-solid fa-table-list"></i> {filteredRows.length} of {allRows.length} brackets
+                </strong>
+                <select class="form-control" style={{ width: 'auto', fontSize: '0.78rem' }} value={bracketFilterForage} onChange={e => setBracketFilterForage(e.target.value)}>
+                    <option value="all">All forage types</option>
+                    {forageTypes.map(ft => <option key={ft} value={ft}>{ft}</option>)}
+                </select>
+                <select class="form-control" style={{ width: 'auto', fontSize: '0.78rem' }} value={bracketFilterPhase} onChange={e => setBracketFilterPhase(e.target.value)}>
+                    <option value="all">Both phases</option>
+                    <option value="ADAPTATION">Adaptation</option>
+                    <option value="STEADY">Steady</option>
+                </select>
+                {isAdmin && (
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        <i class="fa-solid fa-circle-info"></i> Editing here corrects this exact version in place — pens already on v{plan.version} pick up the change immediately.
+                    </span>
+                )}
+            </div>
+
+            {rowSaveErrors.length > 0 && (
+                <div style={{ background: 'rgba(220,50,50,0.12)', border: '1px solid rgba(220,50,50,0.4)', borderRadius: '8px', padding: '0.6rem 0.8rem', marginBottom: '0.8rem', fontSize: '0.76rem', color: '#ff8080' }}>
+                    {rowSaveErrors.map((e, i) => <div key={i}><i class="fa-solid fa-triangle-exclamation"></i> {e}</div>)}
+                </div>
+            )}
+
+            <div style={{ maxHeight: '440px', overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: '8px' }}>
+                <table class="data-table" style={{ fontSize: '0.78rem' }}>
+                    <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-card, #1a1d24)', zIndex: 1 }}>
+                        <tr>
+                            <th>FORAGE</th>
+                            <th>PHASE</th>
+                            <th>DAY</th>
+                            <th>WT MIN</th>
+                            <th>WT MAX</th>
+                            <th>TARGET ADG</th>
+                            {ingredientIds.map(id => <th key={id}>{ingredientNameById(id)}</th>)}
+                            <th>EST COST</th>
+                            {isAdmin && <th>ACTIONS</th>}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {filteredRows.map(row => {
+                            const isEditing = editingRowId === row.id;
+                            const itemsByIng = {};
+                            rationRowItems.filter(i => i.rowId === row.id).forEach(i => { itemsByIng[i.ingredientId] = i.qtyKgPerHeadPerDay; });
+
+                            if (isEditing) {
+                                return (
+                                    <tr key={row.id} style={{ background: 'rgba(212,175,55,0.08)' }}>
+                                        <td>{row.forageType}</td>
+                                        <td>{row.phase}</td>
+                                        <td>{row.dayNo ?? '—'}</td>
+                                        <td><input type="number" class="form-control" style={{ width: '65px' }} value={rowEditWtMin} onChange={e => setRowEditWtMin(e.target.value)} /></td>
+                                        <td><input type="number" class="form-control" style={{ width: '65px' }} value={rowEditWtMax} onChange={e => setRowEditWtMax(e.target.value)} /></td>
+                                        <td><input type="number" step="0.01" class="form-control" style={{ width: '70px' }} value={rowEditTargetAdg} onChange={e => setRowEditTargetAdg(e.target.value)} /></td>
+                                        {ingredientIds.map(id => (
+                                            <td key={id}>
+                                                <input type="number" step="0.01" class="form-control" style={{ width: '65px' }}
+                                                    value={rowEditItems[id] ?? 0}
+                                                    onChange={e => setRowEditItems(prev => ({ ...prev, [id]: e.target.value }))} />
+                                            </td>
+                                        ))}
+                                        <td><input type="number" step="0.01" class="form-control" style={{ width: '75px' }} value={rowEditEstCost} onChange={e => setRowEditEstCost(e.target.value)} /></td>
+                                        <td>
+                                            <div style={{ display: 'flex', gap: '0.3rem' }}>
+                                                <button type="button" class="btn btn-primary btn-sm" title="Save bracket" onClick={handleSaveRow} disabled={rowSavingId === row.id}>
+                                                    <i class={`fa-solid ${rowSavingId === row.id ? 'fa-hourglass-half' : 'fa-check'}`}></i>
+                                                </button>
+                                                <button type="button" class="btn btn-ghost btn-sm" title="Cancel" onClick={cancelEditRow}>
+                                                    <i class="fa-solid fa-xmark"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            }
+
+                            return (
+                                <tr key={row.id}>
+                                    <td>{row.forageType}</td>
+                                    <td>{row.phase}</td>
+                                    <td>{row.dayNo ?? '—'}</td>
+                                    <td>{row.wtMin}</td>
+                                    <td>{row.wtMax}</td>
+                                    <td>{row.targetAdg}</td>
+                                    {ingredientIds.map(id => (
+                                        <td key={id}>{itemsByIng[id] != null ? itemsByIng[id] : '—'}</td>
+                                    ))}
+                                    <td>{row.estCostPerHeadPerDay != null ? row.estCostPerHeadPerDay.toFixed(2) : '—'}</td>
+                                    {isAdmin && (
+                                        <td>
+                                            <button type="button" class="btn btn-ghost btn-sm" title="Edit this bracket" onClick={() => openEditRow(row, ingredientIds)}>
+                                                <i class="fa-solid fa-pen-to-square"></i>
+                                            </button>
+                                        </td>
+                                    )}
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 }

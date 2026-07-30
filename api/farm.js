@@ -784,7 +784,7 @@ const HERD_ACTIONS = new Set([
     'SAVE_RATION_PLAN', 'DELETE_RATION_PLAN', 'SAVE_PEN', 'DELETE_PEN',
     'SAVE_SETTINGS', 'ADD_FEED_PURCHASE', 'DELETE_FEED_PURCHASE',
     'ADD_FEED_STOCK_ISSUE', 'DELETE_FEED_STOCK_ISSUE', 'IMPORT_RATION_PLAN',
-    'UPDATE_RATION_PLAN_V2'
+    'UPDATE_RATION_PLAN_V2', 'UPDATE_RATION_ROW'
 ]);
 
 // Normalizes a feed ingredient / CSV column name for matching: lowercase, drop any
@@ -2113,6 +2113,101 @@ module.exports = async (req, res) => {
                 `, [name.trim(), adaptationDays || 7, adgFloor || 1.0, !!isDefault, id]);
 
                 return res.status(200).json({ success: true });
+            }
+
+            // Row-level correction for an already-imported (v2) plan — lets a single
+            // bracket's weight range/target ADG/ingredient quantities be fixed in place
+            // (e.g. a typo caught after import) without re-uploading a whole new CSV
+            // version. Re-runs the same bound + contiguity checks IMPORT_RATION_PLAN
+            // applies (spec §7) against this row's siblings in the same
+            // (forage_type, phase, day_no) group, so a bad edit can't silently break
+            // the bracket sequence that live pens are already resolving against.
+            if (action === 'UPDATE_RATION_ROW') {
+                const { rowId, wtMin, wtMax, targetAdg, estCostPerHeadPerDay, items } = payload;
+
+                if (!rowId) {
+                    return res.status(400).json({ success: false, errors: ['rowId is required.'] });
+                }
+
+                const rowRes = await client.query('SELECT * FROM ba_ration_rows WHERE id = $1', [rowId]);
+                if (rowRes.rows.length === 0) {
+                    return res.status(404).json({ success: false, errors: ['Ration row not found.'] });
+                }
+                const existingRow = rowRes.rows[0];
+
+                const newWtMin = parseFloat(wtMin);
+                const newWtMax = parseFloat(wtMax);
+                const newTargetAdg = parseFloat(targetAdg);
+                const label = `${existingRow.forage_type} ${existingRow.phase}${existingRow.day_no ? ' day ' + existingRow.day_no : ''}, ${newWtMin}-${newWtMax}kg`;
+
+                let errors = [];
+                if (!(newWtMin < newWtMax)) errors.push(`${label}: wt_min must be less than wt_max.`);
+                if (!(newTargetAdg >= 0.2 && newTargetAdg <= 2.0)) errors.push(`${label}: target_adg ${targetAdg} out of range 0.2-2.0.`);
+
+                let rowTotal = 0;
+                Object.entries(items || {}).forEach(([ingredientId, qtyRaw]) => {
+                    const qty = parseFloat(qtyRaw) || 0;
+                    if (qty < 0 || qty > 25) errors.push(`${label}: ${ingredientId} = ${qty}kg is outside the 0-25kg/head/day bound.`);
+                    rowTotal += qty;
+                });
+                if (!(rowTotal >= 1 && rowTotal <= 40)) errors.push(`${label}: total ration ${rowTotal.toFixed(2)}kg/head/day is outside the 1-40kg bound.`);
+
+                if (errors.length > 0) {
+                    return res.status(400).json({ success: false, errors });
+                }
+
+                // Contiguity against this row's siblings in the same bracket group,
+                // using the *new* wt_min/wt_max for this row and the existing values
+                // for every other row in the group.
+                const siblingsRes = await client.query(`
+                    SELECT id, wt_min, wt_max FROM ba_ration_rows
+                    WHERE plan_id = $1 AND forage_type = $2 AND phase = $3
+                    AND (day_no = $4 OR ($4 IS NULL AND day_no IS NULL))
+                `, [existingRow.plan_id, existingRow.forage_type, existingRow.phase, existingRow.day_no]);
+                const group = siblingsRes.rows.map(r => ({
+                    id: r.id,
+                    wtMin: r.id === parseInt(rowId, 10) ? newWtMin : parseFloat(r.wt_min),
+                    wtMax: r.id === parseInt(rowId, 10) ? newWtMax : parseFloat(r.wt_max)
+                })).sort((a, b) => a.wtMin - b.wtMin);
+                for (let i = 0; i < group.length - 1; i++) {
+                    if (Math.abs(group[i].wtMax + 1 - group[i + 1].wtMin) > 0.001) {
+                        errors.push(`Bracket gap/overlap: ${group[i].wtMin}-${group[i].wtMax}kg vs ${group[i + 1].wtMin}-${group[i + 1].wtMax}kg.`);
+                    }
+                }
+
+                if (errors.length > 0) {
+                    return res.status(400).json({ success: false, errors });
+                }
+
+                await client.query(`
+                    UPDATE ba_ration_rows
+                    SET wt_min = $1, wt_max = $2, target_adg = $3, est_cost_per_head_per_day = $4
+                    WHERE id = $5
+                `, [newWtMin, newWtMax, newTargetAdg, estCostPerHeadPerDay || null, rowId]);
+
+                await client.query('DELETE FROM ba_ration_row_items WHERE row_id = $1', [rowId]);
+                const newItems = [];
+                for (const [ingredientId, qtyRaw] of Object.entries(items || {})) {
+                    const qty = parseFloat(qtyRaw) || 0;
+                    if (qty <= 0) continue;
+                    const itemRes = await client.query(`
+                        INSERT INTO ba_ration_row_items (row_id, ingredient_id, qty_kg_per_head_per_day)
+                        VALUES ($1, $2, $3)
+                        RETURNING id
+                    `, [rowId, ingredientId, qty]);
+                    newItems.push({ id: itemRes.rows[0].id, rowId: parseInt(rowId, 10), ingredientId, qtyKgPerHeadPerDay: qty });
+                }
+
+                return res.status(200).json({
+                    success: true,
+                    row: {
+                        id: parseInt(rowId, 10), planId: existingRow.plan_id, phase: existingRow.phase,
+                        dayNo: existingRow.day_no !== null ? parseInt(existingRow.day_no, 10) : null,
+                        forageType: existingRow.forage_type, wtMin: newWtMin, wtMax: newWtMax,
+                        targetAdg: newTargetAdg, estCostPerHeadPerDay: estCostPerHeadPerDay || null
+                    },
+                    items: newItems
+                });
             }
 
             // Generic settings upsert — covers the breed roster, med categories, system

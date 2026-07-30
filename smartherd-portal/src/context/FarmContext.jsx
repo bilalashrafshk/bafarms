@@ -1902,6 +1902,25 @@ export const FarmProvider = ({ children }) => {
         return { success: true };
     };
 
+    // Corrects a single imported bracket row in place (weight range, target ADG, ingredient
+    // quantities) — e.g. a typo caught after import — without re-uploading a whole new CSV
+    // version. Server re-validates bounds + bracket contiguity against sibling rows before
+    // writing, since live pens may already be resolving against this exact version.
+    const updateRationRow = async ({ rowId, wtMin, wtMax, targetAdg, estCostPerHeadPerDay, items }) => {
+        const { res, data } = await sendMutationToServer('UPDATE_RATION_ROW', {
+            rowId, wtMin, wtMax, targetAdg, estCostPerHeadPerDay, items
+        });
+
+        if (!res.ok || data.success === false) {
+            return { success: false, errors: data.errors || [data.error || `HTTP ${res.status}`] };
+        }
+
+        setRationRows(prev => prev.map(r => (r.id === data.row.id ? data.row : r)));
+        setRationRowItems(prev => [...prev.filter(i => i.rowId !== data.row.id), ...data.items]);
+
+        return { success: true };
+    };
+
     // Finds the steady-state bracket row for a given forage type + weight, falling back
     // to the nearest bracket by midpoint distance so a pen never silently loses its
     // ration. Rows saved before forageType existed are treated as 'silage' (the only
@@ -2525,6 +2544,7 @@ export const FarmProvider = ({ children }) => {
             deleteRationPlan,
             importRationPlanCSV,
             updateRationPlanV2,
+            updateRationRow,
             savePen,
             deletePen,
             getPenRationRow,
