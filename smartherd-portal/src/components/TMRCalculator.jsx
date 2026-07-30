@@ -78,7 +78,8 @@ export default function TMRCalculator() {
     // whatever static price they were last saved with.
     const planIngredientRows = isPlanDriven
         ? Object.entries(resolvedPlanRow.week.ingredients).map(([id, qty]) => {
-            const ing = feedIngredients.find(i => i.id === id) || { id, name: id, price: 0 };
+            const ing = feedIngredients.find(i => i.id === id || i.name.toLowerCase() === id.toLowerCase() || (id === 'wanda' && i.name.toLowerCase().includes('wanda')))
+                || { id, name: id.charAt(0).toUpperCase() + id.slice(1), price: 0 };
             const stockPrice = getIngredientStockPrice(id);
             const price = (stockPrice !== null && stockPrice > 0) ? stockPrice : (ing.price || 0);
             const qtyPerHead = planOverrides[id] !== undefined ? planOverrides[id] : qty;

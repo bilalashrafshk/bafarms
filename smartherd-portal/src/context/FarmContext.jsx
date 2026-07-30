@@ -1942,40 +1942,40 @@ export const FarmProvider = ({ children }) => {
 
         if (usesAdaptationTable) {
             const adaptRow = adaptationRows.find(r => r.day === adaptationDay) || adaptationRows[0];
-            const weekKeys = Object.keys(week.ingredients || {});
-            let wandaKey = null;
+            const refWeight = lookupWeight || avgWeight || 200;
 
-            if (plan.wandaStockItemId && weekKeys.includes(plan.wandaStockItemId)) {
-                wandaKey = plan.wandaStockItemId;
-            }
+            const weekIngredients = week.ingredients || {};
+            const weekKeys = Object.keys(weekIngredients);
 
+            // 1. Locate Wanda column in week.ingredients
+            let wandaKey = plan.wandaStockItemId && weekKeys.includes(plan.wandaStockItemId) ? plan.wandaStockItemId : null;
             if (!wandaKey && plan.wandaStockItemId) {
                 const stockItem = feedStockItems.find(s => s.id === plan.wandaStockItemId);
                 if (stockItem?.derivedFromIngredientId && weekKeys.includes(stockItem.derivedFromIngredientId)) {
                     wandaKey = stockItem.derivedFromIngredientId;
                 }
             }
-
             if (!wandaKey) {
                 wandaKey = weekKeys.find(k => {
-                    if (k === 'wanda') return true;
                     const ing = feedIngredients.find(i => i.id === k);
                     const name = (ing?.name || k).toLowerCase();
-                    return name.includes('wanda');
+                    return k === 'wanda' || name.includes('wanda');
                 });
             }
-
             if (!wandaKey) {
                 wandaKey = weekKeys.find(k => k.startsWith('premix_') || feedIngredients.find(i => i.id === k)?.isPremix);
             }
 
-            if (!wandaKey) {
-                wandaKey = 'wanda';
+            const bracketWandaQty = wandaKey ? (parseFloat(weekIngredients[wandaKey]) || 0) : (parseFloat(weekIngredients.wanda) || 0);
+
+            // 2. Locate main forage column in week.ingredients (chari vs silage)
+            const forageKey = forageType === 'chari' ? 'chari' : 'silage';
+            let actualForageKey = weekKeys.find(k => k === forageKey || k.toLowerCase().includes(forageType));
+            if (!actualForageKey) {
+                actualForageKey = weekKeys.find(k => k === 'silage' || k === 'chari' || k.toLowerCase().includes('fodder') || k.toLowerCase().includes('silage'));
             }
 
-            const wandaQty = (week.ingredients || {})[wandaKey] ?? (week.ingredients || {}).wanda ?? 0;
-            const forageKey = forageType === 'silage' ? 'silage' : 'chari';
-            const bracketForageQty = (week.ingredients || {})[forageKey] ?? 0;
+            const bracketForageQty = actualForageKey ? (parseFloat(weekIngredients[actualForageKey]) || 0) : (parseFloat(weekIngredients[forageKey]) || 0);
 
             let forageKg = 0;
             if (forageType === 'chari') {
@@ -1991,23 +1991,31 @@ export const FarmProvider = ({ children }) => {
 
             forageAdLib = false;
             adLibForageId = null;
-            resolvedIngredients = {
-                [wandaKey]: wandaQty * ((adaptRow?.wandaPct || 0) / 100),
-                straw: adaptRow?.tooriKg || 0,
-                [forageKey]: forageKg
-            };
 
-            // Resolve custom adaptation ingredients (e.g. khal_pct as % of body weight, or fixed kg)
-            const refWeight = lookupWeight || avgWeight || 200;
+            // Build resolved ingredients for adaptation day:
+            resolvedIngredients = {};
+
+            if (wandaKey) {
+                resolvedIngredients[wandaKey] = bracketWandaQty * ((adaptRow?.wandaPct || 0) / 100);
+            }
+
+            const strawKey = weekKeys.find(k => k === 'straw' || k.toLowerCase().includes('straw') || k.toLowerCase().includes('toori')) || 'straw';
+            resolvedIngredients[strawKey] = parseFloat(adaptRow?.tooriKg) || 0;
+
+            if (actualForageKey) {
+                resolvedIngredients[actualForageKey] = forageKg;
+            }
+
+            // Copy/resolve all other bracket ingredients so non-zero ingredients from the steady-state bracket are preserved during adaptation
             weekKeys.forEach(ingId => {
-                if (ingId === wandaKey || ingId === 'straw' || ingId === forageKey) return;
+                if (ingId === wandaKey || ingId === strawKey || ingId === actualForageKey) return;
                 const customVal = adaptRow?.custom?.[ingId] ?? adaptRow?.[ingId];
                 if (customVal !== undefined && customVal !== null && customVal !== '') {
                     const isPctBW = ingId === 'khal' || ingId.toLowerCase().includes('khal') || ingId.toLowerCase().includes('cottonseed') || ingId.endsWith('_pct');
                     const valNum = parseFloat(customVal) || 0;
                     resolvedIngredients[ingId] = isPctBW ? refWeight * (valNum / 100) : valNum;
                 } else {
-                    resolvedIngredients[ingId] = (week.ingredients || {})[ingId] || 0;
+                    resolvedIngredients[ingId] = parseFloat(weekIngredients[ingId]) || 0;
                 }
             });
         } else {
