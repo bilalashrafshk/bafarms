@@ -36,7 +36,7 @@ export default function RationPlans() {
         return Object.entries(weekIngredients || {}).reduce((sum, [id, qty]) => {
             const stockPrice = getIngredientStockPrice(id);
             const ing = feedIngredients.find(i => i.id === id);
-            const price = stockPrice !== null ? stockPrice : (ing?.price || 0);
+            const price = (stockPrice !== null && stockPrice > 0) ? stockPrice : (ing?.price || 0);
             return sum + (parseFloat(qty) || 0) * price;
         }, 0);
     };
@@ -57,6 +57,7 @@ export default function RationPlans() {
     const [formDesc, setFormDesc] = useState('');
     const [formAdgFloor, setFormAdgFloor] = useState(1.0);
     const [formIsDefault, setFormIsDefault] = useState(false);
+    const [formWandaStockItemId, setFormWandaStockItemId] = useState('');
     const [formIngredientIds, setFormIngredientIds] = useState([]);
     const [formWeeks, setFormWeeks] = useState([]);
     // Day 1-7 adaptation table (percentage-based, per forage_type) — separate from the
@@ -82,9 +83,6 @@ export default function RationPlans() {
         targetAdg: prevWeek ? prevWeek.targetAdg : '',
         forageType: prevWeek?.forageType || 'silage',
         note: '',
-        // scheduleMode 'week' feeds the same ration every day; 'day' steps the diet across
-        // the 7 days of this bracket (dailyIngredients, keyed 1-7) — legacy mechanism, only
-        // still used by plans that don't have an adaptation table (see formAdaptation).
         scheduleMode: 'week',
         dailyIngredients: {},
         ingredients: ingredientIds.reduce((acc, id) => {
@@ -94,7 +92,7 @@ export default function RationPlans() {
     });
 
     const blankAdaptationSet = (forageType) => DAYS_OF_WEEK.map(day => ({
-        day, forageType, wandaPct: 0, tooriKg: 0, starchCapPct: 0
+        day, forageType, wandaPct: 0, tooriKg: 0, forageKg: 0, foragePct: 100, starchCapPct: 0
     }));
 
     // Splits pasted tab- or comma-separated rows into arrays of trimmed string cells.
@@ -104,8 +102,6 @@ export default function RationPlans() {
 
     // Bulk-import steady-state bracket rows pasted as: wt_min, wt_max, target_adg, then
     // one value per configured ingredient column (in the same order as the table above).
-    // Appends rather than replaces, so multiple pastes (e.g. adding chari rows later) don't
-    // clobber existing rows.
     const handleBulkImportBrackets = () => {
         const rows = parsePastedRows(bulkBracketText);
         if (rows.length === 0) return;
@@ -132,20 +128,36 @@ export default function RationPlans() {
         setBulkBracketText('');
     };
 
-    // Bulk-import adaptation rows pasted as: day, wanda_pct, toori_kg, starch_cap_pct.
-    // Upserts by (forageType, day) so re-pasting a corrected set overwrites cleanly.
+    // Bulk-import adaptation rows pasted as: day, wanda_pct, toori_kg, forage_val (silage kg / chari %), starch_cap_pct
+    // (or 4 cols: day, wanda_pct, toori_kg, starch_cap_pct).
     const handleBulkImportAdaptation = () => {
         const rows = parsePastedRows(bulkAdaptationText);
         if (rows.length === 0) return;
         const newRows = rows.map(cols => {
-            const [day, wandaPct, tooriKg, starchCapPct] = cols;
-            return {
-                day: parseInt(day) || 0,
-                forageType: bulkForageType,
-                wandaPct: parseFloat(wandaPct) || 0,
-                tooriKg: parseFloat(tooriKg) || 0,
-                starchCapPct: parseFloat(starchCapPct) || 0
-            };
+            const isChari = bulkForageType === 'chari';
+            if (cols.length >= 5) {
+                const [day, wandaPct, tooriKg, forageVal, starchCapPct] = cols;
+                return {
+                    day: parseInt(day) || 0,
+                    forageType: bulkForageType,
+                    wandaPct: parseFloat(wandaPct) || 0,
+                    tooriKg: parseFloat(tooriKg) || 0,
+                    forageKg: isChari ? 0 : (parseFloat(forageVal) || 0),
+                    foragePct: isChari ? (parseFloat(forageVal) || 0) : 100,
+                    starchCapPct: parseFloat(starchCapPct) || 0
+                };
+            } else {
+                const [day, wandaPct, tooriKg, starchCapPct] = cols;
+                return {
+                    day: parseInt(day) || 0,
+                    forageType: bulkForageType,
+                    wandaPct: parseFloat(wandaPct) || 0,
+                    tooriKg: parseFloat(tooriKg) || 0,
+                    forageKg: 0,
+                    foragePct: 100,
+                    starchCapPct: parseFloat(starchCapPct) || 0
+                };
+            }
         });
         setFormAdaptation(prev => {
             const filtered = prev.filter(r => !(r.forageType === bulkForageType && newRows.some(n => n.day === r.day)));
@@ -170,11 +182,13 @@ export default function RationPlans() {
         const defaultIds = ['silage', 'maizeGrain', 'glutenFeed', 'straw', 'urea', 'minerals'].filter(id =>
             stockTrackedIngredients.some(i => i.id === id)
         );
+        const defaultWanda = stockTrackedIngredients.find(i => i.isPremix || i.id === 'wanda' || i.name.toLowerCase().includes('wanda'))?.id || 'wanda';
         setEditingId('new');
         setFormName('');
         setFormDesc('');
         setFormAdgFloor(1.0);
         setFormIsDefault(false);
+        setFormWandaStockItemId(defaultWanda);
         setFormIngredientIds(defaultIds.length ? defaultIds : stockTrackedIngredients.map(i => i.id));
         setFormWeeks([blankWeek(1, defaultIds, null)]);
         setFormAdaptation([]);
@@ -188,6 +202,7 @@ export default function RationPlans() {
         setFormDesc(plan.description || '');
         setFormAdgFloor(plan.adgFloor ?? 1.0);
         setFormIsDefault(!!plan.isDefault);
+        setFormWandaStockItemId(plan.wandaStockItemId || 'wanda');
         setFormIngredientIds([...idSet]);
         setFormWeeks((plan.weeks || []).map(w => ({
             ...w,
@@ -329,6 +344,8 @@ export default function RationPlans() {
             forageType: r.forageType || 'silage',
             wandaPct: parseFloat(r.wandaPct) || 0,
             tooriKg: parseFloat(r.tooriKg) || 0,
+            forageKg: parseFloat(r.forageKg) || 0,
+            foragePct: parseFloat(r.foragePct) || 0,
             starchCapPct: parseFloat(r.starchCapPct) || 0
         }));
 
@@ -338,6 +355,7 @@ export default function RationPlans() {
             description: formDesc.trim(),
             adgFloor: parseFloat(formAdgFloor) || 1.0,
             isDefault: formIsDefault,
+            wandaStockItemId: formWandaStockItemId || 'wanda',
             weeks,
             adaptation
         });
@@ -559,14 +577,23 @@ export default function RationPlans() {
                                         <input type="text" class="form-control" value={formName} onChange={e => setFormName(e.target.value)} placeholder="e.g. Baseline, Scenario A" required />
                                     </div>
                                     <div class="form-group">
-                                        <label>Description</label>
-                                        <input type="text" class="form-control" value={formDesc} onChange={e => setFormDesc(e.target.value)} placeholder="Optional notes" />
+                                        <label>Wanda Stock Item / Premix *</label>
+                                        <select class="form-control" value={formWandaStockItemId} onChange={e => setFormWandaStockItemId(e.target.value)}>
+                                            <option value="">Select Wanda premix from Feed Stock…</option>
+                                            {stockTrackedIngredients.map(i => (
+                                                <option key={i.id} value={i.id}>{i.name} {i.isPremix ? '(Premix)' : ''}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                     <div class="form-group">
                                         <label>Minimum ADG Floor (kg/day)</label>
                                         <input type="number" step="0.05" class="form-control" value={formAdgFloor} onChange={e => setFormAdgFloor(e.target.value)} />
                                         <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.3rem' }}>Safety-net floor — pens falling below this flag on the Feed &amp; Growth Report.</small>
                                     </div>
+                                </div>
+                                <div class="form-group" style={{ marginBottom: '1rem' }}>
+                                    <label>Description</label>
+                                    <input type="text" class="form-control" value={formDesc} onChange={e => setFormDesc(e.target.value)} placeholder="Optional notes" />
                                 </div>
 
                                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', color: 'var(--text-pure)', marginBottom: '1.2rem', cursor: 'pointer' }}>
@@ -803,7 +830,7 @@ export default function RationPlans() {
                                         </div>
                                     </div>
                                     <small style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.7rem' }}>
-                                        For a pen's first 7 days on feed, this overrides the steady-state bracket above: Wanda is fed as a % of whatever the pen's <em>current</em> weight bracket's Wanda quantity is, Toori is a fixed kg, forage is fed ad lib (no fixed quantity), and Starch Cap is reference-only. A plan with no adaptation table falls back to the legacy Per-Day toggle on the bracket table instead.
+                                        For a pen's first 7 days on feed, this overrides the steady-state bracket above: Wanda is fed as a % of whatever the pen's <em>current</em> weight bracket's Wanda quantity is, Toori and Forage (Silage/Chari) are fed as fixed kg per day, and Starch Cap is reference-only. A plan with no adaptation table falls back to the legacy Per-Day toggle on the bracket table instead.
                                     </small>
 
                                     {formAdaptation.length === 0 && (
@@ -830,7 +857,7 @@ export default function RationPlans() {
                                                                 <th style={{ width: '70px' }}>DAY</th>
                                                                 <th>WANDA %</th>
                                                                 <th>TOORI (KG)</th>
-                                                                <th>FORAGE</th>
+                                                                <th>{ft.id === 'chari' ? 'CHARI %' : 'SILAGE (KG)'}</th>
                                                                 <th style={{ whiteSpace: 'nowrap' }}>STARCH CAP % (ref)</th>
                                                             </tr>
                                                         </thead>
@@ -844,7 +871,13 @@ export default function RationPlans() {
                                                                     <td>
                                                                         <input type="number" step="0.01" class="form-control" style={{ width: '80px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={r.tooriKg} onChange={e => handleAdaptationFieldChange(ft.id, r.day, 'tooriKg', e.target.value)} />
                                                                     </td>
-                                                                    <td style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Ad lib</td>
+                                                                    <td>
+                                                                        {ft.id === 'chari' ? (
+                                                                            <input type="number" step="0.1" class="form-control" style={{ width: '80px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={r.foragePct ?? 100} onChange={e => handleAdaptationFieldChange(ft.id, r.day, 'foragePct', e.target.value)} />
+                                                                        ) : (
+                                                                            <input type="number" step="0.1" class="form-control" style={{ width: '80px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={r.forageKg ?? 0} onChange={e => handleAdaptationFieldChange(ft.id, r.day, 'forageKg', e.target.value)} />
+                                                                        )}
+                                                                    </td>
                                                                     <td>
                                                                         <input type="number" step="0.1" class="form-control" style={{ width: '80px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={r.starchCapPct} onChange={e => handleAdaptationFieldChange(ft.id, r.day, 'starchCapPct', e.target.value)} />
                                                                     </td>

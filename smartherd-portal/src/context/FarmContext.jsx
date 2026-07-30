@@ -947,15 +947,19 @@ export const FarmProvider = ({ children }) => {
     const getIngredientStockPrice = (ingredientId) => {
         const ledger = getFeedStockLedger();
         const linked = feedStockItems.filter(item => item.id === ingredientId || item.derivedFromIngredientId === ingredientId);
-        if (linked.length === 0) return null;
+        const fallbackPrice = feedIngredients.find(i => i.id === ingredientId)?.price || 0;
+        if (linked.length === 0) return fallbackPrice > 0 ? fallbackPrice : null;
+        let rate = 0;
         if (linked.length === 1) {
-            return ledger.find(l => l.item.id === linked[0].id)?.avgRate || 0;
+            rate = ledger.find(l => l.item.id === linked[0].id)?.avgRate || 0;
+        } else {
+            rate = linked.reduce((sum, item) => {
+                const itemRate = ledger.find(l => l.item.id === item.id)?.avgRate || 0;
+                const share = item.id === 'limestone' ? mineralSplitRatio : item.id === 'mineralPack' ? (1 - mineralSplitRatio) : (1 / linked.length);
+                return sum + itemRate * share;
+            }, 0);
         }
-        return linked.reduce((sum, item) => {
-            const rate = ledger.find(l => l.item.id === item.id)?.avgRate || 0;
-            const share = item.id === 'limestone' ? mineralSplitRatio : item.id === 'mineralPack' ? (1 - mineralSplitRatio) : (1 / linked.length);
-            return sum + rate * share;
-        }, 0);
+        return rate > 0 ? rate : (fallbackPrice > 0 ? fallbackPrice : 0);
     };
 
     // Creates a paired feedStockItems + feedIngredients entry for a brand-new raw material —
@@ -1919,12 +1923,29 @@ export const FarmProvider = ({ children }) => {
 
         if (usesAdaptationTable) {
             const adaptRow = adaptationRows.find(r => r.day === adaptationDay) || adaptationRows[0];
-            const wandaQty = (week.ingredients || {}).wanda || 0;
-            adLibForageId = forageType === 'silage' ? 'silage' : 'chari';
-            forageAdLib = true;
+            const wandaKey = plan.wandaStockItemId || Object.keys(week.ingredients || {}).find(k => k === 'wanda' || k.startsWith('premix_') || feedIngredients.find(i => i.id === k)?.name.toLowerCase().includes('wanda')) || 'wanda';
+            const wandaQty = (week.ingredients || {})[wandaKey] ?? (week.ingredients || {}).wanda ?? 0;
+            const forageKey = forageType === 'silage' ? 'silage' : 'chari';
+            const bracketForageQty = (week.ingredients || {})[forageKey] ?? 0;
+
+            let forageKg = 0;
+            if (forageType === 'chari') {
+                const pct = (adaptRow?.foragePct !== undefined && adaptRow?.foragePct !== null && adaptRow?.foragePct !== '')
+                    ? parseFloat(adaptRow.foragePct)
+                    : (adaptRow?.forageKg ? parseFloat(adaptRow.forageKg) : 100);
+                forageKg = bracketForageQty * (pct / 100);
+            } else {
+                forageKg = (adaptRow?.forageKg !== undefined && adaptRow?.forageKg !== null && adaptRow?.forageKg !== '')
+                    ? parseFloat(adaptRow.forageKg)
+                    : bracketForageQty;
+            }
+
+            forageAdLib = false;
+            adLibForageId = null;
             resolvedIngredients = {
-                wanda: wandaQty * ((adaptRow?.wandaPct || 0) / 100),
-                straw: adaptRow?.tooriKg || 0
+                [wandaKey]: wandaQty * ((adaptRow?.wandaPct || 0) / 100),
+                straw: adaptRow?.tooriKg || 0,
+                [forageKey]: forageKg
             };
         } else {
             // Legacy per-week day-stepped diet, kept for plans with no adaptation table.
