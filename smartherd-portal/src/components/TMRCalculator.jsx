@@ -183,7 +183,7 @@ export default function TMRCalculator() {
                                     {resolvedPlanRow.matchedByWeight
                                         ? `Matched by projected weight (${resolvedPlanRow.avgProjectedWeight?.toFixed(1)} kg across ${resolvedPlanRow.headCount} head, last actual avg ${resolvedPlanRow.avgWeight?.toFixed(1)} kg)`
                                         : 'No weigh-in yet for this pen — matched by cycle day instead of actual weight'}
-                                    {' · '}Target ADG {resolvedPlanRow.week.targetAdg} kg/day
+                                    {' · '}Target ADG {resolvedPlanRow.week.targetAdg || resolvedPlanRow.plan.adgFloor || 1.0} kg/day
                                     {resolvedPlanRow.usesDailyDiet && !resolvedPlanRow.dayInWeek && ' · No cycle start date set — using Day 1 diet until one is set'}
                                 </div>
                                 {resolvedPlanRow.forageAdLib && (

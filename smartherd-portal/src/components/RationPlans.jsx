@@ -32,23 +32,32 @@ export default function RationPlans() {
 
     // Estimated cost/day for a week's ingredient quantities, priced live off the feed stock
     // ledger's weighted-average rate — no manual entry, nothing to fall out of sync.
-    const estimateWeekCost = (weekIngredients) => {
+    const estimateWeekCost = (weekIngredients, plan = null) => {
         return Object.entries(weekIngredients || {}).reduce((sum, [id, qty]) => {
             const stockPrice = getIngredientStockPrice(id);
-            const ing = feedIngredients.find(i => i.id === id);
-            const price = (stockPrice !== null && stockPrice > 0) ? stockPrice : (ing?.price || 0);
+            const planPrice = plan?.ingredientPrices?.[id];
+            const ing = feedIngredients.find(i => i.id === id || i.name?.toLowerCase() === id?.toLowerCase());
+            const defaultFallbackPrice = ing?.price && ing.price > 0 ? ing.price
+                : (id === 'wanda' || id.toLowerCase().includes('wanda') ? 72.47
+                : id === 'silage' || id.toLowerCase().includes('silage') ? 12.5
+                : id === 'straw' || id.toLowerCase().includes('straw') || id.toLowerCase().includes('toori') ? 16.0
+                : id === 'chari' || id.toLowerCase().includes('chari') ? 8.0
+                : 0);
+            const price = (stockPrice !== null && stockPrice > 0)
+                ? stockPrice
+                : (planPrice !== undefined && planPrice !== null && parseFloat(planPrice) > 0)
+                    ? parseFloat(planPrice)
+                    : defaultFallbackPrice;
             return sum + (parseFloat(qty) || 0) * price;
         }, 0);
     };
 
-    // Same as above, but averages across the 7 days for a day-by-day week instead of
-    // reading a single ingredients object.
-    const estimateWeekAvgCost = (week) => {
+    const estimateWeekAvgCost = (week, plan = null) => {
         if (week.scheduleMode === 'day' && week.dailyIngredients && Object.keys(week.dailyIngredients).length > 0) {
             const days = Object.values(week.dailyIngredients);
-            return days.reduce((sum, dayIng) => sum + estimateWeekCost(dayIng), 0) / days.length;
+            return days.reduce((sum, dayIng) => sum + estimateWeekCost(dayIng, plan), 0) / days.length;
         }
-        return estimateWeekCost(week.ingredients);
+        return estimateWeekCost(week.ingredients, plan);
     };
 
     // ─── PLAN EDITOR STATE ───
@@ -516,7 +525,7 @@ export default function RationPlans() {
                                 </thead>
                                 <tbody>
                                     {rationPlans.map(plan => {
-                                        const weekCosts = (plan.weeks || []).map(w => estimateWeekAvgCost(w));
+                                        const weekCosts = (plan.weeks || []).map(w => estimateWeekAvgCost(w, plan));
                                         const minCost = weekCosts.length ? Math.min(...weekCosts) : null;
                                         const maxCost = weekCosts.length ? Math.max(...weekCosts) : null;
                                         return (

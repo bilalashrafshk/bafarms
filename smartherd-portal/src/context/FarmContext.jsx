@@ -947,53 +947,19 @@ export const FarmProvider = ({ children }) => {
     const getIngredientStockPrice = (ingredientId) => {
         const ledger = getFeedStockLedger();
         const linked = feedStockItems.filter(item => item.id === ingredientId || item.derivedFromIngredientId === ingredientId);
-
+        const fallbackPrice = feedIngredients.find(i => i.id === ingredientId)?.price || 0;
+        if (linked.length === 0) return fallbackPrice > 0 ? fallbackPrice : null;
         let rate = 0;
         if (linked.length === 1) {
             rate = ledger.find(l => l.item.id === linked[0].id)?.avgRate || 0;
-        } else if (linked.length > 1) {
+        } else {
             rate = linked.reduce((sum, item) => {
                 const itemRate = ledger.find(l => l.item.id === item.id)?.avgRate || 0;
                 const share = item.id === 'limestone' ? mineralSplitRatio : item.id === 'mineralPack' ? (1 - mineralSplitRatio) : (1 / linked.length);
                 return sum + itemRate * share;
             }, 0);
         }
-        if (rate > 0) return rate;
-
-        const ing = feedIngredients.find(i => i.id === ingredientId);
-        if (ing?.price && ing.price > 0) return ing.price;
-
-        const premixFormula = premixFormulas[ingredientId];
-        if (premixFormula && premixFormula.length > 0) {
-            const formulaCost = premixFormula.reduce((sum, f) => {
-                const matItem = feedStockItems.find(s => s.id === f.stockItemId);
-                const matLedgerRate = ledger.find(l => l.item.id === f.stockItemId)?.avgRate || 0;
-                const matIngPrice = feedIngredients.find(i => i.id === (matItem?.derivedFromIngredientId || f.stockItemId))?.price || 0;
-                const matPrice = matLedgerRate > 0 ? matLedgerRate : (matIngPrice > 0 ? matIngPrice : 50.0);
-                return sum + (parseFloat(f.qtyPerKg) || 0) * matPrice;
-            }, 0);
-            if (formulaCost > 0) return formulaCost;
-        }
-
-        const MASTER_PRICES = {
-            wanda: 72.47, silage: 12.5, chari: 8.0, straw: 16.0, cottonseed: 95.0,
-            maizeGrain: 55.0, glutenFeed: 68.0, urea: 92.0, minerals: 150.0,
-            limestone: 35.0, mineralPack: 350.0
-        };
-        if (MASTER_PRICES[ingredientId]) return MASTER_PRICES[ingredientId];
-
-        const nameLower = (ing?.name || ingredientId || '').toLowerCase();
-        if (nameLower.includes('wanda')) return 72.47;
-        if (nameLower.includes('silage')) return 12.5;
-        if (nameLower.includes('chari')) return 8.0;
-        if (nameLower.includes('straw') || nameLower.includes('toori')) return 16.0;
-        if (nameLower.includes('cotton')) return 95.0;
-        if (nameLower.includes('maize')) return 55.0;
-        if (nameLower.includes('gluten')) return 68.0;
-        if (nameLower.includes('urea')) return 92.0;
-        if (nameLower.includes('mineral')) return 150.0;
-
-        return linked.length > 0 ? 0 : null;
+        return rate > 0 ? rate : (fallbackPrice > 0 ? fallbackPrice : 0);
     };
 
     // Creates a paired feedStockItems + feedIngredients entry for a brand-new raw material —
@@ -1927,19 +1893,22 @@ export const FarmProvider = ({ children }) => {
             : null;
 
         const lookupWeight = avgProjectedWeight !== null ? avgProjectedWeight : avgWeight;
+        const hasWeightData = lookupWeight !== null && lookupWeight > 0;
         let week = null;
         let matchedByWeight = false;
 
-        if (lookupWeight !== null) {
+        if (hasWeightData) {
             week = findWeightBracket(plan, forageType, lookupWeight);
-            matchedByWeight = !!week && lookupWeight >= week.liveWeightMin && lookupWeight < week.liveWeightMax;
+            matchedByWeight = true;
         } else if (daysOnFeed !== null) {
             // No weighed animals yet in this pen — fall back to calendar week so the
             // calculator still has something to show until the first weigh-in.
             const weekNum = Math.min(plan.weeks.length, Math.floor(daysOnFeed / 7) + 1);
             week = plan.weeks.find(w => w.week === weekNum) || plan.weeks[0];
+            matchedByWeight = false;
         } else {
             week = plan.weeks[0];
+            matchedByWeight = false;
         }
         if (!week) return null;
 
