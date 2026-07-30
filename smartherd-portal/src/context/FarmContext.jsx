@@ -1,4 +1,5 @@
 import React, { createContext, useState, useEffect, useRef } from 'react';
+import { resolveRation, getWeightDivergence, NoMatchingRationError } from '../lib/rationResolver';
 
 export const FarmContext = createContext();
 
@@ -649,6 +650,13 @@ export const FarmProvider = ({ children }) => {
     const [rationPlans, setRationPlans] = useState(() => loadStoredData('ba_ration_plans', []));
     const [pens, setPens] = useState(() => loadStoredData('ba_pens', []));
 
+    // New normalized, CSV-imported ration system (RATION_SYSTEM_SPEC.md) — absolute
+    // kg/head/day only, no percentages. Coexists with the legacy rationPlans/weeks
+    // system above: a pen only uses these once its `planId` (not `rationPlanId`) is set.
+    const [rationPlansV2, setRationPlansV2] = useState(() => loadStoredData('ba_ration_plans_v2', []));
+    const [rationRows, setRationRows] = useState(() => loadStoredData('ba_ration_rows', []));
+    const [rationRowItems, setRationRowItems] = useState(() => loadStoredData('ba_ration_row_items', []));
+
     // Database load and sync metrics
     const [fetchLoading, setFetchLoading] = useState(true);
     const [dbUnconfigured, setDbUnconfigured] = useState(false);
@@ -1212,6 +1220,18 @@ export const FarmProvider = ({ children }) => {
     }, [pens]);
 
     useEffect(() => {
+        debouncedCacheWrite('ba_ration_plans_v2', rationPlansV2);
+    }, [rationPlansV2]);
+
+    useEffect(() => {
+        debouncedCacheWrite('ba_ration_rows', rationRows);
+    }, [rationRows]);
+
+    useEffect(() => {
+        debouncedCacheWrite('ba_ration_row_items', rationRowItems);
+    }, [rationRowItems]);
+
+    useEffect(() => {
         debouncedCacheWrite('ba_quotations', quotations);
     }, [quotations]);
 
@@ -1256,6 +1276,9 @@ export const FarmProvider = ({ children }) => {
                         if (data.feedLogs) setFeedLogs(data.feedLogs);
                         if (data.rationPlans) setRationPlans(data.rationPlans);
                         if (data.pens) setPens(data.pens);
+                        if (data.rationPlansV2) setRationPlansV2(data.rationPlansV2);
+                        if (data.rationRows) setRationRows(data.rationRows);
+                        if (data.rationRowItems) setRationRowItems(data.rationRowItems);
                         // First-ever load with no Ration Plans defined yet: seed the Master
                         // Ration Model's Baseline schedule so admins have something to assign
                         // to a pen immediately instead of starting from a blank slate.
@@ -1814,6 +1837,9 @@ export const FarmProvider = ({ children }) => {
         const record = {
             id: pen.id,
             rationPlanId: pen.rationPlanId || null,
+            // New normalized (v2) ration system plan id — set this instead of
+            // rationPlanId to move a pen onto a CSV-imported plan (see importRationPlanCSV).
+            planId: pen.planId || null,
             cycleStartDate: pen.cycleStartDate || null,
             // Which forage row-set this pen currently pulls from (e.g. chari while silage
             // ferments, then switched to silage) — same plan, different row-set.
@@ -1834,6 +1860,30 @@ export const FarmProvider = ({ children }) => {
     const deletePen = (id) => {
         setPens(prev => prev.filter(p => p.id !== id));
         persistMutation('DELETE_PEN', { id });
+    };
+
+    // Imports a CSV-defined ration plan (RATION_SYSTEM_SPEC.md) — the primary, strict
+    // path for the new absolute-kg/head/day ration system. `rows` is already parsed
+    // client-side into structured objects; the server is the sole source of truth for
+    // validation (ingredient-name matching against feed stock, numeric bounds, bracket
+    // contiguity) and rejects the whole import (never partial) on any violation.
+    // Never overwrites an existing plan version — always creates plan_key vN+1.
+    const importRationPlanCSV = async ({ planKey, planName, adaptationDays, adgFloor, isDefault, rows }) => {
+        const { res, data } = await sendMutationToServer('IMPORT_RATION_PLAN', {
+            planKey, planName, adaptationDays, adgFloor, isDefault, rows
+        });
+
+        if (!res.ok || data.success === false) {
+            return { success: false, errors: data.errors || [data.error || `HTTP ${res.status}`] };
+        }
+
+        // Optimistically add the newly created plan/rows/items to local state instead
+        // of waiting for a full page refetch — same pattern as saveRationPlan/savePen.
+        setRationPlansV2(prev => [...prev, data.plan]);
+        setRationRows(prev => [...prev, ...data.rows]);
+        setRationRowItems(prev => [...prev, ...data.items]);
+
+        return { success: true, planId: data.planId, planKey: data.planKey, version: data.version, rowCount: data.rowCount };
     };
 
     // Finds the steady-state bracket row for a given forage type + weight, falling back
@@ -1901,16 +1951,85 @@ export const FarmProvider = ({ children }) => {
     // fed as a fixed kg, and forage fed ad-lib (no fixed quantity). Plans without an
     // adaptation table (e.g. the legacy "Baseline" plan) fall back to the old per-week
     // scheduleMode/dailyIngredients behavior unchanged.
+    // Resolves a pen's ration through the new normalized, CSV-imported system
+    // (RATION_SYSTEM_SPEC.md) — absolute kg/head/day only, one deterministic bracket
+    // lookup keyed on this pen's own projected weight. Used whenever pen.planId is set,
+    // in place of the legacy percentage-based per-plan heuristic below. Never falls back
+    // to a nearby bracket on a miss — returns `blocked: true` instead, since silently
+    // feeding the wrong bracket is exactly the bug this system replaces.
+    const resolvePenRationV2 = (pen, refDate) => {
+        const plan = rationPlansV2.find(p => p.id === pen.planId);
+        const forageType = pen.forageType || 'silage';
+        const penAnimals = animals.filter(a => a.pen === pen.id && a.status !== 'Sold' && a.status !== 'Deceased');
+        const headCount = penAnimals.length;
+        const avgWeight = headCount > 0
+            ? penAnimals.reduce((sum, a) => sum + (parseFloat(a.currentWeight) || 0), 0) / headCount
+            : null;
+
+        if (!plan) {
+            return { system: 'v2', blocked: true, error: 'Assigned ration plan version not found.', forageType, headCount, avgWeight, plan: null };
+        }
+
+        const penForResolver = {
+            cycleStartDate: pen.cycleStartDate,
+            forageType,
+            planId: pen.planId,
+            lastActualWeightKg: pen.lastActualWeightKg,
+            lastWeighDate: pen.lastWeighDate,
+            currentTargetAdg: pen.currentTargetAdg
+        };
+
+        try {
+            const result = resolveRation({ pen: penForResolver, plan, rows: rationRows, rowItems: rationRowItems, today: refDate });
+            const ingredients = {};
+            result.items.forEach(item => { ingredients[item.ingredientId] = item.qtyKgPerHeadPerDay; });
+
+            return {
+                system: 'v2',
+                blocked: false,
+                plan,
+                forageType,
+                headCount,
+                avgWeight,
+                avgProjectedWeight: result.projectedWeight,
+                daysOnFeed: result.daysOnFeed,
+                phase: result.phase,
+                dayNo: result.dayNo,
+                bracketMin: result.bracketMin,
+                bracketMax: result.bracketMax,
+                estCostPerHeadPerDay: result.row.estCostPerHeadPerDay,
+                week: { targetAdg: result.row.targetAdg, ingredients },
+                matchedByWeight: true,
+                isAdaptationWeek: result.phase === 'ADAPTATION',
+                usesAdaptationTable: result.phase === 'ADAPTATION',
+                forageAdLib: false,
+                adLibForageId: null
+            };
+        } catch (err) {
+            if (err instanceof NoMatchingRationError) {
+                return { system: 'v2', blocked: true, error: err.message, forageType, headCount, avgWeight, plan };
+            }
+            throw err;
+        }
+    };
+
     const getPenRationRow = (penId, targetDate = null) => {
         if (!penId || penId === 'all') return null;
 
         const refDate = targetDate ? new Date(targetDate) : new Date();
 
         const pen = pens.find(p => p.id === penId);
-        if (!pen || !pen.rationPlanId) return null;
+        if (!pen) return null;
+
+        // New-system pens (planId set) resolve exclusively through the v2 engine —
+        // never fall through to the legacy heuristic below, even if a stale
+        // rationPlanId is also present from before migration.
+        if (pen.planId) return resolvePenRationV2(pen, refDate);
+
+        if (!pen.rationPlanId) return null;
 
         const plan = rationPlans.find(p => p.id === pen.rationPlanId);
-        if (!plan) return null;
+        if (!plan || !plan.weeks || plan.weeks.length === 0) return null;
 
         const forageType = pen.forageType || 'silage';
         const penAnimals = animals.filter(a => a.pen === penId && a.status !== 'Sold' && a.status !== 'Deceased');
@@ -1926,32 +2045,32 @@ export const FarmProvider = ({ children }) => {
             ? Math.max(0, Math.floor((refDate - new Date(pen.cycleStartDate)) / (1000 * 60 * 60 * 24)))
             : null;
 
-        const adaptationDay = daysOnFeed !== null ? daysOnFeed + 1 : null;
-        const adaptationRows = (plan.adaptation || []).filter(r => (r.forageType || forageType) === forageType);
-        const usesAdaptationTable = adaptationRows.length > 0 && adaptationDay !== null && adaptationDay <= 7;
-
-        if ((!plan.weeks || plan.weeks.length === 0) && !usesAdaptationTable) return null;
-
         const lookupWeight = avgProjectedWeight !== null ? avgProjectedWeight : avgWeight;
         const hasWeightData = lookupWeight !== null && lookupWeight > 0;
         let week = null;
         let matchedByWeight = false;
 
-        if (hasWeightData && plan.weeks && plan.weeks.length > 0) {
+        if (hasWeightData) {
             week = findWeightBracket(plan, forageType, lookupWeight);
             matchedByWeight = true;
-        } else if (daysOnFeed !== null && plan.weeks && plan.weeks.length > 0) {
+        } else if (daysOnFeed !== null) {
+            // No weighed animals yet in this pen — fall back to calendar week so the
+            // calculator still has something to show until the first weigh-in.
             const weekNum = Math.min(plan.weeks.length, Math.floor(daysOnFeed / 7) + 1);
             week = plan.weeks.find(w => w.week === weekNum) || plan.weeks[0];
             matchedByWeight = false;
-        } else if (plan.weeks && plan.weeks.length > 0) {
+        } else {
             week = plan.weeks[0];
             matchedByWeight = false;
         }
-
-        if (!week && !usesAdaptationTable) return null;
+        if (!week) return null;
 
         const dayInWeek = daysOnFeed !== null ? (daysOnFeed % 7) + 1 : null;
+
+        // day_no is 1-indexed (1-7); daysOnFeed is 0-indexed from cycleStartDate.
+        const adaptationDay = daysOnFeed !== null ? daysOnFeed + 1 : null;
+        const adaptationRows = (plan.adaptation || []).filter(r => (r.forageType || forageType) === forageType);
+        const usesAdaptationTable = adaptationRows.length > 0 && adaptationDay !== null && adaptationDay <= 7;
 
         let resolvedIngredients;
         let forageAdLib = false;
@@ -1960,8 +2079,7 @@ export const FarmProvider = ({ children }) => {
 
         if (usesAdaptationTable) {
             const adaptRow = adaptationRows.find(r => r.day === adaptationDay) || adaptationRows[0];
-            const defaultRefIngredients = { silage: 4.12, wanda: 2.50, maizeGrain: 1.73, glutenFeed: 0.61, minerals: 0.162, straw: 0.35 };
-            const bracket = (week && week.ingredients) ? week.ingredients : defaultRefIngredients;
+            const bracket = week.ingredients || {};
 
             // Helper: normalized string matching against bracket keys or ingredient names
             const normString = str => (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -2134,9 +2252,25 @@ export const FarmProvider = ({ children }) => {
     const getPenWeightFlags = (penId) => {
         const pen = pens.find(p => p.id === penId);
         if (!pen) return [];
-        const plan = pen.rationPlanId ? rationPlans.find(p => p.id === pen.rationPlanId) : null;
         const forageType = pen.forageType || 'silage';
+        const legacyPlan = pen.rationPlanId ? rationPlans.find(p => p.id === pen.rationPlanId) : null;
+        const v2Plan = pen.planId ? rationPlansV2.find(p => p.id === pen.planId) : null;
         const penAnimals = animals.filter(a => a.pen === penId && a.status !== 'Sold' && a.status !== 'Deceased');
+
+        // Target ADG "as of" a given weight — used as the growth rate driving the
+        // projection between two consecutive weigh-ins. New-system pens look this up
+        // from the imported ration rows; legacy pens keep using the old weeks table.
+        const targetAdgAtWeight = (weight) => {
+            if (v2Plan) {
+                const row = rationRows.find(r => r.planId === v2Plan.id && r.forageType === forageType && weight >= r.wtMin && weight < r.wtMax);
+                return row ? row.targetAdg : (v2Plan.adgFloor || 0);
+            }
+            if (legacyPlan) {
+                const bracket = findWeightBracket(legacyPlan, forageType, weight);
+                return bracket?.targetAdg ?? legacyPlan.adgFloor ?? 0;
+            }
+            return 0;
+        };
 
         const flags = [];
         penAnimals.forEach(animal => {
@@ -2144,13 +2278,15 @@ export const FarmProvider = ({ children }) => {
             if (logs.length < 2) return;
             const prev = logs[logs.length - 2];
             const curr = logs[logs.length - 1];
-            const daysBetween = Math.max(1, Math.round((new Date(curr.date) - new Date(prev.date)) / (1000 * 60 * 60 * 24)));
-            const bracketAtPrev = plan ? findWeightBracket(plan, forageType, parseFloat(prev.weight)) : null;
-            const targetAdg = bracketAtPrev?.targetAdg ?? plan?.adgFloor ?? 0;
-            const projected = parseFloat(prev.weight) + daysBetween * targetAdg;
-            if (projected <= 0) return;
-            const pctDiff = (parseFloat(curr.weight) - projected) / projected;
-            if (Math.abs(pctDiff) > 0.05) {
+            const prevTargetAdg = targetAdgAtWeight(parseFloat(prev.weight));
+            const { pctDiff, warn, projected } = getWeightDivergence({
+                prevWeightKg: parseFloat(prev.weight),
+                prevDate: prev.date,
+                prevTargetAdg,
+                newWeightKg: parseFloat(curr.weight),
+                newDate: curr.date
+            });
+            if (warn) {
                 flags.push({
                     animalId: animal.id,
                     rfid: animal.rfid,
@@ -2364,10 +2500,14 @@ export const FarmProvider = ({ children }) => {
             addPremixBatch,
             deletePremixBatch,
             rationPlans,
+            rationPlansV2,
+            rationRows,
+            rationRowItems,
             pens,
             saveRationPlan,
             duplicateRationPlan,
             deleteRationPlan,
+            importRationPlanCSV,
             savePen,
             deletePen,
             getPenRationRow,

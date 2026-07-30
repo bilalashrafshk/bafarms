@@ -241,6 +241,65 @@ async function ensureColumns(client) {
             ADD COLUMN IF NOT EXISTS expected_exit_date DATE DEFAULT NULL
     `);
 
+    // --- Normalized, CSV-imported ration system (RATION_SYSTEM_SPEC.md) ---
+    // Absolute kg/head/day only — this is the deliberate replacement for the
+    // percentage-based `ba_ration_plans.weeks`/`adaptation` JSONB blobs above, which
+    // is what caused three real pens at meaningfully different weights to be fed an
+    // identical ration (the plan never re-resolved per-pen against that pen's own
+    // projected weight). New pens/plans use these tables exclusively; old plans and
+    // any pen still pointed at one keep working untouched (no dual-write, no drop).
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS ba_ration_plans_v2 (
+            id VARCHAR(80) PRIMARY KEY,
+            plan_key VARCHAR(50) NOT NULL,
+            version INTEGER NOT NULL,
+            name VARCHAR(100) NOT NULL,
+            adaptation_days INTEGER NOT NULL DEFAULT 7,
+            adg_floor NUMERIC DEFAULT 1.0,
+            is_default BOOLEAN DEFAULT FALSE,
+            created_by VARCHAR(100),
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(plan_key, version)
+        )
+    `);
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS ba_ration_rows (
+            id SERIAL PRIMARY KEY,
+            plan_id VARCHAR(80) REFERENCES ba_ration_plans_v2(id) ON DELETE CASCADE,
+            phase VARCHAR(20) NOT NULL,
+            day_no INTEGER,
+            forage_type VARCHAR(20) NOT NULL,
+            wt_min NUMERIC NOT NULL,
+            wt_max NUMERIC NOT NULL,
+            target_adg NUMERIC NOT NULL,
+            est_cost_per_head_per_day NUMERIC
+        )
+    `);
+    await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_ration_rows_lookup
+            ON ba_ration_rows (plan_id, forage_type, phase, day_no, wt_min, wt_max)
+    `);
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS ba_ration_row_items (
+            id SERIAL PRIMARY KEY,
+            row_id INTEGER REFERENCES ba_ration_rows(id) ON DELETE CASCADE,
+            ingredient_id VARCHAR(100) NOT NULL,
+            qty_kg_per_head_per_day NUMERIC NOT NULL
+        )
+    `);
+    // `plan_id` here points at ba_ration_plans_v2 (new system). The pre-existing
+    // `ration_plan_id` FK to the old ba_ration_plans is left as-is for pens not yet
+    // migrated. Cached weight/ADG fields let the resolution engine project a pen's
+    // current weight without re-scanning ba_weights on every lookup; both are kept
+    // in sync by LOG_WEIGHT and by SAVE_PEN's initial assignment.
+    await client.query(`
+        ALTER TABLE ba_pens
+            ADD COLUMN IF NOT EXISTS plan_id VARCHAR(80) REFERENCES ba_ration_plans_v2(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS last_actual_weight_kg NUMERIC,
+            ADD COLUMN IF NOT EXISTS last_weigh_date DATE,
+            ADD COLUMN IF NOT EXISTS current_target_adg NUMERIC
+    `);
+
     // Event log table — safe CREATE IF NOT EXISTS
     await client.query(`
         CREATE TABLE IF NOT EXISTS ba_events (
@@ -724,8 +783,79 @@ const HERD_ACTIONS = new Set([
     'LOG_FEED', 'DELETE_FEED_LOG', 'UPDATE_WEIGHT_LOGS_BATCH',
     'SAVE_RATION_PLAN', 'DELETE_RATION_PLAN', 'SAVE_PEN', 'DELETE_PEN',
     'SAVE_SETTINGS', 'ADD_FEED_PURCHASE', 'DELETE_FEED_PURCHASE',
-    'ADD_FEED_STOCK_ISSUE', 'DELETE_FEED_STOCK_ISSUE'
+    'ADD_FEED_STOCK_ISSUE', 'DELETE_FEED_STOCK_ISSUE', 'IMPORT_RATION_PLAN'
 ]);
+
+// Normalizes a feed ingredient / CSV column name for matching: lowercase, drop any
+// parenthesized qualifier, strip punctuation, collapse whitespace. Lets "Chari" match
+// "Chari (Green Fodder)" and "Steady State Wanda" match "Wanda" without hand-maintained
+// alias tables, while still being strict about names that aren't a real match.
+function normalizeIngName(str) {
+    return String(str || '')
+        .toLowerCase()
+        .replace(/\([^)]*\)/g, ' ')
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+// Matches a raw CSV ingredient column name against the farm's existing feed stock
+// ingredient list — never lets an import introduce an ad-hoc ingredient name that
+// diverges from what staff already use in Feed Stock / TMR. Returns { match, ambiguous }.
+function matchIngredientColumn(colName, feedIngredients) {
+    const normCol = normalizeIngName(colName);
+    if (!normCol) return { match: null, ambiguous: false };
+
+    const candidates = feedIngredients.filter(ing => {
+        const normIng = normalizeIngName(ing.name);
+        if (!normIng) return false;
+        return normCol === normIng || normCol.includes(normIng) || normIng.includes(normCol);
+    });
+
+    if (candidates.length === 0) return { match: null, ambiguous: false };
+    if (candidates.length === 1) return { match: candidates[0], ambiguous: false };
+
+    const exact = candidates.find(ing => normalizeIngName(ing.name) === normCol);
+    if (exact) return { match: exact, ambiguous: false };
+    return { match: null, ambiguous: true, candidates };
+}
+
+// Recomputes a pen's cached weight-projection fields (last_actual_weight_kg,
+// last_weigh_date, current_target_adg) from its active animals — the values the
+// v2 ration resolution engine needs so it doesn't have to re-scan ba_weights on
+// every feed lookup. Called on new-system plan assignment (SAVE_PEN) and again on
+// every weigh-in (LOG_WEIGHT) so the cache never goes stale.
+async function recomputePenWeightCache(client, penId, planId, forageType) {
+    const animalsRes = await client.query(
+        `SELECT id, current_weight FROM ba_animals WHERE pen = $1 AND status NOT IN ('Sold', 'Deceased')`,
+        [penId]
+    );
+    if (animalsRes.rows.length === 0) {
+        return { lastActualWeightKg: null, lastWeighDate: null, currentTargetAdg: null };
+    }
+
+    const avgWeight = animalsRes.rows.reduce((sum, r) => sum + (parseFloat(r.current_weight) || 0), 0) / animalsRes.rows.length;
+    const animalIds = animalsRes.rows.map(r => r.id);
+
+    const lastWeighRes = await client.query(
+        `SELECT MAX(date) AS last_date FROM ba_weights WHERE animal_id = ANY($1::int[])`,
+        [animalIds]
+    );
+    const lastWeighDate = lastWeighRes.rows[0].last_date || new Date().toISOString().split('T')[0];
+
+    let currentTargetAdg = null;
+    if (planId) {
+        const bracketRes = await client.query(
+            `SELECT target_adg FROM ba_ration_rows
+             WHERE plan_id = $1 AND forage_type = $2 AND wt_min <= $3 AND wt_max + 1 > $3
+             ORDER BY phase ASC LIMIT 1`,
+            [planId, forageType, avgWeight]
+        );
+        if (bracketRes.rows.length > 0) currentTargetAdg = parseFloat(bracketRes.rows[0].target_adg);
+    }
+
+    return { lastActualWeightKg: avgWeight, lastWeighDate, currentTargetAdg };
+}
 
 // Allowlist of ba_settings keys the client is permitted to write — keeps SAVE_SETTINGS
 // from becoming an arbitrary key-value store for anything a compromised/buggy client
@@ -968,6 +1098,15 @@ module.exports = async (req, res) => {
             const rationPlansRes = canHerd
                 ? await client.query('SELECT * FROM ba_ration_plans ORDER BY created_at ASC')
                 : { rows: [] };
+            const rationPlansV2Res = canHerd
+                ? await client.query('SELECT * FROM ba_ration_plans_v2 ORDER BY plan_key ASC, version ASC')
+                : { rows: [] };
+            const rationRowsRes = canHerd
+                ? await client.query('SELECT * FROM ba_ration_rows ORDER BY plan_id ASC, forage_type ASC, phase ASC, day_no ASC, wt_min ASC')
+                : { rows: [] };
+            const rationRowItemsRes = canHerd
+                ? await client.query('SELECT * FROM ba_ration_row_items ORDER BY row_id ASC')
+                : { rows: [] };
             const pensRes = canHerd
                 ? await client.query('SELECT * FROM ba_pens ORDER BY id ASC')
                 : { rows: [] };
@@ -1102,10 +1241,44 @@ module.exports = async (req, res) => {
             const pens = pensRes.rows.map(row => ({
                 id: row.id,
                 rationPlanId: row.ration_plan_id || null,
+                planId: row.plan_id || null,
                 cycleStartDate: row.cycle_start_date ? formatDate(row.cycle_start_date) : null,
                 forageType: row.forage_type || 'silage',
                 expectedExitDate: row.expected_exit_date ? formatDate(row.expected_exit_date) : null,
+                lastActualWeightKg: row.last_actual_weight_kg !== null ? parseFloat(row.last_actual_weight_kg) : null,
+                lastWeighDate: row.last_weigh_date ? formatDate(row.last_weigh_date) : null,
+                currentTargetAdg: row.current_target_adg !== null ? parseFloat(row.current_target_adg) : null,
                 notes: row.notes || ''
+            }));
+
+            const rationPlansV2 = rationPlansV2Res.rows.map(row => ({
+                id: row.id,
+                planKey: row.plan_key,
+                version: row.version,
+                name: row.name,
+                adaptationDays: row.adaptation_days,
+                adgFloor: parseFloat(row.adg_floor || 1.0),
+                isDefault: row.is_default,
+                createdBy: row.created_by || null
+            }));
+
+            const rationRows = rationRowsRes.rows.map(row => ({
+                id: row.id,
+                planId: row.plan_id,
+                phase: row.phase,
+                dayNo: row.day_no !== null ? parseInt(row.day_no, 10) : null,
+                forageType: row.forage_type,
+                wtMin: parseFloat(row.wt_min),
+                wtMax: parseFloat(row.wt_max),
+                targetAdg: parseFloat(row.target_adg),
+                estCostPerHeadPerDay: row.est_cost_per_head_per_day !== null ? parseFloat(row.est_cost_per_head_per_day) : null
+            }));
+
+            const rationRowItems = rationRowItemsRes.rows.map(row => ({
+                id: row.id,
+                rowId: row.row_id,
+                ingredientId: row.ingredient_id,
+                qtyKgPerHeadPerDay: parseFloat(row.qty_kg_per_head_per_day)
             }));
 
             const settings = {};
@@ -1260,7 +1433,7 @@ module.exports = async (req, res) => {
                 accessHerd: canHerd
             } : null;
 
-            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, feedLogs, rationPlans, pens, settings, feedPurchases, feedStockIssues, orders, meatCuts, enquiries, quotations, specSheets, session: sessionOut, staffPermissions, pendingApprovals, myRequests, allApprovals });
+            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, feedLogs, rationPlans, rationPlansV2, rationRows, rationRowItems, pens, settings, feedPurchases, feedStockIssues, orders, meatCuts, enquiries, quotations, specSheets, session: sessionOut, staffPermissions, pendingApprovals, myRequests, allApprovals });
         }
 
         // ─── POST ENDPOINT: LOG TRANSACTION DATA ───
@@ -1345,6 +1518,24 @@ module.exports = async (req, res) => {
                     SET current_weight = $1
                     WHERE id = $2
                 `, [weight, animalId]);
+
+                // Keep the owning pen's v2 weight-projection cache (used by the ration
+                // resolution engine) in sync with every new weigh-in — otherwise the
+                // pen's projected weight would silently drift stale between weigh-ins.
+                const penRes = await client.query('SELECT pen FROM ba_animals WHERE id = $1', [animalId]);
+                const penId = penRes.rows[0]?.pen;
+                if (penId) {
+                    const penInfoRes = await client.query('SELECT plan_id, forage_type FROM ba_pens WHERE id = $1', [penId]);
+                    const penInfo = penInfoRes.rows[0];
+                    if (penInfo && penInfo.plan_id) {
+                        const cache = await recomputePenWeightCache(client, penId, penInfo.plan_id, penInfo.forage_type || 'silage');
+                        await client.query(`
+                            UPDATE ba_pens
+                            SET last_actual_weight_kg = $1, last_weigh_date = $2, current_target_adg = $3
+                            WHERE id = $4
+                        `, [cache.lastActualWeightKg, cache.lastWeighDate, cache.currentTargetAdg, penId]);
+                    }
+                }
 
                 return res.status(200).json({ success: true });
             }
@@ -1714,23 +1905,36 @@ module.exports = async (req, res) => {
             }
 
             if (action === 'SAVE_PEN') {
-                const { id, rationPlanId, cycleStartDate, forageType, expectedExitDate, notes } = payload;
+                const { id, rationPlanId, planId, cycleStartDate, forageType, expectedExitDate, notes } = payload;
 
                 if (!id) {
                     return res.status(400).json({ success: false, error: "Pen id is required" });
                 }
 
                 await client.query(`
-                    INSERT INTO ba_pens (id, ration_plan_id, cycle_start_date, forage_type, expected_exit_date, notes, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+                    INSERT INTO ba_pens (id, ration_plan_id, plan_id, cycle_start_date, forage_type, expected_exit_date, notes, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
                     ON CONFLICT (id) DO UPDATE SET
                         ration_plan_id = EXCLUDED.ration_plan_id,
+                        plan_id = EXCLUDED.plan_id,
                         cycle_start_date = EXCLUDED.cycle_start_date,
                         forage_type = EXCLUDED.forage_type,
                         expected_exit_date = EXCLUDED.expected_exit_date,
                         notes = EXCLUDED.notes,
                         updated_at = NOW()
-                `, [id, rationPlanId || null, cycleStartDate || null, forageType || 'silage', expectedExitDate || null, notes || null]);
+                `, [id, rationPlanId || null, planId || null, cycleStartDate || null, forageType || 'silage', expectedExitDate || null, notes || null]);
+
+                // New-system (v2) plan assignment: seed the pen's cached weight/ADG fields
+                // straight away so the resolution engine has something to project from
+                // before the next weigh-in, instead of leaving them null and blocking feeding.
+                if (planId) {
+                    const cache = await recomputePenWeightCache(client, id, planId, forageType || 'silage');
+                    await client.query(`
+                        UPDATE ba_pens
+                        SET last_actual_weight_kg = $1, last_weigh_date = $2, current_target_adg = $3
+                        WHERE id = $4
+                    `, [cache.lastActualWeightKg, cache.lastWeighDate, cache.currentTargetAdg, id]);
+                }
 
                 return res.status(200).json({ success: true });
             }
@@ -1739,6 +1943,149 @@ module.exports = async (req, res) => {
                 const { id } = payload;
                 await client.query('DELETE FROM ba_pens WHERE id = $1', [id]);
                 return res.status(200).json({ success: true });
+            }
+
+            if (action === 'IMPORT_RATION_PLAN') {
+                const { planKey, planName, adaptationDays, adgFloor, isDefault, rows } = payload;
+
+                if (!planKey || !planName || !Array.isArray(rows) || rows.length === 0) {
+                    return res.status(400).json({ success: false, errors: ['planKey, planName and at least one row are required.'] });
+                }
+
+                // Ingredient names must match the farm's existing feed stock list exactly
+                // (by normalized name) — never let an import introduce an ad-hoc ingredient
+                // name that silently diverges from what staff already use in Feed Stock/TMR.
+                const ingRes = await client.query(`SELECT value FROM ba_settings WHERE key = 'feed_ingredients'`);
+                const feedIngredients = ingRes.rows.length
+                    ? ((typeof ingRes.rows[0].value === 'string' ? JSON.parse(ingRes.rows[0].value) : ingRes.rows[0].value) || [])
+                    : [];
+                const validNames = feedIngredients.map(i => i.name);
+
+                if (feedIngredients.length === 0) {
+                    return res.status(400).json({ success: false, errors: ['No feed ingredients are set up yet — add them in Feed Pricing before importing a ration plan.'] });
+                }
+
+                const rawColumnNames = new Set();
+                rows.forEach(r => Object.keys(r.ingredients || {}).forEach(c => rawColumnNames.add(c)));
+
+                let errors = [];
+                const columnToIngredientId = {};
+                rawColumnNames.forEach(col => {
+                    const { match, ambiguous } = matchIngredientColumn(col, feedIngredients);
+                    if (ambiguous) {
+                        errors.push(`Column "${col}" matches more than one feed stock ingredient — rename it to be unambiguous.`);
+                    } else if (!match) {
+                        errors.push(`Column "${col}" does not match any feed stock ingredient.`);
+                    } else {
+                        columnToIngredientId[col] = match.id;
+                    }
+                });
+
+                if (errors.length > 0) {
+                    errors.push(`Valid feed stock ingredient names: ${validNames.join(', ')}`);
+                    return res.status(400).json({ success: false, errors });
+                }
+
+                // Per-row structural/numeric validation (spec §7) — the qty bound (0-25kg)
+                // is the exact check that would have caught real-world unit-entry mistakes.
+                rows.forEach((r, idx) => {
+                    const label = `Row ${idx + 1} (${r.forageType} ${r.phase}${r.dayNo ? ' day ' + r.dayNo : ''}, ${r.wtMin}-${r.wtMax}kg)`;
+                    const wtMin = parseFloat(r.wtMin), wtMax = parseFloat(r.wtMax), targetAdg = parseFloat(r.targetAdg);
+
+                    if (!(wtMin < wtMax)) errors.push(`${label}: wt_min must be less than wt_max.`);
+                    if (!(targetAdg >= 0.2 && targetAdg <= 2.0)) errors.push(`${label}: target_adg ${r.targetAdg} out of range 0.2-2.0.`);
+                    if (r.phase !== 'ADAPTATION' && r.phase !== 'STEADY') errors.push(`${label}: phase must be ADAPTATION or STEADY.`);
+                    if (r.phase === 'ADAPTATION' && !(r.dayNo >= 1 && r.dayNo <= 7)) errors.push(`${label}: ADAPTATION rows must have day_no 1-7.`);
+                    if (r.phase === 'STEADY' && r.dayNo !== null && r.dayNo !== undefined && r.dayNo !== '') errors.push(`${label}: STEADY rows must not have a day_no.`);
+
+                    let rowTotal = 0;
+                    Object.entries(r.ingredients || {}).forEach(([col, qtyRaw]) => {
+                        const qty = parseFloat(qtyRaw) || 0;
+                        if (qty < 0 || qty > 25) errors.push(`${label}: ${col} = ${qty}kg is outside the 0-25kg/head/day bound.`);
+                        rowTotal += qty;
+                    });
+                    if (!(rowTotal >= 1 && rowTotal <= 40)) errors.push(`${label}: total ration ${rowTotal.toFixed(2)}kg/head/day is outside the 1-40kg bound.`);
+                });
+
+                if (errors.length > 0) {
+                    return res.status(400).json({ success: false, errors });
+                }
+
+                // Bracket contiguity per (forage_type, phase, day_no) — reject the whole file,
+                // naming the offending brackets, rather than importing a silent gap/overlap.
+                // Brackets are inclusive-integer buckets (e.g. 130-134, then 135-139) — every
+                // adjacent pair in the real ration_rows.csv data steps by wtMax+1 = nextWtMin,
+                // never wtMax = nextWtMin, so contiguity is checked against that +1 offset.
+                const groups = {};
+                rows.forEach(r => {
+                    const key = `${r.forageType}|${r.phase}|${r.dayNo ?? ''}`;
+                    (groups[key] = groups[key] || []).push(r);
+                });
+                Object.entries(groups).forEach(([key, groupRows]) => {
+                    const sorted = [...groupRows].sort((a, b) => parseFloat(a.wtMin) - parseFloat(b.wtMin));
+                    for (let i = 0; i < sorted.length - 1; i++) {
+                        if (Math.abs(parseFloat(sorted[i].wtMax) + 1 - parseFloat(sorted[i + 1].wtMin)) > 0.001) {
+                            errors.push(`Bracket gap/overlap in ${key}: ${sorted[i].wtMin}-${sorted[i].wtMax}kg vs ${sorted[i + 1].wtMin}-${sorted[i + 1].wtMax}kg.`);
+                        }
+                    }
+                });
+
+                if (errors.length > 0) {
+                    return res.status(400).json({ success: false, errors });
+                }
+
+                // Never overwrite an existing plan version — pens keep resolving against
+                // whatever version they're pointed at until explicitly reassigned.
+                const verRes = await client.query('SELECT COALESCE(MAX(version), 0) AS max_version FROM ba_ration_plans_v2 WHERE plan_key = $1', [planKey]);
+                const version = parseInt(verRes.rows[0].max_version, 10) + 1;
+                const planId = `${planKey}-v${version}`;
+
+                await client.query(`
+                    INSERT INTO ba_ration_plans_v2 (id, plan_key, version, name, adaptation_days, adg_floor, is_default, created_by, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                `, [planId, planKey, version, planName, adaptationDays || 7, adgFloor || 1.0, !!isDefault, session ? session.email : null]);
+
+                // Return the fully structured plan/rows/items back to the caller so the
+                // client can add them to local state optimistically (same pattern as
+                // SAVE_RATION_PLAN/SAVE_PEN) instead of needing a full page refetch.
+                const createdRows = [];
+                const createdItems = [];
+                for (const r of rows) {
+                    const rowRes = await client.query(`
+                        INSERT INTO ba_ration_rows (plan_id, phase, day_no, forage_type, wt_min, wt_max, target_adg, est_cost_per_head_per_day)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        RETURNING id
+                    `, [planId, r.phase, r.phase === 'ADAPTATION' ? r.dayNo : null, r.forageType, r.wtMin, r.wtMax, r.targetAdg, r.estCostPerHeadPerDay || null]);
+                    const rowId = rowRes.rows[0].id;
+                    createdRows.push({
+                        id: rowId, planId, phase: r.phase,
+                        dayNo: r.phase === 'ADAPTATION' ? r.dayNo : null,
+                        forageType: r.forageType, wtMin: parseFloat(r.wtMin), wtMax: parseFloat(r.wtMax),
+                        targetAdg: parseFloat(r.targetAdg), estCostPerHeadPerDay: r.estCostPerHeadPerDay || null
+                    });
+
+                    for (const [col, qtyRaw] of Object.entries(r.ingredients || {})) {
+                        const qty = parseFloat(qtyRaw) || 0;
+                        if (qty <= 0) continue;
+                        const itemRes = await client.query(`
+                            INSERT INTO ba_ration_row_items (row_id, ingredient_id, qty_kg_per_head_per_day)
+                            VALUES ($1, $2, $3)
+                            RETURNING id
+                        `, [rowId, columnToIngredientId[col], qty]);
+                        createdItems.push({ id: itemRes.rows[0].id, rowId, ingredientId: columnToIngredientId[col], qtyKgPerHeadPerDay: qty });
+                    }
+                }
+
+                const createdPlan = {
+                    id: planId, planKey, version, name: planName,
+                    adaptationDays: adaptationDays || 7, adgFloor: adgFloor || 1.0,
+                    isDefault: !!isDefault, createdBy: session ? session.email : null
+                };
+
+                return res.status(200).json({
+                    success: true, planId, planKey, version, rowCount: rows.length,
+                    plan: createdPlan, rows: createdRows, items: createdItems
+                });
             }
 
             // Generic settings upsert — covers the breed roster, med categories, system

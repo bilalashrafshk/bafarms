@@ -30,7 +30,11 @@ export default function TMRCalculator() {
     // by matching its animals' average actual weight against each week's live-weight
     // bracket (scaled by head count for the batch) for the selected logDate.
     const resolvedPlanRow = selectedTMRPen !== 'all' ? getPenRationRow(selectedTMRPen, logDate) : null;
-    const isPlanDriven = !!resolvedPlanRow;
+    // A v2 pen with no matching bracket comes back as { blocked: true } rather than
+    // null (spec: never silently fall back to a nearby bracket) — that's a hard stop,
+    // not a plan-driven state, so it must never reach the ingredient-math below.
+    const isBlocked = !!resolvedPlanRow?.blocked;
+    const isPlanDriven = !!resolvedPlanRow && !isBlocked;
 
     // Early-warning: animals whose most recent weigh-in diverged >5% from what growth
     // should have predicted since their prior weigh-in — illness, underfeeding, or a bad
@@ -48,6 +52,66 @@ export default function TMRCalculator() {
     const [animalsCount, setAnimalsCount] = useState(activeHerdCount || 1);
 
     const [isTractorMode, setIsTractorMode] = useState(false);
+
+    // ─── TRACTOR MODE: multi-pen batch aggregation ───
+    // Pens eligible for a tractor batch are those with any Ration Plan assigned
+    // (legacy or v2) and active animals — selecting several sums qty×headCount per
+    // ingredient across them, but only after confirming they share the same forage
+    // type and phase. An adaptation-phase pen and a steady-state pen (or silage vs.
+    // chari) use meaningfully different rations, so silently summing them would
+    // produce a wrong batch — this requires an explicit "aggregate anyway" click.
+    const tractorEligiblePens = activePens.filter(p => pens.some(pc => pc.id === p && (pc.rationPlanId || pc.planId)));
+    const [tractorSelectedPens, setTractorSelectedPens] = useState([]);
+    const [tractorConfirmedMismatch, setTractorConfirmedMismatch] = useState(false);
+
+    const openTractorMode = () => {
+        setTractorSelectedPens(selectedTMRPen !== 'all' && tractorEligiblePens.includes(selectedTMRPen) ? [selectedTMRPen] : []);
+        setTractorConfirmedMismatch(false);
+        setIsTractorMode(true);
+    };
+
+    const toggleTractorPen = (penId) => {
+        setTractorConfirmedMismatch(false);
+        setTractorSelectedPens(prev => prev.includes(penId) ? prev.filter(p => p !== penId) : [...prev, penId]);
+    };
+
+    // Resolve each selected pen independently — never assume they share a plan.
+    const tractorPenResolutions = tractorSelectedPens
+        .map(penId => ({ penId, resolved: getPenRationRow(penId, logDate) }))
+        .filter(r => r.resolved && !r.resolved.blocked);
+
+    const tractorPhaseOf = (resolved) => resolved.system === 'v2' ? resolved.phase : (resolved.usesAdaptationTable ? 'ADAPTATION' : 'STEADY');
+    const tractorForageTypes = [...new Set(tractorPenResolutions.map(r => r.resolved.forageType))];
+    const tractorPhases = [...new Set(tractorPenResolutions.map(r => tractorPhaseOf(r.resolved)))];
+    const tractorMismatch = tractorForageTypes.length > 1 || tractorPhases.length > 1;
+    const tractorMismatchedPens = tractorMismatch
+        ? tractorPenResolutions.map(r => `Pen ${r.penId} (${r.resolved.forageType}, ${tractorPhaseOf(r.resolved)})`)
+        : [];
+
+    // Aggregate qty×headCount per ingredient across all resolved pens, once a
+    // mismatch is either absent or explicitly confirmed by the user.
+    const tractorAggregateIngredients = (() => {
+        if (tractorPenResolutions.length === 0) return [];
+        if (tractorMismatch && !tractorConfirmedMismatch) return [];
+        const totals = {};
+        tractorPenResolutions.forEach(({ resolved }) => {
+            const headCount = resolved.headCount || 0;
+            Object.entries(resolved.week.ingredients || {}).forEach(([id, qtyPerHead]) => {
+                const ing = feedIngredients.find(i => i.id === id) || { id, name: id.charAt(0).toUpperCase() + id.slice(1) };
+                const stockPrice = getIngredientStockPrice(id);
+                const price = (stockPrice !== null && stockPrice > 0) ? stockPrice : (ing.price || 0);
+                const batchQty = (parseFloat(qtyPerHead) || 0) * headCount;
+                if (!totals[id]) totals[id] = { id, name: ing.name, wetBatch: 0, cost: 0 };
+                totals[id].wetBatch += batchQty;
+                totals[id].cost += batchQty * price;
+            });
+        });
+        return Object.values(totals);
+    })();
+
+    const tractorTotalHeadCount = tractorPenResolutions.reduce((sum, r) => sum + (r.resolved.headCount || 0), 0);
+    const tractorTotalBatchWeight = tractorAggregateIngredients.reduce((sum, i) => sum + i.wetBatch, 0);
+    const tractorTotalCost = tractorAggregateIngredients.reduce((sum, i) => sum + i.cost, 0);
 
     // Daily feed-log state
     const [logSaved, setLogSaved] = useState(false);
@@ -131,10 +195,19 @@ export default function TMRCalculator() {
     const handleLogFeed = () => {
         if (!isPlanDriven) return;
         const pen = selectedTMRPen;
-        const stageNote = resolvedPlanRow.usesAdaptationTable
-            ? `Adaptation Day ${resolvedPlanRow.adaptationDay}`
-            : `Week ${resolvedPlanRow.week.week}${resolvedPlanRow.usesDailyDiet && resolvedPlanRow.dayInWeek ? `, Day ${resolvedPlanRow.dayInWeek}` : ''}`;
-        const notes = `Auto-filled from ${resolvedPlanRow.plan.name}, ${stageNote}${resolvedPlanRow.matchedByWeight ? '' : ' (matched by cycle day)'}`;
+        const isV2 = resolvedPlanRow.system === 'v2';
+        const stageNote = isV2
+            ? `${resolvedPlanRow.plan.name} v${resolvedPlanRow.plan.version}, bracket ${resolvedPlanRow.bracketMin}-${resolvedPlanRow.bracketMax}kg${resolvedPlanRow.phase === 'ADAPTATION' ? `, Adaptation Day ${resolvedPlanRow.dayNo}` : ', Steady State'}`
+            : (resolvedPlanRow.usesAdaptationTable
+                ? `Adaptation Day ${resolvedPlanRow.adaptationDay}`
+                : `Week ${resolvedPlanRow.week.week}${resolvedPlanRow.usesDailyDiet && resolvedPlanRow.dayInWeek ? `, Day ${resolvedPlanRow.dayInWeek}` : ''}`);
+        const notes = `Auto-filled from ${isV2 ? stageNote : `${resolvedPlanRow.plan.name}, ${stageNote}`}${resolvedPlanRow.matchedByWeight ? '' : ' (matched by cycle day)'}`;
+        // Overrides applied on this page are logged alongside the plan's originally
+        // resolved quantity (plannedQtyKg) so the feed log preserves provenance — what
+        // the plan said to feed vs. what was actually fed, per ingredient.
+        const plannedById = isPlanDriven
+            ? Object.fromEntries(planIngredientRows.map(r => [r.id, r.planQty]))
+            : {};
         logFeed({
             date: logDate,
             pen,
@@ -146,12 +219,14 @@ export default function TMRCalculator() {
                 price: ing.price,
                 wetSingle: ing.wetSingle,
                 wetBatch: ing.wetBatch,
-                costSingle: ing.costSingle
+                costSingle: ing.costSingle,
+                plannedQtyKg: plannedById[ing.id] ?? ing.dmTarget
             })),
             totalDmKg: totalDM,
             totalBatchKg: totalBatchWeight,
             totalCost: totalCostSingle * animalsCount,
             costPerAnimal: totalCostSingle,
+            createdBy: staffUser?.email || staffUser?.name || null,
             notes
         });
         setLogSaved(true);
@@ -170,17 +245,43 @@ export default function TMRCalculator() {
                     or an empty-state prompt when no plan is attached — rations are never set here */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
 
-                    {isPlanDriven ? (
+                    {isBlocked ? (
+                        <div class="glass-panel" style={{ borderTop: '4px solid hsl(0,75%,55%)', textAlign: 'center', padding: '2.5rem 1.5rem' }}>
+                            <i class="fa-solid fa-ban" style={{ fontSize: '2rem', color: 'hsl(0,75%,60%)', marginBottom: '1rem' }}></i>
+                            <h3 class="panel-title" style={{ justifyContent: 'center', marginBottom: '0.5rem', color: 'hsl(0,75%,65%)' }}>
+                                Feeding Blocked — Pen {selectedTMRPen}
+                            </h3>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '480px', margin: '0 auto' }}>
+                                {resolvedPlanRow.error}
+                            </p>
+                            <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', maxWidth: '480px', margin: '0.8rem auto 0', fontStyle: 'italic' }}>
+                                No ration is calculated or fed until an admin fixes the plan for this pen — the system never falls back to a nearby bracket.
+                            </p>
+                        </div>
+                    ) : isPlanDriven ? (
                         <div class="glass-panel" style={{ borderTop: '4px solid var(--primary-green-light)' }}>
                             <h3 class="panel-title" style={{ marginBottom: '0.6rem' }}><i class="fa-solid fa-clipboard-check"></i> Plan-Driven Ration — Pen {selectedTMRPen}</h3>
                             <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0.8rem 1rem', marginBottom: '1.2rem' }}>
                                 <div style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
-                                    {resolvedPlanRow.plan.name} — {resolvedPlanRow.usesAdaptationTable ? `Adaptation Day ${resolvedPlanRow.adaptationDay} of 7` : `Week ${resolvedPlanRow.week.week}`}
+                                    {resolvedPlanRow.system === 'v2' ? (
+                                        <>
+                                            {resolvedPlanRow.plan.name} v{resolvedPlanRow.plan.version} — Bracket {resolvedPlanRow.bracketMin}–{resolvedPlanRow.bracketMax}kg · Projected {resolvedPlanRow.avgProjectedWeight?.toFixed(1)}kg
+                                        </>
+                                    ) : (
+                                        <>
+                                            {resolvedPlanRow.plan.name} — {resolvedPlanRow.usesAdaptationTable ? `Adaptation Day ${resolvedPlanRow.adaptationDay} of 7` : `Week ${resolvedPlanRow.week.week}`}
+                                        </>
+                                    )}
                                     <span style={{ marginLeft: '0.5rem', color: '#4a90d9', fontSize: '0.7rem', border: '1px solid rgba(74,144,217,0.3)', borderRadius: '4px', padding: '0.1rem 0.4rem' }}>
                                         {resolvedPlanRow.forageType === 'chari' ? 'CHARI' : 'SILAGE'}
                                     </span>
-                                    {!resolvedPlanRow.usesAdaptationTable && resolvedPlanRow.usesDailyDiet && resolvedPlanRow.dayInWeek && <span style={{ marginLeft: '0.5rem', color: 'var(--primary-green-light)', fontSize: '0.75rem' }}>DAY {resolvedPlanRow.dayInWeek} OF 7</span>}
-                                    {resolvedPlanRow.usesAdaptationTable && <span style={{ marginLeft: '0.5rem', color: 'var(--accent-gold)', fontSize: '0.75rem' }}>ADAPTATION</span>}
+                                    {resolvedPlanRow.system === 'v2' && (
+                                        <span style={{ marginLeft: '0.5rem', color: resolvedPlanRow.phase === 'ADAPTATION' ? 'var(--accent-gold)' : 'var(--primary-green-light)', fontSize: '0.75rem' }}>
+                                            {resolvedPlanRow.phase === 'ADAPTATION' ? `DAY ${resolvedPlanRow.dayNo} (ADAPTATION)` : 'STEADY STATE'}
+                                        </span>
+                                    )}
+                                    {resolvedPlanRow.system !== 'v2' && !resolvedPlanRow.usesAdaptationTable && resolvedPlanRow.usesDailyDiet && resolvedPlanRow.dayInWeek && <span style={{ marginLeft: '0.5rem', color: 'var(--primary-green-light)', fontSize: '0.75rem' }}>DAY {resolvedPlanRow.dayInWeek} OF 7</span>}
+                                    {resolvedPlanRow.system !== 'v2' && resolvedPlanRow.usesAdaptationTable && <span style={{ marginLeft: '0.5rem', color: 'var(--accent-gold)', fontSize: '0.75rem' }}>ADAPTATION</span>}
                                 </div>
                                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
                                     {resolvedPlanRow.matchedByWeight
@@ -284,7 +385,7 @@ export default function TMRCalculator() {
                         <div class="glass-panel" style={{ borderTop: '4px solid var(--accent-gold)' }}>
                             <div class="form-header-bar" style={{ marginBottom: '1.2rem', gap: '1rem', flexWrap: 'wrap' }}>
                                 <h3 class="panel-title" style={{ marginBottom: '0' }}><i class="fa-solid fa-scale-balanced"></i> Batch Recipe</h3>
-                                <button type="button" class="btn btn-secondary" style={{ minHeight: '44px' }} onClick={() => setIsTractorMode(true)} disabled={!isPlanDriven}>
+                                <button type="button" class="btn btn-secondary" style={{ minHeight: '44px' }} onClick={openTractorMode} disabled={tractorEligiblePens.length === 0}>
                                     <i class="fa-solid fa-tractor"></i> Tractor Mode
                                 </button>
                             </div>
@@ -417,20 +518,59 @@ export default function TMRCalculator() {
 
                             <div class="tractor-logo-icon"><i class="fa-solid fa-tractor"></i></div>
                             <h2>Tractor Mixing Screen</h2>
-                            <p class="batch-sub">Total batch scaled up for {animalsCount} calves</p>
 
-                            <div class="tractor-mix-list">
-                                {displayIngredients.map((ing, idx) => (
-                                    <div class="tractor-mix-item" key={ing.id} style={ing.id === 'minerals' ? { borderLeftColor: 'var(--accent-gold)' } : {}}>
-                                        <span>{idx + 1}. WET {ing.name.toUpperCase()}</span>
-                                        <strong>{ing.wetBatch.toFixed(2)} KG</strong>
-                                    </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'center', margin: '1rem 0' }}>
+                                {tractorEligiblePens.map(p => (
+                                    <label
+                                        key={p}
+                                        style={{
+                                            display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer',
+                                            background: tractorSelectedPens.includes(p) ? 'rgba(255,193,7,0.15)' : 'rgba(0,0,0,0.2)',
+                                            border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px',
+                                            padding: '0.35rem 0.7rem', fontSize: '0.8rem', color: 'var(--text-pure)'
+                                        }}
+                                    >
+                                        <input type="checkbox" checked={tractorSelectedPens.includes(p)} onChange={() => toggleTractorPen(p)} />
+                                        Pen {p}
+                                    </label>
                                 ))}
                             </div>
 
-                            <p style={{ marginTop: '2rem', fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                                <i class="fa-solid fa-circle-info"></i> Weigh ingredients sequentially inside the mixer wagon scales. Total batch target: {totalBatchWeight.toFixed(2)} kg.
-                            </p>
+                            {tractorPenResolutions.length === 0 && (
+                                <p class="batch-sub">Select one or more pens above with an assigned Ration Plan.</p>
+                            )}
+
+                            {tractorMismatch && !tractorConfirmedMismatch && tractorPenResolutions.length > 0 && (
+                                <div style={{ background: 'rgba(220, 53, 69, 0.1)', border: '1px solid rgba(220, 53, 69, 0.35)', borderRadius: '8px', padding: '1rem 1.2rem', maxWidth: '520px', margin: '0 auto 1rem', textAlign: 'left' }}>
+                                    <div style={{ fontWeight: '700', color: 'hsl(0,75%,70%)', marginBottom: '0.5rem' }}>
+                                        <i class="fa-solid fa-triangle-exclamation"></i> Selected pens don't share the same forage type / feeding phase
+                                    </div>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.8rem' }}>
+                                        {tractorMismatchedPens.join(' · ')} — aggregating these into one batch would mix meaningfully different rations.
+                                    </div>
+                                    <button type="button" class="btn btn-secondary btn-sm" onClick={() => setTractorConfirmedMismatch(true)}>
+                                        Aggregate Anyway
+                                    </button>
+                                </div>
+                            )}
+
+                            {tractorAggregateIngredients.length > 0 && (
+                                <>
+                                    <p class="batch-sub">Total batch for {tractorTotalHeadCount} calves across {tractorPenResolutions.length} pen{tractorPenResolutions.length === 1 ? '' : 's'}{tractorMismatch ? ' (mismatched forage/phase — confirmed)' : ''}</p>
+                                    <div class="tractor-mix-list">
+                                        {tractorAggregateIngredients.map((ing, idx) => (
+                                            <div class="tractor-mix-item" key={ing.id} style={ing.id === 'minerals' ? { borderLeftColor: 'var(--accent-gold)' } : {}}>
+                                                <span>{idx + 1}. WET {ing.name.toUpperCase()}</span>
+                                                <strong>{(Math.round(ing.wetBatch * 10) / 10).toFixed(1)} KG</strong>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <p style={{ marginTop: '2rem', fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                        <i class="fa-solid fa-circle-info"></i> Weigh ingredients sequentially inside the mixer wagon scales. Total batch target: {tractorTotalBatchWeight.toFixed(2)} kg · Est. cost: {Math.round(tractorTotalCost)} PKR.
+                                    </p>
+                                </>
+                            )}
                         </div>
                     )}
 

@@ -4,6 +4,7 @@ import { FarmContext } from '../context/FarmContext';
 export default function RationPlans() {
     const {
         rationPlans, saveRationPlan, duplicateRationPlan, deleteRationPlan,
+        rationPlansV2, rationRows, importRationPlanCSV,
         pens, savePen, deletePen, getPenRationRow,
         animals, feedIngredients, getIngredientStockPrice, addStockTrackedIngredient, staffUser
     } = useContext(FarmContext);
@@ -76,6 +77,84 @@ export default function RationPlans() {
     const [newIngredientName, setNewIngredientName] = useState('');
     const [showBulkImport, setShowBulkImport] = useState(false);
     const [showMappingsPanel, setShowMappingsPanel] = useState(false);
+
+    // ─── CSV IMPORT (new normalized ration system, RATION_SYSTEM_SPEC.md) ───
+    // A single CSV can bundle multiple plans (grouped by its plan_id column, e.g.
+    // "conservative"/"type-1"/"high") — parsed entirely client-side, then imported one
+    // group at a time so a mistake in one plan's rows doesn't block the others. Ingredient
+    // column names are matched strictly server-side against Feed Stock (never introduced
+    // ad-hoc), so the whole file's structure only needs light client-side parsing here.
+    const CSV_FIXED_COLS = new Set(['plan_id', 'phase', 'day_no', 'forage_type', 'wt_min', 'wt_max', 'target_adg', 'est_cost_per_head_per_day']);
+
+    const parseRationCSV = (text) => {
+        const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        if (lines.length < 2) return {};
+        const header = lines[0].split(',').map(h => h.trim());
+        const ingredientCols = header.filter(h => !CSV_FIXED_COLS.has(h.toLowerCase()));
+        const groups = {};
+        lines.slice(1).forEach(line => {
+            const cells = line.split(',').map(c => c.trim());
+            const cellByHeader = {};
+            header.forEach((h, i) => { cellByHeader[h] = cells[i]; });
+            const planKey = (cellByHeader['plan_id'] || '').trim();
+            if (!planKey) return;
+            const ingredients = {};
+            ingredientCols.forEach(col => { ingredients[col] = cellByHeader[col]; });
+            const row = {
+                phase: (cellByHeader['phase'] || '').trim().toUpperCase(),
+                dayNo: cellByHeader['day_no'] ? parseInt(cellByHeader['day_no'], 10) : null,
+                forageType: (cellByHeader['forage_type'] || '').trim().toLowerCase(),
+                wtMin: parseFloat(cellByHeader['wt_min']),
+                wtMax: parseFloat(cellByHeader['wt_max']),
+                targetAdg: parseFloat(cellByHeader['target_adg']),
+                estCostPerHeadPerDay: cellByHeader['est_cost_per_head_per_day'] ? parseFloat(cellByHeader['est_cost_per_head_per_day']) : null,
+                ingredients
+            };
+            (groups[planKey] = groups[planKey] || []).push(row);
+        });
+        return groups;
+    };
+
+    const [csvGroups, setCsvGroups] = useState({}); // planKey -> rows[]
+    const [csvPlanNames, setCsvPlanNames] = useState({}); // planKey -> editable display name
+    const [csvImportResults, setCsvImportResults] = useState({}); // planKey -> { success, errors|planId|version|rowCount }
+    const [csvImporting, setCsvImporting] = useState(null); // planKey currently submitting
+
+    const handleCsvFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const groups = parseRationCSV(String(ev.target.result || ''));
+            setCsvGroups(groups);
+            setCsvImportResults({});
+            const names = {};
+            Object.keys(groups).forEach(key => {
+                names[key] = key.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            });
+            setCsvPlanNames(names);
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+    };
+
+    const handleImportCsvGroup = async (planKey) => {
+        if (!isAdmin) return;
+        const rows = csvGroups[planKey];
+        if (!rows || rows.length === 0) return;
+        setCsvImporting(planKey);
+        const adgVals = rows.map(r => r.targetAdg).filter(v => Number.isFinite(v));
+        const result = await importRationPlanCSV({
+            planKey,
+            planName: csvPlanNames[planKey] || planKey,
+            adaptationDays: 7,
+            adgFloor: adgVals.length ? Math.min(...adgVals) : 1.0,
+            isDefault: false,
+            rows
+        });
+        setCsvImportResults(prev => ({ ...prev, [planKey]: result }));
+        setCsvImporting(null);
+    };
 
     // Smart auto-matching helper: matches an ingredient column to a Feed Stock item
     const findMatchingStockItem = (colId) => {
@@ -474,7 +553,7 @@ export default function RationPlans() {
     const unassignedPens = distinctPenNames.filter(penId => {
         const hasActiveAnimals = animals.some(a => a.pen === penId && a.status !== 'Sold' && a.status !== 'Deceased');
         const penConfig = pens.find(p => p.id === penId);
-        return hasActiveAnimals && !penConfig?.rationPlanId;
+        return hasActiveAnimals && !penConfig?.rationPlanId && !penConfig?.planId;
     });
 
     const [newPenId, setNewPenId] = useState('');
@@ -492,6 +571,27 @@ export default function RationPlans() {
         if (!isAdmin) return;
         const existing = pens.find(p => p.id === penId) || { id: penId, rationPlanId: null, cycleStartDate: null, forageType: 'silage', expectedExitDate: null, notes: '' };
         savePen({ ...existing, [field]: value || null });
+    };
+
+    // A pen is assigned to exactly one system at a time — legacy (rationPlanId,
+    // percentage-based) or v2 (planId, CSV-imported absolute kg/head/day). Switching
+    // the dropdown always clears the other pointer so a stale one can never cause the
+    // pen to silently resolve through the wrong engine.
+    const handlePenPlanChange = (penId, rawValue) => {
+        if (!isAdmin) return;
+        const existing = pens.find(p => p.id === penId) || { id: penId, rationPlanId: null, planId: null, cycleStartDate: null, forageType: 'silage', expectedExitDate: null, notes: '' };
+        if (!rawValue) {
+            savePen({ ...existing, rationPlanId: null, planId: null });
+            return;
+        }
+        const sep = rawValue.indexOf(':');
+        const kind = rawValue.slice(0, sep);
+        const id = rawValue.slice(sep + 1);
+        if (kind === 'v2') {
+            savePen({ ...existing, rationPlanId: null, planId: id });
+        } else {
+            savePen({ ...existing, rationPlanId: id, planId: null });
+        }
     };
 
     // Animals sorted into the same pen at very different weights muddy both the ration
@@ -588,6 +688,7 @@ export default function RationPlans() {
                                             <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
                                                 {plan.name}
                                                 {plan.isDefault && <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--accent-gold)' }}>DEFAULT</span>}
+                                                <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--text-muted)' }}>(legacy)</span>
                                                 {plan.description && <div style={{ fontWeight: '400', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{plan.description}</div>}
                                             </td>
                                             <td>{(plan.weeks || []).length}</td>
@@ -621,6 +722,90 @@ export default function RationPlans() {
                             </table>
                         </div>
                     </div>
+
+                    {isAdmin && (
+                        <div class="glass-panel">
+                            <div class="form-header-bar" style={{ marginBottom: '1rem' }}>
+                                <h3 class="panel-title" style={{ margin: 0 }}><i class="fa-solid fa-file-csv"></i> Import Ration Plan (CSV)</h3>
+                            </div>
+                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.8rem', lineHeight: '1.5' }}>
+                                Upload a ration CSV — columns: <code>plan_id, phase, day_no, forage_type, wt_min, wt_max, target_adg, &lt;ingredient columns…&gt;, est_cost_per_head_per_day</code>. A single file can bundle multiple plans (grouped by <code>plan_id</code>) — each is imported separately below. Ingredient column names must match an existing Feed Stock ingredient by name; the whole plan is rejected if any column is unmatched, any row fails validation, or any weight bracket has a gap/overlap.
+                            </p>
+                            <input type="file" accept=".csv" onChange={handleCsvFileChange} />
+
+                            {Object.entries(csvGroups).map(([planKey, rows]) => {
+                                const result = csvImportResults[planKey];
+                                return (
+                                    <div key={planKey} style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0.9rem 1rem' }}>
+                                        <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                                Plan key: <strong style={{ color: 'var(--text-pure)' }}>{planKey}</strong> · {rows.length} rows
+                                            </span>
+                                            <input
+                                                type="text"
+                                                class="form-control"
+                                                style={{ maxWidth: '220px' }}
+                                                value={csvPlanNames[planKey] || ''}
+                                                onChange={e => setCsvPlanNames(prev => ({ ...prev, [planKey]: e.target.value }))}
+                                                placeholder="Plan display name"
+                                            />
+                                            <button type="button" class="btn btn-primary btn-sm" onClick={() => handleImportCsvGroup(planKey)} disabled={csvImporting === planKey}>
+                                                <i class="fa-solid fa-upload"></i> {csvImporting === planKey ? 'Importing…' : 'Import as New Version'}
+                                            </button>
+                                        </div>
+                                        {result && result.success && (
+                                            <div style={{ marginTop: '0.6rem', fontSize: '0.78rem', color: 'var(--primary-green-light)' }}>
+                                                <i class="fa-solid fa-circle-check"></i> Imported "{csvPlanNames[planKey]}" v{result.version} — {result.rowCount} brackets. Assign it to pens under Pen Assignment.
+                                            </div>
+                                        )}
+                                        {result && !result.success && (
+                                            <div style={{ marginTop: '0.6rem', fontSize: '0.76rem', color: 'hsl(0,75%,65%)' }}>
+                                                <i class="fa-solid fa-triangle-exclamation"></i> Import rejected — nothing was written:
+                                                <ul style={{ margin: '0.3rem 0 0 1.2rem', padding: 0 }}>
+                                                    {(result.errors || []).map((err, i) => <li key={i}>{err}</li>)}
+                                                </ul>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {rationPlansV2.length > 0 && (
+                        <div class="glass-panel">
+                            <h3 class="panel-title" style={{ marginBottom: '1rem' }}><i class="fa-solid fa-file-import"></i> Imported Ration Plans (v2)</h3>
+                            <div class="table-wrapper">
+                                <table class="data-table" style={{ fontSize: '0.85rem' }}>
+                                    <thead>
+                                        <tr>
+                                            <th>NAME</th>
+                                            <th>VERSION</th>
+                                            <th>ADAPTATION DAYS</th>
+                                            <th>ADG FLOOR</th>
+                                            <th>BRACKETS</th>
+                                            <th>PENS ASSIGNED</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {rationPlansV2.map(plan => (
+                                            <tr key={plan.id}>
+                                                <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
+                                                    {plan.name}
+                                                    {plan.isDefault && <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--accent-gold)' }}>DEFAULT</span>}
+                                                </td>
+                                                <td>v{plan.version}</td>
+                                                <td>{plan.adaptationDays}</td>
+                                                <td>{plan.adgFloor} kg/day</td>
+                                                <td>{rationRows.filter(r => r.planId === plan.id).length}</td>
+                                                <td>{pens.filter(p => p.planId === plan.id).length}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
 
                     {/* ─── PLAN EDITOR ─── */}
                     {editingId && isAdmin && (
@@ -1110,14 +1295,21 @@ export default function RationPlans() {
                                                     <select
                                                         class="form-control"
                                                         style={{ minHeight: '32px', height: '32px', padding: '0.2rem 0.5rem', borderColor: unassignedPens.includes(penId) ? 'rgba(255, 193, 7, 0.5)' : undefined }}
-                                                        value={penConfig.rationPlanId || ''}
-                                                        onChange={e => handlePenFieldChange(penId, 'rationPlanId', e.target.value)}
+                                                        value={penConfig.planId ? `v2:${penConfig.planId}` : (penConfig.rationPlanId ? `legacy:${penConfig.rationPlanId}` : '')}
+                                                        onChange={e => handlePenPlanChange(penId, e.target.value)}
                                                         disabled={!isAdmin}
                                                     >
                                                         <option value="">— No plan —</option>
-                                                        {rationPlans.map(plan => (
-                                                            <option key={plan.id} value={plan.id}>{plan.name}</option>
-                                                        ))}
+                                                        <optgroup label="Imported Plans (v2)">
+                                                            {rationPlansV2.map(plan => (
+                                                                <option key={plan.id} value={`v2:${plan.id}`}>{plan.name} v{plan.version}</option>
+                                                            ))}
+                                                        </optgroup>
+                                                        <optgroup label="Legacy Plans">
+                                                            {rationPlans.map(plan => (
+                                                                <option key={plan.id} value={`legacy:${plan.id}`}>{plan.name}</option>
+                                                            ))}
+                                                        </optgroup>
                                                     </select>
                                                     {unassignedPens.includes(penId) && (
                                                         <span style={{ fontSize: '0.68rem', color: 'var(--accent-gold)', display: 'block', marginTop: '0.2rem' }}>
@@ -1158,21 +1350,36 @@ export default function RationPlans() {
                                                 </td>
                                                 <td>
                                                     {resolved ? (
-                                                        <span>
-                                                            {resolved.usesAdaptationTable ? (
-                                                                <span style={{ color: 'var(--accent-gold)' }}>Adaptation Day {resolved.adaptationDay}</span>
-                                                            ) : (
-                                                                <span>
-                                                                    Week {resolved.week.week}
-                                                                    {resolved.usesDailyDiet && resolved.dayInWeek && <span style={{ color: 'var(--primary-green-light)' }}> · Day {resolved.dayInWeek}</span>}
-                                                                    {resolved.isAdaptationWeek && <span style={{ color: 'var(--accent-gold)' }}> (adaptation)</span>}
-                                                                </span>
-                                                            )}
-                                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                                                                {resolved.matchedByWeight ? 'Matched by weight' : 'Matched by cycle day (no weigh-in yet)'} · target {resolved.week.targetAdg} kg/day
-                                                                {resolved.forageAdLib && <span> · {resolved.adLibForageId === 'chari' ? 'Chari' : 'Silage'} ad lib</span>}
-                                                            </div>
-                                                        </span>
+                                                        resolved.blocked ? (
+                                                            <span style={{ color: 'hsl(0,75%,65%)' }}>
+                                                                <i class="fa-solid fa-ban"></i> Feeding blocked
+                                                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>{resolved.error}</div>
+                                                            </span>
+                                                        ) : resolved.system === 'v2' ? (
+                                                            <span>
+                                                                Bracket {resolved.bracketMin}–{resolved.bracketMax}kg
+                                                                {resolved.phase === 'ADAPTATION' && <span style={{ color: 'var(--accent-gold)' }}> · Day {resolved.dayNo} (adaptation)</span>}
+                                                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                                                    Projected {resolved.avgProjectedWeight?.toFixed(1)}kg · target {resolved.week.targetAdg} kg/day
+                                                                </div>
+                                                            </span>
+                                                        ) : (
+                                                            <span>
+                                                                {resolved.usesAdaptationTable ? (
+                                                                    <span style={{ color: 'var(--accent-gold)' }}>Adaptation Day {resolved.adaptationDay}</span>
+                                                                ) : (
+                                                                    <span>
+                                                                        Week {resolved.week.week}
+                                                                        {resolved.usesDailyDiet && resolved.dayInWeek && <span style={{ color: 'var(--primary-green-light)' }}> · Day {resolved.dayInWeek}</span>}
+                                                                        {resolved.isAdaptationWeek && <span style={{ color: 'var(--accent-gold)' }}> (adaptation)</span>}
+                                                                    </span>
+                                                                )}
+                                                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                                                    {resolved.matchedByWeight ? 'Matched by weight' : 'Matched by cycle day (no weigh-in yet)'} · target {resolved.week.targetAdg} kg/day
+                                                                    {resolved.forageAdLib && <span> · {resolved.adLibForageId === 'chari' ? 'Chari' : 'Silage'} ad lib</span>}
+                                                                </div>
+                                                            </span>
+                                                        )
                                                     ) : (
                                                         <span style={{ color: 'var(--text-muted)' }}>—</span>
                                                     )}
