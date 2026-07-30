@@ -1861,29 +1861,20 @@ export const FarmProvider = ({ children }) => {
     // that becomes the new "last actual weight".
     const getAnimalProjectedWeight = (animal, plan, forageType, targetDate = null, penCycleStartDate = null) => {
         const refDate = targetDate ? new Date(targetDate) : new Date();
+        const refDay = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate());
+
         const logs = weightLogs.filter(w => w.animalId === animal.id).sort((a, b) => new Date(b.date) - new Date(a.date));
         const validLogs = logs.filter(w => new Date(w.date) <= refDate);
         const lastLog = validLogs[0] || logs[0];
         const lastWeight = lastLog ? parseFloat(lastLog.weight) : (parseFloat(animal.currentWeight) || 0);
 
-        // Normalize dates to start of day (00:00:00) so calendar day diffs are accurate (1 day = +1.1 kg)
-        const refDay = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate());
-
-        let baseDate = null;
-        if (lastLog && lastLog.date) {
-            const d = new Date(lastLog.date);
-            baseDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-        } else if (penCycleStartDate) {
-            const d = new Date(penCycleStartDate);
-            baseDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-        } else if (animal.entryDate) {
-            const d = new Date(animal.entryDate);
-            baseDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        let baseDateStr = lastLog ? lastLog.date : (penCycleStartDate || animal.entryDate);
+        let daysSinceWeigh = 0;
+        if (baseDateStr) {
+            const b = new Date(baseDateStr);
+            const baseDay = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+            daysSinceWeigh = Math.max(0, Math.round((refDay - baseDay) / (1000 * 60 * 60 * 24)));
         }
-
-        const daysSinceWeigh = baseDate
-            ? Math.max(0, Math.round((refDay - baseDate) / (1000 * 60 * 60 * 24)))
-            : 0;
 
         const bracketAtWeigh = findWeightBracket(plan, forageType, lastWeight);
         const targetAdg = bracketAtWeigh?.targetAdg ?? plan?.adgFloor ?? 1.1;
