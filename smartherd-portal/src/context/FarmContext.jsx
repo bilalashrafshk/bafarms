@@ -739,6 +739,27 @@ export const FarmProvider = ({ children }) => {
         { id: 'mineralPack', name: 'Mineral Pack', unit: 'kg', isDefault: true, derivedFromIngredientId: 'minerals' }
     ];
     const [feedStockItems, setFeedStockItems] = useState(() => loadStoredData('ba_feed_stock_items', defaultFeedStockItems));
+
+    // Ensures the weight-based ration system's forage-specific ingredients (the Wanda
+    // premix and Chari green fodder) exist even for browsers whose localStorage cache
+    // predates this feature — mirrors the masterModelDefaults backfill above. Silage,
+    // Toori and Khal already exist under their prior ids ('silage', 'straw', 'cottonseed').
+    useEffect(() => {
+        const weightRationDefaults = [
+            { id: 'wanda', name: 'Wanda', dmTarget: 0, price: 72.47, moisture: 0, isDefault: true },
+            { id: 'chari', name: 'Chari (Green Fodder)', dmTarget: 0, price: 0, moisture: 80, isDefault: true }
+        ];
+        setFeedIngredients(prev => {
+            const missing = weightRationDefaults.filter(d => !prev.some(i => i.id === d.id));
+            return missing.length ? [...prev, ...missing] : prev;
+        });
+        setFeedStockItems(prev => {
+            const missing = weightRationDefaults.filter(d => !prev.some(i => i.id === d.id));
+            if (missing.length === 0) return prev;
+            return [...prev, ...missing.map(d => ({ id: d.id, name: d.name, unit: 'kg', isDefault: true, derivedFromIngredientId: d.id }))];
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     // Baseline qty/value per item as of whenever this ledger was first set up — everything
     // after that is reconstructed purely from dated purchases/issues below.
     const [feedOpeningStock, setFeedOpeningStock] = useState(() => loadStoredData('ba_feed_opening_stock', {}));
@@ -1732,6 +1753,11 @@ export const FarmProvider = ({ children }) => {
             description: plan.description || '',
             adgFloor: plan.adgFloor ?? 1.0,
             weeks: plan.weeks || [],
+            // Day 1-7 adaptation table (percentage-based, per forage_type), separate from
+            // the weight-indexed steady-state rows in `weeks`. Empty = plan has no
+            // adaptation table yet, and getPenRationRow falls back to the legacy per-week
+            // scheduleMode/dailyIngredients behavior for backward compatibility.
+            adaptation: plan.adaptation || [],
             // Per-plan procurement price overrides (PKR/kg), keyed by ingredient id.
             // Ingredients not present here fall back to the global feed ingredient price.
             ingredientPrices: plan.ingredientPrices || {},
@@ -1773,6 +1799,10 @@ export const FarmProvider = ({ children }) => {
             id: pen.id,
             rationPlanId: pen.rationPlanId || null,
             cycleStartDate: pen.cycleStartDate || null,
+            // Which forage row-set this pen currently pulls from (e.g. chari while silage
+            // ferments, then switched to silage) — same plan, different row-set.
+            forageType: pen.forageType || 'silage',
+            expectedExitDate: pen.expectedExitDate || null,
             notes: pen.notes || ''
         };
 
@@ -1790,13 +1820,51 @@ export const FarmProvider = ({ children }) => {
         persistMutation('DELETE_PEN', { id });
     };
 
-    // Resolves the current week's ration row for a pen from its assigned plan.
-    // Primary key is the pen's average current weight of active animals matched
-    // against each week's live-weight bracket — NOT calendar days-on-feed — per
-    // the master ration model ("re-scaled every 7 days" tracks actual growth, and
-    // a pen that's ahead/behind schedule should get the ration for the weight it's
-    // actually at). cycleStartDate is only used as a fallback when no animals are
-    // weighed yet, and to flag the week-1 adaptation protocol.
+    // Finds the steady-state bracket row for a given forage type + weight, falling back
+    // to the nearest bracket by midpoint distance so a pen never silently loses its
+    // ration. Rows saved before forageType existed are treated as 'silage' (the only
+    // forage type ever in use historically), so existing plans need no data migration.
+    const findWeightBracket = (plan, forageType, weight) => {
+        if (!plan || !plan.weeks || plan.weeks.length === 0) return null;
+        const rows = plan.weeks.filter(w => (w.forageType || 'silage') === forageType);
+        const pool = rows.length > 0 ? rows : plan.weeks;
+        if (weight === null || weight === undefined) return pool[0];
+        const exact = pool.find(w => weight >= w.liveWeightMin && weight < w.liveWeightMax);
+        if (exact) return exact;
+        return pool.reduce((closest, w) => {
+            const mid = (w.liveWeightMin + w.liveWeightMax) / 2;
+            const closestMid = (closest.liveWeightMin + closest.liveWeightMax) / 2;
+            return Math.abs(weight - mid) < Math.abs(weight - closestMid) ? w : closest;
+        }, pool[0]);
+    };
+
+    // Extrapolates an animal's weight forward from its last actual weigh-in using the
+    // target ADG of whichever bracket it was in at that weigh-in, so the ration bracket
+    // tracks expected growth day-to-day instead of only updating when someone re-weighs.
+    // Reset to the real value automatically the moment a new weigh-in is logged, since
+    // that becomes the new "last actual weight".
+    const getAnimalProjectedWeight = (animal, plan, forageType) => {
+        const logs = weightLogs.filter(w => w.animalId === animal.id).sort((a, b) => new Date(b.date) - new Date(a.date));
+        const lastLog = logs[0];
+        const lastWeight = lastLog ? parseFloat(lastLog.weight) : (parseFloat(animal.currentWeight) || 0);
+        const lastDate = lastLog ? lastLog.date : animal.entryDate;
+        const daysSinceWeigh = lastDate
+            ? Math.max(0, Math.floor((new Date() - new Date(lastDate)) / (1000 * 60 * 60 * 24)))
+            : 0;
+        const bracketAtWeigh = findWeightBracket(plan, forageType, lastWeight);
+        const targetAdg = bracketAtWeigh?.targetAdg ?? plan?.adgFloor ?? 0;
+        return lastWeight + daysSinceWeigh * targetAdg;
+    };
+
+    // Resolves the current ration row for a pen from its assigned plan. Primary lookup
+    // key is the pen's average PROJECTED weight (see getAnimalProjectedWeight above) —
+    // not the raw last-recorded weight — matched against the steady-state bracket for
+    // the pen's current forage_type. For a pen's first 7 days on feed, a separate
+    // percentage-based adaptation table (day 1-7, also forage_type-tagged) overrides the
+    // ingredient mix: Wanda scaled to a % of the current bracket's Wanda quantity, Toori
+    // fed as a fixed kg, and forage fed ad-lib (no fixed quantity). Plans without an
+    // adaptation table (e.g. the legacy "Baseline" plan) fall back to the old per-week
+    // scheduleMode/dailyIngredients behavior unchanged.
     const getPenRationRow = (penId) => {
         if (!penId || penId === 'all') return null;
 
@@ -1806,33 +1874,27 @@ export const FarmProvider = ({ children }) => {
         const plan = rationPlans.find(p => p.id === pen.rationPlanId);
         if (!plan || !plan.weeks || plan.weeks.length === 0) return null;
 
+        const forageType = pen.forageType || 'silage';
         const penAnimals = animals.filter(a => a.pen === penId && a.status !== 'Sold' && a.status !== 'Deceased');
         const headCount = penAnimals.length;
         const avgWeight = headCount > 0
             ? penAnimals.reduce((sum, a) => sum + (parseFloat(a.currentWeight) || 0), 0) / headCount
+            : null;
+        const avgProjectedWeight = headCount > 0
+            ? penAnimals.reduce((sum, a) => sum + getAnimalProjectedWeight(a, plan, forageType), 0) / headCount
             : null;
 
         const daysOnFeed = pen.cycleStartDate
             ? Math.max(0, Math.floor((new Date() - new Date(pen.cycleStartDate)) / (1000 * 60 * 60 * 24)))
             : null;
 
+        const lookupWeight = avgProjectedWeight !== null ? avgProjectedWeight : avgWeight;
         let week = null;
         let matchedByWeight = false;
 
-        if (avgWeight !== null) {
-            week = plan.weeks.find(w => avgWeight >= w.liveWeightMin && avgWeight < w.liveWeightMax);
-            if (week) {
-                matchedByWeight = true;
-            } else {
-                // No exact bracket contains this weight (e.g. below week-1's minimum, or
-                // past the final week's maximum, or a gap) — fall back to the nearest
-                // bracket by midpoint distance so a pen never silently loses its ration.
-                week = plan.weeks.reduce((closest, w) => {
-                    const mid = (w.liveWeightMin + w.liveWeightMax) / 2;
-                    const closestMid = (closest.liveWeightMin + closest.liveWeightMax) / 2;
-                    return Math.abs(avgWeight - mid) < Math.abs(avgWeight - closestMid) ? w : closest;
-                }, plan.weeks[0]);
-            }
+        if (lookupWeight !== null) {
+            week = findWeightBracket(plan, forageType, lookupWeight);
+            matchedByWeight = !!week && lookupWeight >= week.liveWeightMin && lookupWeight < week.liveWeightMax;
         } else if (daysOnFeed !== null) {
             // No weighed animals yet in this pen — fall back to calendar week so the
             // calculator still has something to show until the first weigh-in.
@@ -1841,29 +1903,92 @@ export const FarmProvider = ({ children }) => {
         } else {
             week = plan.weeks[0];
         }
+        if (!week) return null;
 
-        // A week can either feed the same ration every day (week.ingredients) or step the
-        // diet day-by-day within that week (week.dailyIngredients, keyed 1-7) — the latter is
-        // mainly for adaptation/starting weeks where grain is introduced gradually. Which
-        // calendar day of *this* week bracket we're on is always daysOnFeed mod 7, regardless
-        // of whether the bracket itself was matched by weight or by cycle day.
         const dayInWeek = daysOnFeed !== null ? (daysOnFeed % 7) + 1 : null;
-        const usesDailyDiet = week.scheduleMode === 'day' && week.dailyIngredients && Object.keys(week.dailyIngredients).length > 0;
-        const resolvedIngredients = usesDailyDiet
-            ? (week.dailyIngredients[dayInWeek] || week.dailyIngredients[1] || week.ingredients || {})
-            : (week.ingredients || {});
+
+        // day_no is 1-indexed (1-7); daysOnFeed is 0-indexed from cycleStartDate.
+        const adaptationDay = daysOnFeed !== null ? daysOnFeed + 1 : null;
+        const adaptationRows = (plan.adaptation || []).filter(r => (r.forageType || forageType) === forageType);
+        const usesAdaptationTable = adaptationRows.length > 0 && adaptationDay !== null && adaptationDay <= 7;
+
+        let resolvedIngredients;
+        let forageAdLib = false;
+        let adLibForageId = null;
+        let usesDailyDiet = false;
+
+        if (usesAdaptationTable) {
+            const adaptRow = adaptationRows.find(r => r.day === adaptationDay) || adaptationRows[0];
+            const wandaQty = (week.ingredients || {}).wanda || 0;
+            adLibForageId = forageType === 'silage' ? 'silage' : 'chari';
+            forageAdLib = true;
+            resolvedIngredients = {
+                wanda: wandaQty * ((adaptRow?.wandaPct || 0) / 100),
+                straw: adaptRow?.tooriKg || 0
+            };
+        } else {
+            // Legacy per-week day-stepped diet, kept for plans with no adaptation table.
+            usesDailyDiet = week.scheduleMode === 'day' && week.dailyIngredients && Object.keys(week.dailyIngredients).length > 0;
+            resolvedIngredients = usesDailyDiet
+                ? (week.dailyIngredients[dayInWeek] || week.dailyIngredients[1] || week.ingredients || {})
+                : (week.ingredients || {});
+        }
 
         return {
             plan,
             week: { ...week, ingredients: resolvedIngredients },
+            forageType,
             headCount,
             avgWeight,
+            avgProjectedWeight,
             daysOnFeed,
             dayInWeek,
+            adaptationDay: usesAdaptationTable ? adaptationDay : null,
             usesDailyDiet,
+            usesAdaptationTable,
+            forageAdLib,
+            adLibForageId,
             matchedByWeight,
-            isAdaptationWeek: week.week === 1
+            isAdaptationWeek: usesAdaptationTable || week.week === 1
         };
+    };
+
+    // Compares each animal's most recent weigh-in against what its weight should have
+    // been (previous weigh-in + elapsed days x target ADG of the bracket it was in back
+    // then). A >5% gap either way is an early warning — illness, underfeeding, or a bad
+    // scale/record. Purely computed on the fly from existing weightLogs history; nothing
+    // new is persisted.
+    const getPenWeightFlags = (penId) => {
+        const pen = pens.find(p => p.id === penId);
+        if (!pen) return [];
+        const plan = pen.rationPlanId ? rationPlans.find(p => p.id === pen.rationPlanId) : null;
+        const forageType = pen.forageType || 'silage';
+        const penAnimals = animals.filter(a => a.pen === penId && a.status !== 'Sold' && a.status !== 'Deceased');
+
+        const flags = [];
+        penAnimals.forEach(animal => {
+            const logs = weightLogs.filter(w => w.animalId === animal.id).sort((a, b) => new Date(a.date) - new Date(b.date));
+            if (logs.length < 2) return;
+            const prev = logs[logs.length - 2];
+            const curr = logs[logs.length - 1];
+            const daysBetween = Math.max(1, Math.round((new Date(curr.date) - new Date(prev.date)) / (1000 * 60 * 60 * 24)));
+            const bracketAtPrev = plan ? findWeightBracket(plan, forageType, parseFloat(prev.weight)) : null;
+            const targetAdg = bracketAtPrev?.targetAdg ?? plan?.adgFloor ?? 0;
+            const projected = parseFloat(prev.weight) + daysBetween * targetAdg;
+            if (projected <= 0) return;
+            const pctDiff = (parseFloat(curr.weight) - projected) / projected;
+            if (Math.abs(pctDiff) > 0.05) {
+                flags.push({
+                    animalId: animal.id,
+                    rfid: animal.rfid,
+                    date: curr.date,
+                    actual: parseFloat(curr.weight),
+                    projected,
+                    pctDiff
+                });
+            }
+        });
+        return flags;
     };
 
     // Cross-tab real-time sync via Storage API (cart and config only)
@@ -2072,6 +2197,7 @@ export const FarmProvider = ({ children }) => {
             savePen,
             deletePen,
             getPenRationRow,
+            getPenWeightFlags,
             fetchLoading,
             dbUnconfigured,
             orders,

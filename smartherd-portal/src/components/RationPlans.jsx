@@ -59,22 +59,32 @@ export default function RationPlans() {
     const [formIsDefault, setFormIsDefault] = useState(false);
     const [formIngredientIds, setFormIngredientIds] = useState([]);
     const [formWeeks, setFormWeeks] = useState([]);
+    // Day 1-7 adaptation table (percentage-based, per forage_type) — separate from the
+    // weight-indexed steady-state rows above. Empty means this plan has no adaptation
+    // table and falls back to the legacy per-week scheduleMode/dailyIngredients toggle.
+    const [formAdaptation, setFormAdaptation] = useState([]);
     const [addIngredientChoice, setAddIngredientChoice] = useState('');
     const [saveConfirm, setSaveConfirm] = useState(false);
     const [isNewIngredientFormOpen, setIsNewIngredientFormOpen] = useState(false);
     const [newIngredientName, setNewIngredientName] = useState('');
+    const [showBulkImport, setShowBulkImport] = useState(false);
+    const [bulkForageType, setBulkForageType] = useState('silage');
+    const [bulkBracketText, setBulkBracketText] = useState('');
+    const [bulkAdaptationText, setBulkAdaptationText] = useState('');
 
     const DAYS_OF_WEEK = [1, 2, 3, 4, 5, 6, 7];
+    const FORAGE_TYPES = [{ id: 'silage', label: 'Silage' }, { id: 'chari', label: 'Chari' }];
 
     const blankWeek = (weekNum, ingredientIds, prevWeek) => ({
         week: weekNum,
         liveWeightMin: prevWeek ? prevWeek.liveWeightMax : '',
         liveWeightMax: '',
         targetAdg: prevWeek ? prevWeek.targetAdg : '',
+        forageType: prevWeek?.forageType || 'silage',
         note: '',
         // scheduleMode 'week' feeds the same ration every day; 'day' steps the diet across
-        // the 7 days of this bracket (dailyIngredients, keyed 1-7) — mainly for a starting/
-        // adaptation week where grain is introduced gradually rather than fed flat.
+        // the 7 days of this bracket (dailyIngredients, keyed 1-7) — legacy mechanism, only
+        // still used by plans that don't have an adaptation table (see formAdaptation).
         scheduleMode: 'week',
         dailyIngredients: {},
         ingredients: ingredientIds.reduce((acc, id) => {
@@ -82,6 +92,79 @@ export default function RationPlans() {
             return acc;
         }, {})
     });
+
+    const blankAdaptationSet = (forageType) => DAYS_OF_WEEK.map(day => ({
+        day, forageType, wandaPct: 0, tooriKg: 0, starchCapPct: 0
+    }));
+
+    // Splits pasted tab- or comma-separated rows into arrays of trimmed string cells.
+    const parsePastedRows = (text) => text.split('\n').map(l => l.trim()).filter(Boolean).map(line =>
+        (line.includes('\t') ? line.split('\t') : line.split(',')).map(c => c.trim())
+    );
+
+    // Bulk-import steady-state bracket rows pasted as: wt_min, wt_max, target_adg, then
+    // one value per configured ingredient column (in the same order as the table above).
+    // Appends rather than replaces, so multiple pastes (e.g. adding chari rows later) don't
+    // clobber existing rows.
+    const handleBulkImportBrackets = () => {
+        const rows = parsePastedRows(bulkBracketText);
+        if (rows.length === 0) return;
+        const startWeek = formWeeks.length > 0 ? Math.max(...formWeeks.map(w => parseInt(w.week) || 0)) : 0;
+        const newRows = rows.map((cols, i) => {
+            const [wtMin, wtMax, adg, ...ingVals] = cols;
+            const ingredients = formIngredientIds.reduce((acc, id, idx) => {
+                acc[id] = parseFloat(ingVals[idx]) || 0;
+                return acc;
+            }, {});
+            return {
+                week: startWeek + i + 1,
+                liveWeightMin: parseFloat(wtMin) || 0,
+                liveWeightMax: parseFloat(wtMax) || 0,
+                targetAdg: parseFloat(adg) || 0,
+                forageType: bulkForageType,
+                note: '',
+                scheduleMode: 'week',
+                dailyIngredients: {},
+                ingredients
+            };
+        });
+        setFormWeeks(prev => [...prev, ...newRows]);
+        setBulkBracketText('');
+    };
+
+    // Bulk-import adaptation rows pasted as: day, wanda_pct, toori_kg, starch_cap_pct.
+    // Upserts by (forageType, day) so re-pasting a corrected set overwrites cleanly.
+    const handleBulkImportAdaptation = () => {
+        const rows = parsePastedRows(bulkAdaptationText);
+        if (rows.length === 0) return;
+        const newRows = rows.map(cols => {
+            const [day, wandaPct, tooriKg, starchCapPct] = cols;
+            return {
+                day: parseInt(day) || 0,
+                forageType: bulkForageType,
+                wandaPct: parseFloat(wandaPct) || 0,
+                tooriKg: parseFloat(tooriKg) || 0,
+                starchCapPct: parseFloat(starchCapPct) || 0
+            };
+        });
+        setFormAdaptation(prev => {
+            const filtered = prev.filter(r => !(r.forageType === bulkForageType && newRows.some(n => n.day === r.day)));
+            return [...filtered, ...newRows];
+        });
+        setBulkAdaptationText('');
+    };
+
+    const handleAddAdaptationSet = (forageType) => {
+        setFormAdaptation(prev => prev.some(r => r.forageType === forageType) ? prev : [...prev, ...blankAdaptationSet(forageType)]);
+    };
+
+    const handleRemoveAdaptationSet = (forageType) => {
+        setFormAdaptation(prev => prev.filter(r => r.forageType !== forageType));
+    };
+
+    const handleAdaptationFieldChange = (forageType, day, field, value) => {
+        setFormAdaptation(prev => prev.map(r => (r.forageType === forageType && r.day === day) ? { ...r, [field]: value } : r));
+    };
 
     const openNewPlan = () => {
         const defaultIds = ['silage', 'maizeGrain', 'glutenFeed', 'straw', 'urea', 'minerals'].filter(id =>
@@ -94,6 +177,7 @@ export default function RationPlans() {
         setFormIsDefault(false);
         setFormIngredientIds(defaultIds.length ? defaultIds : stockTrackedIngredients.map(i => i.id));
         setFormWeeks([blankWeek(1, defaultIds, null)]);
+        setFormAdaptation([]);
     };
 
     const openEditPlan = (plan) => {
@@ -107,17 +191,22 @@ export default function RationPlans() {
         setFormIngredientIds([...idSet]);
         setFormWeeks((plan.weeks || []).map(w => ({
             ...w,
+            forageType: w.forageType || 'silage',
             ingredients: { ...w.ingredients },
             scheduleMode: w.scheduleMode === 'day' ? 'day' : 'week',
             dailyIngredients: w.dailyIngredients
                 ? Object.fromEntries(Object.entries(w.dailyIngredients).map(([day, ing]) => [day, { ...ing }]))
                 : {}
         })));
+        setFormAdaptation((plan.adaptation || []).map(r => ({ ...r })));
     };
 
     const closeEditor = () => {
         setEditingId(null);
         setAddIngredientChoice('');
+        setShowBulkImport(false);
+        setBulkBracketText('');
+        setBulkAdaptationText('');
     };
 
     const handleAddIngredientColumn = () => {
@@ -211,6 +300,7 @@ export default function RationPlans() {
                 liveWeightMin: parseFloat(w.liveWeightMin) || 0,
                 liveWeightMax: parseFloat(w.liveWeightMax) || 0,
                 targetAdg: parseFloat(w.targetAdg) || 0,
+                forageType: w.forageType || 'silage',
                 note: w.note || '',
                 scheduleMode,
                 // In day mode this whole-week field is just a Day-1 fallback for any code
@@ -234,13 +324,22 @@ export default function RationPlans() {
             return record;
         });
 
+        const adaptation = formAdaptation.map(r => ({
+            day: parseInt(r.day) || 0,
+            forageType: r.forageType || 'silage',
+            wandaPct: parseFloat(r.wandaPct) || 0,
+            tooriKg: parseFloat(r.tooriKg) || 0,
+            starchCapPct: parseFloat(r.starchCapPct) || 0
+        }));
+
         saveRationPlan({
             id,
             name: formName.trim(),
             description: formDesc.trim(),
             adgFloor: parseFloat(formAdgFloor) || 1.0,
             isDefault: formIsDefault,
-            weeks
+            weeks,
+            adaptation
         });
 
         setSaveConfirm(true);
@@ -259,6 +358,28 @@ export default function RationPlans() {
             deleteRationPlan(plan.id);
         }
     };
+
+    // Non-blocking heads-up for gaps/overlaps in the 5kg brackets, checked separately per
+    // forage_type group since silage and chari row-sets cover the same weight range but
+    // are independent tables.
+    const bracketWarnings = (() => {
+        const groups = {};
+        formWeeks.forEach(w => {
+            const ft = w.forageType || 'silage';
+            (groups[ft] = groups[ft] || []).push(w);
+        });
+        const warnings = [];
+        Object.entries(groups).forEach(([ft, rows]) => {
+            const sorted = [...rows].sort((a, b) => (parseFloat(a.liveWeightMin) || 0) - (parseFloat(b.liveWeightMin) || 0));
+            for (let i = 1; i < sorted.length; i++) {
+                const prevMax = parseFloat(sorted[i - 1].liveWeightMax) || 0;
+                const curMin = parseFloat(sorted[i].liveWeightMin) || 0;
+                if (curMin > prevMax) warnings.push(`${ft}: gap between ${prevMax}kg and ${curMin}kg`);
+                else if (curMin < prevMax) warnings.push(`${ft}: overlap around ${curMin}–${prevMax}kg`);
+            }
+        });
+        return warnings;
+    })();
 
     // ─── PEN ASSIGNMENT ───
     const distinctPenNames = [...new Set([
@@ -281,15 +402,26 @@ export default function RationPlans() {
         if (!isAdmin) return;
         const id = newPenId.trim();
         if (!id) return;
-        savePen({ id, rationPlanId: null, cycleStartDate: null, notes: '' });
+        savePen({ id, rationPlanId: null, cycleStartDate: null, forageType: 'silage', expectedExitDate: null, notes: '' });
         setNewPenId('');
     };
 
     const handlePenFieldChange = (penId, field, value) => {
         if (!isAdmin) return;
-        const existing = pens.find(p => p.id === penId) || { id: penId, rationPlanId: null, cycleStartDate: null, notes: '' };
+        const existing = pens.find(p => p.id === penId) || { id: penId, rationPlanId: null, cycleStartDate: null, forageType: 'silage', expectedExitDate: null, notes: '' };
         savePen({ ...existing, [field]: value || null });
     };
+
+    // Animals sorted into the same pen at very different weights (e.g. 120kg with
+    // 200kg) muddy both the ration bracket match and the batch feed sheet — surfaced
+    // as a soft warning, not a hard block, since reassignment happens elsewhere (Herd
+    // Registry).
+    const wideSpreadPens = distinctPenNames.filter(penId => {
+        const penAnimals = animals.filter(a => a.pen === penId && a.status !== 'Sold' && a.status !== 'Deceased');
+        if (penAnimals.length < 2) return false;
+        const weights = penAnimals.map(a => parseFloat(a.currentWeight) || 0);
+        return (Math.max(...weights) - Math.min(...weights)) > 15;
+    });
 
     const handleDeletePen = (penId) => {
         if (!isAdmin) return;
@@ -453,7 +585,50 @@ export default function RationPlans() {
                                     <button type="button" class="btn btn-secondary" onClick={() => setIsNewIngredientFormOpen(!isNewIngredientFormOpen)}>
                                         <i class={`fa-solid ${isNewIngredientFormOpen ? 'fa-xmark' : 'fa-circle-plus'}`}></i> {isNewIngredientFormOpen ? 'Cancel' : 'New Ingredient'}
                                     </button>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>or</span>
+                                    <button type="button" class="btn btn-secondary" onClick={() => setShowBulkImport(!showBulkImport)}>
+                                        <i class={`fa-solid ${showBulkImport ? 'fa-xmark' : 'fa-file-import'}`}></i> {showBulkImport ? 'Cancel Bulk Import' : 'Bulk Import Rows'}
+                                    </button>
                                 </div>
+
+                                {showBulkImport && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', marginBottom: '1rem', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)', padding: '0.9rem', borderRadius: '8px' }}>
+                                        <div class="form-group" style={{ marginBottom: 0, maxWidth: '220px' }}>
+                                            <label style={{ fontSize: '0.75rem' }}>Forage type for this paste</label>
+                                            <select class="form-control" value={bulkForageType} onChange={e => setBulkForageType(e.target.value)}>
+                                                {FORAGE_TYPES.map(ft => <option key={ft.id} value={ft.id}>{ft.label}</option>)}
+                                            </select>
+                                        </div>
+
+                                        <div class="form-group" style={{ marginBottom: 0 }}>
+                                            <label style={{ fontSize: '0.75rem' }}>Steady-state bracket rows</label>
+                                            <small style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
+                                                One bracket per line, tab- or comma-separated: <code>wt_min, wt_max, target_adg, {formIngredientIds.map(id => feedIngredients.find(i => i.id === id)?.name || id).join(', ') || '(add ingredient columns above first)'}</code>
+                                            </small>
+                                            <textarea class="form-control" rows={5} style={{ fontFamily: 'monospace', fontSize: '0.78rem' }} value={bulkBracketText} onChange={e => setBulkBracketText(e.target.value)} placeholder={`120\t125\t1.15\t0.5\t5.2\t0.35\t1.1\t0.05`}></textarea>
+                                            <button type="button" class="btn btn-secondary" style={{ marginTop: '0.4rem' }} onClick={handleBulkImportBrackets} disabled={!bulkBracketText.trim()}>
+                                                <i class="fa-solid fa-plus"></i> Append Bracket Rows
+                                            </button>
+                                        </div>
+
+                                        <div class="form-group" style={{ marginBottom: 0 }}>
+                                            <label style={{ fontSize: '0.75rem' }}>Adaptation rows (Day 1-7)</label>
+                                            <small style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
+                                                One day per line: <code>day, wanda_pct, toori_kg, starch_cap_pct</code> — re-pasting overwrites the matching day for this forage type.
+                                            </small>
+                                            <textarea class="form-control" rows={4} style={{ fontFamily: 'monospace', fontSize: '0.78rem' }} value={bulkAdaptationText} onChange={e => setBulkAdaptationText(e.target.value)} placeholder={`1\t25\t0.35\t20\n2\t40\t0.35\t25`}></textarea>
+                                            <button type="button" class="btn btn-secondary" style={{ marginTop: '0.4rem' }} onClick={handleBulkImportAdaptation} disabled={!bulkAdaptationText.trim()}>
+                                                <i class="fa-solid fa-plus"></i> Import Adaptation Rows
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {bracketWarnings.length > 0 && (
+                                    <div style={{ background: 'rgba(255, 193, 7, 0.05)', border: '1px solid rgba(255, 193, 7, 0.15)', borderRadius: '8px', padding: '0.6rem 0.9rem', marginBottom: '0.8rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                        <i class="fa-solid fa-triangle-exclamation" style={{ color: 'var(--accent-gold)' }}></i> Bracket check: {bracketWarnings.join(' · ')}
+                                    </div>
+                                )}
 
                                 {isNewIngredientFormOpen && (
                                     <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '1rem', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)', padding: '0.8rem', borderRadius: '8px' }}>
@@ -476,10 +651,11 @@ export default function RationPlans() {
                                         <thead>
                                             <tr>
                                                 <th style={{ width: '50px' }}>WK</th>
+                                                <th style={{ whiteSpace: 'nowrap' }}>FORAGE</th>
                                                 <th>LIVE WT MIN</th>
                                                 <th>LIVE WT MAX</th>
                                                 <th>TARGET ADG</th>
-                                                <th style={{ whiteSpace: 'nowrap' }}>DIET</th>
+                                                {formAdaptation.length === 0 && <th style={{ whiteSpace: 'nowrap' }}>DIET</th>}
                                                 {formIngredientIds.map(id => {
                                                     const ing = feedIngredients.find(i => i.id === id);
                                                     return (
@@ -506,6 +682,11 @@ export default function RationPlans() {
                                                         <input type="number" class="form-control" style={{ width: '55px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.week} onChange={e => handleWeekFieldChange(idx, 'week', e.target.value)} />
                                                     </td>
                                                     <td>
+                                                        <select class="form-control" style={{ minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.forageType || 'silage'} onChange={e => handleWeekFieldChange(idx, 'forageType', e.target.value)}>
+                                                            {FORAGE_TYPES.map(ft => <option key={ft.id} value={ft.id}>{ft.label}</option>)}
+                                                        </select>
+                                                    </td>
+                                                    <td>
                                                         <input type="number" class="form-control" style={{ width: '80px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.liveWeightMin} onChange={e => handleWeekFieldChange(idx, 'liveWeightMin', e.target.value)} />
                                                     </td>
                                                     <td>
@@ -514,6 +695,7 @@ export default function RationPlans() {
                                                     <td>
                                                         <input type="number" step="0.01" class="form-control" style={{ width: '75px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.targetAdg} onChange={e => handleWeekFieldChange(idx, 'targetAdg', e.target.value)} />
                                                     </td>
+                                                    {formAdaptation.length === 0 && (
                                                     <td>
                                                         <button
                                                             type="button"
@@ -525,6 +707,7 @@ export default function RationPlans() {
                                                             <i class={`fa-solid ${isDayMode ? 'fa-calendar-days' : 'fa-calendar-week'}`}></i> {isDayMode ? 'Per Day' : 'Per Week'}
                                                         </button>
                                                     </td>
+                                                    )}
                                                     {formIngredientIds.map(id => (
                                                         <td key={id}>
                                                             {isDayMode ? (
@@ -546,9 +729,9 @@ export default function RationPlans() {
                                                         </button>
                                                     </td>
                                                 </tr>
-                                                {isDayMode && (
+                                                {isDayMode && formAdaptation.length === 0 && (
                                                     <tr>
-                                                        <td colSpan={8 + formIngredientIds.length} style={{ background: 'rgba(0,0,0,0.15)', padding: '0.7rem' }}>
+                                                        <td colSpan={9 + formIngredientIds.length} style={{ background: 'rgba(0,0,0,0.15)', padding: '0.7rem' }}>
                                                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
                                                                 <i class="fa-solid fa-calendar-days"></i> Daily diet for Week {w.week || idx + 1} — Day 1 is the pen's first day in this bracket (from its cycle start date).
                                                             </div>
@@ -598,6 +781,76 @@ export default function RationPlans() {
                                     </table>
                                 </div>
 
+                                {/* Adaptation Table (Day 1-7, percentage-based, per forage type) */}
+                                <div style={{ marginBottom: '1.2rem', background: 'rgba(0,0,0,0.15)', padding: '0.9rem', borderRadius: '8px' }}>
+                                    <div class="form-header-bar" style={{ marginBottom: '0.5rem' }}>
+                                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-pure)' }}>
+                                            <i class="fa-solid fa-seedling"></i> Adaptation Table (Day 1–7)
+                                        </h4>
+                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                            {FORAGE_TYPES.filter(ft => !formAdaptation.some(r => r.forageType === ft.id)).map(ft => (
+                                                <button key={ft.id} type="button" class="btn btn-secondary btn-sm" onClick={() => handleAddAdaptationSet(ft.id)}>
+                                                    <i class="fa-solid fa-plus"></i> Add {ft.label} Adaptation
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <small style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.7rem' }}>
+                                        For a pen's first 7 days on feed, this overrides the steady-state bracket above: Wanda is fed as a % of whatever the pen's <em>current</em> weight bracket's Wanda quantity is, Toori is a fixed kg, forage is fed ad lib (no fixed quantity), and Starch Cap is reference-only. A plan with no adaptation table falls back to the legacy Per-Day toggle on the bracket table instead.
+                                    </small>
+
+                                    {formAdaptation.length === 0 && (
+                                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                            No adaptation table configured for this plan yet.
+                                        </div>
+                                    )}
+
+                                    {FORAGE_TYPES.map(ft => {
+                                        const rows = formAdaptation.filter(r => r.forageType === ft.id).sort((a, b) => a.day - b.day);
+                                        if (rows.length === 0) return null;
+                                        return (
+                                            <div key={ft.id} style={{ marginBottom: '1rem' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                                                    <strong style={{ fontSize: '0.8rem', color: 'var(--text-pure)' }}>{ft.label} Adaptation</strong>
+                                                    <button type="button" onClick={() => handleRemoveAdaptationSet(ft.id)} style={{ background: 'none', border: 'none', color: 'hsl(0,75%,60%)', cursor: 'pointer', fontSize: '0.72rem' }}>
+                                                        <i class="fa-solid fa-trash-can"></i> Remove {ft.label} set
+                                                    </button>
+                                                </div>
+                                                <div class="table-wrapper">
+                                                    <table class="data-table" style={{ fontSize: '0.8rem' }}>
+                                                        <thead>
+                                                            <tr>
+                                                                <th style={{ width: '70px' }}>DAY</th>
+                                                                <th>WANDA %</th>
+                                                                <th>TOORI (KG)</th>
+                                                                <th>FORAGE</th>
+                                                                <th style={{ whiteSpace: 'nowrap' }}>STARCH CAP % (ref)</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {rows.map(r => (
+                                                                <tr key={r.day}>
+                                                                    <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>Day {r.day}</td>
+                                                                    <td>
+                                                                        <input type="number" step="0.1" class="form-control" style={{ width: '80px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={r.wandaPct} onChange={e => handleAdaptationFieldChange(ft.id, r.day, 'wandaPct', e.target.value)} />
+                                                                    </td>
+                                                                    <td>
+                                                                        <input type="number" step="0.01" class="form-control" style={{ width: '80px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={r.tooriKg} onChange={e => handleAdaptationFieldChange(ft.id, r.day, 'tooriKg', e.target.value)} />
+                                                                    </td>
+                                                                    <td style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Ad lib</td>
+                                                                    <td>
+                                                                        <input type="number" step="0.1" class="form-control" style={{ width: '80px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={r.starchCapPct} onChange={e => handleAdaptationFieldChange(ft.id, r.day, 'starchCapPct', e.target.value)} />
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
                                     <button type="button" class="btn btn-secondary" onClick={handleAddWeek}>
                                         <i class="fa-solid fa-plus"></i> Add Week
@@ -630,6 +883,15 @@ export default function RationPlans() {
                         </div>
                     )}
 
+                    {wideSpreadPens.length > 0 && (
+                        <div style={{ background: 'rgba(255, 193, 7, 0.05)', border: '1px solid rgba(255, 193, 7, 0.15)', borderRadius: '8px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
+                            <i class="fa-solid fa-scale-unbalanced" style={{ color: 'var(--accent-gold)', fontSize: '1.1rem', marginTop: '0.15rem' }}></i>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem', lineHeight: '1.5' }}>
+                                <strong style={{ color: 'var(--text-pure)' }}>{wideSpreadPens.length} pen{wideSpreadPens.length === 1 ? '' : 's'} mix animals more than 15kg apart</strong> — Pen {wideSpreadPens.join(', Pen ')}. Wide weight spreads muddy both the bracket match and the batch feed sheet; consider re-sorting at intake.
+                            </span>
+                        </div>
+                    )}
+
                     {isAdmin && (
                         <div class="glass-panel">
                             <h3 class="panel-title"><i class="fa-solid fa-circle-plus"></i> Register a Pen</h3>
@@ -653,8 +915,10 @@ export default function RationPlans() {
                                         <th>HEAD COUNT</th>
                                         <th>AVG WEIGHT</th>
                                         <th>ASSIGNED PLAN</th>
+                                        <th>FORAGE</th>
                                         <th>CYCLE START DATE</th>
-                                        <th>CURRENT WEEK</th>
+                                        <th>EXPECTED EXIT</th>
+                                        <th>CURRENT RATION</th>
                                         {isAdmin && <th style={{ textAlign: 'center', width: '70px' }}>REMOVE</th>}
                                     </tr>
                                 </thead>
@@ -687,6 +951,17 @@ export default function RationPlans() {
                                                     )}
                                                 </td>
                                                 <td>
+                                                    <select
+                                                        class="form-control"
+                                                        style={{ minHeight: '32px', height: '32px', padding: '0.2rem 0.5rem' }}
+                                                        value={penConfig.forageType || 'silage'}
+                                                        onChange={e => handlePenFieldChange(penId, 'forageType', e.target.value)}
+                                                        disabled={!isAdmin}
+                                                    >
+                                                        {FORAGE_TYPES.map(ft => <option key={ft.id} value={ft.id}>{ft.label}</option>)}
+                                                    </select>
+                                                </td>
+                                                <td>
                                                     <input
                                                         type="date"
                                                         class="form-control"
@@ -697,13 +972,30 @@ export default function RationPlans() {
                                                     />
                                                 </td>
                                                 <td>
+                                                    <input
+                                                        type="date"
+                                                        class="form-control"
+                                                        style={{ minHeight: '32px', height: '32px', padding: '0.2rem 0.5rem' }}
+                                                        value={penConfig.expectedExitDate || ''}
+                                                        onChange={e => handlePenFieldChange(penId, 'expectedExitDate', e.target.value)}
+                                                        disabled={!isAdmin}
+                                                    />
+                                                </td>
+                                                <td>
                                                     {resolved ? (
                                                         <span>
-                                                            Week {resolved.week.week}
-                                                            {resolved.usesDailyDiet && resolved.dayInWeek && <span style={{ color: 'var(--primary-green-light)' }}> · Day {resolved.dayInWeek}</span>}
-                                                            {resolved.isAdaptationWeek && <span style={{ color: 'var(--accent-gold)' }}> (adaptation)</span>}
+                                                            {resolved.usesAdaptationTable ? (
+                                                                <span style={{ color: 'var(--accent-gold)' }}>Adaptation Day {resolved.adaptationDay}</span>
+                                                            ) : (
+                                                                <span>
+                                                                    Week {resolved.week.week}
+                                                                    {resolved.usesDailyDiet && resolved.dayInWeek && <span style={{ color: 'var(--primary-green-light)' }}> · Day {resolved.dayInWeek}</span>}
+                                                                    {resolved.isAdaptationWeek && <span style={{ color: 'var(--accent-gold)' }}> (adaptation)</span>}
+                                                                </span>
+                                                            )}
                                                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                                                                 {resolved.matchedByWeight ? 'Matched by weight' : 'Matched by cycle day (no weigh-in yet)'} · target {resolved.week.targetAdg} kg/day
+                                                                {resolved.forageAdLib && <span> · {resolved.adLibForageId === 'chari' ? 'Chari' : 'Silage'} ad lib</span>}
                                                             </div>
                                                         </span>
                                                     ) : (
@@ -727,7 +1019,7 @@ export default function RationPlans() {
                                     })}
                                     {distinctPenNames.length === 0 && (
                                         <tr>
-                                            <td colSpan={isAdmin ? 7 : 6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                            <td colSpan={isAdmin ? 9 : 8} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No pens registered yet. Assign animals to a pen in Herd Registry, or add one above.
                                             </td>
                                         </tr>

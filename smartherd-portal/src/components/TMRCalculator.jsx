@@ -5,7 +5,7 @@ import { formatDate } from '../utils/formatDate';
 export default function TMRCalculator() {
     const {
         feedIngredients, animals, staffUser, feedLogs, logFeed, deleteFeedLog,
-        pens, getPenRationRow, getIngredientStockPrice
+        pens, getPenRationRow, getPenWeightFlags, getIngredientStockPrice
     } = useContext(FarmContext);
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
 
@@ -27,6 +27,11 @@ export default function TMRCalculator() {
     // bracket (scaled by head count for the batch) — see FarmContext.getPenRationRow.
     const resolvedPlanRow = selectedTMRPen !== 'all' ? getPenRationRow(selectedTMRPen) : null;
     const isPlanDriven = !!resolvedPlanRow;
+
+    // Early-warning: animals whose most recent weigh-in diverged >5% from what growth
+    // should have predicted since their prior weigh-in — illness, underfeeding, or a bad
+    // record. Purely informational here, doesn't affect the batch calculation.
+    const penWeightFlags = selectedTMRPen !== 'all' ? getPenWeightFlags(selectedTMRPen) : [];
 
     // Per-ingredient overrides for today's plan-driven batch only — never written back
     // to the Ration Plan itself, so the schedule stays intact for every other pen/day.
@@ -123,8 +128,10 @@ export default function TMRCalculator() {
     const handleLogFeed = () => {
         if (!isPlanDriven) return;
         const pen = selectedTMRPen;
-        const dayNote = resolvedPlanRow.usesDailyDiet && resolvedPlanRow.dayInWeek ? `, Day ${resolvedPlanRow.dayInWeek}` : '';
-        const notes = `Auto-filled from ${resolvedPlanRow.plan.name}, Week ${resolvedPlanRow.week.week}${dayNote}${resolvedPlanRow.matchedByWeight ? '' : ' (matched by cycle day)'}`;
+        const stageNote = resolvedPlanRow.usesAdaptationTable
+            ? `Adaptation Day ${resolvedPlanRow.adaptationDay}`
+            : `Week ${resolvedPlanRow.week.week}${resolvedPlanRow.usesDailyDiet && resolvedPlanRow.dayInWeek ? `, Day ${resolvedPlanRow.dayInWeek}` : ''}`;
+        const notes = `Auto-filled from ${resolvedPlanRow.plan.name}, ${stageNote}${resolvedPlanRow.matchedByWeight ? '' : ' (matched by cycle day)'}`;
         logFeed({
             date: logDate,
             pen,
@@ -165,23 +172,44 @@ export default function TMRCalculator() {
                             <h3 class="panel-title" style={{ marginBottom: '0.6rem' }}><i class="fa-solid fa-clipboard-check"></i> Plan-Driven Ration — Pen {selectedTMRPen}</h3>
                             <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0.8rem 1rem', marginBottom: '1.2rem' }}>
                                 <div style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
-                                    {resolvedPlanRow.plan.name} — Week {resolvedPlanRow.week.week}
-                                    {resolvedPlanRow.usesDailyDiet && resolvedPlanRow.dayInWeek && <span style={{ marginLeft: '0.5rem', color: 'var(--primary-green-light)', fontSize: '0.75rem' }}>DAY {resolvedPlanRow.dayInWeek} OF 7</span>}
-                                    {resolvedPlanRow.isAdaptationWeek && <span style={{ marginLeft: '0.5rem', color: 'var(--accent-gold)', fontSize: '0.75rem' }}>ADAPTATION WEEK</span>}
+                                    {resolvedPlanRow.plan.name} — {resolvedPlanRow.usesAdaptationTable ? `Adaptation Day ${resolvedPlanRow.adaptationDay} of 7` : `Week ${resolvedPlanRow.week.week}`}
+                                    <span style={{ marginLeft: '0.5rem', color: '#4a90d9', fontSize: '0.7rem', border: '1px solid rgba(74,144,217,0.3)', borderRadius: '4px', padding: '0.1rem 0.4rem' }}>
+                                        {resolvedPlanRow.forageType === 'chari' ? 'CHARI' : 'SILAGE'}
+                                    </span>
+                                    {!resolvedPlanRow.usesAdaptationTable && resolvedPlanRow.usesDailyDiet && resolvedPlanRow.dayInWeek && <span style={{ marginLeft: '0.5rem', color: 'var(--primary-green-light)', fontSize: '0.75rem' }}>DAY {resolvedPlanRow.dayInWeek} OF 7</span>}
+                                    {resolvedPlanRow.usesAdaptationTable && <span style={{ marginLeft: '0.5rem', color: 'var(--accent-gold)', fontSize: '0.75rem' }}>ADAPTATION</span>}
                                 </div>
                                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
                                     {resolvedPlanRow.matchedByWeight
-                                        ? `Matched by average weight (${resolvedPlanRow.avgWeight.toFixed(1)} kg across ${resolvedPlanRow.headCount} head)`
+                                        ? `Matched by projected weight (${resolvedPlanRow.avgProjectedWeight?.toFixed(1)} kg across ${resolvedPlanRow.headCount} head, last actual avg ${resolvedPlanRow.avgWeight?.toFixed(1)} kg)`
                                         : 'No weigh-in yet for this pen — matched by cycle day instead of actual weight'}
                                     {' · '}Target ADG {resolvedPlanRow.week.targetAdg} kg/day
                                     {resolvedPlanRow.usesDailyDiet && !resolvedPlanRow.dayInWeek && ' · No cycle start date set — using Day 1 diet until one is set'}
                                 </div>
+                                {resolvedPlanRow.forageAdLib && (
+                                    <div style={{ fontSize: '0.76rem', color: 'var(--primary-green-light)', marginTop: '0.3rem' }}>
+                                        <i class="fa-solid fa-leaf"></i> {resolvedPlanRow.adLibForageId === 'chari' ? 'Chari' : 'Silage'}: fed ad lib — feed to appetite, not scaled into the batch below.
+                                    </div>
+                                )}
                                 {resolvedPlanRow.week.note && (
                                     <div style={{ fontSize: '0.76rem', color: 'var(--accent-gold)', marginTop: '0.3rem', fontStyle: 'italic' }}>
                                         <i class="fa-solid fa-circle-info"></i> {resolvedPlanRow.week.note}
                                     </div>
                                 )}
                             </div>
+
+                            {penWeightFlags.length > 0 && (
+                                <div style={{ background: 'rgba(220, 53, 69, 0.08)', border: '1px solid rgba(220, 53, 69, 0.25)', borderRadius: '8px', padding: '0.7rem 0.9rem', marginBottom: '1.2rem' }}>
+                                    <div style={{ fontSize: '0.8rem', fontWeight: '700', color: 'hsl(0,75%,65%)', marginBottom: '0.3rem' }}>
+                                        <i class="fa-solid fa-triangle-exclamation"></i> Weight divergence — check for illness, underfeeding, or a bad record
+                                    </div>
+                                    {penWeightFlags.map(f => (
+                                        <div key={f.animalId} style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                                            {f.rfid || f.animalId}: weighed {f.actual.toFixed(1)} kg on {formatDate(f.date)}, {f.pctDiff > 0 ? 'above' : 'below'} the {f.projected.toFixed(1)} kg projected ({(f.pctDiff * 100).toFixed(1)}%)
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
 
                             <div class="table-wrapper">
                                 <table class="data-table" style={{ fontSize: '0.85rem' }}>

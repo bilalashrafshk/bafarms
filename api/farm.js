@@ -220,6 +220,26 @@ async function ensureColumns(client) {
             ADD COLUMN IF NOT EXISTS ingredient_prices JSONB DEFAULT '{}'
     `);
 
+    // Day 1-7 adaptation table, separate from the weight-indexed steady-state rows in
+    // `weeks`. Percentage-based (e.g. Wanda fed at X% of whatever the pen's current
+    // weight bracket calls for) rather than absolute kg, and tagged per forage_type
+    // (chari/silage) so a plan can carry adaptation rows for either or both. Empty/absent
+    // means the plan has no adaptation table yet and falls back to the legacy per-week
+    // scheduleMode/dailyIngredients behavior.
+    await client.query(`
+        ALTER TABLE ba_ration_plans
+            ADD COLUMN IF NOT EXISTS adaptation JSONB DEFAULT '[]'
+    `);
+
+    // Pens switch between forage sources (e.g. run chari while silage ferments, then
+    // switch), and staff track an expected exit date for scheduling. Neither affects
+    // ration lookup unless the plan actually has rows tagged for that forage_type.
+    await client.query(`
+        ALTER TABLE ba_pens
+            ADD COLUMN IF NOT EXISTS forage_type VARCHAR(20) DEFAULT 'silage',
+            ADD COLUMN IF NOT EXISTS expected_exit_date DATE DEFAULT NULL
+    `);
+
     // Event log table — safe CREATE IF NOT EXISTS
     await client.query(`
         CREATE TABLE IF NOT EXISTS ba_events (
@@ -1071,6 +1091,7 @@ module.exports = async (req, res) => {
                 description: row.description || '',
                 adgFloor: parseFloat(row.adg_floor || 1.0),
                 weeks: typeof row.weeks === 'string' ? JSON.parse(row.weeks) : row.weeks,
+                adaptation: (typeof row.adaptation === 'string' ? JSON.parse(row.adaptation) : row.adaptation) || [],
                 ingredientPrices: (typeof row.ingredient_prices === 'string' ? JSON.parse(row.ingredient_prices) : row.ingredient_prices) || {},
                 isDefault: row.is_default,
                 createdBy: row.created_by || null
@@ -1080,6 +1101,8 @@ module.exports = async (req, res) => {
                 id: row.id,
                 rationPlanId: row.ration_plan_id || null,
                 cycleStartDate: row.cycle_start_date ? formatDate(row.cycle_start_date) : null,
+                forageType: row.forage_type || 'silage',
+                expectedExitDate: row.expected_exit_date ? formatDate(row.expected_exit_date) : null,
                 notes: row.notes || ''
             }));
 
@@ -1654,26 +1677,27 @@ module.exports = async (req, res) => {
             }
 
             if (action === 'SAVE_RATION_PLAN') {
-                const { id, name, description, adgFloor, weeks, ingredientPrices, isDefault } = payload;
+                const { id, name, description, adgFloor, weeks, adaptation, ingredientPrices, isDefault } = payload;
 
                 if (!id || !name) {
                     return res.status(400).json({ success: false, error: "Plan id and name are required" });
                 }
 
                 await client.query(`
-                    INSERT INTO ba_ration_plans (id, name, description, adg_floor, weeks, ingredient_prices, is_default, created_by, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+                    INSERT INTO ba_ration_plans (id, name, description, adg_floor, weeks, adaptation, ingredient_prices, is_default, created_by, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
                     ON CONFLICT (id) DO UPDATE SET
                         name = EXCLUDED.name,
                         description = EXCLUDED.description,
                         adg_floor = EXCLUDED.adg_floor,
                         weeks = EXCLUDED.weeks,
+                        adaptation = EXCLUDED.adaptation,
                         ingredient_prices = EXCLUDED.ingredient_prices,
                         is_default = EXCLUDED.is_default,
                         updated_at = NOW()
                 `, [
                     id, name, description || null, adgFloor || 1.0,
-                    JSON.stringify(weeks || []), JSON.stringify(ingredientPrices || {}), !!isDefault, session ? session.email : null
+                    JSON.stringify(weeks || []), JSON.stringify(adaptation || []), JSON.stringify(ingredientPrices || {}), !!isDefault, session ? session.email : null
                 ]);
 
                 return res.status(200).json({ success: true });
@@ -1687,21 +1711,23 @@ module.exports = async (req, res) => {
             }
 
             if (action === 'SAVE_PEN') {
-                const { id, rationPlanId, cycleStartDate, notes } = payload;
+                const { id, rationPlanId, cycleStartDate, forageType, expectedExitDate, notes } = payload;
 
                 if (!id) {
                     return res.status(400).json({ success: false, error: "Pen id is required" });
                 }
 
                 await client.query(`
-                    INSERT INTO ba_pens (id, ration_plan_id, cycle_start_date, notes, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, NOW(), NOW())
+                    INSERT INTO ba_pens (id, ration_plan_id, cycle_start_date, forage_type, expected_exit_date, notes, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
                     ON CONFLICT (id) DO UPDATE SET
                         ration_plan_id = EXCLUDED.ration_plan_id,
                         cycle_start_date = EXCLUDED.cycle_start_date,
+                        forage_type = EXCLUDED.forage_type,
+                        expected_exit_date = EXCLUDED.expected_exit_date,
                         notes = EXCLUDED.notes,
                         updated_at = NOW()
-                `, [id, rationPlanId || null, cycleStartDate || null, notes || null]);
+                `, [id, rationPlanId || null, cycleStartDate || null, forageType || 'silage', expectedExitDate || null, notes || null]);
 
                 return res.status(200).json({ success: true });
             }
