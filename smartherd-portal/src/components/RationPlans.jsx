@@ -648,9 +648,9 @@ export default function RationPlans() {
                                         <div class="form-group" style={{ marginBottom: 0 }}>
                                             <label style={{ fontSize: '0.75rem' }}>Adaptation rows (Day 1-7)</label>
                                             <small style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
-                                                One day per line: <code>day, wanda_pct, toori_kg, starch_cap_pct</code> — re-pasting overwrites the matching day for this forage type.
+                                                One day per line: <code>day, wanda_pct, toori_kg, {bulkForageType === 'chari' ? 'chari_pct' : 'silage_kg'}, starch_cap_pct</code> — re-pasting overwrites the matching day for {bulkForageType}.
                                             </small>
-                                            <textarea class="form-control" rows={4} style={{ fontFamily: 'monospace', fontSize: '0.78rem' }} value={bulkAdaptationText} onChange={e => setBulkAdaptationText(e.target.value)} placeholder={`1\t25\t0.35\t20\n2\t40\t0.35\t25`}></textarea>
+                                            <textarea class="form-control" rows={4} style={{ fontFamily: 'monospace', fontSize: '0.78rem' }} value={bulkAdaptationText} onChange={e => setBulkAdaptationText(e.target.value)} placeholder={bulkForageType === 'chari' ? `1\t30\t0.35\t100\t18\n2\t41\t0.35\t100\t22` : `1\t30\t0.35\t12.5\t18\n2\t41\t0.35\t12.5\t22`}></textarea>
                                             <button type="button" class="btn btn-secondary" style={{ marginTop: '0.4rem' }} onClick={handleBulkImportAdaptation} disabled={!bulkAdaptationText.trim()}>
                                                 <i class="fa-solid fa-plus"></i> Import Adaptation Rows
                                             </button>
@@ -830,7 +830,7 @@ export default function RationPlans() {
                                         </div>
                                     </div>
                                     <small style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.7rem' }}>
-                                        For a pen's first 7 days on feed, this overrides the steady-state bracket above: Wanda is fed as a % of whatever the pen's <em>current</em> weight bracket's Wanda quantity is, Toori and Forage (Silage/Chari) are fed as fixed kg per day, and Starch Cap is reference-only. A plan with no adaptation table falls back to the legacy Per-Day toggle on the bracket table instead.
+                                        For a pen's first 7 days on feed, this overrides the steady-state bracket above: Wanda is fed as a % of whatever the pen's <em>current</em> weight bracket's Wanda quantity is, Toori is a fixed kg, Chari is fed as a % of the bracket's Chari quantity, Silage is an explicitly imported/entered kg, and Starch Cap is reference-only. A plan with no adaptation table falls back to the legacy Per-Day toggle on the bracket table instead.
                                     </small>
 
                                     {formAdaptation.length === 0 && (
