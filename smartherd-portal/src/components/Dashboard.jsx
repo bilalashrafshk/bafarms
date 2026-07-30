@@ -9,15 +9,17 @@ export default function Dashboard({ onNavigate }) {
     // A. Actual Daily Feed Cost per Animal (PKR/Day)
     // Derived from the logged feed-log ledger (what was actually fed and its actual
     // cost each day), not the live TMR recipe — rations and ingredient prices change
-    // day to day, so a recipe snapshot would be stale/misleading. Averaged across all
-    // days that have a feed log, split across the current active herd. Null (shown as
-    // "—") until at least one feeding has been logged, rather than defaulting to a
-    // fabricated number.
-    const activeAnimalCount = animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased').length;
-    const feedDaysLogged = new Set((feedLogs || []).map(f => f.date)).size;
+    // day to day, so a recipe snapshot would be stale/misleading. Weighted by the
+    // animal-count actually covered in each log entry (cost ÷ animal-days logged) —
+    // NOT total cost ÷ (days × whole-herd-count), which used to silently assume every
+    // pen was logged on every counted day. That made the figure swing wildly based on
+    // how many pens happened to be logged: feeding just one pen spread its cost across
+    // the entire herd (falsely tiny), while feeding every pen that day looked correct
+    // by comparison. Null (shown as "—") until at least one feeding has been logged.
     const totalLoggedFeedCost = (feedLogs || []).reduce((sum, f) => sum + (f.totalCost || 0), 0);
-    const dailyCostPerAnimal = (feedDaysLogged > 0 && activeAnimalCount > 0)
-        ? totalLoggedFeedCost / feedDaysLogged / activeAnimalCount
+    const totalLoggedAnimalDays = (feedLogs || []).reduce((sum, f) => sum + (f.animalCount || 0), 0);
+    const dailyCostPerAnimal = totalLoggedAnimalDays > 0
+        ? totalLoggedFeedCost / totalLoggedAnimalDays
         : null;
 
     // B. Herd Average ADG — from actual weight logs only. Null (shown as "—") until

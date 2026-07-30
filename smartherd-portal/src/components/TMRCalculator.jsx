@@ -8,6 +8,10 @@ export default function TMRCalculator() {
         pens, getPenRationRow, getPenWeightFlags, getIngredientStockPrice, getIngredientStockQty
     } = useContext(FarmContext);
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
+    // Cost figures (per-ingredient and batch total) are restricted to the DB-backed
+    // Super Admin flag, not the broader "Internal Corporate Staff" role — pen staff
+    // logging feed should see quantities to mix, not what it costs.
+    const isSuperAdmin = staffUser?.isAdmin === true;
 
     // Active (non-sold, non-deceased) herd count — auto-synced
     const activeHerdCount = animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased').length;
@@ -444,6 +448,7 @@ export default function TMRCalculator() {
                                                     <th>QTY / HEAD</th>
                                                     <th>WET WT / ANIMAL</th>
                                                     <th>BATCH WEIGHT</th>
+                                                    {isSuperAdmin && <th>BATCH COST</th>}
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -453,6 +458,7 @@ export default function TMRCalculator() {
                                                         <td>{ing.dmTarget.toFixed(2)} kg</td>
                                                         <td>{ing.wetSingle.toFixed(2)} kg</td>
                                                         <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{ing.wetBatch.toFixed(2)} kg</strong></td>
+                                                        {isSuperAdmin && <td>{Math.round(ing.costSingle * animalsCount).toLocaleString()} PKR</td>}
                                                     </tr>
                                                 ))}
                                                 <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
@@ -460,18 +466,26 @@ export default function TMRCalculator() {
                                                     <td><strong>{totalDM.toFixed(2)} kg</strong></td>
                                                     <td><strong>{displayIngredients.reduce((sum, ing) => sum + ing.wetSingle, 0).toFixed(2)} kg</strong></td>
                                                     <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{totalBatchWeight.toFixed(2)} kg</strong></td>
+                                                    {isSuperAdmin && <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(totalCostSingle * animalsCount).toLocaleString()} PKR</strong></td>}
                                                 </tr>
                                             </tbody>
                                         </table>
                                     </div>
 
-                                    {/* Batch Weight Summary — cost figures live in Feed & Growth Report, not here */}
+                                    {/* Batch Weight Summary — total batch cost is Super Admin only (staffUser.isAdmin),
+                                        pen-level staff logging feed only need the weight to mix. */}
                                     <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.2rem', alignItems: 'center' }}>
                                         <div>
                                             <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total batch to mix</span>
                                             <strong style={{ fontSize: '1.4rem', color: 'var(--accent-gold)', fontFamily: 'var(--font-heading)' }}>
                                                 {totalBatchWeight.toFixed(2)} kg
                                             </strong>
+                                            {isSuperAdmin && (
+                                                <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                                                    Cost: <strong style={{ color: 'var(--accent-gold)' }}>{Math.round(totalCostSingle * animalsCount).toLocaleString()} PKR</strong>
+                                                    {' '}({Math.round(totalCostSingle).toLocaleString()} PKR/head)
+                                                </span>
+                                            )}
                                         </div>
                                         <div style={{ textAlign: 'right', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                                             For {animalsCount} animal{animalsCount === 1 ? '' : 's'}

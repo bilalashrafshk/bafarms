@@ -23,6 +23,10 @@ export default function FeedStock() {
     } = useContext(FarmContext);
 
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
+    // Actual feed cost by pen is restricted to the DB-backed Super Admin flag, not the
+    // broader "Internal Corporate Staff" role — cost figures stay out of view for staff
+    // who only need quantities issued.
+    const isSuperAdmin = staffUser?.isAdmin === true;
 
     const [activeTab, setActiveTab] = useState('ledger');
 
@@ -648,7 +652,7 @@ export default function FeedStock() {
                                     <tr>
                                         <th>PEN</th>
                                         <th>QTY ISSUED</th>
-                                        <th>ACTUAL FEED COST</th>
+                                        {isSuperAdmin && <th>ACTUAL FEED COST</th>}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -656,12 +660,12 @@ export default function FeedStock() {
                                         <tr key={row.pen}>
                                             <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>{penLabel(row.pen)}</td>
                                             <td>{row.qty.toFixed(2)} kg</td>
-                                            <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(row.cost).toLocaleString()} PKR</strong></td>
+                                            {isSuperAdmin && <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(row.cost).toLocaleString()} PKR</strong></td>}
                                         </tr>
                                     ))}
                                     {perPenCost.length === 0 && (
                                         <tr>
-                                            <td colSpan={3} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                                            <td colSpan={isSuperAdmin ? 3 : 2} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
                                                 No issues logged in this date range.
                                             </td>
                                         </tr>
