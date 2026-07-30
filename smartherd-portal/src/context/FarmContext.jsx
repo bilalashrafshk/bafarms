@@ -892,13 +892,25 @@ export const FarmProvider = ({ children }) => {
                         : 1;
                     const quantity = (ing.wetBatch || 0) * share;
                     if (quantity > 0) {
+                        // plannedQtyKg is per-head and always present on ingredients logged after
+                        // the diet-differed feature shipped (0 for anything not in the plan at
+                        // all) — compare against dmTarget (also per-head) to say exactly how this
+                        // item's issue diverged from the Ration Plan, not just that "something" did.
+                        const planned = ing.plannedQtyKg;
+                        const actual = ing.dmTarget;
+                        const differed = planned !== undefined && Math.abs((actual || 0) - planned) > 0.0005;
+                        const itemNote = !differed ? 'Auto-synced from TMR feed log'
+                            : planned === 0
+                                ? 'Auto-synced from TMR feed log — added, not in Ration Plan'
+                                : `Auto-synced from TMR feed log — diet differed from plan (planned ${planned.toFixed(2)}kg/head, fed ${(actual || 0).toFixed(2)}kg/head)`;
                         autoIssues.push({
                             id: `auto__${log.date}__${log.pen}__${item.id}`,
                             itemId: item.id,
                             date: log.date,
                             pen: log.pen,
                             quantity,
-                            notes: 'Auto-synced from TMR feed log',
+                            notes: itemNote,
+                            dietDiffered: differed,
                             source: 'auto'
                         });
                     }
@@ -1763,7 +1775,8 @@ export const FarmProvider = ({ children }) => {
             totalBatchKg: entry.totalBatchKg || 0,
             totalCost: entry.totalCost || 0,
             costPerAnimal: entry.costPerAnimal || 0,
-            notes: entry.notes || ''
+            notes: entry.notes || '',
+            dietDiffered: !!entry.dietDiffered
         };
 
         // 1. Sync UI locally immediately (upsert by date+pen)

@@ -1,8 +1,9 @@
 import React, { useContext } from 'react';
 import { FarmContext } from '../context/FarmContext';
+import { formatDate } from '../utils/formatDate';
 
 export default function Dashboard({ onNavigate }) {
-    const { animals, weightLogs, treatments, feedLogs, transitionAnimalStatus, systemParams, orders } = useContext(FarmContext);
+    const { animals, weightLogs, treatments, feedLogs, transitionAnimalStatus, systemParams, orders, pens, quarantineProtocols } = useContext(FarmContext);
 
     // 1. DYNAMIC CALCULATIONS
 
@@ -102,8 +103,73 @@ export default function Dashboard({ onNavigate }) {
         return recent.length === 0;
     });
 
+    // F. Pending Vaccines/Protocol Tasks — quarantine checklist steps (Vaccination,
+    // Deworming, etc.) whose due day has passed for an animal but haven't been logged
+    // yet. Same matching logic as RotationPlanner's quarantine checklist (isTaskDone):
+    // prefer an exact protocolTaskId link, fall back to a type+medicine+date-window
+    // heuristic for treatments logged before that field existed.
+    const isProtocolTaskDone = (animal, task) =>
+        treatments.some(t => t.animalId === animal.id && t.protocolTaskId === task.id) ||
+        treatments.some(t =>
+            t.animalId === animal.id &&
+            !t.protocolTaskId &&
+            t.type === task.type &&
+            t.medicine.toLowerCase().includes(task.medicine.split(' ')[0].toLowerCase()) &&
+            (() => { const d = (new Date(t.date) - new Date(animal.entryDate)) / 86400000; return d >= (task.dueDay - 2) && d <= (task.dueDay + 3); })()
+        );
+
+    const pendingVaccines = [];
+    animals.filter(a => a.status === 'Quarantined').forEach(a => {
+        const daysOnFeed = Math.max(1, Math.floor((today - new Date(a.entryDate)) / 86400000));
+        (quarantineProtocols || []).forEach(task => {
+            if (daysOnFeed >= task.dueDay && !isProtocolTaskDone(a, task)) {
+                pendingVaccines.push({ animal: a, task, overdueDays: daysOnFeed - task.dueDay });
+            }
+        });
+    });
+
+    // G. Missed Feeding Days — for each active pen, walk every day from its cycle
+    // start date (or, if unset, the earliest entry date among its currently-active
+    // animals) through yesterday and flag any day with no feed log for that pen.
+    // Today isn't flagged — there's still time left in the day to log it. Includes
+    // the registration/cycle-start day itself in the walk.
+    const missedFeedings = [];
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
+    (pens || []).forEach(pen => {
+        const penAnimals = animals.filter(a => a.pen === pen.id && a.status !== 'Sold' && a.status !== 'Deceased');
+        if (penAnimals.length === 0) return;
+        const startDateStr = pen.cycleStartDate || penAnimals.reduce((earliest, a) =>
+            (!earliest || new Date(a.entryDate) < new Date(earliest)) ? a.entryDate : earliest, null);
+        if (!startDateStr) return;
+        const start = new Date(startDateStr);
+        start.setHours(0, 0, 0, 0);
+        for (let d = new Date(start); d < todayMidnight; d.setDate(d.getDate() + 1)) {
+            const dateStr = d.toISOString().split('T')[0];
+            const logged = feedLogs.some(f => f.pen === pen.id && f.date === dateStr);
+            if (!logged) missedFeedings.push({ pen, date: dateStr });
+        }
+    });
+
     // Build unified task list — ordered by urgency
     const taskItems = [
+        ...missedFeedings.map(m => ({
+            type: 'missed-feed',
+            msg: `Pen ${m.pen.id} — Missed feeding`,
+            desc: `No feed logged for ${formatDate(m.date)}`,
+            color: 'hsl(0,75%,55%)',
+            icon: 'fa-bowl-food',
+            action: { label: 'Log Feed', tab: 'tmr' }
+        })),
+        ...pendingVaccines.map(v => ({
+            type: 'vaccine',
+            rfid: v.animal.rfid,
+            msg: `${v.animal.rfid} — ${v.task.label} due`,
+            desc: v.overdueDays > 0 ? `Day ${v.task.dueDay} protocol · ${v.overdueDays}d overdue` : `Day ${v.task.dueDay} protocol · due today`,
+            color: 'hsl(0,75%,55%)',
+            icon: 'fa-syringe',
+            action: { label: 'Log Treatment', tab: 'vet' }
+        })),
         ...sickUntreated.map(a => ({
             type: 'sick',
             rfid: a.rfid,
@@ -372,7 +438,7 @@ export default function Dashboard({ onNavigate }) {
 
                     <div class="alarms-list">
                         {taskItems.map((item, idx) => (
-                            <div key={idx} class={`alarm-card ${item.type === 'sick' || item.type === 'adg' ? 'danger' : item.type === 'market' ? '' : 'warning'}`}
+                            <div key={idx} class={`alarm-card ${item.type === 'sick' || item.type === 'adg' || item.type === 'vaccine' || item.type === 'missed-feed' ? 'danger' : item.type === 'market' ? '' : 'warning'}`}
                                 style={item.type === 'market' ? { borderLeft: '4px solid var(--primary-green-light)', background: 'rgba(25,135,84,0.02)' } : item.type === 'quarantine' ? { borderLeft: '4px solid hsl(200,70%,60%)', background: 'rgba(0,120,200,0.02)' } : {}}>
                                 <div class="alarm-icon"><i class={`fa-solid ${item.icon}`} style={{ color: item.color }}></i></div>
                                 <div class="alarm-text" style={{ flex: 1, minWidth: 0 }}>

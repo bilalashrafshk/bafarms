@@ -350,6 +350,13 @@ async function ensureColumns(client) {
         ALTER TABLE ba_pending_approvals ADD COLUMN IF NOT EXISTS animal_rfid VARCHAR(50);
         ALTER TABLE ba_pending_approvals ADD COLUMN IF NOT EXISTS animal_breed VARCHAR(60);
     `);
+    // Explicit flag for a feed log where what was actually fed (overridden quantities
+    // or a substituted/added ingredient) diverged from the pen's Ration Plan that day —
+    // set by TMR's "Log This Feeding". Kept as a real column (not just parsed out of
+    // `notes`) so Feed Stock's Issues by Pen and any other view can flag it directly.
+    await client.query(`
+        ALTER TABLE ba_feed_logs ADD COLUMN IF NOT EXISTS diet_differed BOOLEAN NOT NULL DEFAULT FALSE;
+    `);
 }
 
 // Self-healing database provision: creates tables and inserts baseline seeds on first boot
@@ -1223,6 +1230,7 @@ module.exports = async (req, res) => {
                 totalCost: parseFloat(row.total_cost || 0),
                 costPerAnimal: parseFloat(row.cost_per_animal || 0),
                 notes: row.notes || '',
+                dietDiffered: !!row.diet_differed,
                 createdBy: row.created_by || null
             }));
 
@@ -1835,7 +1843,7 @@ module.exports = async (req, res) => {
             if (action === 'LOG_FEED') {
                 const {
                     date, pen, animalCount, ingredients,
-                    totalDmKg, totalBatchKg, totalCost, costPerAnimal, notes
+                    totalDmKg, totalBatchKg, totalCost, costPerAnimal, notes, dietDiffered
                 } = payload;
 
                 if (!date) {
@@ -1843,8 +1851,8 @@ module.exports = async (req, res) => {
                 }
 
                 await client.query(`
-                    INSERT INTO ba_feed_logs (date, pen, animal_count, ingredients, total_dm_kg, total_batch_kg, total_cost, cost_per_animal, notes, created_by, created_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+                    INSERT INTO ba_feed_logs (date, pen, animal_count, ingredients, total_dm_kg, total_batch_kg, total_cost, cost_per_animal, notes, diet_differed, created_by, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
                     ON CONFLICT (date, pen) DO UPDATE SET
                         animal_count = EXCLUDED.animal_count,
                         ingredients = EXCLUDED.ingredients,
@@ -1853,12 +1861,13 @@ module.exports = async (req, res) => {
                         total_cost = EXCLUDED.total_cost,
                         cost_per_animal = EXCLUDED.cost_per_animal,
                         notes = EXCLUDED.notes,
+                        diet_differed = EXCLUDED.diet_differed,
                         created_by = EXCLUDED.created_by,
                         created_at = NOW()
                 `, [
                     date, pen || 'ALL', animalCount || 0, JSON.stringify(ingredients || []),
                     totalDmKg || 0, totalBatchKg || 0, totalCost || 0, costPerAnimal || 0,
-                    notes || null, session ? session.email : null
+                    notes || null, !!dietDiffered, session ? session.email : null
                 ]);
 
                 return res.status(200).json({ success: true });

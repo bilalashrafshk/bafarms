@@ -706,7 +706,10 @@ export default function FeedStock() {
                                                     <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-pen"></i> Manual</span>
                                                 )}
                                             </td>
-                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{iss.notes || '—'}</td>
+                                            <td style={{ color: iss.dietDiffered ? 'var(--accent-gold)' : 'var(--text-muted)', fontSize: '0.78rem' }}>
+                                                {iss.dietDiffered && <i class="fa-solid fa-triangle-exclamation" style={{ marginRight: '0.3rem' }}></i>}
+                                                {iss.notes || '—'}
+                                            </td>
                                             {isAdmin && (
                                                 <td style={{ textAlign: 'center' }}>
                                                     {iss.source === 'auto' ? (
