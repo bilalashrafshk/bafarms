@@ -1926,7 +1926,37 @@ export const FarmProvider = ({ children }) => {
 
         if (usesAdaptationTable) {
             const adaptRow = adaptationRows.find(r => r.day === adaptationDay) || adaptationRows[0];
-            const wandaKey = plan.wandaStockItemId || Object.keys(week.ingredients || {}).find(k => k === 'wanda' || k.startsWith('premix_') || feedIngredients.find(i => i.id === k)?.name.toLowerCase().includes('wanda')) || 'wanda';
+            const weekKeys = Object.keys(week.ingredients || {});
+            let wandaKey = null;
+
+            if (plan.wandaStockItemId && weekKeys.includes(plan.wandaStockItemId)) {
+                wandaKey = plan.wandaStockItemId;
+            }
+
+            if (!wandaKey && plan.wandaStockItemId) {
+                const stockItem = feedStockItems.find(s => s.id === plan.wandaStockItemId);
+                if (stockItem?.derivedFromIngredientId && weekKeys.includes(stockItem.derivedFromIngredientId)) {
+                    wandaKey = stockItem.derivedFromIngredientId;
+                }
+            }
+
+            if (!wandaKey) {
+                wandaKey = weekKeys.find(k => {
+                    if (k === 'wanda') return true;
+                    const ing = feedIngredients.find(i => i.id === k);
+                    const name = (ing?.name || k).toLowerCase();
+                    return name.includes('wanda');
+                });
+            }
+
+            if (!wandaKey) {
+                wandaKey = weekKeys.find(k => k.startsWith('premix_') || feedIngredients.find(i => i.id === k)?.isPremix);
+            }
+
+            if (!wandaKey) {
+                wandaKey = 'wanda';
+            }
+
             const wandaQty = (week.ingredients || {})[wandaKey] ?? (week.ingredients || {}).wanda ?? 0;
             const forageKey = forageType === 'silage' ? 'silage' : 'chari';
             const bracketForageQty = (week.ingredients || {})[forageKey] ?? 0;

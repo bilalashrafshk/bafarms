@@ -588,11 +588,19 @@ export default function RationPlans() {
                                     <div class="form-group">
                                         <label>Wanda Stock Item / Premix *</label>
                                         <select class="form-control" value={formWandaStockItemId} onChange={e => setFormWandaStockItemId(e.target.value)}>
-                                            <option value="">Select Wanda premix from Feed Stock…</option>
-                                            {stockTrackedIngredients.map(i => (
+                                            <option value="">Select Wanda item from Feed Stock…</option>
+                                            {feedIngredients.filter(i => i.isPremix || i.id === 'wanda' || i.name.toLowerCase().includes('wanda')).map(i => (
                                                 <option key={i.id} value={i.id}>{i.name} {i.isPremix ? '(Premix)' : ''}</option>
                                             ))}
+                                            <optgroup label="Other Feed Stock Ingredients">
+                                                {feedIngredients.filter(i => !(i.isPremix || i.id === 'wanda' || i.name.toLowerCase().includes('wanda'))).map(i => (
+                                                    <option key={i.id} value={i.id}>{i.name}</option>
+                                                ))}
+                                            </optgroup>
                                         </select>
+                                        <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.3rem' }}>
+                                            Explicitly links this plan to a specific Wanda stock item (e.g. Steady State Wanda).
+                                        </small>
                                     </div>
                                     <div class="form-group">
                                         <label>Minimum ADG Floor (kg/day)</label>
