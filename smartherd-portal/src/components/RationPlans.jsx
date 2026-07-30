@@ -151,36 +151,54 @@ export default function RationPlans() {
         setBulkBracketText('');
     };
 
-    // Bulk-import adaptation rows pasted as: day, wanda_pct, toori_kg, forage_val (silage kg / chari %), starch_cap_pct
-    // (or 4 cols: day, wanda_pct, toori_kg, starch_cap_pct).
+    // Bulk-import adaptation rows pasted as:
+    // day, wanda_pct, toori_kg, forage_val (silage kg / chari %), starch_cap_pct, [custom1, custom2...]
+    // (or 4 cols: day, wanda_pct, toori_kg, starch_cap_pct, [custom...]).
     const handleBulkImportAdaptation = () => {
         const rows = parsePastedRows(bulkAdaptationText);
         if (rows.length === 0) return;
+        const isChari = bulkForageType === 'chari';
+        const customCols = formIngredientIds.filter(id => id !== 'silage' && id !== 'chari' && id !== 'straw' && id !== 'wanda' && !id.toLowerCase().includes('wanda'));
+
         const newRows = rows.map(cols => {
-            const isChari = bulkForageType === 'chari';
+            const day = parseInt(cols[0]) || 0;
+            const wandaPct = parseFloat(cols[1]) || 0;
+            const tooriKg = parseFloat(cols[2]) || 0;
+
+            let forageKg = 0;
+            let foragePct = 100;
+            let starchCapPct = 0;
+            let customStartIndex = 3;
+
             if (cols.length >= 5) {
-                const [day, wandaPct, tooriKg, forageVal, starchCapPct] = cols;
-                return {
-                    day: parseInt(day) || 0,
-                    forageType: bulkForageType,
-                    wandaPct: parseFloat(wandaPct) || 0,
-                    tooriKg: parseFloat(tooriKg) || 0,
-                    forageKg: isChari ? 0 : (parseFloat(forageVal) || 0),
-                    foragePct: isChari ? (parseFloat(forageVal) || 0) : 100,
-                    starchCapPct: parseFloat(starchCapPct) || 0
-                };
-            } else {
-                const [day, wandaPct, tooriKg, starchCapPct] = cols;
-                return {
-                    day: parseInt(day) || 0,
-                    forageType: bulkForageType,
-                    wandaPct: parseFloat(wandaPct) || 0,
-                    tooriKg: parseFloat(tooriKg) || 0,
-                    forageKg: 0,
-                    foragePct: 100,
-                    starchCapPct: parseFloat(starchCapPct) || 0
-                };
+                const forageVal = parseFloat(cols[3]) || 0;
+                forageKg = isChari ? 0 : forageVal;
+                foragePct = isChari ? forageVal : 100;
+                starchCapPct = parseFloat(cols[4]) || 0;
+                customStartIndex = 5;
+            } else if (cols.length === 4) {
+                starchCapPct = parseFloat(cols[3]) || 0;
+                customStartIndex = 4;
             }
+
+            const custom = {};
+            customCols.forEach((colId, idx) => {
+                const rawVal = cols[customStartIndex + idx];
+                if (rawVal !== undefined && rawVal !== '') {
+                    custom[colId] = parseFloat(rawVal) || 0;
+                }
+            });
+
+            return {
+                day,
+                forageType: bulkForageType,
+                wandaPct,
+                tooriKg,
+                forageKg,
+                foragePct,
+                starchCapPct,
+                custom
+            };
         });
         setFormAdaptation(prev => {
             const filtered = prev.filter(r => !(r.forageType === bulkForageType && newRows.some(n => n.day === r.day)));
@@ -684,9 +702,17 @@ export default function RationPlans() {
                                         <div class="form-group" style={{ marginBottom: 0 }}>
                                             <label style={{ fontSize: '0.75rem' }}>Adaptation rows (Day 1-7)</label>
                                             <small style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
-                                                One day per line: <code>day, wanda_pct, toori_kg, {bulkForageType === 'chari' ? 'chari_pct' : 'silage_kg'}, starch_cap_pct</code> — re-pasting overwrites the matching day for {bulkForageType}.
+                                                One day per line: <code>day, wanda_pct, toori_kg, {bulkForageType === 'chari' ? 'chari_pct' : 'silage_kg'}, starch_cap_pct{formIngredientIds.filter(id => id !== 'silage' && id !== 'chari' && id !== 'straw' && id !== 'wanda' && !id.toLowerCase().includes('wanda')).map(id => `, ${id === 'khal' || id.toLowerCase().includes('khal') || id.toLowerCase().includes('cottonseed') ? 'khal_pct' : (feedIngredients.find(i => i.id === id)?.name.toLowerCase().replace(/[^a-z0-9]+/g, '_') || id)}`).join('')}</code> — re-pasting overwrites matching days for {bulkForageType}.
                                             </small>
-                                            <textarea class="form-control" rows={4} style={{ fontFamily: 'monospace', fontSize: '0.78rem' }} value={bulkAdaptationText} onChange={e => setBulkAdaptationText(e.target.value)} placeholder={bulkForageType === 'chari' ? `1\t30\t0.35\t100\t18\n2\t41\t0.35\t100\t22` : `1\t30\t0.35\t12.5\t18\n2\t41\t0.35\t12.5\t22`}></textarea>
+                                            <textarea class="form-control" rows={4} style={{ fontFamily: 'monospace', fontSize: '0.78rem' }} value={bulkAdaptationText} onChange={e => setBulkAdaptationText(e.target.value)} placeholder={
+                                                (() => {
+                                                    const customCols = formIngredientIds.filter(id => id !== 'silage' && id !== 'chari' && id !== 'straw' && id !== 'wanda' && !id.toLowerCase().includes('wanda'));
+                                                    const customSuffix = customCols.map(id => (id === 'khal' || id.toLowerCase().includes('khal') || id.toLowerCase().includes('cottonseed')) ? '\t0.5' : '\t0').join('');
+                                                    return bulkForageType === 'chari'
+                                                        ? `1\t30\t0.35\t100\t18${customSuffix}\n2\t41\t0.35\t100\t22${customSuffix}`
+                                                        : `1\t30\t0.35\t12.5\t18${customSuffix}\n2\t41\t0.35\t12.5\t22${customSuffix}`;
+                                                })()
+                                            }></textarea>
                                             <button type="button" class="btn btn-secondary" style={{ marginTop: '0.4rem' }} onClick={handleBulkImportAdaptation} disabled={!bulkAdaptationText.trim()}>
                                                 <i class="fa-solid fa-plus"></i> Import Adaptation Rows
                                             </button>
