@@ -1944,14 +1944,30 @@ export const FarmProvider = ({ children }) => {
             const adaptRow = adaptationRows.find(r => r.day === adaptationDay) || adaptationRows[0];
             const bracket = week.ingredients || {};
 
+            // Helper: normalized string matching against bracket keys or ingredient names
+            const normString = str => (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
             // Extract adaptation percentage values (clamped between 0% and 130%)
             const wandaPct = Math.min(130, Math.max(0, parseFloat(adaptRow?.wandaPct) || 0));
             const chariPct = Math.min(130, Math.max(0, parseFloat(adaptRow?.foragePct !== undefined && adaptRow?.foragePct !== null ? adaptRow.foragePct : 100)));
-            const khalPct = Math.min(130, Math.max(0, parseFloat(adaptRow?.custom?.khal ?? adaptRow?.custom?.khal_pct ?? adaptRow?.khalPct ?? adaptRow?.khal ?? 0)));
             const tooriKg = Math.max(0, parseFloat(adaptRow?.tooriKg) || 0); // Absolute kg/day
 
-            // Helper: normalized string matching against bracket keys or ingredient names
-            const normString = str => (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            // Retrieve khalPct dynamically from custom adaptation columns (khal, cottonseed, etc.)
+            let resolvedKhalPct = 0;
+            if (adaptRow?.custom) {
+                const khalKey = Object.keys(adaptRow.custom).find(k => {
+                    const ingName = feedIngredients.find(i => i.id === k)?.name || k;
+                    const norm = normString(ingName);
+                    return norm.includes('khal') || norm.includes('cottonseed');
+                });
+                if (khalKey && adaptRow.custom[khalKey] !== undefined && adaptRow.custom[khalKey] !== '') {
+                    resolvedKhalPct = parseFloat(adaptRow.custom[khalKey]) || 0;
+                }
+            }
+            if (!resolvedKhalPct) {
+                resolvedKhalPct = parseFloat(adaptRow?.khalPct ?? adaptRow?.khal ?? adaptRow?.custom?.khal ?? adaptRow?.custom?.khal_pct ?? 0) || 0;
+            }
+            const khalPct = Math.min(130, Math.max(0, resolvedKhalPct));
 
             const getBracketQty = (key) => {
                 if (bracket[key] !== undefined) return parseFloat(bracket[key]) || 0;
