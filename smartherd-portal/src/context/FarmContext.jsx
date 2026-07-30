@@ -1886,6 +1886,22 @@ export const FarmProvider = ({ children }) => {
         return { success: true, planId: data.planId, planKey: data.planKey, version: data.version, rowCount: data.rowCount };
     };
 
+    // Metadata-only edit for an imported (v2) plan — name, adaptation window, ADG floor,
+    // default flag. Never touches the imported bracket/ingredient rows themselves; fixing
+    // those still means uploading a new CSV version (see importRationPlanCSV).
+    const updateRationPlanV2 = async ({ id, name, adaptationDays, adgFloor, isDefault }) => {
+        const { res, data } = await sendMutationToServer('UPDATE_RATION_PLAN_V2', {
+            id, name, adaptationDays, adgFloor, isDefault
+        });
+
+        if (!res.ok || data.success === false) {
+            return { success: false, error: data.error || `HTTP ${res.status}` };
+        }
+
+        setRationPlansV2(prev => prev.map(p => (p.id === id ? { ...p, name, adaptationDays: adaptationDays || 7, adgFloor: adgFloor || 1.0, isDefault: !!isDefault } : p)));
+        return { success: true };
+    };
+
     // Finds the steady-state bracket row for a given forage type + weight, falling back
     // to the nearest bracket by midpoint distance so a pen never silently loses its
     // ration. Rows saved before forageType existed are treated as 'silage' (the only
@@ -2508,6 +2524,7 @@ export const FarmProvider = ({ children }) => {
             duplicateRationPlan,
             deleteRationPlan,
             importRationPlanCSV,
+            updateRationPlanV2,
             savePen,
             deletePen,
             getPenRationRow,

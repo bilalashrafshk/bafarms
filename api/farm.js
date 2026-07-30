@@ -783,7 +783,8 @@ const HERD_ACTIONS = new Set([
     'LOG_FEED', 'DELETE_FEED_LOG', 'UPDATE_WEIGHT_LOGS_BATCH',
     'SAVE_RATION_PLAN', 'DELETE_RATION_PLAN', 'SAVE_PEN', 'DELETE_PEN',
     'SAVE_SETTINGS', 'ADD_FEED_PURCHASE', 'DELETE_FEED_PURCHASE',
-    'ADD_FEED_STOCK_ISSUE', 'DELETE_FEED_STOCK_ISSUE', 'IMPORT_RATION_PLAN'
+    'ADD_FEED_STOCK_ISSUE', 'DELETE_FEED_STOCK_ISSUE', 'IMPORT_RATION_PLAN',
+    'UPDATE_RATION_PLAN_V2'
 ]);
 
 // Normalizes a feed ingredient / CSV column name for matching: lowercase, drop any
@@ -2086,6 +2087,32 @@ module.exports = async (req, res) => {
                     success: true, planId, planKey, version, rowCount: rows.length,
                     plan: createdPlan, rows: createdRows, items: createdItems
                 });
+            }
+
+            // Metadata-only edit for an imported (v2) plan — name, adaptation window,
+            // ADG floor, default flag. Never touches ba_ration_rows/ba_ration_row_items:
+            // correcting the actual bracket/ingredient data still means re-uploading a
+            // new CSV version (spec §4.3's never-overwrite rule), this just lets a typo'd
+            // display name or wrong adaptation-day count be fixed without a re-import.
+            if (action === 'UPDATE_RATION_PLAN_V2') {
+                const { id, name, adaptationDays, adgFloor, isDefault } = payload;
+
+                if (!id || !name || !name.trim()) {
+                    return res.status(400).json({ success: false, error: "Plan id and name are required" });
+                }
+
+                const existsRes = await client.query('SELECT id FROM ba_ration_plans_v2 WHERE id = $1', [id]);
+                if (existsRes.rows.length === 0) {
+                    return res.status(404).json({ success: false, error: "Ration plan not found" });
+                }
+
+                await client.query(`
+                    UPDATE ba_ration_plans_v2
+                    SET name = $1, adaptation_days = $2, adg_floor = $3, is_default = $4
+                    WHERE id = $5
+                `, [name.trim(), adaptationDays || 7, adgFloor || 1.0, !!isDefault, id]);
+
+                return res.status(200).json({ success: true });
             }
 
             // Generic settings upsert — covers the breed roster, med categories, system

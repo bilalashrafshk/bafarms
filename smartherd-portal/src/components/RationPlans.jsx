@@ -4,7 +4,7 @@ import { FarmContext } from '../context/FarmContext';
 export default function RationPlans() {
     const {
         rationPlans, saveRationPlan, duplicateRationPlan, deleteRationPlan,
-        rationPlansV2, rationRows, importRationPlanCSV,
+        rationPlansV2, rationRows, rationRowItems, importRationPlanCSV, updateRationPlanV2,
         pens, savePen, deletePen, getPenRationRow,
         animals, feedIngredients, getIngredientStockPrice, addStockTrackedIngredient, staffUser
     } = useContext(FarmContext);
@@ -154,6 +154,90 @@ export default function RationPlans() {
         });
         setCsvImportResults(prev => ({ ...prev, [planKey]: result }));
         setCsvImporting(null);
+    };
+
+    // ─── v2 PLAN METADATA EDIT + CSV EXPORT ───
+    const [editingV2Id, setEditingV2Id] = useState(null);
+    const [v2EditName, setV2EditName] = useState('');
+    const [v2EditAdaptationDays, setV2EditAdaptationDays] = useState(7);
+    const [v2EditAdgFloor, setV2EditAdgFloor] = useState(1.0);
+    const [v2EditIsDefault, setV2EditIsDefault] = useState(false);
+    const [v2SavingId, setV2SavingId] = useState(null);
+
+    const openEditV2Plan = (plan) => {
+        setEditingV2Id(plan.id);
+        setV2EditName(plan.name);
+        setV2EditAdaptationDays(plan.adaptationDays);
+        setV2EditAdgFloor(plan.adgFloor);
+        setV2EditIsDefault(!!plan.isDefault);
+    };
+
+    const handleSaveV2Plan = async (planId) => {
+        setV2SavingId(planId);
+        const result = await updateRationPlanV2({
+            id: planId,
+            name: v2EditName,
+            adaptationDays: parseInt(v2EditAdaptationDays, 10) || 7,
+            adgFloor: parseFloat(v2EditAdgFloor) || 1.0,
+            isDefault: v2EditIsDefault
+        });
+        setV2SavingId(null);
+        if (result.success) {
+            setEditingV2Id(null);
+        } else {
+            alert(result.error || 'Failed to update plan.');
+        }
+    };
+
+    // Rebuilds the plan's CSV in the exact column format IMPORT_RATION_PLAN accepts, so
+    // the exported file can be edited and re-uploaded as a new version (spec's versioning
+    // rule — never overwrite, always re-import).
+    const handleExportV2Plan = (plan) => {
+        const rows = rationRows.filter(r => r.planId === plan.id);
+        const ingredientIdSet = new Set();
+        rows.forEach(row => {
+            rationRowItems.filter(i => i.rowId === row.id).forEach(i => ingredientIdSet.add(i.ingredientId));
+        });
+        const ingredientIds = [...ingredientIdSet];
+        const ingredientNames = ingredientIds.map(id => feedIngredients.find(f => f.id === id)?.name || id);
+
+        const sorted = [...rows].sort((a, b) => {
+            if (a.forageType !== b.forageType) return a.forageType.localeCompare(b.forageType);
+            if (a.phase !== b.phase) return a.phase.localeCompare(b.phase);
+            const aDay = a.dayNo == null ? -1 : a.dayNo;
+            const bDay = b.dayNo == null ? -1 : b.dayNo;
+            if (aDay !== bDay) return aDay - bDay;
+            return a.wtMin - b.wtMin;
+        });
+
+        const header = ['plan_id', 'phase', 'day_no', 'forage_type', 'wt_min', 'wt_max', 'target_adg', ...ingredientNames, 'est_cost_per_head_per_day'];
+        const lines = [header.join(',')];
+        sorted.forEach(row => {
+            const itemsByIng = {};
+            rationRowItems.filter(i => i.rowId === row.id).forEach(i => { itemsByIng[i.ingredientId] = i.qtyKgPerHeadPerDay; });
+            const cells = [
+                plan.planKey,
+                row.phase,
+                row.dayNo != null ? row.dayNo : '',
+                row.forageType,
+                row.wtMin,
+                row.wtMax,
+                row.targetAdg,
+                ...ingredientIds.map(id => (itemsByIng[id] != null ? itemsByIng[id] : 0)),
+                row.estCostPerHeadPerDay != null ? row.estCostPerHeadPerDay : ''
+            ];
+            lines.push(cells.join(','));
+        });
+
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${plan.planKey}_v${plan.version}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     };
 
     // Smart auto-matching helper: matches an ingredient column to a Feed Stock item
@@ -785,21 +869,62 @@ export default function RationPlans() {
                                             <th>ADG FLOOR</th>
                                             <th>BRACKETS</th>
                                             <th>PENS ASSIGNED</th>
+                                            <th>ACTIONS</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {rationPlansV2.map(plan => (
-                                            <tr key={plan.id}>
-                                                <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
-                                                    {plan.name}
-                                                    {plan.isDefault && <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--accent-gold)' }}>DEFAULT</span>}
-                                                </td>
-                                                <td>v{plan.version}</td>
-                                                <td>{plan.adaptationDays}</td>
-                                                <td>{plan.adgFloor} kg/day</td>
-                                                <td>{rationRows.filter(r => r.planId === plan.id).length}</td>
-                                                <td>{pens.filter(p => p.planId === plan.id).length}</td>
-                                            </tr>
+                                            editingV2Id === plan.id ? (
+                                                <tr key={plan.id}>
+                                                    <td>
+                                                        <input type="text" class="form-control" style={{ minWidth: '140px' }} value={v2EditName} onChange={e => setV2EditName(e.target.value)} />
+                                                    </td>
+                                                    <td>v{plan.version}</td>
+                                                    <td>
+                                                        <input type="number" class="form-control" style={{ width: '80px' }} value={v2EditAdaptationDays} onChange={e => setV2EditAdaptationDays(e.target.value)} />
+                                                    </td>
+                                                    <td>
+                                                        <input type="number" step="0.01" class="form-control" style={{ width: '90px' }} value={v2EditAdgFloor} onChange={e => setV2EditAdgFloor(e.target.value)} />
+                                                    </td>
+                                                    <td>{rationRows.filter(r => r.planId === plan.id).length}</td>
+                                                    <td>{pens.filter(p => p.planId === plan.id).length}</td>
+                                                    <td>
+                                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', marginBottom: '0.4rem' }}>
+                                                            <input type="checkbox" checked={v2EditIsDefault} onChange={e => setV2EditIsDefault(e.target.checked)} /> Default
+                                                        </label>
+                                                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                                            <button type="button" class="btn btn-primary btn-sm" onClick={() => handleSaveV2Plan(plan.id)} disabled={v2SavingId === plan.id}>
+                                                                {v2SavingId === plan.id ? 'Saving…' : 'Save'}
+                                                            </button>
+                                                            <button type="button" class="btn btn-ghost btn-sm" onClick={() => setEditingV2Id(null)}>Cancel</button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                <tr key={plan.id}>
+                                                    <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
+                                                        {plan.name}
+                                                        {plan.isDefault && <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--accent-gold)' }}>DEFAULT</span>}
+                                                    </td>
+                                                    <td>v{plan.version}</td>
+                                                    <td>{plan.adaptationDays}</td>
+                                                    <td>{plan.adgFloor} kg/day</td>
+                                                    <td>{rationRows.filter(r => r.planId === plan.id).length}</td>
+                                                    <td>{pens.filter(p => p.planId === plan.id).length}</td>
+                                                    <td>
+                                                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                                            {isAdmin && (
+                                                                <button type="button" class="btn btn-ghost btn-sm" title="Edit name/settings" onClick={() => openEditV2Plan(plan)}>
+                                                                    <i class="fa-solid fa-pen"></i>
+                                                                </button>
+                                                            )}
+                                                            <button type="button" class="btn btn-ghost btn-sm" title="Export as CSV" onClick={() => handleExportV2Plan(plan)}>
+                                                                <i class="fa-solid fa-download"></i>
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )
                                         ))}
                                     </tbody>
                                 </table>
