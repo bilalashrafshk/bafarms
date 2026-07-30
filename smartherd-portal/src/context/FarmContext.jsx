@@ -2051,7 +2051,18 @@ export const FarmProvider = ({ children }) => {
                 }
             }
 
-            // 4. If Cottonseed Cake / Khal is in adaptation row but not in bracket keys, resolve it
+            // 4. Ensure Wanda line item is present when wandaPct > 0 and no non-zero Wanda components exist
+            const hasWandaQty = Object.keys(resolvedIngredients).some(k => {
+                const norm = normString(feedIngredients.find(i => i.id === k)?.name || k);
+                return (norm.includes('wanda') || norm.includes('maize') || norm.includes('grain') || norm.includes('gluten')) && resolvedIngredients[k] > 0;
+            });
+
+            if (!hasWandaQty && wandaPct > 0) {
+                const wandaKey = plan.wandaStockItemId || 'wanda';
+                resolvedIngredients[wandaKey] = baseWandaQty * (wandaPct / 100);
+            }
+
+            // 5. If Cottonseed Cake / Khal is in adaptation row but not in bracket keys, resolve it
             if (khalPct > 0) {
                 const hasKhal = Object.keys(resolvedIngredients).some(k => {
                     const norm = normString(feedIngredients.find(i => i.id === k)?.name || k);
