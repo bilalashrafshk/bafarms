@@ -1847,13 +1847,15 @@ export const FarmProvider = ({ children }) => {
     // tracks expected growth day-to-day instead of only updating when someone re-weighs.
     // Reset to the real value automatically the moment a new weigh-in is logged, since
     // that becomes the new "last actual weight".
-    const getAnimalProjectedWeight = (animal, plan, forageType) => {
+    const getAnimalProjectedWeight = (animal, plan, forageType, targetDate = null) => {
+        const refDate = targetDate ? new Date(targetDate) : new Date();
         const logs = weightLogs.filter(w => w.animalId === animal.id).sort((a, b) => new Date(b.date) - new Date(a.date));
-        const lastLog = logs[0];
+        const validLogs = logs.filter(w => new Date(w.date) <= refDate);
+        const lastLog = validLogs[0] || logs[0];
         const lastWeight = lastLog ? parseFloat(lastLog.weight) : (parseFloat(animal.currentWeight) || 0);
         const lastDate = lastLog ? lastLog.date : animal.entryDate;
         const daysSinceWeigh = lastDate
-            ? Math.max(0, Math.floor((new Date() - new Date(lastDate)) / (1000 * 60 * 60 * 24)))
+            ? Math.max(0, Math.floor((refDate - new Date(lastDate)) / (1000 * 60 * 60 * 24)))
             : 0;
         const bracketAtWeigh = findWeightBracket(plan, forageType, lastWeight);
         const targetAdg = bracketAtWeigh?.targetAdg ?? plan?.adgFloor ?? 0;
@@ -1869,8 +1871,10 @@ export const FarmProvider = ({ children }) => {
     // fed as a fixed kg, and forage fed ad-lib (no fixed quantity). Plans without an
     // adaptation table (e.g. the legacy "Baseline" plan) fall back to the old per-week
     // scheduleMode/dailyIngredients behavior unchanged.
-    const getPenRationRow = (penId) => {
+    const getPenRationRow = (penId, targetDate = null) => {
         if (!penId || penId === 'all') return null;
+
+        const refDate = targetDate ? new Date(targetDate) : new Date();
 
         const pen = pens.find(p => p.id === penId);
         if (!pen || !pen.rationPlanId) return null;
@@ -1885,11 +1889,11 @@ export const FarmProvider = ({ children }) => {
             ? penAnimals.reduce((sum, a) => sum + (parseFloat(a.currentWeight) || 0), 0) / headCount
             : null;
         const avgProjectedWeight = headCount > 0
-            ? penAnimals.reduce((sum, a) => sum + getAnimalProjectedWeight(a, plan, forageType), 0) / headCount
+            ? penAnimals.reduce((sum, a) => sum + getAnimalProjectedWeight(a, plan, forageType, refDate), 0) / headCount
             : null;
 
         const daysOnFeed = pen.cycleStartDate
-            ? Math.max(0, Math.floor((new Date() - new Date(pen.cycleStartDate)) / (1000 * 60 * 60 * 24)))
+            ? Math.max(0, Math.floor((refDate - new Date(pen.cycleStartDate)) / (1000 * 60 * 60 * 24)))
             : null;
 
         const lookupWeight = avgProjectedWeight !== null ? avgProjectedWeight : avgWeight;

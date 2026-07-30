@@ -22,10 +22,14 @@ export default function TMRCalculator() {
     // Selected pen for TMR batch sizing
     const [selectedTMRPen, setSelectedTMRPen] = useState('all');
 
+    // Daily feed-log state (snapshotting what was actually fed — separate from the
+    // Ration Plan schedule itself, so schedule edits never rewrite past days)
+    const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
+
     // Plan-driven lookup: resolves the pen's assigned Ration Plan + current week
     // by matching its animals' average actual weight against each week's live-weight
-    // bracket (scaled by head count for the batch) — see FarmContext.getPenRationRow.
-    const resolvedPlanRow = selectedTMRPen !== 'all' ? getPenRationRow(selectedTMRPen) : null;
+    // bracket (scaled by head count for the batch) for the selected logDate.
+    const resolvedPlanRow = selectedTMRPen !== 'all' ? getPenRationRow(selectedTMRPen, logDate) : null;
     const isPlanDriven = !!resolvedPlanRow;
 
     // Early-warning: animals whose most recent weigh-in diverged >5% from what growth
@@ -38,16 +42,14 @@ export default function TMRCalculator() {
     const [planOverrides, setPlanOverrides] = useState({});
     useEffect(() => {
         setPlanOverrides({});
-    }, [selectedTMRPen, resolvedPlanRow?.plan?.id, resolvedPlanRow?.week?.week]);
+    }, [selectedTMRPen, logDate, resolvedPlanRow?.plan?.id, resolvedPlanRow?.week?.week]);
 
     // 1. LOCAL UI STATE
     const [animalsCount, setAnimalsCount] = useState(activeHerdCount || 1);
 
     const [isTractorMode, setIsTractorMode] = useState(false);
 
-    // Daily feed-log state (snapshotting what was actually fed — separate from the
-    // Ration Plan schedule itself, so schedule edits never rewrite past days)
-    const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
+    // Daily feed-log state
     const [logSaved, setLogSaved] = useState(false);
 
     // Rations are only ever set by a Ration Plan (managed under Ration Plans, not
