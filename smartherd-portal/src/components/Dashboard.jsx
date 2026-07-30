@@ -128,19 +128,25 @@ export default function Dashboard({ onNavigate }) {
         });
     });
 
-    // G. Missed Feeding Days — for each active pen, walk every day from its cycle
-    // start date (or, if unset, the earliest entry date among its currently-active
-    // animals) through yesterday and flag any day with no feed log for that pen.
-    // Today isn't flagged — there's still time left in the day to log it. Includes
-    // the registration/cycle-start day itself in the walk.
+    // G. Missed Feeding Days — for each active pen, walk every day from the later of
+    // its cycle start date and the earliest entry date among its currently-active
+    // animals (never before an animal actually existed in the pen — a stale/pre-set
+    // cycleStartDate predating every animal's entryDate must not flag days when there
+    // was nothing to feed) through yesterday, flagging any day with no feed log for
+    // that pen. Today isn't flagged — there's still time left in the day to log it.
+    // Includes the registration/cycle-start day itself in the walk.
     const missedFeedings = [];
     const todayMidnight = new Date();
     todayMidnight.setHours(0, 0, 0, 0);
     (pens || []).forEach(pen => {
         const penAnimals = animals.filter(a => a.pen === pen.id && a.status !== 'Sold' && a.status !== 'Deceased');
         if (penAnimals.length === 0) return;
-        const startDateStr = pen.cycleStartDate || penAnimals.reduce((earliest, a) =>
+        const earliestEntry = penAnimals.reduce((earliest, a) =>
             (!earliest || new Date(a.entryDate) < new Date(earliest)) ? a.entryDate : earliest, null);
+        let startDateStr = pen.cycleStartDate;
+        if (!startDateStr || (earliestEntry && new Date(earliestEntry) > new Date(startDateStr))) {
+            startDateStr = earliestEntry;
+        }
         if (!startDateStr) return;
         const start = new Date(startDateStr);
         start.setHours(0, 0, 0, 0);

@@ -947,7 +947,7 @@ export default function FeedStock() {
                                             <td>{b.bagCount > 0 ? `${b.bagCount} × ${b.bagWeight}kg` : '—'}</td>
                                             <td>{b.costPerKg.toFixed(2)} PKR</td>
                                             <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-                                                {(b.consumed || []).map(c => `${itemName(c.stockItemId)} ${c.quantity.toFixed(1)}kg`).join(', ') || '—'}
+                                                {(b.consumed || []).map(c => `${itemName(c.stockItemId)} ${c.quantity.toFixed(3)}kg`).join(', ') || '—'}
                                             </td>
                                             {isAdmin && (
                                                 <td style={{ textAlign: 'center' }}>

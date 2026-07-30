@@ -476,7 +476,7 @@ export default function TMRCalculator() {
                                         <option value="">Substitute / add an ingredient not in this plan…</option>
                                         {availableExtraIngredients.map(i => {
                                             const stockQty = getIngredientStockQty(i.id);
-                                            return <option key={i.id} value={i.id}>{i.name}{stockQty !== null ? ` (${stockQty.toFixed(0)}kg in stock)` : ''}</option>;
+                                            return <option key={i.id} value={i.id}>{i.name}{stockQty !== null ? ` (${stockQty.toFixed(2)}kg in stock)` : ''}</option>;
                                         })}
                                     </select>
                                     <button type="button" class="btn btn-secondary btn-sm" onClick={handleAddExtraIngredient} disabled={!addIngredientChoice}>
@@ -707,7 +707,7 @@ export default function TMRCalculator() {
                                         {tractorAggregateIngredients.map((ing, idx) => (
                                             <div class="tractor-mix-item" key={ing.id} style={ing.id === 'minerals' ? { borderLeftColor: 'var(--accent-gold)' } : {}}>
                                                 <span>{idx + 1}. WET {ing.name.toUpperCase()}</span>
-                                                <strong>{(Math.round(ing.wetBatch * 10) / 10).toFixed(1)} KG</strong>
+                                                <strong>{ing.wetBatch.toFixed(3)} KG</strong>
                                             </div>
                                         ))}
                                     </div>
