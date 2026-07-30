@@ -75,6 +75,7 @@ export default function RationPlans() {
     const [isNewIngredientFormOpen, setIsNewIngredientFormOpen] = useState(false);
     const [newIngredientName, setNewIngredientName] = useState('');
     const [showBulkImport, setShowBulkImport] = useState(false);
+    const [showMappingsPanel, setShowMappingsPanel] = useState(false);
 
     // Smart auto-matching helper: matches an ingredient column to a Feed Stock item
     const findMatchingStockItem = (colId) => {
@@ -741,33 +742,43 @@ export default function RationPlans() {
                                     </div>
                                 )}
 
-                                {formIngredientIds.some(id => !findMatchingStockItem(id)) && (
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.6rem' }}>
+                                    <button type="button" class="btn btn-secondary btn-sm" onClick={() => setShowMappingsPanel(!showMappingsPanel)}>
+                                        <i class="fa-solid fa-link"></i> {showMappingsPanel ? 'Hide Stock Mappings' : '⚡ View / Edit Feed Stock Mappings'}
+                                    </button>
+                                </div>
+
+                                {(showMappingsPanel || formIngredientIds.some(id => !findMatchingStockItem(id))) && (
                                     <div style={{ background: 'rgba(255, 193, 7, 0.08)', border: '1px solid rgba(255, 193, 7, 0.25)', borderRadius: '8px', padding: '0.8rem 1rem', marginBottom: '1rem' }}>
                                         <div style={{ fontSize: '0.82rem', fontWeight: '700', color: 'var(--accent-gold)', marginBottom: '0.3rem' }}>
-                                            <i class="fa-solid fa-triangle-exclamation"></i> Link Ingredient Columns to Feed Stock
+                                            <i class="fa-solid fa-link"></i> Feed Stock Column Mappings
                                         </div>
                                         <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: '0.6rem' }}>
-                                            The software auto-matched most columns. Please select which Feed Stock item matches the following unlinked column(s):
+                                            Columns are auto-linked by name. You can override which Feed Stock item any column (including Wanda) is linked to below:
                                         </div>
                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.8rem' }}>
-                                            {formIngredientIds.filter(id => !findMatchingStockItem(id)).map(colId => (
-                                                <div key={colId} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(0,0,0,0.2)', padding: '0.3rem 0.6rem', borderRadius: '6px' }}>
-                                                    <span style={{ fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-pure)' }}>
-                                                        {feedIngredients.find(i => i.id === colId)?.name || colId}:
-                                                    </span>
-                                                    <select
-                                                        class="form-control"
-                                                        style={{ width: '180px', minHeight: '28px', height: '28px', fontSize: '0.75rem', padding: '0.1rem 0.4rem' }}
-                                                        value={columnStockMappings[colId] || ''}
-                                                        onChange={e => setColumnStockMappings(prev => ({ ...prev, [colId]: e.target.value }))}
-                                                    >
-                                                        <option value="">Select Feed Stock item…</option>
-                                                        {feedIngredients.map(i => (
-                                                            <option key={i.id} value={i.id}>{i.name} {i.isPremix ? '(Premix)' : ''}</option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-                                            ))}
+                                            {formIngredientIds.map(colId => {
+                                                const matched = findMatchingStockItem(colId);
+                                                const isUnmatched = !matched;
+                                                return (
+                                                    <div key={colId} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(0,0,0,0.2)', padding: '0.35rem 0.6rem', borderRadius: '6px', border: isUnmatched ? '1px solid rgba(255,193,7,0.4)' : '1px solid rgba(255,255,255,0.05)' }}>
+                                                        <span style={{ fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-pure)' }}>
+                                                            {feedIngredients.find(i => i.id === colId)?.name || colId}:
+                                                        </span>
+                                                        <select
+                                                            class="form-control"
+                                                            style={{ width: '190px', minHeight: '28px', height: '28px', fontSize: '0.75rem', padding: '0.1rem 0.4rem' }}
+                                                            value={columnStockMappings[colId] || matched?.id || ''}
+                                                            onChange={e => setColumnStockMappings(prev => ({ ...prev, [colId]: e.target.value }))}
+                                                        >
+                                                            <option value="">Select Feed Stock item…</option>
+                                                            {feedIngredients.map(i => (
+                                                                <option key={i.id} value={i.id}>{i.name} {i.isPremix ? '(Premix)' : ''}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 )}
