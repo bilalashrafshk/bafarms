@@ -964,10 +964,10 @@ export default function RationPlans() {
                                                                 <th>{ft.id === 'chari' ? 'CHARI %' : 'SILAGE (KG)'}</th>
                                                                 {formIngredientIds.filter(id => id !== 'silage' && id !== 'chari' && id !== 'straw' && id !== 'wanda' && !id.toLowerCase().includes('wanda')).map(id => {
                                                                     const name = feedIngredients.find(i => i.id === id)?.name || id;
-                                                                    const isPctBW = id === 'khal' || id.toLowerCase().includes('khal') || id.toLowerCase().includes('cottonseed') || id.endsWith('_pct');
+                                                                    const isKhal = id === 'khal' || id.toLowerCase().includes('khal') || id.toLowerCase().includes('cottonseed');
                                                                     return (
                                                                         <th key={id} style={{ whiteSpace: 'nowrap' }}>
-                                                                            {name.toUpperCase()} {isPctBW ? '(% BW)' : '(KG)'}
+                                                                            {name.toUpperCase()} {isKhal ? '(KHAL %)' : '(% BW)'}
                                                                         </th>
                                                                     );
                                                                 })}
