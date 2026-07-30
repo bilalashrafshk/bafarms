@@ -1842,15 +1842,33 @@ export const FarmProvider = ({ children }) => {
     // forage type ever in use historically), so existing plans need no data migration.
     const findWeightBracket = (plan, forageType, weight) => {
         if (!plan || !plan.weeks || plan.weeks.length === 0) return null;
-        const rows = plan.weeks.filter(w => (w.forageType || 'silage') === forageType);
-        const pool = rows.length > 0 ? rows : plan.weeks;
-        if (weight === null || weight === undefined) return pool[0];
-        const exact = pool.find(w => weight >= w.liveWeightMin && weight < w.liveWeightMax);
+
+        const matchingRows = plan.weeks.filter(w => !w.forageType || w.forageType === forageType || (w.forageType || 'silage') === forageType);
+        const pool = matchingRows.length > 0 ? matchingRows : plan.weeks;
+
+        if (weight === null || weight === undefined || isNaN(weight)) return pool[0];
+
+        const numericWeight = parseFloat(weight);
+
+        // 1. Try exact range match (inclusive of min and max bounds)
+        const exact = pool.find(w => {
+            const min = parseFloat(w.liveWeightMin) || 0;
+            const max = parseFloat(w.liveWeightMax) || 9999;
+            return numericWeight >= min && numericWeight <= max;
+        });
         if (exact) return exact;
+
+        // 2. Fall back to closest bracket by midpoint distance
         return pool.reduce((closest, w) => {
-            const mid = (w.liveWeightMin + w.liveWeightMax) / 2;
-            const closestMid = (closest.liveWeightMin + closest.liveWeightMax) / 2;
-            return Math.abs(weight - mid) < Math.abs(weight - closestMid) ? w : closest;
+            const min = parseFloat(w.liveWeightMin) || 0;
+            const max = parseFloat(w.liveWeightMax) || 9999;
+            const mid = (min + max) / 2;
+
+            const cMin = parseFloat(closest.liveWeightMin) || 0;
+            const cMax = parseFloat(closest.liveWeightMax) || 9999;
+            const closestMid = (cMin + cMax) / 2;
+
+            return Math.abs(numericWeight - mid) < Math.abs(numericWeight - closestMid) ? w : closest;
         }, pool[0]);
     };
 
@@ -1859,26 +1877,19 @@ export const FarmProvider = ({ children }) => {
     // tracks expected growth day-to-day instead of only updating when someone re-weighs.
     // Reset to the real value automatically the moment a new weigh-in is logged, since
     // that becomes the new "last actual weight".
-    const getAnimalProjectedWeight = (animal, plan, forageType, targetDate = null, penCycleStartDate = null) => {
+    const getAnimalProjectedWeight = (animal, plan, forageType, targetDate = null) => {
         const refDate = targetDate ? new Date(targetDate) : new Date();
-        const refDay = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate());
-
         const logs = weightLogs.filter(w => w.animalId === animal.id).sort((a, b) => new Date(b.date) - new Date(a.date));
         const validLogs = logs.filter(w => new Date(w.date) <= refDate);
         const lastLog = validLogs[0] || logs[0];
         const lastWeight = lastLog ? parseFloat(lastLog.weight) : (parseFloat(animal.currentWeight) || 0);
-
-        let baseDateStr = lastLog ? lastLog.date : (penCycleStartDate || animal.entryDate);
-        let daysSinceWeigh = 0;
-        if (baseDateStr) {
-            const b = new Date(baseDateStr);
-            const baseDay = new Date(b.getFullYear(), b.getMonth(), b.getDate());
-            daysSinceWeigh = Math.max(0, Math.round((refDay - baseDay) / (1000 * 60 * 60 * 24)));
-        }
-
+        const lastDate = lastLog ? lastLog.date : animal.entryDate;
+        const daysSinceWeigh = lastDate
+            ? Math.max(0, Math.floor((refDate - new Date(lastDate)) / (1000 * 60 * 60 * 24)))
+            : 0;
         const bracketAtWeigh = findWeightBracket(plan, forageType, lastWeight);
-        const targetAdg = bracketAtWeigh?.targetAdg ?? plan?.adgFloor ?? 1.1;
-        return lastWeight + (daysSinceWeigh * targetAdg);
+        const targetAdg = bracketAtWeigh?.targetAdg ?? plan?.adgFloor ?? 0;
+        return lastWeight + daysSinceWeigh * targetAdg;
     };
 
     // Resolves the current ration row for a pen from its assigned plan. Primary lookup
@@ -1908,7 +1919,7 @@ export const FarmProvider = ({ children }) => {
             ? penAnimals.reduce((sum, a) => sum + (parseFloat(a.currentWeight) || 0), 0) / headCount
             : null;
         const avgProjectedWeight = headCount > 0
-            ? penAnimals.reduce((sum, a) => sum + getAnimalProjectedWeight(a, plan, forageType, refDate, pen.cycleStartDate), 0) / headCount
+            ? penAnimals.reduce((sum, a) => sum + getAnimalProjectedWeight(a, plan, forageType, refDate), 0) / headCount
             : null;
 
         const daysOnFeed = pen.cycleStartDate
