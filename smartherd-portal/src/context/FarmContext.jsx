@@ -1857,32 +1857,25 @@ export const FarmProvider = ({ children }) => {
     // Extrapolates an animal's weight forward from its last actual weigh-in using the
     // target ADG of whichever bracket it was in at that weigh-in, so the ration bracket
     // tracks expected growth day-to-day instead of only updating when someone re-weighs.
-    // Reset to the real value automatically the moment a new weigh-in is logged, since
-    // that becomes the new "last actual weight".
-    const getAnimalProjectedWeight = (animal, plan, forageType, targetDate = null) => {
+    const getAnimalProjectedWeight = (animal, plan, forageType, targetDate = null, penCycleStartDate = null) => {
         const refDate = targetDate ? new Date(targetDate) : new Date();
         const logs = weightLogs.filter(w => w.animalId === animal.id).sort((a, b) => new Date(b.date) - new Date(a.date));
         const validLogs = logs.filter(w => new Date(w.date) <= refDate);
-        const lastLog = validLogs[0] || logs[0];
-        const lastWeight = lastLog ? parseFloat(lastLog.weight) : (parseFloat(animal.currentWeight) || 0);
-        const lastDate = lastLog ? lastLog.date : animal.entryDate;
-        const daysSinceWeigh = lastDate
-            ? Math.max(0, Math.floor((refDate - new Date(lastDate)) / (1000 * 60 * 60 * 24)))
-            : 0;
-        const bracketAtWeigh = findWeightBracket(plan, forageType, lastWeight);
-        const targetAdg = bracketAtWeigh?.targetAdg ?? plan?.adgFloor ?? 0;
-        return lastWeight + daysSinceWeigh * targetAdg;
+        const lastLog = validLogs[0];
+
+        let baseWeight = lastLog ? parseFloat(lastLog.weight) : (parseFloat(animal.currentWeight) || 0);
+        let baseDateStr = lastLog ? lastLog.date : (animal.entryDate || penCycleStartDate);
+
+        if (!baseDateStr) return baseWeight;
+
+        const baseDate = new Date(baseDateStr);
+        const daysElapsed = Math.max(0, Math.floor((refDate - baseDate) / (1000 * 60 * 60 * 24)));
+        const bracketAtWeigh = findWeightBracket(plan, forageType, baseWeight);
+        const targetAdg = bracketAtWeigh?.targetAdg ?? plan?.adgFloor ?? 1.1;
+
+        return baseWeight + daysElapsed * targetAdg;
     };
 
-    // Resolves the current ration row for a pen from its assigned plan. Primary lookup
-    // key is the pen's average PROJECTED weight (see getAnimalProjectedWeight above) —
-    // not the raw last-recorded weight — matched against the steady-state bracket for
-    // the pen's current forage_type. For a pen's first 7 days on feed, a separate
-    // percentage-based adaptation table (day 1-7, also forage_type-tagged) overrides the
-    // ingredient mix: Wanda scaled to a % of the current bracket's Wanda quantity, Toori
-    // fed as a fixed kg, and forage fed ad-lib (no fixed quantity). Plans without an
-    // adaptation table (e.g. the legacy "Baseline" plan) fall back to the old per-week
-    // scheduleMode/dailyIngredients behavior unchanged.
     const getPenRationRow = (penId, targetDate = null) => {
         if (!penId || penId === 'all') return null;
 
@@ -1901,7 +1894,7 @@ export const FarmProvider = ({ children }) => {
             ? penAnimals.reduce((sum, a) => sum + (parseFloat(a.currentWeight) || 0), 0) / headCount
             : null;
         const avgProjectedWeight = headCount > 0
-            ? penAnimals.reduce((sum, a) => sum + getAnimalProjectedWeight(a, plan, forageType, refDate), 0) / headCount
+            ? penAnimals.reduce((sum, a) => sum + getAnimalProjectedWeight(a, plan, forageType, refDate, pen.cycleStartDate), 0) / headCount
             : null;
 
         const daysOnFeed = pen.cycleStartDate
