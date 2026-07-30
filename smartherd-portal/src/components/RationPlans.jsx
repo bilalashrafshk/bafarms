@@ -412,16 +412,23 @@ export default function RationPlans() {
         savePen({ ...existing, [field]: value || null });
     };
 
-    // Animals sorted into the same pen at very different weights (e.g. 120kg with
-    // 200kg) muddy both the ration bracket match and the batch feed sheet — surfaced
-    // as a soft warning, not a hard block, since reassignment happens elsewhere (Herd
-    // Registry).
-    const wideSpreadPens = distinctPenNames.filter(penId => {
+    // Animals sorted into the same pen at very different weights muddy both the ration
+    // bracket match and the batch feed sheet. Spread is measured as a % of the pen's
+    // average weight (not a flat kg number) so the tolerance scales with animal size:
+    // up to 15% apart is fine, 15-20% is a soft warning, above 20% is a strict warning —
+    // surfaced, not hard-blocked, since reassignment happens elsewhere (Herd Registry).
+    const penWeightSpreads = distinctPenNames.map(penId => {
         const penAnimals = animals.filter(a => a.pen === penId && a.status !== 'Sold' && a.status !== 'Deceased');
-        if (penAnimals.length < 2) return false;
+        if (penAnimals.length < 2) return null;
         const weights = penAnimals.map(a => parseFloat(a.currentWeight) || 0);
-        return (Math.max(...weights) - Math.min(...weights)) > 15;
-    });
+        const avg = weights.reduce((s, w) => s + w, 0) / weights.length;
+        if (avg <= 0) return null;
+        const spreadPct = ((Math.max(...weights) - Math.min(...weights)) / avg) * 100;
+        return { penId, spreadPct };
+    }).filter(Boolean);
+
+    const wideSpreadPens = penWeightSpreads.filter(p => p.spreadPct > 15 && p.spreadPct <= 20);
+    const strictSpreadPens = penWeightSpreads.filter(p => p.spreadPct > 20);
 
     const handleDeletePen = (penId) => {
         if (!isAdmin) return;
@@ -883,11 +890,20 @@ export default function RationPlans() {
                         </div>
                     )}
 
+                    {strictSpreadPens.length > 0 && (
+                        <div style={{ background: 'rgba(220, 53, 69, 0.08)', border: '1px solid rgba(220, 53, 69, 0.3)', borderRadius: '8px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
+                            <i class="fa-solid fa-triangle-exclamation" style={{ color: 'hsl(0,75%,60%)', fontSize: '1.1rem', marginTop: '0.15rem' }}></i>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem', lineHeight: '1.5' }}>
+                                <strong style={{ color: 'hsl(0,75%,65%)' }}>{strictSpreadPens.length} pen{strictSpreadPens.length === 1 ? '' : 's'} mix animals more than 20% apart in body weight</strong> — {strictSpreadPens.map(p => `Pen ${p.penId} (${p.spreadPct.toFixed(0)}% spread)`).join(', ')}. Re-sort at intake — this is too wide for the bracket match and batch feed sheet to stay accurate.
+                            </span>
+                        </div>
+                    )}
+
                     {wideSpreadPens.length > 0 && (
                         <div style={{ background: 'rgba(255, 193, 7, 0.05)', border: '1px solid rgba(255, 193, 7, 0.15)', borderRadius: '8px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
                             <i class="fa-solid fa-scale-unbalanced" style={{ color: 'var(--accent-gold)', fontSize: '1.1rem', marginTop: '0.15rem' }}></i>
                             <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem', lineHeight: '1.5' }}>
-                                <strong style={{ color: 'var(--text-pure)' }}>{wideSpreadPens.length} pen{wideSpreadPens.length === 1 ? '' : 's'} mix animals more than 15kg apart</strong> — Pen {wideSpreadPens.join(', Pen ')}. Wide weight spreads muddy both the bracket match and the batch feed sheet; consider re-sorting at intake.
+                                <strong style={{ color: 'var(--text-pure)' }}>{wideSpreadPens.length} pen{wideSpreadPens.length === 1 ? '' : 's'} mix animals 15–20% apart in body weight</strong> — {wideSpreadPens.map(p => `Pen ${p.penId} (${p.spreadPct.toFixed(0)}% spread)`).join(', ')}. Consider re-sorting at intake.
                             </span>
                         </div>
                     )}
