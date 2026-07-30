@@ -1910,7 +1910,7 @@ export const FarmProvider = ({ children }) => {
         if (!pen || !pen.rationPlanId) return null;
 
         const plan = rationPlans.find(p => p.id === pen.rationPlanId);
-        if (!plan || !plan.weeks || plan.weeks.length === 0) return null;
+        if (!plan) return null;
 
         const forageType = pen.forageType || 'silage';
         const penAnimals = animals.filter(a => a.pen === penId && a.status !== 'Sold' && a.status !== 'Deceased');
@@ -1926,32 +1926,32 @@ export const FarmProvider = ({ children }) => {
             ? Math.max(0, Math.floor((refDate - new Date(pen.cycleStartDate)) / (1000 * 60 * 60 * 24)))
             : null;
 
+        const adaptationDay = daysOnFeed !== null ? daysOnFeed + 1 : null;
+        const adaptationRows = (plan.adaptation || []).filter(r => (r.forageType || forageType) === forageType);
+        const usesAdaptationTable = adaptationRows.length > 0 && adaptationDay !== null && adaptationDay <= 7;
+
+        if ((!plan.weeks || plan.weeks.length === 0) && !usesAdaptationTable) return null;
+
         const lookupWeight = avgProjectedWeight !== null ? avgProjectedWeight : avgWeight;
         const hasWeightData = lookupWeight !== null && lookupWeight > 0;
         let week = null;
         let matchedByWeight = false;
 
-        if (hasWeightData) {
+        if (hasWeightData && plan.weeks && plan.weeks.length > 0) {
             week = findWeightBracket(plan, forageType, lookupWeight);
             matchedByWeight = true;
-        } else if (daysOnFeed !== null) {
-            // No weighed animals yet in this pen — fall back to calendar week so the
-            // calculator still has something to show until the first weigh-in.
+        } else if (daysOnFeed !== null && plan.weeks && plan.weeks.length > 0) {
             const weekNum = Math.min(plan.weeks.length, Math.floor(daysOnFeed / 7) + 1);
             week = plan.weeks.find(w => w.week === weekNum) || plan.weeks[0];
             matchedByWeight = false;
-        } else {
+        } else if (plan.weeks && plan.weeks.length > 0) {
             week = plan.weeks[0];
             matchedByWeight = false;
         }
-        if (!week) return null;
+
+        if (!week && !usesAdaptationTable) return null;
 
         const dayInWeek = daysOnFeed !== null ? (daysOnFeed % 7) + 1 : null;
-
-        // day_no is 1-indexed (1-7); daysOnFeed is 0-indexed from cycleStartDate.
-        const adaptationDay = daysOnFeed !== null ? daysOnFeed + 1 : null;
-        const adaptationRows = (plan.adaptation || []).filter(r => (r.forageType || forageType) === forageType);
-        const usesAdaptationTable = adaptationRows.length > 0 && adaptationDay !== null && adaptationDay <= 7;
 
         let resolvedIngredients;
         let forageAdLib = false;
@@ -1960,7 +1960,8 @@ export const FarmProvider = ({ children }) => {
 
         if (usesAdaptationTable) {
             const adaptRow = adaptationRows.find(r => r.day === adaptationDay) || adaptationRows[0];
-            const bracket = week.ingredients || {};
+            const defaultRefIngredients = { silage: 4.12, wanda: 2.50, maizeGrain: 1.73, glutenFeed: 0.61, minerals: 0.162, straw: 0.35 };
+            const bracket = (week && week.ingredients) ? week.ingredients : defaultRefIngredients;
 
             // Helper: normalized string matching against bracket keys or ingredient names
             const normString = str => (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
