@@ -5,7 +5,7 @@ import { formatDate } from '../utils/formatDate';
 export default function TMRCalculator() {
     const {
         feedIngredients, animals, staffUser, feedLogs, logFeed, deleteFeedLog,
-        pens, getPenRationRow, getPenWeightFlags, getIngredientStockPrice
+        pens, getPenRationRow, getPenWeightFlags, getIngredientStockPrice, getIngredientStockQty
     } = useContext(FarmContext);
     const isAdmin = staffUser?.role === 'Internal Corporate Staff';
 

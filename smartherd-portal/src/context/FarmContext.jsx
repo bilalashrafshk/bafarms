@@ -962,6 +962,18 @@ export const FarmProvider = ({ children }) => {
         return rate > 0 ? rate : (fallbackPrice > 0 ? fallbackPrice : 0);
     };
 
+    // Returns current available physical closing stock quantity (in kg) for an ingredient.
+    // Sourced straight from the stock ledger. Returns null if not stock-tracked.
+    const getIngredientStockQty = (ingredientId) => {
+        const ledger = getFeedStockLedger();
+        const linked = feedStockItems.filter(item => item.id === ingredientId || item.derivedFromIngredientId === ingredientId);
+        if (linked.length === 0) return null;
+        return linked.reduce((sum, item) => {
+            const closing = ledger.find(l => l.item.id === item.id)?.closingQty || 0;
+            return sum + Math.max(0, closing);
+        }, 0);
+    };
+
     // Creates a paired feedStockItems + feedIngredients entry for a brand-new raw material —
     // the single "add item" path shared by the Stock Ledger, Purchases, and Ration Plans forms,
     // so anything you can buy you can immediately ration, and anything you can ration is always
@@ -1984,6 +1996,20 @@ export const FarmProvider = ({ children }) => {
                 straw: adaptRow?.tooriKg || 0,
                 [forageKey]: forageKg
             };
+
+            // Resolve custom adaptation ingredients (e.g. khal_pct as % of body weight, or fixed kg)
+            const refWeight = lookupWeight || avgWeight || 200;
+            weekKeys.forEach(ingId => {
+                if (ingId === wandaKey || ingId === 'straw' || ingId === forageKey) return;
+                const customVal = adaptRow?.custom?.[ingId] ?? adaptRow?.[ingId];
+                if (customVal !== undefined && customVal !== null && customVal !== '') {
+                    const isPctBW = ingId === 'khal' || ingId.toLowerCase().includes('khal') || ingId.toLowerCase().includes('cottonseed') || ingId.endsWith('_pct');
+                    const valNum = parseFloat(customVal) || 0;
+                    resolvedIngredients[ingId] = isPctBW ? refWeight * (valNum / 100) : valNum;
+                } else {
+                    resolvedIngredients[ingId] = (week.ingredients || {})[ingId] || 0;
+                }
+            });
         } else {
             // Legacy per-week day-stepped diet, kept for plans with no adaptation table.
             usesDailyDiet = week.scheduleMode === 'day' && week.dailyIngredients && Object.keys(week.dailyIngredients).length > 0;
@@ -2236,6 +2262,7 @@ export const FarmProvider = ({ children }) => {
             getFeedStockLedger,
             getCombinedFeedIssues,
             getIngredientStockPrice,
+            getIngredientStockQty,
             addStockTrackedIngredient,
             mineralSplitRatio,
             setMineralSplitRatio,

@@ -66,18 +66,32 @@ export default function RationPlans() {
     const [formDesc, setFormDesc] = useState('');
     const [formAdgFloor, setFormAdgFloor] = useState(1.0);
     const [formIsDefault, setFormIsDefault] = useState(false);
-    const [formWandaStockItemId, setFormWandaStockItemId] = useState('');
+    const [columnStockMappings, setColumnStockMappings] = useState({});
     const [formIngredientIds, setFormIngredientIds] = useState([]);
     const [formWeeks, setFormWeeks] = useState([]);
-    // Day 1-7 adaptation table (percentage-based, per forage_type) — separate from the
-    // weight-indexed steady-state rows above. Empty means this plan has no adaptation
-    // table and falls back to the legacy per-week scheduleMode/dailyIngredients toggle.
     const [formAdaptation, setFormAdaptation] = useState([]);
     const [addIngredientChoice, setAddIngredientChoice] = useState('');
     const [saveConfirm, setSaveConfirm] = useState(false);
     const [isNewIngredientFormOpen, setIsNewIngredientFormOpen] = useState(false);
     const [newIngredientName, setNewIngredientName] = useState('');
     const [showBulkImport, setShowBulkImport] = useState(false);
+
+    // Smart auto-matching helper: matches an ingredient column to a Feed Stock item
+    const findMatchingStockItem = (colId) => {
+        if (columnStockMappings[colId]) {
+            const explicit = feedIngredients.find(i => i.id === columnStockMappings[colId]);
+            if (explicit) return explicit;
+        }
+        const exactId = feedIngredients.find(i => i.id === colId);
+        if (exactId) return exactId;
+
+        const colName = (feedIngredients.find(i => i.id === colId)?.name || colId).toLowerCase();
+        const byName = feedIngredients.find(i => {
+            const name = i.name.toLowerCase();
+            return name === colName || name.includes(colName) || colName.includes(name);
+        });
+        return byName || null;
+    };
     const [bulkForageType, setBulkForageType] = useState('silage');
     const [bulkBracketText, setBulkBracketText] = useState('');
     const [bulkAdaptationText, setBulkAdaptationText] = useState('');
@@ -187,17 +201,26 @@ export default function RationPlans() {
         setFormAdaptation(prev => prev.map(r => (r.forageType === forageType && r.day === day) ? { ...r, [field]: value } : r));
     };
 
+    const handleCustomAdaptationFieldChange = (forageType, day, ingId, value) => {
+        setFormAdaptation(prev => prev.map(r => {
+            if (r.forageType === forageType && r.day === day) {
+                const custom = { ...(r.custom || {}), [ingId]: value };
+                return { ...r, custom };
+            }
+            return r;
+        }));
+    };
+
     const openNewPlan = () => {
         const defaultIds = ['silage', 'maizeGrain', 'glutenFeed', 'straw', 'urea', 'minerals'].filter(id =>
             stockTrackedIngredients.some(i => i.id === id)
         );
-        const defaultWanda = stockTrackedIngredients.find(i => i.isPremix || i.id === 'wanda' || i.name.toLowerCase().includes('wanda'))?.id || 'wanda';
         setEditingId('new');
         setFormName('');
         setFormDesc('');
         setFormAdgFloor(1.0);
         setFormIsDefault(false);
-        setFormWandaStockItemId(defaultWanda);
+        setColumnStockMappings({});
         setFormIngredientIds(defaultIds.length ? defaultIds : stockTrackedIngredients.map(i => i.id));
         setFormWeeks([blankWeek(1, defaultIds, null)]);
         setFormAdaptation([]);
@@ -211,7 +234,7 @@ export default function RationPlans() {
         setFormDesc(plan.description || '');
         setFormAdgFloor(plan.adgFloor ?? 1.0);
         setFormIsDefault(!!plan.isDefault);
-        setFormWandaStockItemId(plan.wandaStockItemId || 'wanda');
+        setColumnStockMappings(plan.columnStockMappings || {});
         setFormIngredientIds([...idSet]);
         setFormWeeks((plan.weeks || []).map(w => ({
             ...w,
@@ -355,8 +378,20 @@ export default function RationPlans() {
             tooriKg: parseFloat(r.tooriKg) || 0,
             forageKg: parseFloat(r.forageKg) || 0,
             foragePct: parseFloat(r.foragePct) || 0,
-            starchCapPct: parseFloat(r.starchCapPct) || 0
+            starchCapPct: parseFloat(r.starchCapPct) || 0,
+            custom: r.custom || {}
         }));
+
+        let wandaStockItemId = 'wanda';
+        const wandaCol = formIngredientIds.find(colId => {
+            const matched = findMatchingStockItem(colId);
+            const name = (matched?.name || colId).toLowerCase();
+            return name.includes('wanda') || matched?.isPremix;
+        });
+        if (wandaCol) {
+            const matched = findMatchingStockItem(wandaCol);
+            wandaStockItemId = matched?.id || wandaCol;
+        }
 
         saveRationPlan({
             id,
@@ -364,7 +399,8 @@ export default function RationPlans() {
             description: formDesc.trim(),
             adgFloor: parseFloat(formAdgFloor) || 1.0,
             isDefault: formIsDefault,
-            wandaStockItemId: formWandaStockItemId || 'wanda',
+            wandaStockItemId,
+            columnStockMappings,
             weeks,
             adaptation
         });
@@ -580,27 +616,10 @@ export default function RationPlans() {
                             </div>
 
                             <form onSubmit={handleSavePlan}>
-                                <div class="form-grid-3" style={{ marginBottom: '1rem' }}>
+                                <div class="form-grid-2" style={{ marginBottom: '1rem' }}>
                                     <div class="form-group">
                                         <label>Plan Name *</label>
                                         <input type="text" class="form-control" value={formName} onChange={e => setFormName(e.target.value)} placeholder="e.g. Baseline, Scenario A" required />
-                                    </div>
-                                    <div class="form-group">
-                                        <label>Wanda Stock Item / Premix *</label>
-                                        <select class="form-control" value={formWandaStockItemId} onChange={e => setFormWandaStockItemId(e.target.value)}>
-                                            <option value="">Select Wanda item from Feed Stock…</option>
-                                            {feedIngredients.filter(i => i.isPremix || i.id === 'wanda' || i.name.toLowerCase().includes('wanda')).map(i => (
-                                                <option key={i.id} value={i.id}>{i.name} {i.isPremix ? '(Premix)' : ''}</option>
-                                            ))}
-                                            <optgroup label="Other Feed Stock Ingredients">
-                                                {feedIngredients.filter(i => !(i.isPremix || i.id === 'wanda' || i.name.toLowerCase().includes('wanda'))).map(i => (
-                                                    <option key={i.id} value={i.id}>{i.name}</option>
-                                                ))}
-                                            </optgroup>
-                                        </select>
-                                        <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.3rem' }}>
-                                            Explicitly links this plan to a specific Wanda stock item (e.g. Steady State Wanda).
-                                        </small>
                                     </div>
                                     <div class="form-group">
                                         <label>Minimum ADG Floor (kg/day)</label>
@@ -693,6 +712,37 @@ export default function RationPlans() {
                                         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', width: '100%' }}>
                                             Also registers it as a Feed Stock item — buy it from the Purchases tab and its price here updates automatically.
                                         </span>
+                                    </div>
+                                )}
+
+                                {formIngredientIds.some(id => !findMatchingStockItem(id)) && (
+                                    <div style={{ background: 'rgba(255, 193, 7, 0.08)', border: '1px solid rgba(255, 193, 7, 0.25)', borderRadius: '8px', padding: '0.8rem 1rem', marginBottom: '1rem' }}>
+                                        <div style={{ fontSize: '0.82rem', fontWeight: '700', color: 'var(--accent-gold)', marginBottom: '0.3rem' }}>
+                                            <i class="fa-solid fa-triangle-exclamation"></i> Link Ingredient Columns to Feed Stock
+                                        </div>
+                                        <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: '0.6rem' }}>
+                                            The software auto-matched most columns. Please select which Feed Stock item matches the following unlinked column(s):
+                                        </div>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.8rem' }}>
+                                            {formIngredientIds.filter(id => !findMatchingStockItem(id)).map(colId => (
+                                                <div key={colId} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(0,0,0,0.2)', padding: '0.3rem 0.6rem', borderRadius: '6px' }}>
+                                                    <span style={{ fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-pure)' }}>
+                                                        {feedIngredients.find(i => i.id === colId)?.name || colId}:
+                                                    </span>
+                                                    <select
+                                                        class="form-control"
+                                                        style={{ width: '180px', minHeight: '28px', height: '28px', fontSize: '0.75rem', padding: '0.1rem 0.4rem' }}
+                                                        value={columnStockMappings[colId] || ''}
+                                                        onChange={e => setColumnStockMappings(prev => ({ ...prev, [colId]: e.target.value }))}
+                                                    >
+                                                        <option value="">Select Feed Stock item…</option>
+                                                        {feedIngredients.map(i => (
+                                                            <option key={i.id} value={i.id}>{i.name} {i.isPremix ? '(Premix)' : ''}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                 )}
 
@@ -875,6 +925,15 @@ export default function RationPlans() {
                                                                 <th>WANDA %</th>
                                                                 <th>TOORI (KG)</th>
                                                                 <th>{ft.id === 'chari' ? 'CHARI %' : 'SILAGE (KG)'}</th>
+                                                                {formIngredientIds.filter(id => id !== 'silage' && id !== 'chari' && id !== 'straw' && id !== 'wanda' && !id.toLowerCase().includes('wanda')).map(id => {
+                                                                    const name = feedIngredients.find(i => i.id === id)?.name || id;
+                                                                    const isPctBW = id === 'khal' || id.toLowerCase().includes('khal') || id.toLowerCase().includes('cottonseed') || id.endsWith('_pct');
+                                                                    return (
+                                                                        <th key={id} style={{ whiteSpace: 'nowrap' }}>
+                                                                            {name.toUpperCase()} {isPctBW ? '(% BW)' : '(KG)'}
+                                                                        </th>
+                                                                    );
+                                                                })}
                                                                 <th style={{ whiteSpace: 'nowrap' }}>STARCH CAP % (ref)</th>
                                                             </tr>
                                                         </thead>
@@ -895,6 +954,19 @@ export default function RationPlans() {
                                                                             <input type="number" step="0.1" class="form-control" style={{ width: '80px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={r.forageKg ?? 0} onChange={e => handleAdaptationFieldChange(ft.id, r.day, 'forageKg', e.target.value)} />
                                                                         )}
                                                                     </td>
+                                                                    {formIngredientIds.filter(id => id !== 'silage' && id !== 'chari' && id !== 'straw' && id !== 'wanda' && !id.toLowerCase().includes('wanda')).map(id => (
+                                                                        <td key={id}>
+                                                                            <input
+                                                                                type="number"
+                                                                                step="0.01"
+                                                                                class="form-control"
+                                                                                style={{ width: '80px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }}
+                                                                                value={r.custom?.[id] ?? r[id] ?? ''}
+                                                                                onChange={e => handleCustomAdaptationFieldChange(ft.id, r.day, id, e.target.value)}
+                                                                                placeholder={id === 'khal' || id.toLowerCase().includes('khal') || id.toLowerCase().includes('cottonseed') ? "0.5" : "0"}
+                                                                            />
+                                                                        </td>
+                                                                    ))}
                                                                     <td>
                                                                         <input type="number" step="0.1" class="form-control" style={{ width: '80px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={r.starchCapPct} onChange={e => handleAdaptationFieldChange(ft.id, r.day, 'starchCapPct', e.target.value)} />
                                                                     </td>
