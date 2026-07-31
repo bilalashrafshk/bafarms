@@ -2,6 +2,7 @@ import React, { useContext, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
+import { todayPKT, parseDateOnly, daysBetween } from '../utils/dateOnly';
 
 export default function RotationPlanner() {
     const { animals, treatments, transitionAnimalStatus, recordSale, addTreatment, deleteTreatment, quarantineProtocols, systemParams } = useContext(FarmContext);
@@ -15,13 +16,13 @@ export default function RotationPlanner() {
     const [saleAnimal, setSaleAnimal] = useState(null);
     const [salePrice, setSalePrice] = useState('');
     const [buyerName, setBuyerName] = useState('');
-    const [saleDate, setSaleDate] = useState(new Date().toISOString().split('T')[0]);
+    const [saleDate, setSaleDate] = useState(todayPKT());
 
     const openSaleModal = (animal) => {
         setSaleAnimal(animal);
         setSalePrice('');
         setBuyerName('');
-        setSaleDate(new Date().toISOString().split('T')[0]);
+        setSaleDate(todayPKT());
         setSaleError('');
     };
 
@@ -42,14 +43,15 @@ export default function RotationPlanner() {
         setSaleAnimal(null);
     };
 
-    // Helpers — uses Math.floor (not round) so a withholding period isn't treated as
+    // Helpers — all anchored to PKT (see utils/dateOnly.js), never the runtime's own
+    // timezone. Uses Math.floor (not round) so a withholding period isn't treated as
     // cleared up to ~12 hours early.
-    const dof = (entryDate) => Math.max(1, Math.floor((new Date() - new Date(entryDate)) / 86400000));
+    const dof = (entryDate) => Math.max(1, Math.floor(daysBetween(todayPKT(), entryDate)));
 
     const maxWithholding = (animalId) => {
         let max = 0;
         treatments.filter(t => t.animalId === animalId).forEach(t => {
-            const passed = Math.floor((new Date() - new Date(t.date)) / 86400000);
+            const passed = Math.floor(daysBetween(todayPKT(), t.date));
             if (passed < t.withholding) max = Math.max(max, t.withholding - passed);
         });
         return max;
@@ -68,13 +70,13 @@ export default function RotationPlanner() {
             !t.protocolTaskId &&
             t.type === task.type &&
             t.medicine.toLowerCase().includes(task.medicine.split(' ')[0].toLowerCase()) &&
-            (() => { const d = (new Date(t.date) - new Date(animal.entryDate)) / 86400000; return d >= (task.dueDay - 2) && d <= (task.dueDay + 3); })()
+            (() => { const d = daysBetween(t.date, animal.entryDate); return d >= (task.dueDay - 2) && d <= (task.dueDay + 3); })()
         );
 
     const logProtocolTask = async (animal, task) => {
         const key = `${animal.id}-${task.id}`;
         setLoggingTask(key);
-        await addTreatment(animal.id, new Date().toISOString().split('T')[0], task.type, task.medicine, task.dosage, task.withholding, task.id);
+        await addTreatment(animal.id, todayPKT(), task.type, task.medicine, task.dosage, task.withholding, task.id);
         setLoggingTask(null);
     };
 
@@ -88,10 +90,10 @@ export default function RotationPlanner() {
             !t.protocolTaskId &&
             t.type === task.type &&
             t.medicine.toLowerCase().includes(task.medicine.split(' ')[0].toLowerCase()) &&
-            (() => { const d = (new Date(t.date) - new Date(animal.entryDate)) / 86400000; return d >= (task.dueDay - 2) && d <= (task.dueDay + 3); })()
+            (() => { const d = daysBetween(t.date, animal.entryDate); return d >= (task.dueDay - 2) && d <= (task.dueDay + 3); })()
         );
         if (matches.length === 0) return null;
-        return matches.reduce((latest, t) => new Date(t.date) > new Date(latest.date) ? t : latest);
+        return matches.reduce((latest, t) => parseDateOnly(t.date) > parseDateOnly(latest.date) ? t : latest);
     };
 
     const undoProtocolTask = (animal, task) => {

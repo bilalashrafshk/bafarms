@@ -2,6 +2,7 @@ import React, { useContext, useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
+import { todayPKT } from '../utils/dateOnly';
 
 export default function WeightTracker() {
     const { animals, weightLogs, logWeight, deleteWeightLog, updateWeightLog, systemParams } = useContext(FarmContext);
@@ -19,7 +20,7 @@ export default function WeightTracker() {
     const [tagSearch, setTagSearch] = useState('');
     const [tagOpen, setTagOpen] = useState(false);
     const [weight, setWeight] = useState('');
-    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [date, setDate] = useState(todayPKT());
     const [isSuccess, setIsSuccess] = useState(false);
 
     // Weigh Day Mode state
@@ -28,7 +29,7 @@ export default function WeightTracker() {
     const [weighQueue, setWeighQueue] = useState([]);
     const [weighIndex, setWeighIndex] = useState(0);
     const [batchWeight, setBatchWeight] = useState('');
-    const [batchDate, setBatchDate] = useState(new Date().toISOString().split('T')[0]);
+    const [batchDate, setBatchDate] = useState(todayPKT());
     const [weighDayComplete, setWeighDayComplete] = useState(false);
     const [weighedCount, setWeighedCount] = useState(0);
     const [skippedCount, setSkippedCount] = useState(0);
@@ -136,7 +137,7 @@ export default function WeightTracker() {
         setSkippedCount(0);
         setWeighDayComplete(false);
         setBatchWeight('');
-        setBatchDate(new Date().toISOString().split('T')[0]);
+        setBatchDate(todayPKT());
         setWeighDayMode(true);
     };
 

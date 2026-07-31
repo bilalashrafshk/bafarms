@@ -9,6 +9,15 @@
 // own projected weight.
 //
 // Absolute kg/head/day only. No percentages anywhere in this module.
+//
+// The one non-obvious dependency: `todayAsDate` from utils/dateOnly, used only as the
+// fallback default when a caller doesn't pass `today` explicitly. It's a framework-free
+// pure function (no React/context), so it doesn't compromise this module's independent
+// testability — it just anchors "now" to the farm's fixed PKT (UTC+5) calendar day
+// instead of the executing runtime's local timezone, consistent with every other date
+// in the app.
+
+import { todayAsDate } from '../utils/dateOnly';
 
 export class NoMatchingRationError extends Error {
     constructor(message, context) {
@@ -32,7 +41,7 @@ const dayDiff = (fromDate, toDate) => Math.floor((new Date(toDate) - new Date(fr
  * more than one row matches — the caller must block feeding on this pen until an
  * admin fixes the plan/pen data.
  */
-export function resolveRation({ pen, plan, rows, rowItems, today = new Date() }) {
+export function resolveRation({ pen, plan, rows, rowItems, today = todayAsDate() }) {
     if (!pen.cycleStartDate) {
         throw new NoMatchingRationError('Pen has no cycle start date on record.', { pen });
     }

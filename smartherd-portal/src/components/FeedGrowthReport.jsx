@@ -1,6 +1,7 @@
 import React, { useContext, useState, useMemo } from 'react';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
+import { todayPKT, daysBetween } from '../utils/dateOnly';
 
 // Cross-references the dated feed-log ledger (what was fed, and its cost, on a given
 // day) against per-animal weight logs (ADG) to answer: for a chosen date range,
@@ -19,10 +20,10 @@ export default function FeedGrowthReport() {
         return Array.from(pens).sort();
     }, [animals]);
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = todayPKT();
     const defaultFrom = (() => {
-        const d = new Date();
-        d.setDate(d.getDate() - 29);
+        const d = new Date(todayStr);
+        d.setUTCDate(d.getUTCDate() - 29);
         return d.toISOString().split('T')[0];
     })();
 
@@ -37,7 +38,7 @@ export default function FeedGrowthReport() {
         return feedLogs
             .filter(f => inRange(f.date))
             .filter(f => penFilter === 'ALL' ? true : f.pen === penFilter)
-            .sort((a, b) => new Date(b.date) - new Date(a.date));
+            .sort((a, b) => daysBetween(b.date, a.date));
     }, [feedLogs, dateFrom, dateTo, penFilter]);
 
     const totalFeedCost = filteredFeedLogs.reduce((sum, f) => sum + (f.totalCost || 0), 0);

@@ -1,5 +1,6 @@
 import React, { createContext, useState, useEffect, useRef } from 'react';
 import { resolveRation, getWeightDivergence, NoMatchingRationError } from '../lib/rationResolver';
+import { todayPKT, todayAsDate, parseDateOnly, daysBetween } from '../utils/dateOnly';
 
 export const FarmContext = createContext();
 
@@ -842,7 +843,7 @@ export const FarmProvider = ({ children }) => {
         const record = {
             id: `fp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             itemId: purchase.itemId,
-            date: purchase.date || new Date().toISOString().split('T')[0],
+            date: purchase.date || todayPKT(),
             quantity: parseFloat(purchase.quantity) || 0,
             rate: parseFloat(purchase.rate) || 0,
             supplier: purchase.supplier || '',
@@ -862,7 +863,7 @@ export const FarmProvider = ({ children }) => {
         const record = {
             id: `fi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             itemId: issue.itemId,
-            date: issue.date || new Date().toISOString().split('T')[0],
+            date: issue.date || todayPKT(),
             pen: issue.pen || 'ALL',
             quantity: parseFloat(issue.quantity) || 0,
             notes: issue.notes || ''
@@ -1091,7 +1092,7 @@ export const FarmProvider = ({ children }) => {
 
         const totalMaterialCost = consumed.reduce((sum, c) => sum + c.quantity * c.rate, 0);
         const costPerKg = totalMaterialCost / totalKg;
-        const date = batch.date || new Date().toISOString().split('T')[0];
+        const date = batch.date || todayPKT();
         const bagWeight = parseFloat(batch.bagWeight) || 0;
         const bagCount = parseFloat(batch.bagCount) || 0;
 
@@ -1367,7 +1368,7 @@ export const FarmProvider = ({ children }) => {
             id,
             rfid: newAnimal.rfid || String(id).padStart(3, '0'),
             breed: newAnimal.breed || 'Sahiwal',
-            entryDate: newAnimal.entryDate || new Date().toISOString().split('T')[0],
+            entryDate: newAnimal.entryDate || todayPKT(),
             entryWeight: parseFloat(newAnimal.entryWeight) || 120,
             currentWeight: parseFloat(newAnimal.entryWeight) || 120,
             targetWeight: parseFloat(newAnimal.targetWeight) || defaultTarget,
@@ -1398,13 +1399,12 @@ export const FarmProvider = ({ children }) => {
     const logWeight = async (animalId, date, weight) => {
         const targetWeight = parseFloat(weight);
         const animalLogs = weightLogs.filter(w => w.animalId === parseInt(animalId))
-                                     .sort((a, b) => new Date(a.date) - new Date(b.date));
+                                     .sort((a, b) => daysBetween(a.date, b.date));
 
         let calculatedAdg = 0;
         if (animalLogs.length > 0) {
             const lastLog = animalLogs[animalLogs.length - 1];
-            const msDiff = new Date(date) - new Date(lastLog.date);
-            const daysElapsed = Math.max(1, Math.round(msDiff / (1000 * 60 * 60 * 24)));
+            const daysElapsed = Math.max(1, daysBetween(date, lastLog.date));
             const weightDiff = targetWeight - lastLog.weight;
             calculatedAdg = parseFloat((weightDiff / daysElapsed).toFixed(2));
         }
@@ -1441,14 +1441,13 @@ export const FarmProvider = ({ children }) => {
         const animalLogs = weightLogs
             .filter(w => w.animalId === animalId)
             .map(w => w.id === logId ? { ...w, ...updates } : w)
-            .sort((a, b) => new Date(a.date) - new Date(b.date));
+            .sort((a, b) => daysBetween(a.date, b.date));
 
         let prevLog = null;
         const recalculated = animalLogs.map(w => {
             let adg = 0;
             if (prevLog) {
-                const msDiff = new Date(w.date) - new Date(prevLog.date);
-                const daysElapsed = Math.max(1, Math.round(msDiff / (1000 * 60 * 60 * 24)));
+                const daysElapsed = Math.max(1, daysBetween(w.date, prevLog.date));
                 adg = parseFloat(((w.weight - prevLog.weight) / daysElapsed).toFixed(2));
             }
             prevLog = w;
@@ -1504,7 +1503,7 @@ export const FarmProvider = ({ children }) => {
     };
 
     const transitionAnimalStatus = async (animalId, nextStatus) => {
-        const today = new Date().toISOString().split('T')[0];
+        const today = todayPKT();
         // 1. Sync UI locally
         setAnimals(prev => prev.map(animal => {
             if (animal.id === parseInt(animalId)) {
@@ -1594,7 +1593,7 @@ export const FarmProvider = ({ children }) => {
             if (newEntryWeight !== existing.entryWeight || newEntryDate !== existing.entryDate) {
                 const baselineLog = weightLogs
                     .filter(w => w.animalId === existing.id)
-                    .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+                    .sort((a, b) => daysBetween(a.date, b.date))[0];
                 if (baselineLog) {
                     recalcWeightChain(existing.id, baselineLog.id, { date: newEntryDate, weight: newEntryWeight });
                 }
@@ -1624,7 +1623,7 @@ export const FarmProvider = ({ children }) => {
                 if (existing && changes.entryWeight !== undefined && changes.entryWeight !== existing.entryWeight) {
                     const baselineLog = weightLogs
                         .filter(w => w.animalId === approval.animalId)
-                        .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+                        .sort((a, b) => daysBetween(a.date, b.date))[0];
                     if (baselineLog) {
                         recalcWeightChain(approval.animalId, baselineLog.id, { date: baselineLog.date, weight: changes.entryWeight });
                     }
@@ -1763,7 +1762,7 @@ export const FarmProvider = ({ children }) => {
     // One record per (date, pen); re-logging the same day/pen overwrites that day only,
     // never earlier days. This is what makes the recipe non-retroactive.
     const logFeed = (entry) => {
-        const date = entry.date || new Date().toISOString().split('T')[0];
+        const date = entry.date || todayPKT();
         const pen = entry.pen || 'ALL';
         const record = {
             id: `${date}__${pen}`,
@@ -1976,14 +1975,14 @@ export const FarmProvider = ({ children }) => {
     // Reset to the real value automatically the moment a new weigh-in is logged, since
     // that becomes the new "last actual weight".
     const getAnimalProjectedWeight = (animal, plan, forageType, targetDate = null) => {
-        const refDate = targetDate ? new Date(targetDate) : new Date();
-        const logs = weightLogs.filter(w => w.animalId === animal.id).sort((a, b) => new Date(b.date) - new Date(a.date));
-        const validLogs = logs.filter(w => new Date(w.date) <= refDate);
+        const refDate = targetDate ? parseDateOnly(targetDate) : todayAsDate();
+        const logs = weightLogs.filter(w => w.animalId === animal.id).sort((a, b) => daysBetween(b.date, a.date));
+        const validLogs = logs.filter(w => parseDateOnly(w.date) <= refDate);
         const lastLog = validLogs[0] || logs[0];
         const lastWeight = lastLog ? parseFloat(lastLog.weight) : (parseFloat(animal.currentWeight) || 0);
         const lastDate = lastLog ? lastLog.date : animal.entryDate;
         const daysSinceWeigh = lastDate
-            ? Math.max(0, Math.floor((refDate - new Date(lastDate)) / (1000 * 60 * 60 * 24)))
+            ? Math.max(0, daysBetween(refDate, lastDate))
             : 0;
         const bracketAtWeigh = findWeightBracket(plan, forageType, lastWeight);
         const targetAdg = bracketAtWeigh?.targetAdg ?? plan?.adgFloor ?? 0;
@@ -2064,7 +2063,7 @@ export const FarmProvider = ({ children }) => {
     const getPenRationRow = (penId, targetDate = null) => {
         if (!penId || penId === 'all') return null;
 
-        const refDate = targetDate ? new Date(targetDate) : new Date();
+        const refDate = targetDate ? parseDateOnly(targetDate) : todayAsDate();
 
         const pen = pens.find(p => p.id === penId);
         if (!pen) return null;
@@ -2090,7 +2089,7 @@ export const FarmProvider = ({ children }) => {
             : null;
 
         const daysOnFeed = pen.cycleStartDate
-            ? Math.max(0, Math.floor((refDate - new Date(pen.cycleStartDate)) / (1000 * 60 * 60 * 24)))
+            ? Math.max(0, daysBetween(refDate, pen.cycleStartDate))
             : null;
 
         const lookupWeight = avgProjectedWeight !== null ? avgProjectedWeight : avgWeight;
@@ -2322,7 +2321,7 @@ export const FarmProvider = ({ children }) => {
 
         const flags = [];
         penAnimals.forEach(animal => {
-            const logs = weightLogs.filter(w => w.animalId === animal.id).sort((a, b) => new Date(a.date) - new Date(b.date));
+            const logs = weightLogs.filter(w => w.animalId === animal.id).sort((a, b) => daysBetween(a.date, b.date));
             if (logs.length < 2) return;
             const prev = logs[logs.length - 2];
             const curr = logs[logs.length - 1];
@@ -2456,16 +2455,14 @@ export const FarmProvider = ({ children }) => {
     };
 
     const duplicateQuotation = async (quote) => {
-        const today = new Date();
-        const yyyy = today.getFullYear();
-        const mm = String(today.getMonth() + 1).padStart(2, '0');
-        const dd = String(today.getDate()).padStart(2, '0');
+        const today = todayPKT();
+        const [yyyy, mm, dd] = today.split('-');
         const newId = `BAQ-${yyyy}${mm}${dd}-${Math.floor(10 + Math.random() * 90)}`;
-        
+
         const duplicated = {
             ...quote,
             id: newId,
-            createdAt: today.toISOString().split('T')[0],
+            createdAt: today,
             status: 'Draft'
         };
 

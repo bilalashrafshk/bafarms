@@ -1,6 +1,7 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
+import { todayPKT, daysBetween } from '../utils/dateOnly';
 
 export default function TMRCalculator() {
     const {
@@ -28,7 +29,7 @@ export default function TMRCalculator() {
 
     // Daily feed-log state (snapshotting what was actually fed — separate from the
     // Ration Plan schedule itself, so schedule edits never rewrite past days)
-    const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
+    const [logDate, setLogDate] = useState(todayPKT());
 
     // Plan-driven lookup: resolves the pen's assigned Ration Plan + current week
     // by matching its animals' average actual weight against each week's live-weight
@@ -318,7 +319,7 @@ export default function TMRCalculator() {
         setTimeout(() => setLogSaved(false), 2500);
     };
 
-    const recentFeedLogs = [...feedLogs].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 10);
+    const recentFeedLogs = [...feedLogs].sort((a, b) => daysBetween(b.date, a.date)).slice(0, 10);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
@@ -633,7 +634,7 @@ export default function TMRCalculator() {
                                             class="form-control"
                                             style={{ width: '150px', minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.82rem' }}
                                             value={logDate}
-                                            max={new Date().toISOString().split('T')[0]}
+                                            max={todayPKT()}
                                             onChange={(e) => setLogDate(e.target.value)}
                                         />
                                         <button type="button" class="btn btn-primary btn-sm" onClick={handleLogFeed}>

@@ -1,6 +1,7 @@
 import React, { useContext, useState, useMemo } from 'react';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
+import { todayPKT, daysBetween } from '../utils/dateOnly';
 
 // Feed store ledger — separate from the ration/TMR ingredient list (which defines
 // recipe quantities and a single reference price). This tracks what physically moves
@@ -30,10 +31,10 @@ export default function FeedStock() {
 
     const [activeTab, setActiveTab] = useState('ledger');
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = todayPKT();
     const defaultFrom = (() => {
-        const d = new Date();
-        d.setDate(d.getDate() - 29);
+        const d = new Date(todayStr);
+        d.setUTCDate(d.getUTCDate() - 29);
         return d.toISOString().split('T')[0];
     })();
     const [dateFrom, setDateFrom] = useState(defaultFrom);
@@ -113,7 +114,7 @@ export default function FeedStock() {
     };
 
     const filteredPurchases = useMemo(() =>
-        feedPurchases.filter(p => inRange(p.date)).sort((a, b) => new Date(b.date) - new Date(a.date)),
+        feedPurchases.filter(p => inRange(p.date)).sort((a, b) => daysBetween(b.date, a.date)),
         [feedPurchases, dateFrom, dateTo]
     );
 
@@ -138,7 +139,7 @@ export default function FeedStock() {
         [feedLogs, feedStockItems, feedStockIssues, mineralSplitRatio]
     );
     const filteredIssues = useMemo(() =>
-        combinedIssues.filter(i => inRange(i.date)).sort((a, b) => new Date(b.date) - new Date(a.date)),
+        combinedIssues.filter(i => inRange(i.date)).sort((a, b) => daysBetween(b.date, a.date)),
         [combinedIssues, dateFrom, dateTo]
     );
 
@@ -278,7 +279,7 @@ export default function FeedStock() {
     };
 
     const sortedBatches = useMemo(() =>
-        [...premixBatches].sort((a, b) => new Date(b.date) - new Date(a.date)),
+        [...premixBatches].sort((a, b) => daysBetween(b.date, a.date)),
         [premixBatches]
     );
 

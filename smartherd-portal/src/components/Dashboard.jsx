@@ -1,6 +1,7 @@
 import React, { useContext } from 'react';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
+import { todayAsDate, parseDateOnly, daysBetween } from '../utils/dateOnly';
 
 export default function Dashboard({ onNavigate }) {
     const { animals, weightLogs, treatments, feedLogs, transitionAnimalStatus, systemParams, orders, pens, quarantineProtocols } = useContext(FarmContext);
@@ -38,7 +39,7 @@ export default function Dashboard({ onNavigate }) {
     const alertCalves = [];
     animals.forEach(animal => {
         const animalLogs = weightLogs.filter(w => w.animalId === animal.id)
-                                     .sort((a, b) => new Date(b.date) - new Date(a.date));
+                                     .sort((a, b) => daysBetween(b.date, a.date));
         if (animalLogs.length > 0 && animalLogs[0].adg > 0 && animalLogs[0].adg < (systemParams.adgAlertThreshold ?? 1.0)) {
             alertCalves.push({
                 rfid: animal.rfid,
@@ -51,8 +52,7 @@ export default function Dashboard({ onNavigate }) {
     // D. Safe Withdrawal Warnings
     const activeWithholdings = [];
     treatments.forEach(t => {
-        const msDiff = new Date() - new Date(t.date);
-        const daysPassed = Math.round(msDiff / (1000 * 60 * 60 * 24));
+        const daysPassed = daysBetween(today, t.date);
         if (daysPassed < t.withholding) {
             const animal = animals.find(a => a.id === t.animalId);
             activeWithholdings.push({
@@ -64,20 +64,25 @@ export default function Dashboard({ onNavigate }) {
     });
 
     // E. ACTION REQUIRED COMPUTATIONS
-    const today = new Date();
+    // All "today"/day-count math is anchored to PKT (see utils/dateOnly.js) — the
+    // farm operates in Pakistan regardless of what timezone the browser or API
+    // server happens to be running in, and date-only strings (entryDate, treatment
+    // date, etc.) are parsed as plain calendar days rather than UTC-midnight
+    // timestamps, so none of this drifts by a day depending on where the code runs.
+    const today = todayAsDate();
     const WEIGH_INTERVAL_DAYS = systemParams.weighIntervalDays ?? 14;
 
     const overdueWeighing = animals.filter(a => {
         if (a.status === 'Sold' || a.status === 'Deceased') return false;
-        const animalLogs = weightLogs.filter(w => w.animalId === a.id).sort((x, y) => new Date(y.date) - new Date(x.date));
-        const lastDate = animalLogs.length > 0 ? new Date(animalLogs[0].date) : new Date(a.entryDate);
-        const daysSince = Math.round((today - lastDate) / 86400000);
+        const animalLogs = weightLogs.filter(w => w.animalId === a.id).sort((x, y) => daysBetween(y.date, x.date));
+        const lastDate = animalLogs.length > 0 ? animalLogs[0].date : a.entryDate;
+        const daysSince = daysBetween(today, lastDate);
         return daysSince > WEIGH_INTERVAL_DAYS;
     });
 
     const quarantineReady = animals.filter(a => {
         if (a.status !== 'Quarantined') return false;
-        const dof = Math.round((today - new Date(a.entryDate)) / 86400000);
+        const dof = daysBetween(today, a.entryDate);
         return dof >= (systemParams.quarantineDays ?? 14);
     });
 
@@ -86,7 +91,7 @@ export default function Dashboard({ onNavigate }) {
         if (a.currentWeight < a.targetWeight) return false;
         const activeWH = treatments.filter(t => {
             if (t.animalId !== a.id) return false;
-            const days = Math.round((today - new Date(t.date)) / 86400000);
+            const days = daysBetween(today, t.date);
             return days < t.withholding;
         });
         return activeWH.length === 0;
@@ -97,7 +102,7 @@ export default function Dashboard({ onNavigate }) {
         if (a.status !== 'Sick') return false;
         const recent = treatments.filter(t => {
             if (t.animalId !== a.id) return false;
-            const days = Math.round((today - new Date(t.date)) / 86400000);
+            const days = daysBetween(today, t.date);
             return days <= 7;
         });
         return recent.length === 0;
@@ -115,12 +120,12 @@ export default function Dashboard({ onNavigate }) {
             !t.protocolTaskId &&
             t.type === task.type &&
             t.medicine.toLowerCase().includes(task.medicine.split(' ')[0].toLowerCase()) &&
-            (() => { const d = (new Date(t.date) - new Date(animal.entryDate)) / 86400000; return d >= (task.dueDay - 2) && d <= (task.dueDay + 3); })()
+            (() => { const d = daysBetween(t.date, animal.entryDate); return d >= (task.dueDay - 2) && d <= (task.dueDay + 3); })()
         );
 
     const pendingVaccines = [];
     animals.filter(a => a.status === 'Quarantined').forEach(a => {
-        const daysOnFeed = Math.max(1, Math.floor((today - new Date(a.entryDate)) / 86400000));
+        const daysOnFeed = Math.max(1, daysBetween(today, a.entryDate));
         (quarantineProtocols || []).forEach(task => {
             if (daysOnFeed >= task.dueDay && !isProtocolTaskDone(a, task)) {
                 pendingVaccines.push({ animal: a, task, overdueDays: daysOnFeed - task.dueDay });
@@ -136,21 +141,18 @@ export default function Dashboard({ onNavigate }) {
     // that pen. Today isn't flagged — there's still time left in the day to log it.
     // Includes the registration/cycle-start day itself in the walk.
     const missedFeedings = [];
-    const todayMidnight = new Date();
-    todayMidnight.setHours(0, 0, 0, 0);
     (pens || []).forEach(pen => {
         const penAnimals = animals.filter(a => a.pen === pen.id && a.status !== 'Sold' && a.status !== 'Deceased');
         if (penAnimals.length === 0) return;
         const earliestEntry = penAnimals.reduce((earliest, a) =>
-            (!earliest || new Date(a.entryDate) < new Date(earliest)) ? a.entryDate : earliest, null);
+            (!earliest || parseDateOnly(a.entryDate) < parseDateOnly(earliest)) ? a.entryDate : earliest, null);
         let startDateStr = pen.cycleStartDate;
-        if (!startDateStr || (earliestEntry && new Date(earliestEntry) > new Date(startDateStr))) {
+        if (!startDateStr || (earliestEntry && parseDateOnly(earliestEntry) > parseDateOnly(startDateStr))) {
             startDateStr = earliestEntry;
         }
         if (!startDateStr) return;
-        const start = new Date(startDateStr);
-        start.setHours(0, 0, 0, 0);
-        for (let d = new Date(start); d < todayMidnight; d.setDate(d.getDate() + 1)) {
+        const start = parseDateOnly(startDateStr);
+        for (let d = new Date(start); d < today; d.setUTCDate(d.getUTCDate() + 1)) {
             const dateStr = d.toISOString().split('T')[0];
             const logged = feedLogs.some(f => f.pen === pen.id && f.date === dateStr);
             if (!logged) missedFeedings.push({ pen, date: dateStr });
@@ -219,7 +221,7 @@ export default function Dashboard({ onNavigate }) {
             rfid: a.rfid,
             animalId: a.id,
             msg: `${a.rfid} — Quarantine cleared`,
-            desc: `${Math.round((today - new Date(a.entryDate)) / 86400000)}d in quarantine`,
+            desc: `${daysBetween(today, a.entryDate)}d in quarantine`,
             color: 'hsl(200,70%,60%)',
             icon: 'fa-shield-virus',
             action: { label: '→ Fattening', inline: true }
@@ -247,7 +249,7 @@ export default function Dashboard({ onNavigate }) {
         });
         return Object.keys(groups)
             .map(date => ({ date, avgAdg: parseFloat((groups[date].sum / groups[date].count).toFixed(2)) }))
-            .sort((a, b) => new Date(a.date) - new Date(b.date));
+            .sort((a, b) => parseDateOnly(a.date) - parseDateOnly(b.date));
     })();
 
     const hasChartData = adgByDate.length > 0;
@@ -268,7 +270,7 @@ export default function Dashboard({ onNavigate }) {
             const x = count > 1 ? 60 + (idx / (count - 1)) * 390 : 250;
             const y = 170 - ((pt.avgAdg - adgMin) / (adgMax - adgMin)) * 140;
             let label = pt.date;
-            try { label = new Date(pt.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch (e) {}
+            try { label = parseDateOnly(pt.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }); } catch (e) {}
             return { label, val: pt.avgAdg, x, y };
         });
 

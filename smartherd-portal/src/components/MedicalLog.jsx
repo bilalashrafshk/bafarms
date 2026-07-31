@@ -1,6 +1,7 @@
 import React, { useContext, useState } from 'react';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
+import { todayPKT, todayAsDate, parseDateOnly } from '../utils/dateOnly';
 
 export default function MedicalLog() {
     const { animals, treatments, addTreatment, deleteTreatment, medCategories } = useContext(FarmContext);
@@ -9,7 +10,7 @@ export default function MedicalLog() {
     const [selectedAnimal, setSelectedAnimal] = useState('');
     const [tagSearch, setTagSearch] = useState('');
     const [tagOpen, setTagOpen] = useState(false);
-    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [date, setDate] = useState(todayPKT());
     const [type, setType] = useState('');
     const [medicine, setMedicine] = useState('');
     const [dosage, setDosage] = useState('');
@@ -66,7 +67,7 @@ export default function MedicalLog() {
     // Calculate active withholding status for rows. Uses Math.floor (not round) so a
     // period isn't shown as cleared up to ~12 hours before it actually elapses.
     const checkWithholdingActive = (treatmentDate, withholdingDays) => {
-        const msDiff = new Date() - new Date(treatmentDate);
+        const msDiff = todayAsDate() - parseDateOnly(treatmentDate);
         const daysPassed = Math.floor(msDiff / (1000 * 60 * 60 * 24));
         return daysPassed < withholdingDays ? (withholdingDays - daysPassed) : 0;
     };

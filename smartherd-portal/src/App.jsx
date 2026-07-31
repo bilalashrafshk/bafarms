@@ -16,6 +16,7 @@ import SalesManager from './components/SalesManager';
 import ListingsManager from './components/ListingsManager';
 import EnquiriesManager from './components/EnquiriesManager';
 import { formatDate } from './utils/formatDate';
+import { todayPKT } from './utils/dateOnly';
 
 function AppContent() {
     const [activeTab, setActiveTab] = useState('dashboard');
@@ -73,7 +74,7 @@ function AppContent() {
 
     // Mini Form inputs state
     const [miniWeight, setMiniWeight] = useState('');
-    const [miniDate, setMiniDate] = useState(new Date().toISOString().split('T')[0]);
+    const [miniDate, setMiniDate] = useState(todayPKT());
     const [miniMedType, setMiniMedType] = useState('');
     const [miniMedName, setMiniMedName] = useState('');
     const [miniDosage, setMiniDosage] = useState('');

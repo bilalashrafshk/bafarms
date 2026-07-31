@@ -4,6 +4,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
+import { todayPKT } from '../utils/dateOnly';
 
 // Accessors used to sort the herd table by column. Defined outside the component
 // since they don't depend on props/state.
@@ -36,7 +37,7 @@ export default function HerdRegistry() {
 
     // Deceased modal state
     const [deathAnimal, setDeathAnimal] = useState(null);
-    const [deathDate, setDeathDate] = useState(new Date().toISOString().split('T')[0]);
+    const [deathDate, setDeathDate] = useState(todayPKT());
     const [deathCause, setDeathCause] = useState('Disease');
 
     // Form Input state
@@ -66,7 +67,7 @@ export default function HerdRegistry() {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `BA_Farms_Herd_${new Date().toISOString().split('T')[0]}.csv`;
+        link.download = `BA_Farms_Herd_${todayPKT()}.csv`;
         link.click();
         URL.revokeObjectURL(url);
     };
@@ -82,7 +83,7 @@ export default function HerdRegistry() {
         doc.text('BA Farms — Herd Registry', 14, 15);
         doc.setFontSize(10);
         doc.setTextColor(100);
-        doc.text(`Generated ${formatDate(new Date().toISOString())} · ${filteredAnimals.length} animal${filteredAnimals.length === 1 ? '' : 's'} · Avg Purchase Price/Gross Weight: ${Math.round(avgPerKg).toLocaleString()} PKR/kg`, 14, 21);
+        doc.text(`Generated ${formatDate(todayPKT())} · ${filteredAnimals.length} animal${filteredAnimals.length === 1 ? '' : 's'} · Avg Purchase Price/Gross Weight: ${Math.round(avgPerKg).toLocaleString()} PKR/kg`, 14, 21);
 
         autoTable(doc, {
             startY: 27,
@@ -106,7 +107,7 @@ export default function HerdRegistry() {
             footStyles: { fillColor: [230, 230, 230], textColor: 20, fontStyle: 'bold' }
         });
 
-        doc.save(`BA_Farms_Herd_${new Date().toISOString().split('T')[0]}.pdf`);
+        doc.save(`BA_Farms_Herd_${todayPKT()}.pdf`);
     };
 
     const openRegisterModal = () => {
@@ -119,7 +120,7 @@ export default function HerdRegistry() {
         setSource('');
         setStatus('Quarantined');
         setTargetWeight('');
-        setEntryDate(new Date().toISOString().split('T')[0]);
+        setEntryDate(todayPKT());
         setPen('');
         setIsModalOpen(true);
     };
@@ -144,7 +145,7 @@ export default function HerdRegistry() {
 
     const openDeathModal = (animal) => {
         setDeathAnimal(animal);
-        setDeathDate(new Date().toISOString().split('T')[0]);
+        setDeathDate(todayPKT());
         setDeathCause('Disease');
     };
 
