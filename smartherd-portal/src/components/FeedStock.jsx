@@ -23,7 +23,12 @@ export default function FeedStock() {
         premixBatches, addPremixBatch, deletePremixBatch
     } = useContext(FarmContext);
 
-    const isAdmin = staffUser?.role === 'Internal Corporate Staff';
+    // Editing (purchases, issues, opening stock, premix) follows the same Herd Access
+    // gate the server enforces for these actions (HERD_ACTIONS in api/farm.js), not the
+    // legacy "Internal Corporate Staff" role — a staff member can have Herd Access
+    // checked in Settings without that literal role, and previously saw a read-only
+    // view here despite the server actually accepting their writes.
+    const isAdmin = staffUser?.accessHerd !== false || staffUser?.role === 'Internal Corporate Staff';
     // Actual feed cost by pen is restricted to the DB-backed Super Admin flag, not the
     // broader "Internal Corporate Staff" role — cost figures stay out of view for staff
     // who only need quantities issued.
