@@ -49,6 +49,13 @@ export default function Dashboard({ onNavigate }) {
         }
     });
 
+    // All "today"/day-count math is anchored to PKT (see utils/dateOnly.js) — the
+    // farm operates in Pakistan regardless of what timezone the browser or API
+    // server happens to be running in, and date-only strings (entryDate, treatment
+    // date, etc.) are parsed as plain calendar days rather than UTC-midnight
+    // timestamps, so none of this drifts by a day depending on where the code runs.
+    const today = todayAsDate();
+
     // D. Safe Withdrawal Warnings
     const activeWithholdings = [];
     treatments.forEach(t => {
@@ -64,12 +71,6 @@ export default function Dashboard({ onNavigate }) {
     });
 
     // E. ACTION REQUIRED COMPUTATIONS
-    // All "today"/day-count math is anchored to PKT (see utils/dateOnly.js) — the
-    // farm operates in Pakistan regardless of what timezone the browser or API
-    // server happens to be running in, and date-only strings (entryDate, treatment
-    // date, etc.) are parsed as plain calendar days rather than UTC-midnight
-    // timestamps, so none of this drifts by a day depending on where the code runs.
-    const today = todayAsDate();
     const WEIGH_INTERVAL_DAYS = systemParams.weighIntervalDays ?? 14;
 
     const overdueWeighing = animals.filter(a => {
