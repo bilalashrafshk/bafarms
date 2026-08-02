@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { FarmProvider, FarmContext } from './context/FarmContext';
+import ErrorBoundary from './components/ErrorBoundary';
 import Dashboard from './components/Dashboard';
 import HerdRegistry from './components/HerdRegistry';
 import WeightTracker from './components/WeightTracker';
@@ -853,8 +854,10 @@ function AppContent() {
 
 export default function App() {
     return (
-        <FarmProvider>
-            <AppContent />
-        </FarmProvider>
+        <ErrorBoundary>
+            <FarmProvider>
+                <AppContent />
+            </FarmProvider>
+        </ErrorBoundary>
     );
 }

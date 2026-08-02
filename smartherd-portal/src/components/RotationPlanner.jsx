@@ -69,7 +69,7 @@ export default function RotationPlanner() {
             t.animalId === animal.id &&
             !t.protocolTaskId &&
             t.type === task.type &&
-            t.medicine.toLowerCase().includes(task.medicine.split(' ')[0].toLowerCase()) &&
+            (t.medicine || '').toLowerCase().includes((task.medicine || '').split(' ')[0].toLowerCase()) &&
             (() => { const d = daysBetween(t.date, animal.entryDate); return d >= (task.dueDay - 2) && d <= (task.dueDay + 3); })()
         );
 
@@ -89,7 +89,7 @@ export default function RotationPlanner() {
             t.animalId === animal.id &&
             !t.protocolTaskId &&
             t.type === task.type &&
-            t.medicine.toLowerCase().includes(task.medicine.split(' ')[0].toLowerCase()) &&
+            (t.medicine || '').toLowerCase().includes((task.medicine || '').split(' ')[0].toLowerCase()) &&
             (() => { const d = daysBetween(t.date, animal.entryDate); return d >= (task.dueDay - 2) && d <= (task.dueDay + 3); })()
         );
         if (matches.length === 0) return null;
