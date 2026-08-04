@@ -357,6 +357,12 @@ async function ensureColumns(client) {
     await client.query(`
         ALTER TABLE ba_feed_logs ADD COLUMN IF NOT EXISTS diet_differed BOOLEAN NOT NULL DEFAULT FALSE;
     `);
+    // Optional pin to a specific purchase lot (or 'opening' for opening stock) an issue
+    // should draw from — set when a "Log a Batch" / manual Issue lot picker is used to
+    // override the default FIFO (oldest lot first) draw. NULL means "auto/FIFO".
+    await client.query(`
+        ALTER TABLE ba_feed_stock_issues ADD COLUMN IF NOT EXISTS lot_id VARCHAR(50);
+    `);
 }
 
 // Self-healing database provision: creates tables and inserts baseline seeds on first boot
@@ -1311,6 +1317,7 @@ module.exports = async (req, res) => {
                 date: formatDate(row.date),
                 pen: row.pen,
                 quantity: parseFloat(row.quantity || 0),
+                lotId: row.lot_id || null,
                 notes: row.notes || ''
             }));
 
@@ -2275,22 +2282,23 @@ module.exports = async (req, res) => {
             }
 
             if (action === 'ADD_FEED_STOCK_ISSUE') {
-                const { id, itemId, date, pen, quantity, notes } = payload;
+                const { id, itemId, date, pen, quantity, lotId, notes } = payload;
 
                 if (!id || !itemId || !date) {
                     return res.status(400).json({ success: false, error: "Issue id, item and date are required" });
                 }
 
                 await client.query(`
-                    INSERT INTO ba_feed_stock_issues (id, item_id, date, pen, quantity, notes, created_by, created_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                    INSERT INTO ba_feed_stock_issues (id, item_id, date, pen, quantity, lot_id, notes, created_by, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
                     ON CONFLICT (id) DO UPDATE SET
                         item_id = EXCLUDED.item_id,
                         date = EXCLUDED.date,
                         pen = EXCLUDED.pen,
                         quantity = EXCLUDED.quantity,
+                        lot_id = EXCLUDED.lot_id,
                         notes = EXCLUDED.notes
-                `, [id, itemId, date, pen || 'ALL', quantity || 0, notes || null, session ? session.email : null]);
+                `, [id, itemId, date, pen || 'ALL', quantity || 0, lotId || null, notes || null, session ? session.email : null]);
 
                 return res.status(200).json({ success: true });
             }

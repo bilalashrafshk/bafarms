@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useRef } from 'react';
 import { resolveRation, getWeightDivergence, NoMatchingRationError } from '../lib/rationResolver';
 import { todayPKT, todayAsDate, parseDateOnly, daysBetween } from '../utils/dateOnly';
+import { buildLots, allocateFifo } from '../utils/fifoStock';
 
 export const FarmContext = createContext();
 
@@ -866,6 +867,10 @@ export const FarmProvider = ({ children }) => {
             date: issue.date || todayPKT(),
             pen: issue.pen || 'ALL',
             quantity: parseFloat(issue.quantity) || 0,
+            // Explicit lot chosen via a lot picker (premix batch / manual issue), so FIFO
+            // costing draws from that purchase first instead of always defaulting to the
+            // oldest lot. Left unset (null) for auto-synced TMR issues, which always FIFO.
+            lotId: issue.lotId || null,
             notes: issue.notes || ''
         };
         setFeedStockIssues(prev => [...prev, record]);
@@ -922,43 +927,89 @@ export const FarmProvider = ({ children }) => {
         return [...autoIssues, ...manualIssues];
     };
 
-    // Per-item running ledger: opening + purchases − issues = closing, priced at the
-    // weighted-average cost of everything ever brought into stock for that item (opening
-    // value blended with every purchase's own rate) — so a price spike on one purchase
-    // doesn't wildly swing the cost of feed issued from stock bought earlier.
-    const getFeedStockLedger = () => {
+    // Single-pass FIFO valuation across every stock item: each item's opening balance +
+    // purchases are tracked as separate dated "lots" (see utils/fifoStock.js), and every
+    // combined issue (auto-synced from TMR feed logs + manual exceptions, in date order)
+    // is drawn from the oldest lot with stock left — honoring a manual issue's pinned
+    // lotId (from a lot picker) first, with any shortfall spilling FIFO into the next lot.
+    // This is what lets closing stock and consumption cost reflect what a specific batch
+    // of feed actually cost, instead of one all-time blended average across every
+    // purchase ever made (which let a premix batch's cost swing on rates from stock that
+    // had nothing to do with it, and made "which invoice did this cost come from" unanswerable).
+    const getFeedStockValuationMap = () => {
         const combinedIssues = getCombinedFeedIssues();
-        return feedStockItems.map(item => {
-            const purchases = feedPurchases.filter(p => p.itemId === item.id);
-            const issues = combinedIssues.filter(i => i.itemId === item.id);
-            const opening = feedOpeningStock[item.id] || { qty: 0, value: 0 };
+        const issuesByItem = {};
+        combinedIssues.forEach(i => {
+            (issuesByItem[i.itemId] = issuesByItem[i.itemId] || []).push(i);
+        });
 
+        const issueCosts = {};
+        const byItem = {};
+        feedStockItems.forEach(item => {
+            const opening = feedOpeningStock[item.id] || { qty: 0, value: 0 };
+            const lots = buildLots(item.id, opening, feedPurchases);
+            const issues = (issuesByItem[item.id] || [])
+                .slice()
+                .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.id < b.id ? -1 : 1)));
+
+            let consumptionValue = 0;
+            let issuedQty = 0;
+            issues.forEach(issue => {
+                const { cost, rate } = allocateFifo(lots, issue.quantity, issue.lotId);
+                issueCosts[issue.id] = { cost, rate };
+                consumptionValue += cost;
+                issuedQty += issue.quantity;
+            });
+
+            const closingQty = lots.reduce((sum, l) => sum + l.remaining, 0);
+            const closingValue = lots.reduce((sum, l) => sum + l.remaining * l.rate, 0);
+            const avgRate = closingQty > 0.0001 ? closingValue / closingQty : (lots[lots.length - 1]?.rate || 0);
+
+            byItem[item.id] = {
+                lots, closingQty, closingValue, avgRate, consumptionValue, issuedQty,
+                openingQty: opening.qty, openingValue: opening.value
+            };
+        });
+
+        return { byItem, issueCosts };
+    };
+
+    // Per-item running ledger: opening + purchases − issues = closing, priced at FIFO
+    // (see getFeedStockValuationMap above) — avgRate here is the weighted-average rate
+    // of only the stock still physically in the store (closingValue / closingQty), not
+    // a stale all-time blend that never forgets stock that's long gone.
+    const getFeedStockLedger = () => {
+        const { byItem } = getFeedStockValuationMap();
+        return feedStockItems.map(item => {
+            const v = byItem[item.id];
+            const purchases = feedPurchases.filter(p => p.itemId === item.id);
             const purchasedQty = purchases.reduce((sum, p) => sum + p.quantity, 0);
             const purchasedValue = purchases.reduce((sum, p) => sum + (p.quantity * p.rate), 0);
-            const issuedQty = issues.reduce((sum, i) => sum + i.quantity, 0);
-
-            const totalInQty = opening.qty + purchasedQty;
-            const totalInValue = opening.value + purchasedValue;
-            const avgRate = totalInQty > 0 ? totalInValue / totalInQty : 0;
-
-            const closingQty = totalInQty - issuedQty;
-            const consumptionValue = issuedQty * avgRate;
-            const closingValue = closingQty * avgRate;
 
             return {
                 item,
-                openingQty: opening.qty,
-                openingValue: opening.value,
+                openingQty: v.openingQty,
+                openingValue: v.openingValue,
                 purchasedQty,
                 purchasedValue,
-                issuedQty,
-                avgRate,
-                consumptionValue,
-                closingQty,
-                closingValue
+                issuedQty: v.issuedQty,
+                avgRate: v.avgRate,
+                consumptionValue: v.consumptionValue,
+                closingQty: v.closingQty,
+                closingValue: v.closingValue
             };
         });
     };
+
+    // The FIFO lots (each purchase + opening balance, with remaining qty after every
+    // issue drawn against it) for one item — what a lot-picker dropdown (premix batch /
+    // manual issue) and the Purchase History "remaining" column are built from.
+    const getFeedStockLots = (itemId) => getFeedStockValuationMap().byItem[itemId]?.lots || [];
+
+    // Per-issue FIFO cost (id -> { cost, rate }), for pricing "Actual Feed Cost by Pen"
+    // and total consumption at what that specific issue actually drew from stock,
+    // instead of one blended item-wide rate.
+    const getFeedStockIssueCosts = () => getFeedStockValuationMap().issueCosts;
 
     // Live weighted-average price for a ration ingredient, sourced straight from the stock
     // ledger instead of a manually-typed number — so Ration Plans / TMR costing always reflect
@@ -1083,21 +1134,32 @@ export const FarmProvider = ({ children }) => {
         if (!premixType || totalKg <= 0) return null;
 
         const formula = premixFormulas[premixTypeId] || [];
-        const ledger = getFeedStockLedger();
-        const rateFor = (stockItemId) => ledger.find(l => l.item.id === stockItemId)?.avgRate || 0;
+        // { stockItemId: lotId } — an explicit lot chosen for that raw material via the
+        // "Log a Batch" lot picker (only offered when the item has more than one lot with
+        // stock left); anything not in here just draws FIFO. Snapshotting every item's lots
+        // once up front (rather than re-deriving per row) keeps two raw materials that
+        // happen to share an item from stepping on each other's `.remaining` mid-batch.
+        const lotOverrides = batch.lotOverrides || {};
+        const { byItem } = getFeedStockValuationMap();
 
         const consumed = formula
-            .map(row => ({ stockItemId: row.stockItemId, quantity: totalKg * (parseFloat(row.qtyPerKg) || 0), rate: rateFor(row.stockItemId) }))
-            .filter(c => c.quantity > 0);
+            .map(row => {
+                const quantity = totalKg * (parseFloat(row.qtyPerKg) || 0);
+                if (quantity <= 0) return null;
+                const lots = (byItem[row.stockItemId]?.lots || []).map(l => ({ ...l }));
+                const { cost, rate } = allocateFifo(lots, quantity, lotOverrides[row.stockItemId] || null);
+                return { stockItemId: row.stockItemId, quantity, rate, cost, lotId: lotOverrides[row.stockItemId] || null };
+            })
+            .filter(Boolean);
 
-        const totalMaterialCost = consumed.reduce((sum, c) => sum + c.quantity * c.rate, 0);
+        const totalMaterialCost = consumed.reduce((sum, c) => sum + c.cost, 0);
         const costPerKg = totalMaterialCost / totalKg;
         const date = batch.date || todayPKT();
         const bagWeight = parseFloat(batch.bagWeight) || 0;
         const bagCount = parseFloat(batch.bagCount) || 0;
 
         const issueIds = consumed.map(c => addFeedStockIssue({
-            date, itemId: c.stockItemId, pen: 'PRODUCTION', quantity: c.quantity,
+            date, itemId: c.stockItemId, pen: 'PRODUCTION', quantity: c.quantity, lotId: c.lotId,
             notes: `Used to produce ${totalKg.toFixed(2)} kg of ${premixType.name}`
         }).id);
 
@@ -2530,6 +2592,8 @@ export const FarmProvider = ({ children }) => {
             addFeedStockIssue,
             deleteFeedStockIssue,
             getFeedStockLedger,
+            getFeedStockLots,
+            getFeedStockIssueCosts,
             getCombinedFeedIssues,
             getIngredientStockPrice,
             getIngredientStockQty,

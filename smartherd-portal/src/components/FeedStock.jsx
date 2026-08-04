@@ -2,13 +2,15 @@ import React, { useContext, useState, useMemo } from 'react';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 import { todayPKT, daysBetween } from '../utils/dateOnly';
+import { allocateFifo } from '../utils/fifoStock';
 
 // Feed store ledger — separate from the ration/TMR ingredient list (which defines
 // recipe quantities and a single reference price). This tracks what physically moves
 // through the store: opening stock, dated purchases (qty/rate/supplier), and dated
-// issues to a pen. Closing stock and real consumption cost are derived (weighted-
-// average cost of everything ever brought into stock), which is more accurate than
-// the ration's static price field since it reflects what was actually paid.
+// issues to a pen. Closing stock and real consumption cost are derived FIFO (each
+// purchase is its own dated "lot"; issues draw the oldest lot with stock left first),
+// which is more accurate than both the ration's static price field and a blended
+// all-time average, since it reflects what a specific batch of feed actually cost.
 export default function FeedStock() {
     const {
         staffUser, animals, pens, feedLogs,
@@ -16,7 +18,7 @@ export default function FeedStock() {
         feedOpeningStock, setItemOpeningStock,
         feedPurchases, addFeedPurchase, deleteFeedPurchase,
         feedStockIssues, addFeedStockIssue, deleteFeedStockIssue,
-        getFeedStockLedger, getCombinedFeedIssues,
+        getFeedStockLedger, getFeedStockLots, getFeedStockIssueCosts, getCombinedFeedIssues,
         mineralSplitRatio, setMineralSplitRatio,
         premixTypes, addPremixType, deletePremixType,
         premixFormulas, updatePremixFormula,
@@ -128,13 +130,15 @@ export default function FeedStock() {
     const [iItemId, setIItemId] = useState('');
     const [iPen, setIPen] = useState('');
     const [iQty, setIQty] = useState('');
+    const [iLotId, setILotId] = useState('');
     const [iNotes, setINotes] = useState('');
 
     const handleAddIssue = (e) => {
         e.preventDefault();
         if (!isAdmin || !iItemId || !iPen || !iQty) return;
-        addFeedStockIssue({ date: iDate, itemId: iItemId, pen: iPen, quantity: iQty, notes: iNotes });
+        addFeedStockIssue({ date: iDate, itemId: iItemId, pen: iPen, quantity: iQty, lotId: iLotId || null, notes: iNotes });
         setIQty('');
+        setILotId('');
         setINotes('');
     };
 
@@ -153,22 +157,36 @@ export default function FeedStock() {
     const ledger = useMemo(() => getFeedStockLedger(), [feedStockItems, feedOpeningStock, feedPurchases, feedLogs, feedStockIssues, mineralSplitRatio]);
     const ledgerByItemId = useMemo(() => Object.fromEntries(ledger.map(l => [l.item.id, l])), [ledger]);
 
-    // Actual cost per pen within the selected date range, priced at each item's
-    // current all-time weighted-average rate.
+    // FIFO lots per item (each purchase + opening balance, with remaining qty after every
+    // issue drawn against it) — feeds the Purchase History "remaining" column and every
+    // lot-picker dropdown (premix batch / manual issue).
+    const lotsByItemId = useMemo(() =>
+        Object.fromEntries(feedStockItems.map(i => [i.id, getFeedStockLots(i.id)])),
+        [feedStockItems, feedOpeningStock, feedPurchases, feedLogs, feedStockIssues, mineralSplitRatio]
+    );
+
+    // Per-issue FIFO cost — each issue priced at the actual lot(s) it drew from, not one
+    // blended item-wide rate.
+    const issueCosts = useMemo(() => getFeedStockIssueCosts(),
+        [feedStockItems, feedOpeningStock, feedPurchases, feedLogs, feedStockIssues, mineralSplitRatio]
+    );
+
+    // Actual cost per pen within the selected date range, priced at each issue's own
+    // FIFO cost.
     const perPenCost = useMemo(() => {
         const totals = {};
         filteredIssues.forEach(iss => {
-            const rate = ledgerByItemId[iss.itemId]?.avgRate || 0;
+            const cost = issueCosts[iss.id]?.cost ?? 0;
             const pen = iss.pen || 'ALL';
             if (!totals[pen]) totals[pen] = { pen, qty: 0, cost: 0 };
             totals[pen].qty += iss.quantity;
-            totals[pen].cost += iss.quantity * rate;
+            totals[pen].cost += cost;
         });
         return Object.values(totals).sort((a, b) => b.cost - a.cost);
-    }, [filteredIssues, ledgerByItemId]);
+    }, [filteredIssues, issueCosts]);
 
     const totalStockValue = ledger.reduce((sum, l) => sum + l.closingValue, 0);
-    const totalConsumptionValue = filteredIssues.reduce((sum, iss) => sum + iss.quantity * (ledgerByItemId[iss.itemId]?.avgRate || 0), 0);
+    const totalConsumptionValue = filteredIssues.reduce((sum, iss) => sum + (issueCosts[iss.id]?.cost ?? 0), 0);
 
     const itemName = (id) => feedStockItems.find(i => i.id === id)?.name || id;
     const penLabel = (pen) => pen === 'ALL' ? 'All Pens' : pen === 'PRODUCTION' ? 'Premix Production' : `Pen ${pen}`;
@@ -246,6 +264,9 @@ export default function FeedStock() {
     const [bBagCount, setBBagCount] = useState('');
     const [bTotalKg, setBTotalKg] = useState('');
     const [bNotes, setBNotes] = useState('');
+    // { stockItemId: lotId } — an explicit lot picked for a raw material that has more
+    // than one lot with stock left; anything not in here draws FIFO (oldest first).
+    const [bLotOverrides, setBLotOverrides] = useState({});
 
     // Bags are free-weight (no fixed 25kg/50kg assumption) — entering bag weight × count
     // is just a convenience that fills in total kg; total kg can also be typed directly.
@@ -257,30 +278,37 @@ export default function FeedStock() {
         if (w > 0 && c > 0) setBTotalKg((w * c).toString());
     };
 
+    // Priced FIFO, per raw material — draws the oldest lot with stock left first, unless
+    // overridden via bLotOverrides, so "this batch will consume" always traces back to
+    // the actual invoice(s) it's costed against instead of a blended item-wide average.
     const batchPreview = useMemo(() => {
         const totalKg = parseFloat(bTotalKg) || 0;
         if (!bPremixId || totalKg <= 0) return null;
         const formula = premixFormulas[bPremixId] || [];
         const rows = formula.map(row => {
-            const rate = ledgerByItemId[row.stockItemId]?.avgRate || 0;
             const qty = totalKg * (parseFloat(row.qtyPerKg) || 0);
-            return { stockItemId: row.stockItemId, qty, rate, cost: qty * rate, available: ledgerByItemId[row.stockItemId]?.closingQty ?? 0 };
+            const lotChoices = (lotsByItemId[row.stockItemId] || []).filter(l => l.remaining > 0.005);
+            const lots = lotChoices.map(l => ({ ...l }));
+            const { cost, rate } = allocateFifo(lots, qty, bLotOverrides[row.stockItemId] || null);
+            return { stockItemId: row.stockItemId, qty, rate, cost, lotChoices, available: ledgerByItemId[row.stockItemId]?.closingQty ?? 0 };
         });
         const totalCost = rows.reduce((sum, r) => sum + r.cost, 0);
         return { rows, totalCost, costPerKg: totalKg > 0 ? totalCost / totalKg : 0 };
-    }, [bPremixId, bTotalKg, premixFormulas, ledgerByItemId]);
+    }, [bPremixId, bTotalKg, premixFormulas, lotsByItemId, ledgerByItemId, bLotOverrides]);
 
     const handleLogBatch = (e) => {
         e.preventDefault();
         if (!isAdmin || !bPremixId || !bTotalKg) return;
         addPremixBatch({
             premixTypeId: bPremixId, date: bDate, totalKg: bTotalKg,
-            bagWeight: bBagWeight, bagCount: bBagCount, notes: bNotes
+            bagWeight: bBagWeight, bagCount: bBagCount, notes: bNotes,
+            lotOverrides: bLotOverrides
         });
         setBBagWeight('');
         setBBagCount('');
         setBTotalKg('');
         setBNotes('');
+        setBLotOverrides({});
     };
 
     const sortedBatches = useMemo(() =>
@@ -304,7 +332,7 @@ export default function FeedStock() {
                 <div style={{ background: 'rgba(74, 144, 217, 0.06)', border: '1px solid rgba(74, 144, 217, 0.18)', borderRadius: '8px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
                     <i class="fa-solid fa-circle-info" style={{ color: '#4a90d9', fontSize: '1.1rem', marginTop: '0.15rem' }}></i>
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: '1.5' }}>
-                        <strong style={{ color: 'var(--text-pure)' }}>How this works:</strong> Set each item's <strong>Opening Stock</strong> once — the balance physically in the store before you started tracking here (leave at 0 kg if this is a fresh start). Then log dated <strong>Purchases</strong> (qty, rate, supplier) as feed comes in. Routine <strong>Issues</strong> to a pen sync automatically from every "Log This Feeding" entry in the TMR Calculator — no need to re-enter them here; the Issues tab is only for exceptions (spoilage, samples, a sale out of the store). Closing stock and actual cost per pen are calculated automatically at the weighted-average purchase rate.
+                        <strong style={{ color: 'var(--text-pure)' }}>How this works:</strong> Set each item's <strong>Opening Stock</strong> once — the balance physically in the store before you started tracking here (leave at 0 kg if this is a fresh start). Then log dated <strong>Purchases</strong> (qty, rate, supplier) as feed comes in. Routine <strong>Issues</strong> to a pen sync automatically from every "Log This Feeding" entry in the TMR Calculator — no need to re-enter them here; the Issues tab is only for exceptions (spoilage, samples, a sale out of the store). Closing stock and actual cost per pen are calculated automatically, FIFO — each purchase is its own dated lot, and issues draw the oldest lot with stock left first (you can pick a different lot yourself when logging a premix batch or a manual issue, if more than one has stock left).
                     </span>
                 </div>
             )}
@@ -401,7 +429,7 @@ export default function FeedStock() {
                                         <th>PURCHASED</th>
                                         <th>ISSUED</th>
                                         <th>CLOSING STOCK</th>
-                                        <th>AVG RATE</th>
+                                        <th title="Weighted-average rate of the stock still in the store (FIFO — depleted lots don't drag it down/up)">AVG RATE</th>
                                         <th>STOCK VALUE</th>
                                         {isAdmin && <th style={{ textAlign: 'center' }}>REMOVE</th>}
                                     </tr>
@@ -551,34 +579,47 @@ export default function FeedStock() {
                                         <th>RATE</th>
                                         <th>TOTAL</th>
                                         <th>SUPPLIER</th>
+                                        <th>REMAINING</th>
                                         {isAdmin && <th style={{ textAlign: 'center', width: '60px' }}>REMOVE</th>}
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredPurchases.map(p => (
-                                        <tr key={p.id}>
-                                            <td>{formatDate(p.date)}</td>
-                                            <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(p.itemId)}</td>
-                                            <td>{p.quantity.toFixed(2)} kg</td>
-                                            <td>{p.rate.toFixed(2)} PKR/kg</td>
-                                            <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(p.quantity * p.rate).toLocaleString()} PKR</strong></td>
-                                            <td>{p.supplier || '—'}</td>
-                                            {isAdmin && (
-                                                <td style={{ textAlign: 'center' }}>
-                                                    {p.supplier === 'In-house production' ? (
-                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Credited by a premix batch — undo it from the Premix Production tab instead"><i class="fa-solid fa-lock"></i></span>
-                                                    ) : (
-                                                        <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => deleteFeedPurchase(p.id)}>
-                                                            <i class="fa-solid fa-trash-can"></i>
-                                                        </button>
-                                                    )}
-                                                </td>
-                                            )}
-                                        </tr>
-                                    ))}
+                                    {filteredPurchases.map(p => {
+                                        const lot = lotsByItemId[p.itemId]?.find(l => l.id === p.id);
+                                        const remaining = lot ? lot.remaining : p.quantity;
+                                        // Floating-point tolerant: a lot is "touched" once anything has
+                                        // been drawn from it, not just once it's fully depleted — removing
+                                        // it at that point would silently reprice history it was already
+                                        // used to cost (a premix batch, a pen's actual feed cost, etc).
+                                        const touched = remaining < p.quantity - 0.005;
+                                        return (
+                                            <tr key={p.id}>
+                                                <td>{formatDate(p.date)}</td>
+                                                <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(p.itemId)}</td>
+                                                <td>{p.quantity.toFixed(2)} kg</td>
+                                                <td>{p.rate.toFixed(2)} PKR/kg</td>
+                                                <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(p.quantity * p.rate).toLocaleString()} PKR</strong></td>
+                                                <td>{p.supplier || '—'}</td>
+                                                <td style={{ color: remaining <= 0.005 ? 'var(--text-muted)' : 'var(--primary-green-light)' }}>{Math.max(0, remaining).toFixed(2)} kg</td>
+                                                {isAdmin && (
+                                                    <td style={{ textAlign: 'center' }}>
+                                                        {p.supplier === 'In-house production' ? (
+                                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Credited by a premix batch — undo it from the Premix Production tab instead"><i class="fa-solid fa-lock"></i></span>
+                                                        ) : touched ? (
+                                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="This lot has already been (partly or fully) drawn from — removing it would reprice whatever was costed against it. Undo those issues/batches first."><i class="fa-solid fa-lock"></i></span>
+                                                        ) : (
+                                                            <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => deleteFeedPurchase(p.id)}>
+                                                                <i class="fa-solid fa-trash-can"></i>
+                                                            </button>
+                                                        )}
+                                                    </td>
+                                                )}
+                                            </tr>
+                                        );
+                                    })}
                                     {filteredPurchases.length === 0 && (
                                         <tr>
-                                            <td colSpan={isAdmin ? 7 : 6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                            <td colSpan={isAdmin ? 8 : 7} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No purchases logged in this date range.
                                             </td>
                                         </tr>
@@ -607,7 +648,7 @@ export default function FeedStock() {
                                 </div>
                                 <div class="form-group">
                                     <label>Item</label>
-                                    <select class="form-control" value={iItemId} onChange={e => setIItemId(e.target.value)} required>
+                                    <select class="form-control" value={iItemId} onChange={e => { setIItemId(e.target.value); setILotId(''); }} required>
                                         <option value="">Select item…</option>
                                         {feedStockItems.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
                                     </select>
@@ -624,6 +665,21 @@ export default function FeedStock() {
                                     <label>Quantity (kg)</label>
                                     <input type="number" step="0.01" class="form-control" placeholder="e.g. 45.5" value={iQty} onChange={e => setIQty(e.target.value)} required />
                                 </div>
+                                {(() => {
+                                    const availableLots = (lotsByItemId[iItemId] || []).filter(l => l.remaining > 0.005);
+                                    if (availableLots.length <= 1) return null;
+                                    return (
+                                        <div class="form-group">
+                                            <label>Draw From</label>
+                                            <select class="form-control" value={iLotId} onChange={e => setILotId(e.target.value)}>
+                                                <option value="">Auto (FIFO — oldest first)</option>
+                                                {availableLots.map(l => (
+                                                    <option key={l.id} value={l.id}>{formatDate(l.date)} · {l.supplier || '—'} · {l.rate.toFixed(2)} PKR/kg · {l.remaining.toFixed(0)}kg left</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    );
+                                })()}
                                 <div class="form-group">
                                     <label>Notes</label>
                                     <input type="text" class="form-control" placeholder="Optional" value={iNotes} onChange={e => setINotes(e.target.value)} />
@@ -650,7 +706,7 @@ export default function FeedStock() {
                             </div>
                         </div>
                         <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: 0, marginBottom: '1rem' }}>
-                            <i class="fa-solid fa-circle-info"></i> Consumption (by difference) × each item's weighted-average purchase rate — the real cost of what actually left the store for that pen, not the ration's reference price.
+                            <i class="fa-solid fa-circle-info"></i> Each pen's consumption priced at the FIFO cost of the actual lot(s) it was drawn from — the real cost of what actually left the store for that pen, not the ration's reference price.
                         </p>
                         <div class="table-wrapper" style={{ marginBottom: '1.2rem' }}>
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
@@ -908,10 +964,25 @@ export default function FeedStock() {
                                 {batchPreview && (
                                     <div style={{ gridColumn: '1 / -1', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0.8rem 1rem' }}>
                                         <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>This batch will consume:</p>
-                                        <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.82rem', color: 'var(--text-pure)' }}>
+                                        <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.82rem', color: 'var(--text-pure)', listStyle: 'none' }}>
                                             {batchPreview.rows.map(r => (
-                                                <li key={r.stockItemId} style={{ color: r.qty > r.available ? 'hsl(0,75%,65%)' : 'var(--text-pure)' }}>
-                                                    {itemName(r.stockItemId)}: {r.qty.toFixed(2)} kg ({Math.round(r.cost).toLocaleString()} PKR)
+                                                <li key={r.stockItemId} style={{ marginBottom: '0.4rem', color: r.qty > r.available ? 'hsl(0,75%,65%)' : 'var(--text-pure)' }}>
+                                                    <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                                        <span>{itemName(r.stockItemId)}: {r.qty.toFixed(2)} kg ({Math.round(r.cost).toLocaleString()} PKR{r.rate ? ` @ ${r.rate.toFixed(2)}/kg` : ''})</span>
+                                                        {r.lotChoices.length > 1 && (
+                                                            <select
+                                                                class="form-control"
+                                                                style={{ minHeight: '26px', height: '26px', padding: '0.1rem 0.4rem', fontSize: '0.72rem', width: 'auto' }}
+                                                                value={bLotOverrides[r.stockItemId] || ''}
+                                                                onChange={e => setBLotOverrides(prev => ({ ...prev, [r.stockItemId]: e.target.value }))}
+                                                            >
+                                                                <option value="">Auto (FIFO — oldest first)</option>
+                                                                {r.lotChoices.map(l => (
+                                                                    <option key={l.id} value={l.id}>{formatDate(l.date)} · {l.supplier || '—'} · {l.rate.toFixed(2)} PKR/kg · {l.remaining.toFixed(0)}kg left</option>
+                                                                ))}
+                                                            </select>
+                                                        )}
+                                                    </div>
                                                     {r.qty > r.available && <span> — only {r.available.toFixed(2)} kg in stock!</span>}
                                                 </li>
                                             ))}
