@@ -160,8 +160,32 @@ export default function Dashboard({ onNavigate }) {
         }
     });
 
+    // H. Pen Weight Spread — animals sorted into the same pen at very different
+    // weights muddy both the ration bracket match and the batch feed sheet (same
+    // >20%-of-pen-average threshold as the strict warning in Ration Plans → Pens;
+    // kept in sync with that computation intentionally). Surfaced here too since
+    // this is exactly the kind of "needs action today" item the Tasks panel exists
+    // for, not just a Ration Plans page pen-editor concern.
+    const widePenSpreads = (pens || []).map(pen => {
+        const penAnimals = animals.filter(a => a.pen === pen.id && a.status !== 'Sold' && a.status !== 'Deceased');
+        if (penAnimals.length < 2) return null;
+        const weights = penAnimals.map(a => parseFloat(a.currentWeight) || 0);
+        const avg = weights.reduce((s, w) => s + w, 0) / weights.length;
+        if (avg <= 0) return null;
+        const spreadPct = ((Math.max(...weights) - Math.min(...weights)) / avg) * 100;
+        return spreadPct > 20 ? { penId: pen.id, spreadPct } : null;
+    }).filter(Boolean);
+
     // Build unified task list — ordered by urgency
     const taskItems = [
+        ...widePenSpreads.map(p => ({
+            type: 'weight-spread',
+            msg: `Pen ${p.penId} — Weight spread too wide`,
+            desc: `${p.spreadPct.toFixed(0)}% spread — re-sort at intake, bracket match and batch feed sheet won't stay accurate`,
+            color: 'hsl(0,75%,55%)',
+            icon: 'fa-scale-unbalanced',
+            action: { label: 'Re-sort Pen', tab: 'rationPlans' }
+        })),
         ...missedFeedings.map(m => ({
             type: 'missed-feed',
             msg: `Pen ${m.pen.id} — Missed feeding`,
@@ -447,7 +471,7 @@ export default function Dashboard({ onNavigate }) {
 
                     <div class="alarms-list">
                         {taskItems.map((item, idx) => (
-                            <div key={idx} class={`alarm-card ${item.type === 'sick' || item.type === 'adg' || item.type === 'vaccine' || item.type === 'missed-feed' ? 'danger' : item.type === 'market' ? '' : 'warning'}`}
+                            <div key={idx} class={`alarm-card ${item.type === 'sick' || item.type === 'adg' || item.type === 'vaccine' || item.type === 'missed-feed' || item.type === 'weight-spread' ? 'danger' : item.type === 'market' ? '' : 'warning'}`}
                                 style={item.type === 'market' ? { borderLeft: '4px solid var(--primary-green-light)', background: 'rgba(25,135,84,0.02)' } : item.type === 'quarantine' ? { borderLeft: '4px solid hsl(200,70%,60%)', background: 'rgba(0,120,200,0.02)' } : {}}>
                                 <div class="alarm-icon"><i class={`fa-solid ${item.icon}`} style={{ color: item.color }}></i></div>
                                 <div class="alarm-text" style={{ flex: 1, minWidth: 0 }}>
