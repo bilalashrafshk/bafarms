@@ -11,6 +11,7 @@ import { todayPKT } from '../utils/dateOnly';
 const SORT_ACCESSORS = {
     tag: (a) => a.rfid,
     breed: (a) => a.breed,
+    entryDate: (a) => a.entryDate || '',
     weight: (a) => a.currentWeight,
     gain: (a) => a.currentWeight - a.entryWeight,
     cost: (a) => a.purchasePrice,
@@ -359,6 +360,7 @@ const handleSubmit = async (e) => {
                         <tr>
                             {sortableTh('TAG', 'tag')}
                             {sortableTh('BREED', 'breed')}
+                            {sortableTh('ENTRY DATE', 'entryDate')}
                             {sortableTh('WT (KG)', 'weight')}
                             {sortableTh('GAIN', 'gain')}
                             {sortableTh('COST (PKR)', 'cost')}
@@ -375,6 +377,7 @@ const handleSubmit = async (e) => {
                                     {animal.rfid}
                                 </td>
                                 <td>{animal.breed}</td>
+                                <td style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{animal.entryDate ? formatDate(animal.entryDate) : '—'}</td>
                                 <td><strong>{animal.currentWeight} kg</strong></td>
                                 <td style={{ color: 'var(--primary-green-light)', fontWeight: '600' }}>
                                     +{parseFloat((animal.currentWeight - animal.entryWeight).toFixed(1))} kg
@@ -437,7 +440,7 @@ const handleSubmit = async (e) => {
                         ))}
                         {sortedAnimals.length === 0 && (
                             <tr>
-                                <td colSpan="9" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                                <td colSpan="10" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                                     <i className="fa-solid fa-cow" style={{ fontSize: '2rem', marginBottom: '0.5rem', display: 'block' }}></i>
                                     No animal records matching your filters were found in the database.
                                 </td>
