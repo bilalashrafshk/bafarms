@@ -1,7 +1,16 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
-import { todayPKT, daysBetween } from '../utils/dateOnly';
+import { todayPKT, daysBetween, parseDateOnly } from '../utils/dateOnly';
+
+// Offsets a 'YYYY-MM-DD' date-only string by `delta` calendar days, staying in the
+// same PKT-anchored day-space as every other date helper in the app (see dateOnly.js)
+// so preview shortcuts (Yesterday/Tomorrow/+7d…) never drift a day off in any timezone.
+const addDaysPKT = (dateStr, delta) => {
+    const d = parseDateOnly(dateStr);
+    d.setUTCDate(d.getUTCDate() + delta);
+    return d.toISOString().split('T')[0];
+};
 
 export default function TMRCalculator() {
     const {
@@ -30,6 +39,12 @@ export default function TMRCalculator() {
     // Daily feed-log state (snapshotting what was actually fed — separate from the
     // Ration Plan schedule itself, so schedule edits never rewrite past days)
     const [logDate, setLogDate] = useState(todayPKT());
+
+    // Diet Preview — a read-only "peek" at what a pen was/will be fed on any date,
+    // deliberately decoupled from `logDate` (which drives the actual batch + feed log
+    // and is capped at today). This lets staff check yesterday's diet or next week's
+    // upcoming diet without ever risking logging feed against a future date.
+    const [peekDate, setPeekDate] = useState(todayPKT());
 
     // Plan-driven lookup: resolves the pen's assigned Ration Plan + current week
     // by matching its animals' average actual weight against each week's live-weight
@@ -125,6 +140,16 @@ export default function TMRCalculator() {
     const tractorTotalHeadCount = tractorPenResolutions.reduce((sum, r) => sum + (r.resolved.headCount || 0), 0);
     const tractorTotalBatchWeight = tractorAggregateIngredients.reduce((sum, i) => sum + i.wetBatch, 0);
     const tractorTotalCost = tractorAggregateIngredients.reduce((sum, i) => sum + i.cost, 0);
+
+    // One click into Tractor Mode with every eligible pen already checked — "feed all
+    // pens together" without making the user tick each box by hand. Still lands in the
+    // same mismatch-confirmation flow as manual multi-select, so a genuinely mixed
+    // forage/phase farm still gets the "aggregate anyway" guard before logging.
+    const openFeedAllPens = () => {
+        setTractorSelectedPens(tractorEligiblePens);
+        setTractorConfirmedMismatch(false);
+        setIsTractorMode(true);
+    };
 
     // Daily feed-log state
     const [logSaved, setLogSaved] = useState(false);
@@ -319,7 +344,147 @@ export default function TMRCalculator() {
         setTimeout(() => setLogSaved(false), 2500);
     };
 
+    // Shared with the "Feed All Pens" bulk log below — same provenance text as the
+    // single-pen path, just parameterized on whichever pen/resolution is being logged
+    // instead of closing over selectedTMRPen/resolvedPlanRow.
+    const stageNoteFor = (resolved) => resolved.system === 'v2'
+        ? `${resolved.plan.name} v${resolved.plan.version}, bracket ${resolved.bracketMin}-${resolved.bracketMax}kg${resolved.phase === 'ADAPTATION' ? `, Adaptation Day ${resolved.dayNo}` : ', Steady State'}`
+        : (resolved.usesAdaptationTable
+            ? `Adaptation Day ${resolved.adaptationDay}`
+            : `Week ${resolved.week.week}${resolved.usesDailyDiet && resolved.dayInWeek ? `, Day ${resolved.dayInWeek}` : ''}`);
+
+    // Logs one pen's already-resolved ration as its own feed-log record (own pen id,
+    // own head count, own ingredients) — used by "Feed All Pens" so every pen in a
+    // multi-pen batch still gets correct, per-pen history downstream (Feed & Growth
+    // Report, Feed Stock's Issues by Pen both key strictly off a real pen id). No
+    // per-ingredient overrides here — Tractor Mode is a mixing/logging view, not an
+    // editing one, so there's nothing to diff against the plan.
+    const logPenBatch = (penId, resolved, date) => {
+        const headCount = resolved.headCount || 0;
+        const rows = Object.entries(resolved.week.ingredients || {}).map(([id, qty]) => {
+            const ing = feedIngredients.find(i => i.id === id) || { id, name: id.charAt(0).toUpperCase() + id.slice(1), price: 0 };
+            const stockPrice = getIngredientStockPrice(id);
+            const price = (stockPrice !== null && stockPrice > 0) ? stockPrice : (ing.price || 0);
+            const qtyPerHead = parseFloat(qty) || 0;
+            return {
+                id, name: ing.name, dmTarget: qtyPerHead, price,
+                wetSingle: qtyPerHead, wetBatch: qtyPerHead * headCount,
+                costSingle: qtyPerHead * price, plannedQtyKg: qtyPerHead
+            };
+        });
+        const totalDmKg = rows.reduce((sum, r) => sum + r.dmTarget, 0);
+        const totalBatchKg = rows.reduce((sum, r) => sum + r.wetBatch, 0);
+        const totalCostSingleRow = rows.reduce((sum, r) => sum + r.costSingle, 0);
+        const isV2 = resolved.system === 'v2';
+        const stageNote = stageNoteFor(resolved);
+        const notes = `Auto-filled from ${isV2 ? stageNote : `${resolved.plan.name}, ${stageNote}`}${resolved.matchedByWeight ? '' : ' (matched by cycle day)'} — logged via Feed All Pens`;
+
+        logFeed({
+            date, pen: penId, animalCount: headCount, dietDiffered: false,
+            ingredients: rows, totalDmKg, totalBatchKg,
+            totalCost: totalCostSingleRow * headCount, costPerAnimal: totalCostSingleRow,
+            createdBy: staffUser?.email || staffUser?.name || null, notes
+        });
+    };
+
+    // "Feed all pens together" — logs every resolved pen in the current Tractor Mode
+    // selection in one action, each as its own record via logPenBatch above. Gated the
+    // same way the aggregate mixing view is: a forage/phase mismatch across pens must
+    // be explicitly confirmed first, since that mismatch is a real signal something's
+    // off (e.g. a pen still mid-adaptation lumped in with steady-state pens).
+    const handleLogAllPens = () => {
+        if (tractorPenResolutions.length === 0) return;
+        if (tractorMismatch && !tractorConfirmedMismatch) return;
+        tractorPenResolutions.forEach(({ penId, resolved }) => logPenBatch(penId, resolved, logDate));
+        setLogSaved(true);
+        setTimeout(() => setLogSaved(false), 2500);
+    };
+
     const recentFeedLogs = [...feedLogs].sort((a, b) => daysBetween(b.date, a.date)).slice(0, 10);
+
+    // ─── DIET PREVIEW (peek) ───
+    // Read-only lookup of what a pen's diet was/will be on any date — completely
+    // decoupled from logDate/animalsCount/overrides above, so browsing history or
+    // an upcoming week never risks touching what actually gets logged. Scope follows
+    // whatever's currently selected: the single pen in normal mode, the tractor
+    // selection (or all eligible pens if none picked yet) in Tractor Mode, or every
+    // active pen when "All" is selected in normal mode.
+    const peekPens = isTractorMode
+        ? (tractorSelectedPens.length > 0 ? tractorSelectedPens : tractorEligiblePens)
+        : (selectedTMRPen !== 'all' ? [selectedTMRPen] : activePens);
+    const peekResolutions = peekPens.map(penId => ({ penId, resolved: getPenRationRow(penId, peekDate) }));
+    const peekDateShortcuts = [['Yesterday', -1], ['Today', 0], ['Tomorrow', 1], ['+7d', 7], ['+14d', 14], ['+30d', 30]];
+
+    // Shared renderer so the preview looks/behaves identically whether it's shown in
+    // the normal layout or inside the fullscreen Tractor Mode overlay (a fixed,
+    // full-viewport box — content below it in normal DOM order would be hidden behind
+    // it, so this needs to be rendered a second time inside that overlay too).
+    const renderDietPreviewPanel = () => (
+        <div class="glass-panel" style={{ borderTop: '4px solid #4a90d9' }}>
+            <h3 class="panel-title"><i class="fa-solid fa-calendar-days"></i> Diet Preview</h3>
+            <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '-0.4rem', marginBottom: '0.8rem' }}>
+                Peek at what {peekPens.length === 1 ? `Pen ${peekPens[0]}` : 'the selected pens'} {peekDate < todayPKT() ? 'were fed' : peekDate > todayPKT() ? 'are scheduled to be fed' : 'are being fed'} on any day, past or future — read-only, never affects logging.
+            </p>
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.9rem' }}>
+                {peekDateShortcuts.map(([label, delta]) => {
+                    const d = addDaysPKT(todayPKT(), delta);
+                    return (
+                        <button
+                            key={label}
+                            type="button"
+                            class={`filter-btn ${peekDate === d ? 'active' : ''}`}
+                            style={{ fontSize: '0.7rem', minHeight: '26px', padding: '0.15rem 0.5rem' }}
+                            onClick={() => setPeekDate(d)}
+                        >{label}</button>
+                    );
+                })}
+                <input
+                    type="date"
+                    class="form-control"
+                    style={{ width: '150px', minHeight: '28px', height: '28px', padding: '0.15rem 0.4rem', fontSize: '0.8rem' }}
+                    value={peekDate}
+                    onChange={(e) => setPeekDate(e.target.value)}
+                />
+            </div>
+
+            {peekPens.length === 0 && (
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Select a pen (or check some in Tractor Mode) to preview its diet.</p>
+            )}
+
+            {peekResolutions.map(({ penId, resolved }) => (
+                <div key={penId} style={{ marginBottom: '0.9rem', paddingBottom: '0.8rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ fontWeight: '700', color: 'var(--text-pure)', marginBottom: '0.3rem', fontSize: '0.85rem' }}>
+                        Pen {penId}
+                        {resolved && !resolved.blocked && (
+                            <span style={{ marginLeft: '0.5rem', fontWeight: '400', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                                {resolved.plan.name}{resolved.system === 'v2' ? ` v${resolved.plan.version}` : ''}
+                                {' · '}{(resolved.phase === 'ADAPTATION' || resolved.usesAdaptationTable)
+                                    ? `Adaptation Day ${resolved.dayNo ?? resolved.adaptationDay}`
+                                    : (resolved.system === 'v2' ? 'Steady State' : `Week ${resolved.week.week}`)}
+                                {' · '}Day {resolved.daysOnFeed ?? '—'} on feed
+                            </span>
+                        )}
+                    </div>
+                    {!resolved && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>No Ration Plan assigned.</span>}
+                    {resolved?.blocked && (
+                        <span style={{ fontSize: '0.78rem', color: 'hsl(0,75%,65%)' }}><i class="fa-solid fa-ban"></i> {resolved.error}</span>
+                    )}
+                    {resolved && !resolved.blocked && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem 1rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                            {Object.entries(resolved.week.ingredients || {}).map(([id, qty]) => {
+                                const ing = feedIngredients.find(i => i.id === id) || { name: id };
+                                return (
+                                    <span key={id}>
+                                        <strong style={{ color: 'var(--text-pure)' }}>{ing.name}</strong>: {(parseFloat(qty) || 0).toFixed(2)} kg/head
+                                    </span>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            ))}
+        </div>
+    );
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
@@ -374,6 +539,7 @@ export default function TMRCalculator() {
                                         ? `Matched by projected weight (${resolvedPlanRow.avgProjectedWeight?.toFixed(1)} kg across ${resolvedPlanRow.headCount} head, last actual avg ${resolvedPlanRow.avgWeight?.toFixed(1)} kg)`
                                         : 'No weigh-in yet for this pen — matched by cycle day instead of actual weight'}
                                     {' · '}Target ADG {resolvedPlanRow.week.targetAdg || resolvedPlanRow.plan.adgFloor || 1.0} kg/day
+                                    {resolvedPlanRow.daysOnFeed != null && <>{' · '}<strong style={{ color: 'var(--text-pure)' }}>Day {resolvedPlanRow.daysOnFeed} on feed</strong></>}
                                     {resolvedPlanRow.usesDailyDiet && !resolvedPlanRow.dayInWeek && ' · No cycle start date set — using Day 1 diet until one is set'}
                                 </div>
                                 {resolvedPlanRow.forageAdLib && (
@@ -522,9 +688,14 @@ export default function TMRCalculator() {
                         <div class="glass-panel" style={{ borderTop: '4px solid var(--accent-gold)' }}>
                             <div class="form-header-bar" style={{ marginBottom: '1.2rem', gap: '1rem', flexWrap: 'wrap' }}>
                                 <h3 class="panel-title" style={{ marginBottom: '0' }}><i class="fa-solid fa-scale-balanced"></i> Batch Recipe</h3>
-                                <button type="button" class="btn btn-secondary" style={{ minHeight: '44px' }} onClick={openTractorMode} disabled={tractorEligiblePens.length === 0}>
-                                    <i class="fa-solid fa-tractor"></i> Tractor Mode
-                                </button>
+                                <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                                    <button type="button" class="btn btn-secondary" style={{ minHeight: '44px' }} onClick={openFeedAllPens} disabled={tractorEligiblePens.length === 0} title="Opens Tractor Mode with every eligible pen already selected">
+                                        <i class="fa-solid fa-layer-group"></i> Feed All Pens
+                                    </button>
+                                    <button type="button" class="btn btn-secondary" style={{ minHeight: '44px' }} onClick={openTractorMode} disabled={tractorEligiblePens.length === 0}>
+                                        <i class="fa-solid fa-tractor"></i> Tractor Mode
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Batch Sizing and Filter bar inline */}
@@ -666,6 +837,26 @@ export default function TMRCalculator() {
                             <div class="tractor-logo-icon"><i class="fa-solid fa-tractor"></i></div>
                             <h2>Tractor Mixing Screen</h2>
 
+                            <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '0.8rem' }}>
+                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Feeding Date:</span>
+                                <input
+                                    type="date"
+                                    class="form-control"
+                                    style={{ width: '150px', minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.82rem' }}
+                                    value={logDate}
+                                    max={todayPKT()}
+                                    onChange={(e) => setLogDate(e.target.value)}
+                                />
+                                <button type="button" class="btn btn-secondary btn-sm" onClick={() => setTractorSelectedPens(tractorEligiblePens)} disabled={tractorSelectedPens.length === tractorEligiblePens.length}>
+                                    <i class="fa-solid fa-check-double"></i> Select All ({tractorEligiblePens.length})
+                                </button>
+                                {tractorSelectedPens.length > 0 && (
+                                    <button type="button" class="btn btn-secondary btn-sm" onClick={() => setTractorSelectedPens([])}>
+                                        Clear
+                                    </button>
+                                )}
+                            </div>
+
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'center', margin: '1rem 0' }}>
                                 {tractorEligiblePens.map(p => (
                                     <label
@@ -685,6 +876,25 @@ export default function TMRCalculator() {
 
                             {tractorPenResolutions.length === 0 && (
                                 <p class="batch-sub">Select one or more pens above with an assigned Ration Plan.</p>
+                            )}
+
+                            {tractorPenResolutions.length > 0 && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', justifyContent: 'center', margin: '0 auto 1rem', maxWidth: '640px' }}>
+                                    {tractorPenResolutions.map(({ penId, resolved }) => (
+                                        <span
+                                            key={penId}
+                                            style={{
+                                                fontSize: '0.72rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.25)',
+                                                border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px', padding: '0.2rem 0.55rem'
+                                            }}
+                                        >
+                                            <strong style={{ color: 'var(--text-pure)' }}>Pen {penId}</strong>
+                                            {' — Day '}{resolved.daysOnFeed ?? '—'}{' on feed · '}
+                                            {tractorPhaseOf(resolved) === 'ADAPTATION' ? 'Adaptation' : 'Steady State'}
+                                            {' · '}{resolved.headCount} head
+                                        </span>
+                                    ))}
+                                </div>
                             )}
 
                             {tractorMismatch && !tractorConfirmedMismatch && tractorPenResolutions.length > 0 && (
@@ -716,14 +926,40 @@ export default function TMRCalculator() {
                                     <p style={{ marginTop: '2rem', fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
                                         <i class="fa-solid fa-circle-info"></i> Weigh ingredients sequentially inside the mixer wagon scales. Total batch target: {tractorTotalBatchWeight.toFixed(2)} kg · Est. cost: {Math.round(tractorTotalCost)} PKR.
                                     </p>
+
+                                    {/* Logs every pen in tractorPenResolutions as its own feed-log record in one
+                                        click — "feeding all pens together" from the mixer's point of view, while
+                                        keeping per-pen history intact for every downstream report. */}
+                                    <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.6rem' }}>
+                                        <button
+                                            type="button"
+                                            class="btn btn-primary"
+                                            style={{ minHeight: '48px' }}
+                                            onClick={handleLogAllPens}
+                                            disabled={tractorMismatch && !tractorConfirmedMismatch}
+                                        >
+                                            <i class="fa-solid fa-clipboard-check"></i> Log This Feeding — {tractorPenResolutions.length} Pen{tractorPenResolutions.length === 1 ? '' : 's'}
+                                        </button>
+                                        {logSaved && (
+                                            <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
+                                                <i class="fa-solid fa-circle-check"></i> Feed logged for {formatDate(logDate)} across {tractorPenResolutions.length} pen{tractorPenResolutions.length === 1 ? '' : 's'}.
+                                            </span>
+                                        )}
+                                    </div>
                                 </>
                             )}
+
+                            <div style={{ marginTop: '2rem', maxWidth: '640px', margin: '2rem auto 0', textAlign: 'left' }}>
+                                {renderDietPreviewPanel()}
+                            </div>
                         </div>
                     )}
 
                 </div>
 
             </div>
+
+            {!isTractorMode && renderDietPreviewPanel()}
 
             {/* Feed History — what was actually fed each logged day, immutable regardless
                 of later recipe edits. Full historical view lives in Feed & Growth Report. */}
