@@ -871,6 +871,26 @@ async function recomputePenWeightCache(client, penId, planId, forageType) {
     return { lastActualWeightKg: avgWeight, lastWeighDate, currentTargetAdg };
 }
 
+// Re-runs recomputePenWeightCache and writes the result back to ba_pens — the same
+// two steps LOG_WEIGHT already did inline. Pulled out so any action that changes a
+// pen's animal roster (registering into a pen, moving an animal between pens) can
+// keep the cache in sync too, not just weigh-ins: the cache depends on exactly two
+// inputs (who's in the pen, and their weights), so a roster change is just as much
+// a staleness trigger as a new weigh-in is. No-op for pens with no v2 plan_id yet,
+// matching LOG_WEIGHT's existing gate.
+async function refreshPenCache(client, penId) {
+    if (!penId) return;
+    const penInfoRes = await client.query('SELECT plan_id, forage_type FROM ba_pens WHERE id = $1', [penId]);
+    const penInfo = penInfoRes.rows[0];
+    if (!penInfo || !penInfo.plan_id) return;
+    const cache = await recomputePenWeightCache(client, penId, penInfo.plan_id, penInfo.forage_type || 'silage');
+    await client.query(`
+        UPDATE ba_pens
+        SET last_actual_weight_kg = $1, last_weigh_date = $2, current_target_adg = $3
+        WHERE id = $4
+    `, [cache.lastActualWeightKg, cache.lastWeighDate, cache.currentTargetAdg, penId]);
+}
+
 // Allowlist of ba_settings keys the client is permitted to write — keeps SAVE_SETTINGS
 // from becoming an arbitrary key-value store for anything a compromised/buggy client
 // happens to send.
@@ -1505,6 +1525,10 @@ module.exports = async (req, res) => {
                     VALUES ($1, $2, 'registered', $3)
                 `, [animal.id, entryDate, `Registered — ${breed}, ${entryWeight}kg, ${status}`]);
 
+                // Registering straight into a pen changes that pen's roster/avg weight
+                // just as much as a weigh-in does — keep the ration engine's cache in sync.
+                await refreshPenCache(client, pen || null);
+
                 return res.status(200).json({ success: true, animalId: animal.id });
             }
 
@@ -1526,19 +1550,7 @@ module.exports = async (req, res) => {
                 // resolution engine) in sync with every new weigh-in — otherwise the
                 // pen's projected weight would silently drift stale between weigh-ins.
                 const penRes = await client.query('SELECT pen FROM ba_animals WHERE id = $1', [animalId]);
-                const penId = penRes.rows[0]?.pen;
-                if (penId) {
-                    const penInfoRes = await client.query('SELECT plan_id, forage_type FROM ba_pens WHERE id = $1', [penId]);
-                    const penInfo = penInfoRes.rows[0];
-                    if (penInfo && penInfo.plan_id) {
-                        const cache = await recomputePenWeightCache(client, penId, penInfo.plan_id, penInfo.forage_type || 'silage');
-                        await client.query(`
-                            UPDATE ba_pens
-                            SET last_actual_weight_kg = $1, last_weigh_date = $2, current_target_adg = $3
-                            WHERE id = $4
-                        `, [cache.lastActualWeightKg, cache.lastWeighDate, cache.currentTargetAdg, penId]);
-                    }
-                }
+                await refreshPenCache(client, penRes.rows[0]?.pen);
 
                 return res.status(200).json({ success: true });
             }
@@ -1612,7 +1624,7 @@ module.exports = async (req, res) => {
                 const { id, rfid, breed, entryDate, entryWeight, targetWeight, purchasePrice, source, status, pen, price, desc, images } = payload;
                 const isAdmin = !!(perms && perms.isAdmin);
 
-                const currentRes = await client.query('SELECT entry_weight, purchase_price FROM ba_animals WHERE id = $1', [id]);
+                const currentRes = await client.query('SELECT entry_weight, purchase_price, pen FROM ba_animals WHERE id = $1', [id]);
                 if (currentRes.rows.length === 0) {
                     return res.status(404).json({ success: false, error: 'Animal not found.' });
                 }
@@ -1621,6 +1633,12 @@ module.exports = async (req, res) => {
                 const newPurchasePrice = parseFloat(purchasePrice);
                 const entryWeightChanged = newEntryWeight !== parseFloat(current.entry_weight);
                 const purchasePriceChanged = newPurchasePrice !== parseFloat(current.purchase_price);
+                // Moving an animal in/out of a pen changes both pens' rosters — refresh
+                // whichever pen(s) actually changed after the write below (same staleness
+                // trigger as ADD_ANIMAL/LOG_WEIGHT; a same-pen no-op save shouldn't recompute).
+                const oldPen = current.pen;
+                const newPen = pen || null;
+                const penChanged = oldPen !== newPen;
 
                 // Non-super-admins can't directly overwrite purchase price or entry (gross)
                 // weight — those two fields are queued for super-admin approval instead.
@@ -1653,6 +1671,11 @@ module.exports = async (req, res) => {
                         WHERE id = $11
                     `, [rfid, breed, entryDate, targetWeight, source, status, pen || null, price || null, desc || null, images ? JSON.stringify(images) : null, id]);
 
+                    if (penChanged) {
+                        await refreshPenCache(client, oldPen);
+                        await refreshPenCache(client, newPen);
+                    }
+
                     return res.status(200).json({ success: true, pending: true, pendingFields: Object.keys(changes) });
                 }
 
@@ -1665,6 +1688,12 @@ module.exports = async (req, res) => {
                     price || null, desc || null, images ? JSON.stringify(images) : null,
                     id
                 ]);
+
+                if (penChanged) {
+                    await refreshPenCache(client, oldPen);
+                    await refreshPenCache(client, newPen);
+                }
+
                 return res.status(200).json({ success: true });
             }
 
