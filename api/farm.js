@@ -887,6 +887,16 @@ const SALES_ACTIONS = new Set([
 const ADMIN_ONLY_ACTIONS = new Set(['RESET_DATABASE', 'UPDATE_STAFF_PERMISSIONS', 'APPROVE_PENDING_CHANGE', 'REJECT_PENDING_CHANGE']);
 
 // Insert 6 default meat cuts if ba_meat_cuts is empty
+// Schema-migration idempotency checks (ensureTables/ensureColumns/ensureDefaultCuts)
+// only ever need to run once per Postgres schema version, but every request was
+// re-running all ~28 "IF NOT EXISTS" statements sequentially before doing any real
+// work — each one a full network round trip to Neon, adding seconds to every single
+// request (GET and POST alike) for no benefit after the first successful run. This
+// module-scoped flag persists across warm invocations of the same serverless
+// container (the standard way to cache setup work in a Vercel/Lambda function), so
+// migrations only actually run again after a cold start (i.e. after a new deploy).
+let schemaEnsured = false;
+
 async function ensureDefaultCuts(client) {
     const countRes = await client.query('SELECT COUNT(*) FROM ba_meat_cuts');
     const count = parseInt(countRes.rows[0].count, 10);
@@ -1048,10 +1058,14 @@ module.exports = async (req, res) => {
     try {
         await client.connect();
 
-        // 1. Trigger database provisioning on-demand if tables do not exist
-        await ensureTables(client);
-        await ensureColumns(client);
-        await ensureDefaultCuts(client);
+        // 1. Trigger database provisioning on-demand if tables do not exist — only
+        // once per warm container (see schemaEnsured above), not on every request.
+        if (!schemaEnsured) {
+            await ensureTables(client);
+            await ensureColumns(client);
+            await ensureDefaultCuts(client);
+            schemaEnsured = true;
+        }
 
         // 2. Resolve this staff member's per-section access (null if unauthenticated)
         const perms = isStaff ? await resolvePermissions(client, session) : null;
@@ -1096,85 +1110,58 @@ module.exports = async (req, res) => {
                 });
             }
 
-            const animalsRes = await client.query('SELECT * FROM ba_animals ORDER BY id ASC');
-            const weightsRes = canHerd
-                ? await client.query('SELECT * FROM ba_weights ORDER BY date ASC, id ASC')
-                : { rows: [] };
-            const treatmentsRes = canHerd
-                ? await client.query('SELECT * FROM ba_treatments ORDER BY date ASC, id ASC')
-                : { rows: [] };
-            const eventsRes = canHerd
-                ? await client.query('SELECT * FROM ba_events ORDER BY date ASC, id ASC')
-                : { rows: [] };
-            const feedLogsRes = canHerd
-                ? await client.query('SELECT * FROM ba_feed_logs ORDER BY date DESC, pen ASC')
-                : { rows: [] };
-            const rationPlansRes = canHerd
-                ? await client.query('SELECT * FROM ba_ration_plans ORDER BY created_at ASC')
-                : { rows: [] };
-            const rationPlansV2Res = canHerd
-                ? await client.query('SELECT * FROM ba_ration_plans_v2 ORDER BY plan_key ASC, version ASC')
-                : { rows: [] };
-            const rationRowsRes = canHerd
-                ? await client.query('SELECT * FROM ba_ration_rows ORDER BY plan_id ASC, forage_type ASC, phase ASC, day_no ASC, wt_min ASC')
-                : { rows: [] };
-            const rationRowItemsRes = canHerd
-                ? await client.query('SELECT * FROM ba_ration_row_items ORDER BY row_id ASC')
-                : { rows: [] };
-            const pensRes = canHerd
-                ? await client.query('SELECT * FROM ba_pens ORDER BY id ASC')
-                : { rows: [] };
-            const settingsRes = canHerd
-                ? await client.query('SELECT key, value FROM ba_settings')
-                : { rows: [] };
-            const feedPurchasesRes = canHerd
-                ? await client.query('SELECT * FROM ba_feed_purchases ORDER BY date DESC, created_at DESC')
-                : { rows: [] };
-            const feedStockIssuesRes = canHerd
-                ? await client.query('SELECT * FROM ba_feed_stock_issues ORDER BY date DESC, created_at DESC')
-                : { rows: [] };
-            const ordersRes = canSales
-                ? await client.query('SELECT * FROM ba_orders ORDER BY created_at DESC')
-                : { rows: [] };
-            const meatCutsRes = await client.query('SELECT * FROM ba_meat_cuts ORDER BY created_at ASC');
-            const enquiriesRes = canSales
-                ? await client.query('SELECT * FROM ba_export_enquiries ORDER BY created_at DESC')
-                : { rows: [] };
-            const quotationsRes = canSales
-                ? await client.query('SELECT * FROM ba_quotations ORDER BY id DESC')
-                : { rows: [] };
-            const specSheetsRes = canSales
-                ? await client.query('SELECT * FROM ba_spec_sheets ORDER BY doc_ref DESC')
-                : { rows: [] };
-            const staffPermsRes = (isStaff && perms && perms.isAdmin)
-                ? await client.query('SELECT email, is_admin, access_sales, access_herd FROM ba_staff_permissions ORDER BY email ASC')
-                : { rows: [] };
-
-            // Super-admin's review queue: every open request from any staff member,
-            // regardless of who's logged in — this is what the login-triggered
-            // approval popup is built from. animal_rfid/animal_breed are read straight
-            // off ba_pending_approvals (captured at request time) rather than joined
-            // live to ba_animals, so they still display correctly for an approved
-            // deletion, where the animal itself is already gone.
-            const pendingApprovalsRes = (isStaff && perms && perms.isAdmin)
-                ? await client.query(`SELECT * FROM ba_pending_approvals WHERE status = 'pending' ORDER BY requested_at ASC`)
-                : { rows: [] };
-
-            // A staff member's own recent requests (any status) — lets a non-admin who
-            // submitted a sensitive-field edit or delete request see whether it's still
-            // pending, was approved, or was rejected (and why).
-            const myRequestsRes = (isStaff && canHerd)
-                ? await client.query(`
-                    SELECT * FROM ba_pending_approvals WHERE requested_by = $1 ORDER BY requested_at DESC LIMIT 30
-                `, [session.email.toLowerCase().trim()])
-                : { rows: [] };
-
-            // Super-admin's all-time approval history (any status) — backs the searchable
-            // "Approvals" audit tab in Settings, separate from the live pendingApprovals
-            // queue above which only ever shows open requests.
-            const allApprovalsRes = (isStaff && perms && perms.isAdmin)
-                ? await client.query(`SELECT * FROM ba_pending_approvals ORDER BY requested_at DESC LIMIT 500`)
-                : { rows: [] };
+            // All ~20 of these are independent reads (nothing here depends on another
+            // query's result), but were previously each `await`-ed one at a time —
+            // every one paying the full network round trip to Neon before the next
+            // was even sent, which alone was several seconds of pure wait on every
+            // page load. Firing them all at once (still over the same single Client,
+            // which pipelines/queues them in order server-side) collapses that down
+            // to roughly the slowest single query instead of the sum of all of them.
+            const EMPTY = Promise.resolve({ rows: [] });
+            const [
+                animalsRes, weightsRes, treatmentsRes, eventsRes, feedLogsRes,
+                rationPlansRes, rationPlansV2Res, rationRowsRes, rationRowItemsRes,
+                pensRes, settingsRes, feedPurchasesRes, feedStockIssuesRes, ordersRes,
+                meatCutsRes, enquiriesRes, quotationsRes, specSheetsRes, staffPermsRes,
+                pendingApprovalsRes, myRequestsRes, allApprovalsRes
+            ] = await Promise.all([
+                client.query('SELECT * FROM ba_animals ORDER BY id ASC'),
+                canHerd ? client.query('SELECT * FROM ba_weights ORDER BY date ASC, id ASC') : EMPTY,
+                canHerd ? client.query('SELECT * FROM ba_treatments ORDER BY date ASC, id ASC') : EMPTY,
+                canHerd ? client.query('SELECT * FROM ba_events ORDER BY date ASC, id ASC') : EMPTY,
+                canHerd ? client.query('SELECT * FROM ba_feed_logs ORDER BY date DESC, pen ASC') : EMPTY,
+                canHerd ? client.query('SELECT * FROM ba_ration_plans ORDER BY created_at ASC') : EMPTY,
+                canHerd ? client.query('SELECT * FROM ba_ration_plans_v2 ORDER BY plan_key ASC, version ASC') : EMPTY,
+                canHerd ? client.query('SELECT * FROM ba_ration_rows ORDER BY plan_id ASC, forage_type ASC, phase ASC, day_no ASC, wt_min ASC') : EMPTY,
+                canHerd ? client.query('SELECT * FROM ba_ration_row_items ORDER BY row_id ASC') : EMPTY,
+                canHerd ? client.query('SELECT * FROM ba_pens ORDER BY id ASC') : EMPTY,
+                canHerd ? client.query('SELECT key, value FROM ba_settings') : EMPTY,
+                canHerd ? client.query('SELECT * FROM ba_feed_purchases ORDER BY date DESC, created_at DESC') : EMPTY,
+                canHerd ? client.query('SELECT * FROM ba_feed_stock_issues ORDER BY date DESC, created_at DESC') : EMPTY,
+                canSales ? client.query('SELECT * FROM ba_orders ORDER BY created_at DESC') : EMPTY,
+                client.query('SELECT * FROM ba_meat_cuts ORDER BY created_at ASC'),
+                canSales ? client.query('SELECT * FROM ba_export_enquiries ORDER BY created_at DESC') : EMPTY,
+                canSales ? client.query('SELECT * FROM ba_quotations ORDER BY id DESC') : EMPTY,
+                canSales ? client.query('SELECT * FROM ba_spec_sheets ORDER BY doc_ref DESC') : EMPTY,
+                (isStaff && perms && perms.isAdmin) ? client.query('SELECT email, is_admin, access_sales, access_herd FROM ba_staff_permissions ORDER BY email ASC') : EMPTY,
+                // Super-admin's review queue: every open request from any staff member,
+                // regardless of who's logged in — this is what the login-triggered
+                // approval popup is built from. animal_rfid/animal_breed are read
+                // straight off ba_pending_approvals (captured at request time) rather
+                // than joined live to ba_animals, so they still display correctly for
+                // an approved deletion, where the animal itself is already gone.
+                (isStaff && perms && perms.isAdmin) ? client.query(`SELECT * FROM ba_pending_approvals WHERE status = 'pending' ORDER BY requested_at ASC`) : EMPTY,
+                // A staff member's own recent requests (any status) — lets a non-admin
+                // who submitted a sensitive-field edit or delete request see whether
+                // it's still pending, was approved, or was rejected (and why).
+                (isStaff && canHerd)
+                    ? client.query(`SELECT * FROM ba_pending_approvals WHERE requested_by = $1 ORDER BY requested_at DESC LIMIT 30`, [session.email.toLowerCase().trim()])
+                    : EMPTY,
+                // Super-admin's all-time approval history (any status) — backs the
+                // searchable "Approvals" audit tab in Settings, separate from the live
+                // pendingApprovals queue above which only ever shows open requests.
+                (isStaff && perms && perms.isAdmin) ? client.query(`SELECT * FROM ba_pending_approvals ORDER BY requested_at DESC LIMIT 500`) : EMPTY
+            ]);
 
             const animals = animalsRes.rows.map(row => ({
                 id: row.id,
@@ -2057,52 +2044,96 @@ module.exports = async (req, res) => {
                 const version = parseInt(verRes.rows[0].max_version, 10) + 1;
                 const planId = `${planKey}-v${version}`;
 
-                await client.query(`
-                    INSERT INTO ba_ration_plans_v2 (id, plan_key, version, name, adaptation_days, adg_floor, is_default, created_by, created_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-                `, [planId, planKey, version, planName, adaptationDays || 7, adgFloor || 1.0, !!isDefault, session ? session.email : null]);
+                // The whole import (plan + rows + items) runs as one transaction. Previously
+                // each row/item was its own awaited INSERT — for a 333-row plan that's 600+
+                // sequential network round trips to Neon, which is exactly what blew past
+                // Vercel's function timeout and produced the reported HTTP 504. Worse, because
+                // none of it was transactional, a mid-loop timeout left a half-written plan
+                // sitting in the DB (confirmed live: a "nothing was written" 504 that actually
+                // left 256/333 and 233/333 rows behind) — a real data-integrity bug, not just
+                // a UX one. BEGIN/COMMIT here means it's now all-or-nothing: either the plan
+                // is fully there or a failure rolls back to nothing, matching the error message
+                // the client already shows.
+                try {
+                    await client.query('BEGIN');
 
-                // Return the fully structured plan/rows/items back to the caller so the
-                // client can add them to local state optimistically (same pattern as
-                // SAVE_RATION_PLAN/SAVE_PEN) instead of needing a full page refetch.
-                const createdRows = [];
-                const createdItems = [];
-                for (const r of rows) {
-                    const rowRes = await client.query(`
+                    await client.query(`
+                        INSERT INTO ba_ration_plans_v2 (id, plan_key, version, name, adaptation_days, adg_floor, is_default, created_by, created_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                    `, [planId, planKey, version, planName, adaptationDays || 7, adgFloor || 1.0, !!isDefault, session ? session.email : null]);
+
+                    // Batch-insert every row in a single multi-row INSERT instead of one await
+                    // per row. Postgres preserves input row order in a multi-row VALUES
+                    // INSERT ... RETURNING, so rowsInsertRes.rows[idx] lines up with rows[idx].
+                    const rowValues = [];
+                    const rowParams = [];
+                    rows.forEach((r, idx) => {
+                        const base = idx * 8;
+                        rowValues.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`);
+                        rowParams.push(
+                            planId, r.phase, r.phase === 'ADAPTATION' ? r.dayNo : null, r.forageType,
+                            r.wtMin, r.wtMax, r.targetAdg, r.estCostPerHeadPerDay || null
+                        );
+                    });
+                    const rowsInsertRes = await client.query(`
                         INSERT INTO ba_ration_rows (plan_id, phase, day_no, forage_type, wt_min, wt_max, target_adg, est_cost_per_head_per_day)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        VALUES ${rowValues.join(', ')}
                         RETURNING id
-                    `, [planId, r.phase, r.phase === 'ADAPTATION' ? r.dayNo : null, r.forageType, r.wtMin, r.wtMax, r.targetAdg, r.estCostPerHeadPerDay || null]);
-                    const rowId = rowRes.rows[0].id;
-                    createdRows.push({
-                        id: rowId, planId, phase: r.phase,
+                    `, rowParams);
+
+                    const createdRows = rows.map((r, idx) => ({
+                        id: rowsInsertRes.rows[idx].id, planId, phase: r.phase,
                         dayNo: r.phase === 'ADAPTATION' ? r.dayNo : null,
                         forageType: r.forageType, wtMin: parseFloat(r.wtMin), wtMax: parseFloat(r.wtMax),
                         targetAdg: parseFloat(r.targetAdg), estCostPerHeadPerDay: r.estCostPerHeadPerDay || null
+                    }));
+
+                    // Same batching for the (row, ingredient) items — flatten across every
+                    // row into one multi-row INSERT instead of one await per ingredient per row.
+                    const itemValues = [];
+                    const itemParams = [];
+                    let itemIdx = 0;
+                    rows.forEach((r, idx) => {
+                        const rowId = rowsInsertRes.rows[idx].id;
+                        Object.entries(r.ingredients || {}).forEach(([col, qtyRaw]) => {
+                            const qty = parseFloat(qtyRaw) || 0;
+                            if (qty <= 0) return;
+                            const base = itemIdx * 3;
+                            itemValues.push(`($${base + 1}, $${base + 2}, $${base + 3})`);
+                            itemParams.push(rowId, columnToIngredientId[col], qty);
+                            itemIdx++;
+                        });
                     });
 
-                    for (const [col, qtyRaw] of Object.entries(r.ingredients || {})) {
-                        const qty = parseFloat(qtyRaw) || 0;
-                        if (qty <= 0) continue;
-                        const itemRes = await client.query(`
+                    let createdItems = [];
+                    if (itemValues.length > 0) {
+                        const itemsInsertRes = await client.query(`
                             INSERT INTO ba_ration_row_items (row_id, ingredient_id, qty_kg_per_head_per_day)
-                            VALUES ($1, $2, $3)
-                            RETURNING id
-                        `, [rowId, columnToIngredientId[col], qty]);
-                        createdItems.push({ id: itemRes.rows[0].id, rowId, ingredientId: columnToIngredientId[col], qtyKgPerHeadPerDay: qty });
+                            VALUES ${itemValues.join(', ')}
+                            RETURNING id, row_id, ingredient_id, qty_kg_per_head_per_day
+                        `, itemParams);
+                        createdItems = itemsInsertRes.rows.map(row => ({
+                            id: row.id, rowId: row.row_id, ingredientId: row.ingredient_id,
+                            qtyKgPerHeadPerDay: parseFloat(row.qty_kg_per_head_per_day)
+                        }));
                     }
+
+                    await client.query('COMMIT');
+
+                    const createdPlan = {
+                        id: planId, planKey, version, name: planName,
+                        adaptationDays: adaptationDays || 7, adgFloor: adgFloor || 1.0,
+                        isDefault: !!isDefault, createdBy: session ? session.email : null
+                    };
+
+                    return res.status(200).json({
+                        success: true, planId, planKey, version, rowCount: rows.length,
+                        plan: createdPlan, rows: createdRows, items: createdItems
+                    });
+                } catch (importErr) {
+                    await client.query('ROLLBACK');
+                    throw importErr;
                 }
-
-                const createdPlan = {
-                    id: planId, planKey, version, name: planName,
-                    adaptationDays: adaptationDays || 7, adgFloor: adgFloor || 1.0,
-                    isDefault: !!isDefault, createdBy: session ? session.email : null
-                };
-
-                return res.status(200).json({
-                    success: true, planId, planKey, version, rowCount: rows.length,
-                    plan: createdPlan, rows: createdRows, items: createdItems
-                });
             }
 
             // Metadata-only edit for an imported (v2) plan — name, adaptation window,
