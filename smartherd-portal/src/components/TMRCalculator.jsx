@@ -45,6 +45,15 @@ export default function TMRCalculator() {
     // and is capped at today). This lets staff check yesterday's diet or next week's
     // upcoming diet without ever risking logging feed against a future date.
     const [peekDate, setPeekDate] = useState(todayPKT());
+    // Which pens' ingredient breakdown is expanded in the Diet Preview panel — collapsed
+    // by default so the panel shows one summary line per pen instead of dumping every
+    // ingredient for every pen on screen at once (too much info, especially on mobile).
+    const [peekExpandedPens, setPeekExpandedPens] = useState(new Set());
+    const togglePeekPen = (penId) => setPeekExpandedPens(prev => {
+        const next = new Set(prev);
+        if (next.has(penId)) next.delete(penId); else next.add(penId);
+        return next;
+    });
 
     // Plan-driven lookup: resolves the pen's assigned Ration Plan + current week
     // by matching its animals' average actual weight against each week's live-weight
@@ -415,10 +424,9 @@ export default function TMRCalculator() {
     const peekResolutions = peekPens.map(penId => ({ penId, resolved: getPenRationRow(penId, peekDate) }));
     const peekDateShortcuts = [['Yesterday', -1], ['Today', 0], ['Tomorrow', 1], ['+7d', 7], ['+14d', 14], ['+30d', 30]];
 
-    // Shared renderer so the preview looks/behaves identically whether it's shown in
-    // the normal layout or inside the fullscreen Tractor Mode overlay (a fixed,
-    // full-viewport box — content below it in normal DOM order would be hidden behind
-    // it, so this needs to be rendered a second time inside that overlay too).
+    // Normal-view only — deliberately not shown in Tractor Mode, which is meant to be
+    // a minimal, glance-and-go screen (mounted on a tractor dashboard/phone in the
+    // pen), not a place to browse historical/upcoming diets.
     const renderDietPreviewPanel = () => (
         <div class="glass-panel" style={{ borderTop: '4px solid #4a90d9' }}>
             <h3 class="panel-title"><i class="fa-solid fa-calendar-days"></i> Diet Preview</h3>
@@ -451,38 +459,48 @@ export default function TMRCalculator() {
                 <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Select a pen (or check some in Tractor Mode) to preview its diet.</p>
             )}
 
-            {peekResolutions.map(({ penId, resolved }) => (
-                <div key={penId} style={{ marginBottom: '0.9rem', paddingBottom: '0.8rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    <div style={{ fontWeight: '700', color: 'var(--text-pure)', marginBottom: '0.3rem', fontSize: '0.85rem' }}>
-                        Pen {penId}
-                        {resolved && !resolved.blocked && (
-                            <span style={{ marginLeft: '0.5rem', fontWeight: '400', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                                {resolved.plan.name}{resolved.system === 'v2' ? ` v${resolved.plan.version}` : ''}
-                                {' · '}{(resolved.phase === 'ADAPTATION' || resolved.usesAdaptationTable)
-                                    ? `Adaptation Day ${resolved.dayNo ?? resolved.adaptationDay}`
-                                    : (resolved.system === 'v2' ? 'Steady State' : `Week ${resolved.week.week}`)}
-                                {' · '}Day {resolved.daysOnFeed ?? '—'} on feed
-                            </span>
+            {peekResolutions.map(({ penId, resolved }) => {
+                const expanded = peekExpandedPens.has(penId);
+                const canExpand = resolved && !resolved.blocked;
+                return (
+                    <div key={penId} style={{ marginBottom: '0.5rem', paddingBottom: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div
+                            onClick={() => canExpand && togglePeekPen(penId)}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', cursor: canExpand ? 'pointer' : 'default' }}
+                        >
+                            <div style={{ fontWeight: '700', color: 'var(--text-pure)', fontSize: '0.85rem' }}>
+                                Pen {penId}
+                                {resolved && !resolved.blocked && (
+                                    <span style={{ marginLeft: '0.5rem', fontWeight: '400', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                                        {resolved.plan.name}{resolved.system === 'v2' ? ` v${resolved.plan.version}` : ''}
+                                        {' · '}{(resolved.phase === 'ADAPTATION' || resolved.usesAdaptationTable)
+                                            ? `Adaptation Day ${resolved.dayNo ?? resolved.adaptationDay}`
+                                            : (resolved.system === 'v2' ? 'Steady State' : `Week ${resolved.week.week}`)}
+                                        {' · '}Day {resolved.daysOnFeed ?? '—'} on feed
+                                    </span>
+                                )}
+                            </div>
+                            {canExpand && <i class={`fa-solid fa-chevron-${expanded ? 'up' : 'down'}`} style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}></i>}
+                        </div>
+                        {!resolved && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>No Ration Plan assigned.</span>}
+                        {resolved?.blocked && (
+                            <span style={{ fontSize: '0.78rem', color: 'hsl(0,75%,65%)' }}><i class="fa-solid fa-ban"></i> {resolved.error}</span>
+                        )}
+                        {canExpand && expanded && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem 1rem', fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                                {Object.entries(resolved.week.ingredients || {}).map(([id, qty]) => {
+                                    const ing = feedIngredients.find(i => i.id === id) || { name: id };
+                                    return (
+                                        <span key={id}>
+                                            <strong style={{ color: 'var(--text-pure)' }}>{ing.name}</strong>: {(parseFloat(qty) || 0).toFixed(2)} kg/head
+                                        </span>
+                                    );
+                                })}
+                            </div>
                         )}
                     </div>
-                    {!resolved && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>No Ration Plan assigned.</span>}
-                    {resolved?.blocked && (
-                        <span style={{ fontSize: '0.78rem', color: 'hsl(0,75%,65%)' }}><i class="fa-solid fa-ban"></i> {resolved.error}</span>
-                    )}
-                    {resolved && !resolved.blocked && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem 1rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                            {Object.entries(resolved.week.ingredients || {}).map(([id, qty]) => {
-                                const ing = feedIngredients.find(i => i.id === id) || { name: id };
-                                return (
-                                    <span key={id}>
-                                        <strong style={{ color: 'var(--text-pure)' }}>{ing.name}</strong>: {(parseFloat(qty) || 0).toFixed(2)} kg/head
-                                    </span>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-            ))}
+                );
+            })}
         </div>
     );
 
@@ -948,10 +966,6 @@ export default function TMRCalculator() {
                                     </div>
                                 </>
                             )}
-
-                            <div style={{ marginTop: '2rem', maxWidth: '640px', margin: '2rem auto 0', textAlign: 'left' }}>
-                                {renderDietPreviewPanel()}
-                            </div>
                         </div>
                     )}
 
