@@ -2051,6 +2051,40 @@ export const FarmProvider = ({ children }) => {
         return lastWeight + daysSinceWeigh * targetAdg;
     };
 
+    // Reconstructs which animals were actually standing in a pen on a given date, by
+    // replaying each animal's registered/pen_transfer event trail (see api/farm.js —
+    // 'registered' and 'pen_transfer' ba_events rows carry a to_pen) instead of
+    // trusting today's live `pen`/`status` fields. Without this, logging feed
+    // retroactively (or peeking a past date) would wrongly pull in animals bought
+    // into the pen after that date, or drop ones sold/moved since — this is what
+    // makes both correct for any date, not just today.
+    // Animals with no dated pen history yet (registered before this tracking
+    // existed) fall back to today's live pen, same as the old always-current-roster
+    // behavior — so nothing regresses for existing data.
+    const getPenRosterAsOf = (penId, refDate) => {
+        return animals.filter(animal => {
+            if (animal.entryDate && parseDateOnly(animal.entryDate) > refDate) return false;
+
+            if (animal.status === 'Sold' || animal.status === 'Deceased') {
+                const exitEvent = events.find(e => e.animalId === animal.id
+                    && (e.eventType === 'sold' || e.eventType === 'deceased'));
+                // No dated exit event on record (legacy data) → always exclude, same
+                // as the old current-status-only filter.
+                if (!exitEvent || parseDateOnly(exitEvent.date) <= refDate) return false;
+            }
+
+            const penEvents = events
+                .filter(e => e.animalId === animal.id
+                    && (e.eventType === 'registered' || e.eventType === 'pen_transfer')
+                    && e.toPen
+                    && parseDateOnly(e.date) <= refDate)
+                .sort((a, b) => daysBetween(parseDateOnly(a.date), parseDateOnly(b.date)) || (a.id - b.id));
+
+            const effectivePen = penEvents.length > 0 ? penEvents[penEvents.length - 1].toPen : animal.pen;
+            return effectivePen === penId;
+        });
+    };
+
     // Resolves the current ration row for a pen from its assigned plan. Primary lookup
     // key is the pen's average PROJECTED weight (see getAnimalProjectedWeight above) —
     // not the raw last-recorded weight — matched against the steady-state bracket for
@@ -2069,7 +2103,7 @@ export const FarmProvider = ({ children }) => {
     const resolvePenRationV2 = (pen, refDate) => {
         const plan = rationPlansV2.find(p => p.id === pen.planId);
         const forageType = pen.forageType || 'silage';
-        const penAnimals = animals.filter(a => a.pen === pen.id && a.status !== 'Sold' && a.status !== 'Deceased');
+        const penAnimals = getPenRosterAsOf(pen.id, refDate);
         const headCount = penAnimals.length;
         const avgWeight = headCount > 0
             ? penAnimals.reduce((sum, a) => sum + (parseFloat(a.currentWeight) || 0), 0) / headCount
@@ -2141,7 +2175,7 @@ export const FarmProvider = ({ children }) => {
         if (!plan || !plan.weeks || plan.weeks.length === 0) return null;
 
         const forageType = pen.forageType || 'silage';
-        const penAnimals = animals.filter(a => a.pen === penId && a.status !== 'Sold' && a.status !== 'Deceased');
+        const penAnimals = getPenRosterAsOf(penId, refDate);
         const headCount = penAnimals.length;
         const avgWeight = headCount > 0
             ? penAnimals.reduce((sum, a) => sum + (parseFloat(a.currentWeight) || 0), 0) / headCount

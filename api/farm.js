@@ -311,6 +311,13 @@ async function ensureColumns(client) {
             created_at TIMESTAMP DEFAULT NOW()
         )
     `);
+    // from_pen/to_pen let 'registered' and 'pen_transfer' events double as a dated
+    // pen-membership ledger, so historical feed logs and ration lookups can answer
+    // "who was actually in this pen on that date" instead of trusting today's live
+    // roster (which wrongly includes animals bought in later, or drops ones sold
+    // since). Nullable/additive — existing rows are unaffected.
+    await client.query(`ALTER TABLE ba_events ADD COLUMN IF NOT EXISTS from_pen VARCHAR(50)`);
+    await client.query(`ALTER TABLE ba_events ADD COLUMN IF NOT EXISTS to_pen VARCHAR(50)`);
 
     // Approval queue for sensitive herd changes made by non-super-admin staff: edits to
     // an animal's purchase price / entry (gross) weight, and any animal deletion, are
@@ -1244,7 +1251,9 @@ module.exports = async (req, res) => {
                 animalId: row.animal_id,
                 date: formatDate(row.date),
                 eventType: row.event_type,
-                note: row.note
+                note: row.note,
+                fromPen: row.from_pen,
+                toPen: row.to_pen
             }));
 
             const feedLogs = feedLogsRes.rows.map(row => ({
@@ -1534,11 +1543,13 @@ module.exports = async (req, res) => {
                     VALUES ($1, $2, $3, 0)
                 `, [animal.id, entryDate, entryWeight]);
 
-                // Log registration event
+                // Log registration event — to_pen records which pen this animal actually
+                // entered on entryDate, so the pen-membership ledger below can tell it
+                // apart from animals added to the pen later.
                 await client.query(`
-                    INSERT INTO ba_events (animal_id, date, event_type, note)
-                    VALUES ($1, $2, 'registered', $3)
-                `, [animal.id, entryDate, `Registered — ${breed}, ${entryWeight}kg, ${status}`]);
+                    INSERT INTO ba_events (animal_id, date, event_type, note, to_pen)
+                    VALUES ($1, $2, 'registered', $3, $4)
+                `, [animal.id, entryDate, `Registered — ${breed}, ${entryWeight}kg, ${status}`, pen || null]);
 
                 // Registering straight into a pen changes that pen's roster/avg weight
                 // just as much as a weigh-in does — keep the ration engine's cache in sync.
@@ -1689,6 +1700,10 @@ module.exports = async (req, res) => {
                     if (penChanged) {
                         await refreshPenCache(client, oldPen);
                         await refreshPenCache(client, newPen);
+                        await client.query(`
+                            INSERT INTO ba_events (animal_id, date, event_type, note, from_pen, to_pen)
+                            VALUES ($1, $2, 'pen_transfer', $3, $4, $5)
+                        `, [id, new Date().toISOString().split('T')[0], `Moved ${oldPen || 'Unassigned'} → ${newPen || 'Unassigned'}`, oldPen, newPen]);
                     }
 
                     return res.status(200).json({ success: true, pending: true, pendingFields: Object.keys(changes) });
@@ -1707,6 +1722,10 @@ module.exports = async (req, res) => {
                 if (penChanged) {
                     await refreshPenCache(client, oldPen);
                     await refreshPenCache(client, newPen);
+                    await client.query(`
+                        INSERT INTO ba_events (animal_id, date, event_type, note, from_pen, to_pen)
+                        VALUES ($1, $2, 'pen_transfer', $3, $4, $5)
+                    `, [id, new Date().toISOString().split('T')[0], `Moved ${oldPen || 'Unassigned'} → ${newPen || 'Unassigned'}`, oldPen, newPen]);
                 }
 
                 return res.status(200).json({ success: true });
