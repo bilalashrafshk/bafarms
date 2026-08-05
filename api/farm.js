@@ -1094,11 +1094,26 @@ module.exports = async (req, res) => {
 
         // ─── GET ENDPOINT: LOAD FULL DATABASE STATE ───
         if (req.method === 'GET') {
-            // Format date objects to clean strings (YYYY-MM-DD)
+            // Format date objects to clean strings (YYYY-MM-DD). `pg` parses DATE
+            // columns into a JS Date built from LOCAL Y/M/D components (not UTC) —
+            // going through `.toISOString()` re-reads those same components via UTC
+            // getters, which silently shifts the date back a day whenever the server
+            // process's timezone isn't exactly UTC (the same bug class utils/dateOnly.js
+            // was written to eliminate on the frontend). Reading back with local
+            // getters instead makes this a lossless round trip no matter what timezone
+            // the process happens to be running in.
             const formatDate = (dateStr) => {
                 if (!dateStr) return '';
-                const d = new Date(dateStr);
-                return d.toISOString().split('T')[0];
+                if (typeof dateStr === 'string') {
+                    const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+                    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+                }
+                const d = dateStr instanceof Date ? dateStr : new Date(dateStr);
+                if (isNaN(d.getTime())) return '';
+                const year = d.getFullYear();
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
             };
 
             // Public order-tracking lookup: returns a single order by its reference ID
