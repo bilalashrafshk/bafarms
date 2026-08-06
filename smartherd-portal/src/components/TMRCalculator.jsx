@@ -891,10 +891,34 @@ export default function TMRCalculator() {
                                 const penWeightFlagsList = getPenWeightFlags(penId);
 
                                 if (penIsBlocked) {
+                                    const penObj = pens.find(p => p.id === penId);
                                     return (
                                         <div key={penId} className="glass-panel" style={{ borderTop: '4px solid hsl(0,75%,55%)' }}>
                                             <h4 style={{ color: 'hsl(0,75%,65%)', margin: 0 }}><i className="fa-solid fa-ban"></i> Pen {penId} — Feeding Blocked</h4>
-                                            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>{penResolvedPlanRow.error}</p>
+                                            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.4rem', marginBottom: '0.6rem' }}>{penResolvedPlanRow.error}</p>
+                                            {penResolvedPlanRow.availableDiets && penResolvedPlanRow.availableDiets.length > 0 && (
+                                                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', padding: '0.6rem 0.8rem', marginTop: '0.5rem' }}>
+                                                    <span style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--accent-gold)' }}>
+                                                        Available Alternative:
+                                                    </span>
+                                                    {penResolvedPlanRow.availableDiets.map((alt, idx) => (
+                                                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.4rem', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                                            <span style={{ fontSize: '0.78rem', color: 'var(--text-pure)' }}>
+                                                                {alt.forageType.toUpperCase()} Diet ({alt.bracketMin}–{alt.bracketMax}kg)
+                                                            </span>
+                                                            {isAdmin && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-secondary btn-sm"
+                                                                    onClick={() => penObj && savePen({ ...penObj, forageType: alt.forageType })}
+                                                                >
+                                                                    <i className="fa-solid fa-right-left"></i> Switch Pen {penId} to {alt.forageType.toUpperCase()}
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     );
                                 }
@@ -1032,17 +1056,69 @@ export default function TMRCalculator() {
                             })}
                         </div>
                     ) : isBlocked ? (
-                        <div class="glass-panel" style={{ borderTop: '4px solid hsl(0,75%,55%)', textAlign: 'center', padding: '2.5rem 1.5rem' }}>
-                            <i class="fa-solid fa-ban" style={{ fontSize: '2rem', color: 'hsl(0,75%,60%)', marginBottom: '1rem' }}></i>
-                            <h3 class="panel-title" style={{ justifyContent: 'center', marginBottom: '0.5rem', color: 'hsl(0,75%,65%)' }}>
-                                Feeding Blocked — Pen {selectedTMRPen}
-                            </h3>
-                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '480px', margin: '0 auto' }}>
-                                {resolvedPlanRow.error}
-                            </p>
-                            <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', maxWidth: '480px', margin: '0.8rem auto 0', fontStyle: 'italic' }}>
-                                No ration is calculated or fed until an admin fixes the plan for this pen — the system never falls back to a nearby bracket.
-                            </p>
+                        <div className="glass-panel" style={{ borderTop: '4px solid hsl(0,75%,55%)', padding: '2rem 1.5rem' }}>
+                            <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+                                <i className="fa-solid fa-ban" style={{ fontSize: '2.2rem', color: 'hsl(0,75%,60%)', marginBottom: '0.8rem' }}></i>
+                                <h3 className="panel-title" style={{ justifyContent: 'center', marginBottom: '0.5rem', color: 'hsl(0,75%,65%)' }}>
+                                    Feeding Blocked — Pen {selectedTMRPen}
+                                </h3>
+                                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '520px', margin: '0 auto' }}>
+                                    {resolvedPlanRow.error}
+                                </p>
+                            </div>
+
+                            {resolvedPlanRow.availableDiets && resolvedPlanRow.availableDiets.length > 0 && (
+                                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', padding: '1rem 1.2rem', marginTop: '1rem' }}>
+                                    <h4 style={{ fontSize: '0.88rem', fontWeight: '700', color: 'var(--accent-gold)', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <i className="fa-solid fa-circle-nodes"></i> Available Diet Alternative(s) for Day {resolvedPlanRow.dayNo || '—'} ({resolvedPlanRow.avgProjectedWeight?.toFixed(1)}kg)
+                                    </h4>
+                                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.8rem' }}>
+                                        A ration bracket for <strong>{resolvedPlanRow.forageType.toUpperCase()}</strong> is missing for this weight, but matching diet plan(s) exist under other forage types:
+                                    </p>
+
+                                    {resolvedPlanRow.availableDiets.map((alt, idx) => (
+                                        <div key={idx} style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0.8rem 1rem', marginBottom: '0.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem' }}>
+                                            <div>
+                                                <span style={{ fontWeight: '700', color: 'var(--text-pure)', fontSize: '0.85rem' }}>
+                                                    {alt.forageType.toUpperCase()} Diet
+                                                </span>
+                                                <span style={{ marginLeft: '0.6rem', fontSize: '0.75rem', color: 'var(--primary-green-light)' }}>
+                                                    Bracket {alt.bracketMin}–{alt.bracketMax}kg
+                                                </span>
+                                                <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                                                    {Object.entries(alt.ingredients).map(([id, qty]) => {
+                                                        const ingName = feedIngredients.find(i => i.id === id)?.name || id;
+                                                        return `${ingName}: ${qty}kg`;
+                                                    }).join(' · ')}
+                                                </div>
+                                            </div>
+                                            {isAdmin && (
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-secondary btn-sm"
+                                                    onClick={() => {
+                                                        const penObj = pens.find(p => p.id === selectedTMRPen);
+                                                        if (penObj) savePen({ ...penObj, forageType: alt.forageType });
+                                                    }}
+                                                >
+                                                    <i className="fa-solid fa-right-left"></i> Switch Pen {selectedTMRPen} to {alt.forageType.toUpperCase()}
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {(!resolvedPlanRow.availableDiets || resolvedPlanRow.availableDiets.length === 0) && resolvedPlanRow.nearestBrackets && resolvedPlanRow.nearestBrackets.length > 0 && (
+                                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', padding: '1rem 1.2rem', marginTop: '1rem' }}>
+                                    <h4 style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--accent-gold)', marginBottom: '0.4rem' }}>
+                                        <i className="fa-solid fa-list-ol"></i> Nearest Brackets Defined in Plan for {resolvedPlanRow.forageType.toUpperCase()}
+                                    </h4>
+                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                        {resolvedPlanRow.nearestBrackets.map(b => `Bracket ${b.wtMin}–${b.wtMax}kg (ADG ${b.targetAdg}kg)`).join(' · ')}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     ) : isPlanDriven ? (
                         <div class="glass-panel" style={{ borderTop: '4px solid var(--primary-green-light)' }}>

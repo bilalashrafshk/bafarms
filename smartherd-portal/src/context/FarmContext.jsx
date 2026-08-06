@@ -2150,7 +2150,65 @@ export const FarmProvider = ({ children }) => {
             };
         } catch (err) {
             if (err instanceof NoMatchingRationError) {
-                return { system: 'v2', blocked: true, error: err.message, forageType, headCount, avgWeight, plan };
+                const altForage = forageType === 'silage' ? 'chari' : 'silage';
+                const altPenForResolver = { ...penForResolver, forageType: altForage };
+                let altResult = null;
+                try {
+                    altResult = resolveRation({ pen: altPenForResolver, plan, rows: rationRows, rowItems: rationRowItems, today: refDate });
+                } catch (e) {
+                    altResult = null;
+                }
+
+                const daysOnFeed = pen.cycleStartDate ? daysBetween(refDate, pen.cycleStartDate) + 1 : null;
+                const daysSinceWeigh = pen.lastWeighDate ? Math.max(0, daysBetween(refDate, pen.lastWeighDate)) : 0;
+                const adg = pen.currentTargetAdg != null ? pen.currentTargetAdg : (plan?.adgFloor ?? 0);
+                const projectedWeight = (pen.lastActualWeightKg || 0) + daysSinceWeigh * adg;
+
+                const adaptationDays = plan?.adaptationDays ?? 7;
+                const phase = daysOnFeed !== null && daysOnFeed <= adaptationDays ? 'ADAPTATION' : 'STEADY';
+                const dayNo = phase === 'ADAPTATION' ? daysOnFeed : null;
+
+                const availableDiets = rationRows.filter(r => (
+                    r.planId === pen.planId &&
+                    r.phase === phase &&
+                    (phase === 'ADAPTATION' ? r.dayNo === dayNo : (r.dayNo === null || r.dayNo === undefined)) &&
+                    projectedWeight >= r.wtMin && projectedWeight < r.wtMax + 1
+                )).map(r => {
+                    const items = rationRowItems.filter(i => i.rowId === r.id);
+                    const ingredients = {};
+                    items.forEach(item => { ingredients[item.ingredientId] = item.qtyKgPerHeadPerDay; });
+                    return {
+                        forageType: r.forageType,
+                        bracketMin: r.wtMin,
+                        bracketMax: r.wtMax,
+                        targetAdg: r.targetAdg,
+                        estCostPerHeadPerDay: r.estCostPerHeadPerDay,
+                        ingredients
+                    };
+                });
+
+                const nearestBrackets = rationRows.filter(r => (
+                    r.planId === pen.planId &&
+                    r.forageType === forageType &&
+                    r.phase === phase &&
+                    (phase === 'ADAPTATION' ? r.dayNo === dayNo : (r.dayNo === null || r.dayNo === undefined))
+                )).sort((a, b) => Math.abs(a.wtMin - projectedWeight) - Math.abs(b.wtMin - projectedWeight)).slice(0, 3);
+
+                return {
+                    system: 'v2',
+                    blocked: true,
+                    error: err.message,
+                    forageType,
+                    headCount,
+                    avgWeight,
+                    avgProjectedWeight: projectedWeight,
+                    dayNo,
+                    plan,
+                    altResult,
+                    altForage,
+                    availableDiets,
+                    nearestBrackets
+                };
             }
             throw err;
         }
