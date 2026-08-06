@@ -15,7 +15,7 @@ const addDaysPKT = (dateStr, delta) => {
 export default function TMRCalculator() {
     const {
         feedIngredients, animals, staffUser, feedLogs, logFeed, deleteFeedLog,
-        pens, savePen, rationPlans, rationPlansV2, getPenRationRow, getPenWeightFlags, getIngredientStockPrice, getIngredientStockQty
+        pens, getPenRationRow, getPenWeightFlags, getIngredientStockPrice, getIngredientStockQty
     } = useContext(FarmContext);
     // Herd Management access (admin-configurable in Settings) is the real gate for editing
     // diets — the "Internal Corporate Staff" role is just an email-domain login role, so it's
@@ -58,35 +58,35 @@ export default function TMRCalculator() {
         return next;
     });
 
-    // Plan-driven lookup: resolves the pen's assigned Ration Plan + current week
-    // by matching its animals' average actual weight against each week's live-weight
-    // bracket (scaled by head count for the batch) for the selected logDate.
-    const resolvedPlanRow = selectedTMRPen !== 'all' ? getPenRationRow(selectedTMRPen, logDate) : null;
-    // A v2 pen with no matching bracket comes back as { blocked: true } rather than
-    // null (spec: never silently fall back to a nearby bracket) — that's a hard stop,
-    // not a plan-driven state, so it must never reach the ingredient-math below.
-    const isBlocked = !!resolvedPlanRow?.blocked;
-    const isPlanDriven = !!resolvedPlanRow && !isBlocked;
-
     // Early-warning: animals whose most recent weigh-in diverged >5% from what growth
     // should have predicted since their prior weigh-in — illness, underfeeding, or a bad
     // record. Purely informational here, doesn't affect the batch calculation.
     const penWeightFlags = selectedTMRPen !== 'all' ? getPenWeightFlags(selectedTMRPen) : [];
 
-    // Per-ingredient overrides for today's plan-driven batch only — never written back
-    // to the Ration Plan itself, so the schedule stays intact for every other pen/day.
-    const [planOverrides, setPlanOverrides] = useState({});
-    // Ingredients fed today that aren't part of the pen's assigned ration at all (e.g.
-    // a one-off substitution or top-up) — kept separate from planOverrides since these
-    // have no "planned" quantity to fall back to. Only ever cleared on save/pen/date
-    // change, never silently dropped, so what actually left the store is never lost.
-    const [extraIngredients, setExtraIngredients] = useState({});
-    const [addIngredientChoice, setAddIngredientChoice] = useState('');
+    // Per-ingredient overrides for today's plan-driven batch, keyed by pen id so every
+    // pen's editable table (single-pen view, or every pen's table stacked under "All")
+    // keeps its own independent edits — never written back to the Ration Plan itself,
+    // so the schedule stays intact for every other pen/day.
+    const [planOverridesByPen, setPlanOverridesByPen] = useState({});
+    // Ingredients fed today that aren't part of a pen's assigned ration at all (e.g. a
+    // one-off substitution or top-up) — kept separate from planOverridesByPen since
+    // these have no "planned" quantity to fall back to.
+    const [extraIngredientsByPen, setExtraIngredientsByPen] = useState({});
+    const [addIngredientChoiceByPen, setAddIngredientChoiceByPen] = useState({});
+    // Changing the logged date invalidates any in-progress "today's qty" edits for
+    // every pen — they were made against a specific day's batch.
     useEffect(() => {
-        setPlanOverrides({});
-        setExtraIngredients({});
-        setAddIngredientChoice('');
-    }, [selectedTMRPen, logDate, resolvedPlanRow?.plan?.id, resolvedPlanRow?.week?.week]);
+        setPlanOverridesByPen({});
+        setExtraIngredientsByPen({});
+        setAddIngredientChoiceByPen({});
+    }, [logDate]);
+
+    const getPlanOverrides = (penId) => planOverridesByPen[penId] || {};
+    const getExtraIngredients = (penId) => extraIngredientsByPen[penId] || {};
+    const getAddIngredientChoice = (penId) => addIngredientChoiceByPen[penId] || '';
+    const setAddIngredientChoice = (penId, value) => {
+        setAddIngredientChoiceByPen(prev => ({ ...prev, [penId]: value }));
+    };
 
     // 1. LOCAL UI STATE
     const [animalsCount, setAnimalsCount] = useState(activeHerdCount || 1);
@@ -185,146 +185,169 @@ export default function TMRCalculator() {
     // straight from the Ration Plan's weekly schedule (no moisture/DM conversion — small
     // quantities like urea or minerals matter, so nothing here is rounded to whole kg;
     // decimals are preserved all the way through to the batch table and feed log).
-    // Plan-driven quantities are already as-fed kg/head/day straight from the Ration
-    // Plan's weekly schedule — just scale by head count, keeping full decimal precision.
     // Price is always the live weighted-average rate from the Feed Stock ledger — nothing
     // is typed in per plan. Legacy ingredients with no matching stock item fall back to
     // whatever static price they were last saved with.
-    const planIngredientRows = isPlanDriven
-        ? Object.entries(resolvedPlanRow.week.ingredients).map(([id, qty]) => {
-            const ing = feedIngredients.find(i => i.id === id || i.name.toLowerCase() === id.toLowerCase() || (id === 'wanda' && i.name.toLowerCase().includes('wanda')))
-                || { id, name: id.charAt(0).toUpperCase() + id.slice(1), price: 0 };
-            const stockPrice = getIngredientStockPrice(id);
-            const price = (stockPrice !== null && stockPrice > 0) ? stockPrice : (ing.price || 0);
-            const qtyPerHead = planOverrides[id] !== undefined ? planOverrides[id] : qty;
-            return {
-                id,
-                name: ing.name,
-                price,
-                planQty: qty,
-                qtyPerHead,
-                isOverridden: planOverrides[id] !== undefined,
-                wetBatch: qtyPerHead * animalsCount,
-                costSingle: qtyPerHead * price
-            };
-        })
-        : [];
+    //
+    // Resolves everything needed to render + edit + log a single pen's batch for
+    // `logDate`. Pulled out into one function (instead of a pile of pen-scoped
+    // top-level variables) so the exact same math/editing model can be used both for
+    // the single selected pen and for every pen's own card when "All" is selected —
+    // each pen keeps its own overrides/extras (via planOverridesByPen/extraIngredientsByPen)
+    // and its own resolved plan, so editing one pen never touches another's batch.
+    // `headCountOverride` lets the single-pen view size the batch off the user-editable
+    // "Calves" input instead of the pen's registered head count (e.g. for pens not yet
+    // fully logged in the system); per-pen cards under "All" always use the real headcount.
+    const computePenBatch = (penId, headCountOverride) => {
+        const resolvedPlanRow = getPenRationRow(penId, logDate);
+        const isBlocked = !!resolvedPlanRow?.blocked;
+        const isPlanDriven = !!resolvedPlanRow && !isBlocked;
+        const headCount = headCountOverride != null ? headCountOverride : (resolvedPlanRow?.headCount || 0);
+        const overrides = getPlanOverrides(penId);
+        const extras = getExtraIngredients(penId);
 
-    // Ingredients added on top of the plan for today only — not part of the pen's
-    // Ration Plan at all (planQty is always 0, so they always count as a diet
-    // difference). Any ingredient with real stock can be picked, not just what's
-    // already scheduled — a one-off substitution or top-up shouldn't require editing
-    // the Ration Plan itself.
-    const extraIngredientRows = isPlanDriven
-        ? Object.entries(extraIngredients).map(([id, qty]) => {
-            const ing = feedIngredients.find(i => i.id === id) || { id, name: id, price: 0 };
-            const stockPrice = getIngredientStockPrice(id);
-            const price = (stockPrice !== null && stockPrice > 0) ? stockPrice : (ing.price || 0);
-            const qtyPerHead = parseFloat(qty) || 0;
-            return {
-                id,
-                name: ing.name,
-                price,
-                planQty: 0,
-                qtyPerHead,
-                isOverridden: true,
-                isExtra: true,
-                wetBatch: qtyPerHead * animalsCount,
-                costSingle: qtyPerHead * price
-            };
-        })
-        : [];
+        const planIngredientRows = isPlanDriven
+            ? Object.entries(resolvedPlanRow.week.ingredients).map(([id, qty]) => {
+                const ing = feedIngredients.find(i => i.id === id || i.name.toLowerCase() === id.toLowerCase() || (id === 'wanda' && i.name.toLowerCase().includes('wanda')))
+                    || { id, name: id.charAt(0).toUpperCase() + id.slice(1), price: 0 };
+                const stockPrice = getIngredientStockPrice(id);
+                const price = (stockPrice !== null && stockPrice > 0) ? stockPrice : (ing.price || 0);
+                const qtyPerHead = overrides[id] !== undefined ? overrides[id] : qty;
+                return {
+                    id,
+                    name: ing.name,
+                    price,
+                    planQty: qty,
+                    qtyPerHead,
+                    isOverridden: overrides[id] !== undefined,
+                    wetBatch: qtyPerHead * headCount,
+                    costSingle: qtyPerHead * price
+                };
+            })
+            : [];
 
-    // Ingredients with real stock, not already part of today's plan or already added,
-    // available to pick from for a one-off substitution/top-up.
-    const availableExtraIngredients = feedIngredients.filter(i =>
-        !planIngredientRows.some(r => r.id === i.id) &&
-        !(i.id in extraIngredients) &&
-        (getIngredientStockQty(i.id) === null || getIngredientStockQty(i.id) > 0)
-    );
+        // Ingredients added on top of the plan for today only — not part of the pen's
+        // Ration Plan at all (planQty is always 0, so they always count as a diet
+        // difference). Any ingredient with real stock can be picked, not just what's
+        // already scheduled — a one-off substitution or top-up shouldn't require editing
+        // the Ration Plan itself.
+        const extraIngredientRows = isPlanDriven
+            ? Object.entries(extras).map(([id, qty]) => {
+                const ing = feedIngredients.find(i => i.id === id) || { id, name: id, price: 0 };
+                const stockPrice = getIngredientStockPrice(id);
+                const price = (stockPrice !== null && stockPrice > 0) ? stockPrice : (ing.price || 0);
+                const qtyPerHead = parseFloat(qty) || 0;
+                return {
+                    id,
+                    name: ing.name,
+                    price,
+                    planQty: 0,
+                    qtyPerHead,
+                    isOverridden: true,
+                    isExtra: true,
+                    wetBatch: qtyPerHead * headCount,
+                    costSingle: qtyPerHead * price
+                };
+            })
+            : [];
 
-    const handleAddExtraIngredient = () => {
-        if (!addIngredientChoice) return;
-        setExtraIngredients(prev => ({ ...prev, [addIngredientChoice]: 0 }));
-        setAddIngredientChoice('');
+        // Ingredients with real stock, not already part of today's plan or already added,
+        // available to pick from for a one-off substitution/top-up.
+        const availableExtraIngredients = feedIngredients.filter(i =>
+            !planIngredientRows.some(r => r.id === i.id) &&
+            !(i.id in extras) &&
+            (getIngredientStockQty(i.id) === null || getIngredientStockQty(i.id) > 0)
+        );
+
+        // Display array feeding the batch table / tractor mode / feed log below.
+        const displayIngredients = isPlanDriven
+            ? [...planIngredientRows, ...extraIngredientRows].map(r => ({
+                id: r.id,
+                name: r.name,
+                dmTarget: r.qtyPerHead,
+                wetSingle: r.qtyPerHead,
+                wetBatch: r.wetBatch,
+                costSingle: r.costSingle,
+                price: r.price,
+                planQty: r.planQty,
+                isOverridden: r.isOverridden,
+                isExtra: !!r.isExtra
+            }))
+            : [];
+
+        const totalDM = displayIngredients.reduce((sum, ing) => sum + ing.dmTarget, 0);
+        const totalBatchWeight = displayIngredients.reduce((sum, ing) => sum + ing.wetBatch, 0);
+        const totalCostSingle = displayIngredients.reduce((sum, ing) => sum + ing.costSingle, 0);
+
+        // True the instant any ingredient's fed quantity today doesn't match what the
+        // Ration Plan calls for — an overridden quantity or a substituted/added ingredient.
+        // Drives the mandatory note on save and the flag shown in Recent Feed History /
+        // Feed Stock's Issues by Pen, so a deviation is never silently invisible later.
+        const dietDiffered = planIngredientRows.some(r => r.isOverridden) || extraIngredientRows.length > 0;
+
+        return {
+            resolvedPlanRow, isBlocked, isPlanDriven, headCount,
+            planIngredientRows, extraIngredientRows, availableExtraIngredients,
+            displayIngredients, totalDM, totalBatchWeight, totalCostSingle, dietDiffered
+        };
     };
 
-    const handleExtraIngredientQty = (id, value) => {
-        setExtraIngredients(prev => ({ ...prev, [id]: parseFloat(value) || 0 }));
+    // Editing is per-pen (keyed by penId) so the same handlers work for the single
+    // selected pen's table and for every pen's own table stacked under "All".
+    const handlePlanOverride = (penId, id, value) => {
+        setPlanOverridesByPen(prev => ({ ...prev, [penId]: { ...(prev[penId] || {}), [id]: parseFloat(value) || 0 } }));
     };
 
-    const handleRemoveExtraIngredient = (id) => {
-        setExtraIngredients(prev => {
-            const next = { ...prev };
+    const handleResetOverride = (penId, id) => {
+        setPlanOverridesByPen(prev => {
+            const next = { ...(prev[penId] || {}) };
             delete next[id];
-            return next;
+            return { ...prev, [penId]: next };
         });
     };
 
-    // Display array feeding the batch table / tractor mode / feed log below.
-    const displayIngredients = isPlanDriven
-        ? [...planIngredientRows, ...extraIngredientRows].map(r => ({
-            id: r.id,
-            name: r.name,
-            dmTarget: r.qtyPerHead,
-            wetSingle: r.qtyPerHead,
-            wetBatch: r.wetBatch,
-            costSingle: r.costSingle,
-            price: r.price,
-            planQty: r.planQty,
-            isOverridden: r.isOverridden,
-            isExtra: !!r.isExtra
-        }))
-        : [];
-
-    const totalDM = displayIngredients.reduce((sum, ing) => sum + ing.dmTarget, 0);
-    const totalBatchWeight = displayIngredients.reduce((sum, ing) => sum + ing.wetBatch, 0);
-    const totalCostSingle = displayIngredients.reduce((sum, ing) => sum + ing.costSingle, 0);
-
-    // True the instant any ingredient's fed quantity today doesn't match what the
-    // Ration Plan calls for — an overridden quantity or a substituted/added ingredient.
-    // Drives the mandatory note on save and the flag shown in Recent Feed History /
-    // Feed Stock's Issues by Pen, so a deviation is never silently invisible later.
-    const dietDiffered = planIngredientRows.some(r => r.isOverridden) || extraIngredientRows.length > 0;
-
-    const handlePlanOverride = (id, value) => {
-        setPlanOverrides(prev => ({ ...prev, [id]: parseFloat(value) || 0 }));
+    const handleAddExtraIngredient = (penId) => {
+        const choice = getAddIngredientChoice(penId);
+        if (!choice) return;
+        setExtraIngredientsByPen(prev => ({ ...prev, [penId]: { ...(prev[penId] || {}), [choice]: 0 } }));
+        setAddIngredientChoice(penId, '');
     };
 
-    const handleResetOverride = (id) => {
-        setPlanOverrides(prev => {
-            const next = { ...prev };
+    const handleExtraIngredientQty = (penId, id, value) => {
+        setExtraIngredientsByPen(prev => ({ ...prev, [penId]: { ...(prev[penId] || {}), [id]: parseFloat(value) || 0 } }));
+    };
+
+    const handleRemoveExtraIngredient = (penId, id) => {
+        setExtraIngredientsByPen(prev => {
+            const next = { ...(prev[penId] || {}) };
             delete next[id];
-            return next;
+            return { ...prev, [penId]: next };
         });
     };
 
-    // Quick diet assignment straight from the "All" pens view, so herd-access staff don't
-    // have to leave this page to attach/change a pen's Ration Plan — mirrors handlePenPlanChange
-    // in RationPlans.jsx (a pen points at exactly one of legacy rationPlanId / v2 planId).
-    const handleQuickPlanAssign = (penId, rawValue) => {
-        if (!isAdmin) return;
-        const existing = pens.find(p => p.id === penId) || { id: penId, rationPlanId: null, planId: null, cycleStartDate: null, forageType: 'silage', expectedExitDate: null, notes: '' };
-        if (!rawValue) {
-            savePen({ ...existing, rationPlanId: null, planId: null });
-            return;
-        }
-        const sep = rawValue.indexOf(':');
-        const kind = rawValue.slice(0, sep);
-        const id = rawValue.slice(sep + 1);
-        if (kind === 'v2') {
-            savePen({ ...existing, rationPlanId: null, planId: id });
-        } else {
-            savePen({ ...existing, rationPlanId: id, planId: null });
-        }
-    };
+    // Batch for whichever pen is currently selected in the filter bar (null when "All"
+    // is selected — that view renders every pen's own card via computePenBatch directly).
+    const selectedBatch = selectedTMRPen !== 'all' ? computePenBatch(selectedTMRPen, animalsCount) : null;
+    const resolvedPlanRow = selectedBatch?.resolvedPlanRow || null;
+    const isBlocked = selectedBatch?.isBlocked || false;
+    const isPlanDriven = selectedBatch?.isPlanDriven || false;
+    const planIngredientRows = selectedBatch?.planIngredientRows || [];
+    const extraIngredientRows = selectedBatch?.extraIngredientRows || [];
+    const availableExtraIngredients = selectedBatch?.availableExtraIngredients || [];
+    const displayIngredients = selectedBatch?.displayIngredients || [];
+    const totalDM = selectedBatch?.totalDM || 0;
+    const totalBatchWeight = selectedBatch?.totalBatchWeight || 0;
+    const totalCostSingle = selectedBatch?.totalCostSingle || 0;
+    const dietDiffered = selectedBatch?.dietDiffered || false;
 
-    // Snapshots the currently calculated batch (for the selected pen and date) into the
-    // immutable feed log — this records what was actually fed, distinct from the Ration
-    // Plan schedule itself, so later schedule edits never alter this day's history.
-    const handleLogFeed = () => {
-        if (!isPlanDriven) return;
-        const pen = selectedTMRPen;
+    // Snapshots a resolved+edited batch (for the given pen and date) into the immutable
+    // feed log — this records what was actually fed, distinct from the Ration Plan
+    // schedule itself, so later schedule edits never alter this day's history. Shared
+    // by the single selected-pen "Log This Feeding" button and each pen's own button
+    // when "All" is selected.
+    const logBatchForPen = (penId, batch, headCount) => {
+        if (!batch.isPlanDriven) return;
+        const resolvedPlanRow = batch.resolvedPlanRow;
         const isV2 = resolvedPlanRow.system === 'v2';
         const stageNote = isV2
             ? `${resolvedPlanRow.plan.name} v${resolvedPlanRow.plan.version}, bracket ${resolvedPlanRow.bracketMin}-${resolvedPlanRow.bracketMax}kg${resolvedPlanRow.phase === 'ADAPTATION' ? `, Adaptation Day ${resolvedPlanRow.dayNo}` : ', Steady State'}`
@@ -337,10 +360,10 @@ export default function TMRCalculator() {
         // Plan calls for — spell it out in the note itself (not just implied by a
         // flag) so anyone reading the feed log later, without cross-referencing the
         // plan, immediately knows the diet differed that day and by how much.
-        if (dietDiffered) {
+        if (batch.dietDiffered) {
             const deviations = [
-                ...planIngredientRows.filter(r => r.isOverridden).map(r => `${r.name} planned ${r.planQty.toFixed(2)}kg/head → fed ${r.qtyPerHead.toFixed(2)}kg/head`),
-                ...extraIngredientRows.map(r => `${r.name} added ${r.qtyPerHead.toFixed(2)}kg/head (not in plan)`)
+                ...batch.planIngredientRows.filter(r => r.isOverridden).map(r => `${r.name} planned ${r.planQty.toFixed(2)}kg/head → fed ${r.qtyPerHead.toFixed(2)}kg/head`),
+                ...batch.extraIngredientRows.map(r => `${r.name} added ${r.qtyPerHead.toFixed(2)}kg/head (not in plan)`)
             ];
             notes += ` — DIET DIFFERED FROM PLAN: ${deviations.join('; ')}`;
         }
@@ -352,10 +375,10 @@ export default function TMRCalculator() {
         // detect the same deviation without re-parsing the notes text.
         logFeed({
             date: logDate,
-            pen,
-            animalCount: animalsCount,
-            dietDiffered,
-            ingredients: displayIngredients.map(ing => ({
+            pen: penId,
+            animalCount: headCount,
+            dietDiffered: batch.dietDiffered,
+            ingredients: batch.displayIngredients.map(ing => ({
                 id: ing.id,
                 name: ing.name,
                 dmTarget: ing.dmTarget,
@@ -365,15 +388,21 @@ export default function TMRCalculator() {
                 costSingle: ing.costSingle,
                 plannedQtyKg: ing.planQty
             })),
-            totalDmKg: totalDM,
-            totalBatchKg: totalBatchWeight,
-            totalCost: totalCostSingle * animalsCount,
-            costPerAnimal: totalCostSingle,
+            totalDmKg: batch.totalDM,
+            totalBatchKg: batch.totalBatchWeight,
+            totalCost: batch.totalCostSingle * headCount,
+            costPerAnimal: batch.totalCostSingle,
             createdBy: staffUser?.email || staffUser?.name || null,
             notes
         });
         setLogSaved(true);
         setTimeout(() => setLogSaved(false), 2500);
+    };
+
+    const handleLogFeed = () => logBatchForPen(selectedTMRPen, selectedBatch, animalsCount);
+    const handleLogFeedForPen = (penId) => {
+        const batch = computePenBatch(penId);
+        logBatchForPen(penId, batch, batch.headCount);
     };
 
     // Shared with the "Feed All Pens" bulk log below — same provenance text as the
@@ -527,6 +556,180 @@ export default function TMRCalculator() {
         </div>
     );
 
+    // "All" pens view — stacks every active pen's own editable ration card (same
+    // ingredient table, overrides, "add an ingredient" and Log button as the single-pen
+    // view) so anyone with Herd Management access can edit and log any pen's feeding
+    // without switching the filter pen-by-pen. Each card is fully self-contained via
+    // computePenBatch(penId)/logBatchForPen — editing one pen never touches another's.
+    const renderAllPensCards = () => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+            {activePens.map(penId => {
+                const batch = computePenBatch(penId);
+                const overrideAddChoice = getAddIngredientChoice(penId);
+
+                if (batch.isBlocked) {
+                    return (
+                        <div key={penId} class="glass-panel" style={{ borderTop: '4px solid hsl(0,75%,55%)', padding: '1.2rem 1.5rem' }}>
+                            <h3 class="panel-title" style={{ marginBottom: '0.4rem', color: 'hsl(0,75%,65%)' }}>
+                                <i class="fa-solid fa-ban"></i> Feeding Blocked — Pen {penId}
+                            </h3>
+                            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>{batch.resolvedPlanRow.error}</p>
+                        </div>
+                    );
+                }
+
+                if (!batch.isPlanDriven) {
+                    return (
+                        <div key={penId} class="glass-panel" style={{ padding: '1.2rem 1.5rem' }}>
+                            <h3 class="panel-title" style={{ marginBottom: '0.4rem' }}>No Ration Plan Assigned — Pen {penId}</h3>
+                            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>
+                                Nothing to feed or calculate here. Assign one under Ration Plans → Pen Assignment.
+                            </p>
+                        </div>
+                    );
+                }
+
+                const resolved = batch.resolvedPlanRow;
+                return (
+                    <div key={penId} class="glass-panel" style={{ borderTop: '4px solid var(--primary-green-light)' }}>
+                        <h3 class="panel-title" style={{ marginBottom: '0.6rem' }}><i class="fa-solid fa-clipboard-check"></i> Plan-Driven Ration — Pen {penId}</h3>
+                        <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0.7rem 0.9rem', marginBottom: '1rem' }}>
+                            <div style={{ fontWeight: '700', color: 'var(--text-pure)', fontSize: '0.88rem' }}>
+                                {resolved.system === 'v2' ? (
+                                    <>{resolved.plan.name} v{resolved.plan.version} — Bracket {resolved.bracketMin}–{resolved.bracketMax}kg</>
+                                ) : (
+                                    <>{resolved.plan.name} — {resolved.usesAdaptationTable ? `Adaptation Day ${resolved.adaptationDay} of 7` : `Week ${resolved.week.week}`}</>
+                                )}
+                                <span style={{ marginLeft: '0.5rem', color: '#4a90d9', fontSize: '0.68rem', border: '1px solid rgba(74,144,217,0.3)', borderRadius: '4px', padding: '0.1rem 0.4rem' }}>
+                                    {resolved.forageType === 'chari' ? 'CHARI' : 'SILAGE'}
+                                </span>
+                                {resolved.system === 'v2' && (
+                                    <span style={{ marginLeft: '0.5rem', color: resolved.phase === 'ADAPTATION' ? 'var(--accent-gold)' : 'var(--primary-green-light)', fontSize: '0.72rem' }}>
+                                        {resolved.phase === 'ADAPTATION' ? `DAY ${resolved.dayNo} (ADAPTATION)` : 'STEADY STATE'}
+                                    </span>
+                                )}
+                            </div>
+                            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                                {batch.headCount} head{resolved.daysOnFeed != null && <>{' · '}Day {resolved.daysOnFeed} on feed</>}
+                            </div>
+                        </div>
+
+                        <div class="table-wrapper">
+                            <table class="data-table" style={{ fontSize: '0.85rem' }}>
+                                <thead>
+                                    <tr>
+                                        <th>INGREDIENT</th>
+                                        <th>PLAN QTY (KG/HEAD/DAY)</th>
+                                        <th>TODAY'S QTY</th>
+                                        <th style={{ width: '60px', textAlign: 'center' }}>RESET</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {batch.planIngredientRows.map(row => (
+                                        <tr key={row.id}>
+                                            <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{row.name}</td>
+                                            <td>{row.planQty.toFixed(3)} kg</td>
+                                            <td>
+                                                <input
+                                                    type="number"
+                                                    step="0.001"
+                                                    className="form-control"
+                                                    style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: row.isOverridden ? 'var(--accent-gold)' : 'inherit' }}
+                                                    value={row.qtyPerHead}
+                                                    onChange={(e) => handlePlanOverride(penId, row.id, e.target.value)}
+                                                    disabled={!isAdmin}
+                                                />
+                                            </td>
+                                            <td style={{ textAlign: 'center' }}>
+                                                {row.isOverridden ? (
+                                                    <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => handleResetOverride(penId, row.id)} title="Reset to plan quantity">
+                                                        <i class="fa-solid fa-rotate-left"></i>
+                                                    </button>
+                                                ) : (
+                                                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>—</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {batch.extraIngredientRows.map(row => (
+                                        <tr key={row.id} style={{ background: 'rgba(212,175,55,0.06)' }}>
+                                            <td style={{ fontWeight: '600', color: 'var(--accent-gold)' }}>
+                                                {row.name} <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '400' }}>(added, not in plan)</span>
+                                            </td>
+                                            <td>—</td>
+                                            <td>
+                                                <input
+                                                    type="number"
+                                                    step="0.001"
+                                                    className="form-control"
+                                                    style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: 'var(--accent-gold)' }}
+                                                    value={row.qtyPerHead}
+                                                    onChange={(e) => handleExtraIngredientQty(penId, row.id, e.target.value)}
+                                                    disabled={!isAdmin}
+                                                />
+                                            </td>
+                                            <td style={{ textAlign: 'center' }}>
+                                                <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => handleRemoveExtraIngredient(penId, row.id)} title="Remove this ingredient">
+                                                    <i class="fa-solid fa-xmark"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {isAdmin && batch.availableExtraIngredients.length > 0 && (
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.8rem', flexWrap: 'wrap' }}>
+                                <select
+                                    class="form-control"
+                                    style={{ minHeight: '34px', height: '34px', fontSize: '0.82rem', maxWidth: '260px' }}
+                                    value={overrideAddChoice}
+                                    onChange={(e) => setAddIngredientChoice(penId, e.target.value)}
+                                >
+                                    <option value="">Substitute / add an ingredient not in this plan…</option>
+                                    {batch.availableExtraIngredients.map(i => {
+                                        const stockQty = getIngredientStockQty(i.id);
+                                        return <option key={i.id} value={i.id}>{i.name}{stockQty !== null ? ` (${stockQty.toFixed(2)}kg in stock)` : ''}</option>;
+                                    })}
+                                </select>
+                                <button type="button" class="btn btn-secondary btn-sm" onClick={() => handleAddExtraIngredient(penId)} disabled={!overrideAddChoice}>
+                                    <i class="fa-solid fa-circle-plus"></i> Add
+                                </button>
+                            </div>
+                        )}
+
+                        {batch.dietDiffered && (
+                            <div style={{ background: 'rgba(212,175,55,0.1)', border: '1px solid rgba(212,175,55,0.3)', borderRadius: '8px', padding: '0.6rem 0.9rem', marginTop: '1rem', fontSize: '0.78rem', color: 'var(--accent-gold)' }}>
+                                <i class="fa-solid fa-triangle-exclamation"></i> Today's feeding differs from the Ration Plan — this will be recorded in the feed log's notes.
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1rem', marginTop: '1rem' }}>
+                            <div>
+                                <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total batch to mix</span>
+                                <strong style={{ fontSize: '1.2rem', color: 'var(--accent-gold)', fontFamily: 'var(--font-heading)' }}>{batch.totalBatchWeight.toFixed(2)} kg</strong>
+                                {isSuperAdmin && (
+                                    <span style={{ marginLeft: '0.6rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                        ({Math.round(batch.totalCostSingle * batch.headCount).toLocaleString()} PKR)
+                                    </span>
+                                )}
+                            </div>
+                            <button type="button" class="btn btn-primary btn-sm" onClick={() => handleLogFeedForPen(penId)}>
+                                <i class="fa-solid fa-clipboard-check"></i> Log This Feeding (Pen {penId})
+                            </button>
+                        </div>
+                    </div>
+                );
+            })}
+            {logSaved && (
+                <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
+                    <i class="fa-solid fa-circle-check"></i> Feed logged for {formatDate(logDate)}.
+                </span>
+            )}
+        </div>
+    );
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
 
@@ -537,7 +740,9 @@ export default function TMRCalculator() {
                     or an empty-state prompt when no plan is attached — rations are never set here */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
 
-                    {isBlocked ? (
+                    {selectedTMRPen === 'all' ? (
+                        renderAllPensCards()
+                    ) : isBlocked ? (
                         <div class="glass-panel" style={{ borderTop: '4px solid hsl(0,75%,55%)', textAlign: 'center', padding: '2.5rem 1.5rem' }}>
                             <i class="fa-solid fa-ban" style={{ fontSize: '2rem', color: 'hsl(0,75%,60%)', marginBottom: '1rem' }}></i>
                             <h3 class="panel-title" style={{ justifyContent: 'center', marginBottom: '0.5rem', color: 'hsl(0,75%,65%)' }}>
@@ -630,13 +835,13 @@ export default function TMRCalculator() {
                                                         className="form-control"
                                                         style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: row.isOverridden ? 'var(--accent-gold)' : 'inherit' }}
                                                         value={row.qtyPerHead}
-                                                        onChange={(e) => handlePlanOverride(row.id, e.target.value)}
+                                                        onChange={(e) => handlePlanOverride(selectedTMRPen, row.id, e.target.value)}
                                                         disabled={!isAdmin}
                                                     />
                                                 </td>
                                                 <td style={{ textAlign: 'center' }}>
                                                     {row.isOverridden ? (
-                                                        <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => handleResetOverride(row.id)} title="Reset to plan quantity">
+                                                        <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => handleResetOverride(selectedTMRPen, row.id)} title="Reset to plan quantity">
                                                             <i class="fa-solid fa-rotate-left"></i>
                                                         </button>
                                                     ) : (
@@ -658,12 +863,12 @@ export default function TMRCalculator() {
                                                         className="form-control"
                                                         style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: 'var(--accent-gold)' }}
                                                         value={row.qtyPerHead}
-                                                        onChange={(e) => handleExtraIngredientQty(row.id, e.target.value)}
+                                                        onChange={(e) => handleExtraIngredientQty(selectedTMRPen, row.id, e.target.value)}
                                                         disabled={!isAdmin}
                                                     />
                                                 </td>
                                                 <td style={{ textAlign: 'center' }}>
-                                                    <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => handleRemoveExtraIngredient(row.id)} title="Remove this ingredient">
+                                                    <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => handleRemoveExtraIngredient(selectedTMRPen, row.id)} title="Remove this ingredient">
                                                         <i class="fa-solid fa-xmark"></i>
                                                     </button>
                                                 </td>
@@ -678,8 +883,8 @@ export default function TMRCalculator() {
                                     <select
                                         class="form-control"
                                         style={{ minHeight: '34px', height: '34px', fontSize: '0.82rem', maxWidth: '260px' }}
-                                        value={addIngredientChoice}
-                                        onChange={(e) => setAddIngredientChoice(e.target.value)}
+                                        value={getAddIngredientChoice(selectedTMRPen)}
+                                        onChange={(e) => setAddIngredientChoice(selectedTMRPen, e.target.value)}
                                     >
                                         <option value="">Substitute / add an ingredient not in this plan…</option>
                                         {availableExtraIngredients.map(i => {
@@ -687,7 +892,7 @@ export default function TMRCalculator() {
                                             return <option key={i.id} value={i.id}>{i.name}{stockQty !== null ? ` (${stockQty.toFixed(2)}kg in stock)` : ''}</option>;
                                         })}
                                     </select>
-                                    <button type="button" class="btn btn-secondary btn-sm" onClick={handleAddExtraIngredient} disabled={!addIngredientChoice}>
+                                    <button type="button" class="btn btn-secondary btn-sm" onClick={() => handleAddExtraIngredient(selectedTMRPen)} disabled={!getAddIngredientChoice(selectedTMRPen)}>
                                         <i class="fa-solid fa-circle-plus"></i> Add
                                     </button>
                                 </div>
@@ -703,60 +908,6 @@ export default function TMRCalculator() {
                                 <i class="fa-solid fa-circle-info"></i> Overrides/additions here apply to today's logged feeding only — the Ration Plan schedule itself is unchanged. Manage the schedule from Ration Plans.
                             </p>
                         </div>
-                    ) : selectedTMRPen === 'all' && isAdmin ? (
-                        /* Quick diet assign from the "All" pens view — still just writes to the
-                           same pen.rationPlanId/planId that Ration Plans → Pen Assignment does,
-                           so nothing is fed without a plan; this just saves a trip to that page. */
-                        <div class="glass-panel">
-                            <i class="fa-solid fa-clipboard-list" style={{ fontSize: '1.6rem', color: 'var(--text-muted)', marginBottom: '0.6rem' }}></i>
-                            <h3 class="panel-title" style={{ marginBottom: '0.3rem' }}>Select a Pen, or Assign a Diet Below</h3>
-                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-                                Choose a pen above to feed, or assign/change a Ration Plan for any pen right here.
-                            </p>
-                            <div class="table-wrapper">
-                                <table class="data-table" style={{ fontSize: '0.85rem' }}>
-                                    <thead>
-                                        <tr>
-                                            <th>PEN</th>
-                                            <th>HEAD COUNT</th>
-                                            <th>ASSIGNED PLAN</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {activePens.map(p => {
-                                            const penConfig = pens.find(pc => pc.id === p) || {};
-                                            const penCount = animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased' && a.pen === p).length;
-                                            return (
-                                                <tr key={p}>
-                                                    <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>Pen {p}</td>
-                                                    <td>{penCount}</td>
-                                                    <td>
-                                                        <select
-                                                            class="form-control"
-                                                            style={{ minHeight: '32px', height: '32px', padding: '0.2rem 0.5rem' }}
-                                                            value={penConfig.planId ? `v2:${penConfig.planId}` : (penConfig.rationPlanId ? `legacy:${penConfig.rationPlanId}` : '')}
-                                                            onChange={e => handleQuickPlanAssign(p, e.target.value)}
-                                                        >
-                                                            <option value="">— No plan —</option>
-                                                            <optgroup label="Imported Plans (v2)">
-                                                                {rationPlansV2.map(plan => (
-                                                                    <option key={plan.id} value={`v2:${plan.id}`}>{plan.name} v{plan.version}</option>
-                                                                ))}
-                                                            </optgroup>
-                                                            <optgroup label="Legacy Plans">
-                                                                {rationPlans.map(plan => (
-                                                                    <option key={plan.id} value={`legacy:${plan.id}`}>{plan.name}</option>
-                                                                ))}
-                                                            </optgroup>
-                                                        </select>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
                     ) : (
                         /* Rations are only ever set by a Ration Plan (under Ration Plans) — this
                            page never allows a manual/global recipe. Nothing to feed or calculate
@@ -764,12 +915,10 @@ export default function TMRCalculator() {
                         <div class="glass-panel" style={{ textAlign: 'center', padding: '2.5rem 1.5rem' }}>
                             <i class="fa-solid fa-clipboard-list" style={{ fontSize: '2rem', color: 'var(--text-muted)', marginBottom: '1rem' }}></i>
                             <h3 class="panel-title" style={{ justifyContent: 'center', marginBottom: '0.5rem' }}>
-                                {selectedTMRPen === 'all' ? 'Select a Pen' : `No Ration Plan Assigned — Pen ${selectedTMRPen}`}
+                                No Ration Plan Assigned — Pen {selectedTMRPen}
                             </h3>
                             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '440px', margin: '0 auto' }}>
-                                {selectedTMRPen === 'all'
-                                    ? 'Choose a pen above to feed. Every ration comes from a Ration Plan — nothing is fed without one.'
-                                    : 'This pen has no Ration Plan attached, so there\'s nothing to feed or calculate here. Assign one under Ration Plans → Pen Assignment.'}
+                                This pen has no Ration Plan attached, so there's nothing to feed or calculate here. Assign one under Ration Plans → Pen Assignment.
                             </p>
                         </div>
                     )}
@@ -913,6 +1062,10 @@ export default function TMRCalculator() {
                                         )}
                                     </div>
                                 </>
+                            ) : selectedTMRPen === 'all' ? (
+                                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1.5rem 0' }}>
+                                    Editing every pen at once — see each pen's own ration card on the left. Each has its own quantities, add-ingredient option, and "Log This Feeding" button.
+                                </p>
                             ) : (
                                 <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1.5rem 0' }}>
                                     Nothing to calculate yet — select a pen with an assigned Ration Plan.
