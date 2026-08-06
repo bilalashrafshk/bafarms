@@ -88,6 +88,30 @@ export default function TMRCalculator() {
         setAddIngredientChoiceByPen(prev => ({ ...prev, [penId]: value }));
     };
 
+    // Multi-feeding split state: 1, 2, or 3 feedings per day with custom percentage split
+    const [numFeedings, setNumFeedings] = useState(1); // 1, 2, or 3
+    const [feedingSplits, setFeedingSplits] = useState({
+        2: [50, 50],
+        3: [40, 30, 30]
+    });
+    const [activeFeedingIndex, setActiveFeedingIndex] = useState(0); // 0 = Full Day (100%), 1 = Feeding 1, 2 = Feeding 2, 3 = Feeding 3
+
+    const activeSplitList = numFeedings === 1 ? [100] : (feedingSplits[numFeedings] || (numFeedings === 2 ? [50, 50] : [40, 30, 30]));
+    const totalSplitPct = activeSplitList.reduce((a, b) => a + (parseFloat(b) || 0), 0);
+    const activeFeedingPct = activeFeedingIndex === 0
+        ? 100
+        : (parseFloat(activeSplitList[activeFeedingIndex - 1]) || (100 / numFeedings));
+    const activeFeedingScale = activeFeedingIndex === 0 ? 1.0 : (activeFeedingPct / 100);
+
+    const handleSplitPctChange = (feedingNumIdx, value) => {
+        const val = Math.max(0, Math.min(100, parseFloat(value) || 0));
+        setFeedingSplits(prev => {
+            const list = [...(prev[numFeedings] || (numFeedings === 2 ? [50, 50] : [40, 30, 30]))];
+            list[feedingNumIdx] = val;
+            return { ...prev, [numFeedings]: list };
+        });
+    };
+
     // 1. LOCAL UI STATE
     const [animalsCount, setAnimalsCount] = useState(activeHerdCount || 1);
 
@@ -382,6 +406,10 @@ export default function TMRCalculator() {
         // log preserves provenance — what the plan said to feed vs. what was actually
         // fed, per ingredient — and downstream views (Feed Stock's Issues by Pen) can
         // detect the same deviation without re-parsing the notes text.
+        if (activeFeedingIndex > 0) {
+            notes += ` — FEEDING ${activeFeedingIndex} OF ${numFeedings} (${activeFeedingPct}%)`;
+        }
+
         logFeed({
             date: logDate,
             pen: penId,
@@ -390,17 +418,17 @@ export default function TMRCalculator() {
             ingredients: batch.displayIngredients.map(ing => ({
                 id: ing.id,
                 name: ing.name,
-                dmTarget: ing.dmTarget,
+                dmTarget: ing.dmTarget * activeFeedingScale,
                 price: ing.price,
-                wetSingle: ing.wetSingle,
-                wetBatch: ing.wetBatch,
-                costSingle: ing.costSingle,
-                plannedQtyKg: ing.planQty
+                wetSingle: ing.wetSingle * activeFeedingScale,
+                wetBatch: ing.wetBatch * activeFeedingScale,
+                costSingle: ing.costSingle * activeFeedingScale,
+                plannedQtyKg: ing.planQty * activeFeedingScale
             })),
-            totalDmKg: batch.totalDM,
-            totalBatchKg: batch.totalBatchWeight,
-            totalCost: batch.totalCostSingle * headCount,
-            costPerAnimal: batch.totalCostSingle,
+            totalDmKg: batch.totalDM * activeFeedingScale,
+            totalBatchKg: batch.totalBatchWeight * activeFeedingScale,
+            totalCost: batch.totalCostSingle * headCount * activeFeedingScale,
+            costPerAnimal: batch.totalCostSingle * activeFeedingScale,
             createdBy: staffUser?.email || staffUser?.name || null,
             notes
         });
@@ -1313,6 +1341,83 @@ export default function TMRCalculator() {
                                 </div>
                             </div>
 
+                            {/* Daily Feeding Schedule Split Selector */}
+                            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', padding: '0.8rem 1rem', marginBottom: '1.2rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem', marginBottom: numFeedings > 1 ? '0.6rem' : 0 }}>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-pure)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                        <i className="fa-solid fa-clock-rotate-left" style={{ color: 'var(--accent-gold)' }}></i> Daily Feeding Schedule
+                                    </span>
+                                    <div style={{ display: 'flex', gap: '0.3rem' }}>
+                                        {[1, 2, 3].map(n => (
+                                            <button
+                                                key={n}
+                                                type="button"
+                                                className={`filter-btn ${numFeedings === n ? 'active' : ''}`}
+                                                style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', minHeight: '28px' }}
+                                                onClick={() => {
+                                                    setNumFeedings(n);
+                                                    setActiveFeedingIndex(0);
+                                                }}
+                                            >
+                                                {n} {n === 1 ? 'Feeding (100%)' : 'Feedings'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {numFeedings > 1 && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', background: 'rgba(0,0,0,0.2)', padding: '0.6rem 0.8rem', borderRadius: '8px', marginBottom: '0.6rem' }}>
+                                        <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: '600' }}>Custom Split (%):</span>
+                                        {activeSplitList.map((pct, idx) => (
+                                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-pure)' }}>Feed {idx + 1}:</span>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    max="100"
+                                                    className="form-control"
+                                                    style={{ width: '60px', height: '28px', minHeight: '28px', padding: '0.1rem 0.4rem', fontSize: '0.8rem', textAlign: 'center' }}
+                                                    value={pct}
+                                                    onChange={(e) => handleSplitPctChange(idx, e.target.value)}
+                                                />
+                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>%</span>
+                                            </div>
+                                        ))}
+                                        <span style={{ fontSize: '0.72rem', fontWeight: '700', marginLeft: 'auto', color: totalSplitPct === 100 ? 'var(--primary-green-light)' : 'hsl(0,75%,65%)' }}>
+                                            Total: {totalSplitPct}% {totalSplitPct !== 100 && '(must = 100%)'}
+                                        </span>
+                                    </div>
+                                )}
+
+                                {numFeedings > 1 && (
+                                    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.4rem' }}>
+                                        <button
+                                            type="button"
+                                            className={`filter-btn ${activeFeedingIndex === 0 ? 'active' : ''}`}
+                                            style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', minHeight: '26px' }}
+                                            onClick={() => setActiveFeedingIndex(0)}
+                                        >
+                                            Full Day Total (100%)
+                                        </button>
+                                        {activeSplitList.map((pct, idx) => {
+                                            const feedNum = idx + 1;
+                                            const label = numFeedings === 2 ? (feedNum === 1 ? 'Morning' : 'Evening') : (feedNum === 1 ? 'Morning' : feedNum === 2 ? 'Afternoon' : 'Evening');
+                                            return (
+                                                <button
+                                                    key={feedNum}
+                                                    type="button"
+                                                    className={`filter-btn ${activeFeedingIndex === feedNum ? 'active' : ''}`}
+                                                    style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', minHeight: '26px' }}
+                                                    onClick={() => setActiveFeedingIndex(feedNum)}
+                                                >
+                                                    Feeding {feedNum} ({label} — {pct}%)
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
                             {/* Batch Sizing and Filter bar inline */}
                             <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', background: 'rgba(0, 0, 0, 0.15)', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)', marginBottom: '1.2rem', flexWrap: 'wrap' }}>
                                 {activePens.length > 0 && (
@@ -1374,18 +1479,18 @@ export default function TMRCalculator() {
                                                 {displayIngredients.map(ing => (
                                                     <tr key={ing.id}>
                                                         <td><strong>{ing.name}</strong>{ing.isExtra && <span style={{ marginLeft: '0.4rem', fontSize: '0.65rem', color: 'var(--accent-gold)' }}>ADDED</span>}</td>
-                                                        <td>{ing.dmTarget.toFixed(2)} kg</td>
-                                                        <td>{ing.wetSingle.toFixed(2)} kg</td>
-                                                        <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{ing.wetBatch.toFixed(2)} kg</strong></td>
-                                                        {isSuperAdmin && <td>{Math.round(ing.costSingle * animalsCount).toLocaleString()} PKR</td>}
+                                                        <td>{(ing.dmTarget * activeFeedingScale).toFixed(2)} kg</td>
+                                                        <td>{(ing.wetSingle * activeFeedingScale).toFixed(2)} kg</td>
+                                                        <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{(ing.wetBatch * activeFeedingScale).toFixed(2)} kg</strong></td>
+                                                        {isSuperAdmin && <td>{Math.round(ing.costSingle * animalsCount * activeFeedingScale).toLocaleString()} PKR</td>}
                                                     </tr>
                                                 ))}
                                                 <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
                                                     <td><strong>Total Feed Mix</strong></td>
-                                                    <td><strong>{totalDM.toFixed(2)} kg</strong></td>
-                                                    <td><strong>{displayIngredients.reduce((sum, ing) => sum + ing.wetSingle, 0).toFixed(2)} kg</strong></td>
-                                                    <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{totalBatchWeight.toFixed(2)} kg</strong></td>
-                                                    {isSuperAdmin && <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(totalCostSingle * animalsCount).toLocaleString()} PKR</strong></td>}
+                                                    <td><strong>{(totalDM * activeFeedingScale).toFixed(2)} kg</strong></td>
+                                                    <td><strong>{(displayIngredients.reduce((sum, ing) => sum + ing.wetSingle, 0) * activeFeedingScale).toFixed(2)} kg</strong></td>
+                                                    <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{(totalBatchWeight * activeFeedingScale).toFixed(2)} kg</strong></td>
+                                                    {isSuperAdmin && <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(totalCostSingle * animalsCount * activeFeedingScale).toLocaleString()} PKR</strong></td>}
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -1395,14 +1500,16 @@ export default function TMRCalculator() {
                                         pen-level staff logging feed only need the weight to mix. */}
                                     <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.2rem', alignItems: 'center' }}>
                                         <div>
-                                            <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total batch to mix</span>
+                                            <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                                {activeFeedingIndex > 0 ? `Target for Feeding ${activeFeedingIndex} of ${numFeedings} (${activeFeedingPct}%)` : 'Total batch to mix'}
+                                            </span>
                                             <strong style={{ fontSize: '1.4rem', color: 'var(--accent-gold)', fontFamily: 'var(--font-heading)' }}>
-                                                {totalBatchWeight.toFixed(2)} kg
+                                                {(totalBatchWeight * activeFeedingScale).toFixed(2)} kg
                                             </strong>
                                             {isSuperAdmin && (
                                                 <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                                                    Cost: <strong style={{ color: 'var(--accent-gold)' }}>{Math.round(totalCostSingle * animalsCount).toLocaleString()} PKR</strong>
-                                                    {' '}({Math.round(totalCostSingle).toLocaleString()} PKR/head)
+                                                    Cost: <strong style={{ color: 'var(--accent-gold)' }}>{Math.round(totalCostSingle * animalsCount * activeFeedingScale).toLocaleString()} PKR</strong>
+                                                    {' '}({Math.round(totalCostSingle * activeFeedingScale).toLocaleString()} PKR/head)
                                                 </span>
                                             )}
                                         </div>
@@ -1474,16 +1581,16 @@ export default function TMRCalculator() {
                                                             {allPensAggregateIngredients.map(ing => (
                                                                 <tr key={ing.id}>
                                                                     <td><strong>{ing.name}</strong></td>
-                                                                    <td>{ing.avgPerHead.toFixed(3)} kg</td>
-                                                                    <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{ing.wetBatch.toFixed(2)} kg</strong></td>
-                                                                    {isSuperAdmin && <td>{Math.round(ing.cost).toLocaleString()} PKR</td>}
+                                                                    <td>{(ing.avgPerHead * activeFeedingScale).toFixed(3)} kg</td>
+                                                                    <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{(ing.wetBatch * activeFeedingScale).toFixed(2)} kg</strong></td>
+                                                                    {isSuperAdmin && <td>{Math.round(ing.cost * activeFeedingScale).toLocaleString()} PKR</td>}
                                                                 </tr>
                                                             ))}
                                                             <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
                                                                 <td><strong>Total Feed Mix</strong></td>
-                                                                <td><strong>{allPensAggregateIngredients.reduce((sum, i) => sum + i.avgPerHead, 0).toFixed(3)} kg</strong></td>
-                                                                <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{allPensTotalBatchWeight.toFixed(2)} kg</strong></td>
-                                                                {isSuperAdmin && <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(allPensTotalCost).toLocaleString()} PKR</strong></td>}
+                                                                <td><strong>{(allPensAggregateIngredients.reduce((sum, i) => sum + i.avgPerHead, 0) * activeFeedingScale).toFixed(3)} kg</strong></td>
+                                                                <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{(allPensTotalBatchWeight * activeFeedingScale).toFixed(2)} kg</strong></td>
+                                                                {isSuperAdmin && <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(allPensTotalCost * activeFeedingScale).toLocaleString()} PKR</strong></td>}
                                                             </tr>
                                                         </tbody>
                                                     </table>
@@ -1491,13 +1598,15 @@ export default function TMRCalculator() {
 
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.2rem', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem' }}>
                                                     <div>
-                                                        <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total batch to mix</span>
+                                                        <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                                            {activeFeedingIndex > 0 ? `Target for Feeding ${activeFeedingIndex} of ${numFeedings} (${activeFeedingPct}%)` : 'Total batch to mix'}
+                                                        </span>
                                                         <strong style={{ fontSize: '1.4rem', color: 'var(--accent-gold)', fontFamily: 'var(--font-heading)' }}>
-                                                            {allPensTotalBatchWeight.toFixed(2)} kg
+                                                            {(allPensTotalBatchWeight * activeFeedingScale).toFixed(2)} kg
                                                         </strong>
                                                         {isSuperAdmin && (
                                                             <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                                                                Cost: <strong style={{ color: 'var(--accent-gold)' }}>{Math.round(allPensTotalCost).toLocaleString()} PKR</strong>
+                                                                Cost: <strong style={{ color: 'var(--accent-gold)' }}>{Math.round(allPensTotalCost * activeFeedingScale).toLocaleString()} PKR</strong>
                                                             </span>
                                                         )}
                                                     </div>
