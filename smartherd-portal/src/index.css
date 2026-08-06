@@ -763,6 +763,24 @@ body {
     background: rgba(0, 0, 0, 0.35);
 }
 
+.form-control-sm {
+    min-height: 38px !important;
+    height: 38px !important;
+    padding: 0.35rem 0.75rem !important;
+    font-size: 0.82rem !important;
+    line-height: 1.2 !important;
+}
+
+select.form-control, select.form-control-sm {
+    box-sizing: border-box;
+    cursor: pointer;
+}
+
+select option {
+    background-color: #161b18;
+    color: var(--text-pure);
+}
+
 .form-header-bar {
     display: flex;
     justify-content: space-between;
@@ -1033,6 +1051,14 @@ body {
 
 .btn-block {
     width: 100%;
+}
+
+.btn-sm {
+    min-height: 38px !important;
+    height: 38px !important;
+    padding: 0.35rem 0.9rem !important;
+    font-size: 0.82rem !important;
+    gap: 0.4rem !important;
 }
 
 /* Modal form overlay dialog styling */

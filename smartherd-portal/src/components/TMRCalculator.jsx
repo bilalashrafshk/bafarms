@@ -682,8 +682,8 @@ export default function TMRCalculator() {
                         {isAdmin && batch.availableExtraIngredients.length > 0 && (
                             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.8rem', flexWrap: 'wrap' }}>
                                 <select
-                                    class="form-control"
-                                    style={{ minHeight: '34px', height: '34px', fontSize: '0.82rem', maxWidth: '260px' }}
+                                    className="form-control form-control-sm"
+                                    style={{ maxWidth: '280px', width: 'auto', flex: '1 1 auto' }}
                                     value={overrideAddChoice}
                                     onChange={(e) => setAddIngredientChoice(penId, e.target.value)}
                                 >
@@ -693,8 +693,8 @@ export default function TMRCalculator() {
                                         return <option key={i.id} value={i.id}>{i.name}{stockQty !== null ? ` (${stockQty.toFixed(2)}kg in stock)` : ''}</option>;
                                     })}
                                 </select>
-                                <button type="button" class="btn btn-secondary btn-sm" onClick={() => handleAddExtraIngredient(penId)} disabled={!overrideAddChoice}>
-                                    <i class="fa-solid fa-circle-plus"></i> Add
+                                <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleAddExtraIngredient(penId)} disabled={!overrideAddChoice}>
+                                    <i className="fa-solid fa-circle-plus"></i> Add
                                 </button>
                             </div>
                         )}
@@ -881,8 +881,8 @@ export default function TMRCalculator() {
                             {isAdmin && availableExtraIngredients.length > 0 && (
                                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.8rem', flexWrap: 'wrap' }}>
                                     <select
-                                        class="form-control"
-                                        style={{ minHeight: '34px', height: '34px', fontSize: '0.82rem', maxWidth: '260px' }}
+                                        className="form-control form-control-sm"
+                                        style={{ maxWidth: '280px', width: 'auto', flex: '1 1 auto' }}
                                         value={getAddIngredientChoice(selectedTMRPen)}
                                         onChange={(e) => setAddIngredientChoice(selectedTMRPen, e.target.value)}
                                     >
@@ -892,8 +892,8 @@ export default function TMRCalculator() {
                                             return <option key={i.id} value={i.id}>{i.name}{stockQty !== null ? ` (${stockQty.toFixed(2)}kg in stock)` : ''}</option>;
                                         })}
                                     </select>
-                                    <button type="button" class="btn btn-secondary btn-sm" onClick={() => handleAddExtraIngredient(selectedTMRPen)} disabled={!getAddIngredientChoice(selectedTMRPen)}>
-                                        <i class="fa-solid fa-circle-plus"></i> Add
+                                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleAddExtraIngredient(selectedTMRPen)} disabled={!getAddIngredientChoice(selectedTMRPen)}>
+                                        <i className="fa-solid fa-circle-plus"></i> Add
                                     </button>
                                 </div>
                             )}
