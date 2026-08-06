@@ -325,6 +325,15 @@ export default function TMRCalculator() {
         });
     };
 
+    const handleSwitchPenForage = (penId, targetForage) => {
+        const existingPen = pens.find(p => String(p.id) === String(penId)) || { id: penId };
+        savePen({
+            ...existingPen,
+            id: penId,
+            forageType: targetForage
+        });
+    };
+
     // Batch for whichever pen is currently selected in the filter bar (null when "All"
     // is selected — that view renders every pen's own card via computePenBatch directly).
     const selectedBatch = selectedTMRPen !== 'all' ? computePenBatch(selectedTMRPen, animalsCount) : null;
@@ -910,7 +919,7 @@ export default function TMRCalculator() {
                                                                 <button
                                                                     type="button"
                                                                     className="btn btn-secondary btn-sm"
-                                                                    onClick={() => penObj && savePen({ ...penObj, forageType: alt.forageType })}
+                                                                    onClick={() => handleSwitchPenForage(penId, alt.forageType)}
                                                                 >
                                                                     <i className="fa-solid fa-right-left"></i> Switch Pen {penId} to {alt.forageType.toUpperCase()}
                                                                 </button>
@@ -1096,10 +1105,7 @@ export default function TMRCalculator() {
                                                 <button
                                                     type="button"
                                                     className="btn btn-secondary btn-sm"
-                                                    onClick={() => {
-                                                        const penObj = pens.find(p => p.id === selectedTMRPen);
-                                                        if (penObj) savePen({ ...penObj, forageType: alt.forageType });
-                                                    }}
+                                                    onClick={() => handleSwitchPenForage(selectedTMRPen, alt.forageType)}
                                                 >
                                                     <i className="fa-solid fa-right-left"></i> Switch Pen {selectedTMRPen} to {alt.forageType.toUpperCase()}
                                                 </button>

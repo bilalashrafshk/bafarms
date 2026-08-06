@@ -1909,22 +1909,19 @@ export const FarmProvider = ({ children }) => {
 
     const savePen = (pen) => {
         const record = {
+            ...pen,
             id: pen.id,
             rationPlanId: pen.rationPlanId || null,
-            // New normalized (v2) ration system plan id — set this instead of
-            // rationPlanId to move a pen onto a CSV-imported plan (see importRationPlanCSV).
             planId: pen.planId || null,
             cycleStartDate: pen.cycleStartDate || null,
-            // Which forage row-set this pen currently pulls from (e.g. chari while silage
-            // ferments, then switched to silage) — same plan, different row-set.
             forageType: pen.forageType || 'silage',
             expectedExitDate: pen.expectedExitDate || null,
             notes: pen.notes || ''
         };
 
         setPens(prev => {
-            const exists = prev.some(p => p.id === record.id);
-            return exists ? prev.map(p => (p.id === record.id ? { ...p, ...record } : p)) : [...prev, record];
+            const exists = prev.some(p => String(p.id) === String(record.id));
+            return exists ? prev.map(p => (String(p.id) === String(record.id) ? { ...p, ...record } : p)) : [...prev, record];
         });
 
         persistMutation('SAVE_PEN', record);
