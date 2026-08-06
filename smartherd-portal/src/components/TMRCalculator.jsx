@@ -400,10 +400,6 @@ export default function TMRCalculator() {
     };
 
     const handleLogFeed = () => logBatchForPen(selectedTMRPen, selectedBatch, animalsCount);
-    const handleLogFeedForPen = (penId) => {
-        const batch = computePenBatch(penId);
-        logBatchForPen(penId, batch, batch.headCount);
-    };
 
     // Shared with the "Feed All Pens" bulk log below — same provenance text as the
     // single-pen path, just parameterized on whichever pen/resolution is being logged
@@ -457,6 +453,63 @@ export default function TMRCalculator() {
         if (tractorPenResolutions.length === 0) return;
         if (tractorMismatch && !tractorConfirmedMismatch) return;
         tractorPenResolutions.forEach(({ penId, resolved }) => logPenBatch(penId, resolved, logDate));
+        setLogSaved(true);
+        setTimeout(() => setLogSaved(false), 2500);
+    };
+
+    // ─── "ALL" PENS AGGREGATE (average diet across the whole herd) ───
+    // Pens can be on different brackets/plans with different qty/head for the same
+    // ingredient (e.g. Pen A on a 135-139kg bracket vs. Pen C on 195-199kg), so there's
+    // no single correct way to edit one shared recipe and split it back per pen. Instead,
+    // "All" shows one read-only, headcount-weighted average across every pen with a
+    // resolved (non-blocked) plan — same underlying aggregation as Tractor Mode, just
+    // framed as kg/head instead of a per-pen breakdown. Editing still happens by
+    // selecting a specific pen from the filter bar (Pen A/B/C), which keeps working
+    // exactly as before.
+    const allPensResolutions = activePens
+        .map(penId => ({ penId, resolved: getPenRationRow(penId, logDate) }))
+        .filter(r => r.resolved && !r.resolved.blocked);
+    const allPensForageTypes = [...new Set(allPensResolutions.map(r => r.resolved.forageType))];
+    const allPensPhases = [...new Set(allPensResolutions.map(r => tractorPhaseOf(r.resolved)))];
+    const allPensMismatch = allPensForageTypes.length > 1 || allPensPhases.length > 1;
+    const allPensMismatchedPens = allPensMismatch
+        ? allPensResolutions.map(r => `Pen ${r.penId} (${r.resolved.forageType}, ${tractorPhaseOf(r.resolved)})`)
+        : [];
+    const [allPensConfirmedMismatch, setAllPensConfirmedMismatch] = useState(false);
+    useEffect(() => { setAllPensConfirmedMismatch(false); }, [logDate]);
+
+    const allPensTotalHeadCount = allPensResolutions.reduce((sum, r) => sum + (r.resolved.headCount || 0), 0);
+    const allPensAggregateIngredients = (() => {
+        if (allPensResolutions.length === 0) return [];
+        if (allPensMismatch && !allPensConfirmedMismatch) return [];
+        const totals = {};
+        allPensResolutions.forEach(({ resolved }) => {
+            const headCount = resolved.headCount || 0;
+            Object.entries(resolved.week.ingredients || {}).forEach(([id, qtyPerHead]) => {
+                const ing = feedIngredients.find(i => i.id === id) || { id, name: id.charAt(0).toUpperCase() + id.slice(1) };
+                const stockPrice = getIngredientStockPrice(id);
+                const price = (stockPrice !== null && stockPrice > 0) ? stockPrice : (ing.price || 0);
+                const batchQty = (parseFloat(qtyPerHead) || 0) * headCount;
+                if (!totals[id]) totals[id] = { id, name: ing.name, wetBatch: 0, cost: 0 };
+                totals[id].wetBatch += batchQty;
+                totals[id].cost += batchQty * price;
+            });
+        });
+        return Object.values(totals).map(t => ({
+            ...t,
+            avgPerHead: allPensTotalHeadCount > 0 ? t.wetBatch / allPensTotalHeadCount : 0
+        }));
+    })();
+    const allPensTotalBatchWeight = allPensAggregateIngredients.reduce((sum, i) => sum + i.wetBatch, 0);
+    const allPensTotalCost = allPensAggregateIngredients.reduce((sum, i) => sum + i.cost, 0);
+
+    // Logs every pen with a resolved plan as its own feed-log record — same per-pen
+    // provenance as "Feed All Pens", just triggered directly from the "All" filter
+    // instead of requiring a trip into Tractor Mode.
+    const handleLogAllPensFromAllView = () => {
+        if (allPensResolutions.length === 0) return;
+        if (allPensMismatch && !allPensConfirmedMismatch) return;
+        allPensResolutions.forEach(({ penId, resolved }) => logPenBatch(penId, resolved, logDate));
         setLogSaved(true);
         setTimeout(() => setLogSaved(false), 2500);
     };
@@ -556,180 +609,6 @@ export default function TMRCalculator() {
         </div>
     );
 
-    // "All" pens view — stacks every active pen's own editable ration card (same
-    // ingredient table, overrides, "add an ingredient" and Log button as the single-pen
-    // view) so anyone with Herd Management access can edit and log any pen's feeding
-    // without switching the filter pen-by-pen. Each card is fully self-contained via
-    // computePenBatch(penId)/logBatchForPen — editing one pen never touches another's.
-    const renderAllPensCards = () => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-            {activePens.map(penId => {
-                const batch = computePenBatch(penId);
-                const overrideAddChoice = getAddIngredientChoice(penId);
-
-                if (batch.isBlocked) {
-                    return (
-                        <div key={penId} class="glass-panel" style={{ borderTop: '4px solid hsl(0,75%,55%)', padding: '1.2rem 1.5rem' }}>
-                            <h3 class="panel-title" style={{ marginBottom: '0.4rem', color: 'hsl(0,75%,65%)' }}>
-                                <i class="fa-solid fa-ban"></i> Feeding Blocked — Pen {penId}
-                            </h3>
-                            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>{batch.resolvedPlanRow.error}</p>
-                        </div>
-                    );
-                }
-
-                if (!batch.isPlanDriven) {
-                    return (
-                        <div key={penId} class="glass-panel" style={{ padding: '1.2rem 1.5rem' }}>
-                            <h3 class="panel-title" style={{ marginBottom: '0.4rem' }}>No Ration Plan Assigned — Pen {penId}</h3>
-                            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>
-                                Nothing to feed or calculate here. Assign one under Ration Plans → Pen Assignment.
-                            </p>
-                        </div>
-                    );
-                }
-
-                const resolved = batch.resolvedPlanRow;
-                return (
-                    <div key={penId} class="glass-panel" style={{ borderTop: '4px solid var(--primary-green-light)' }}>
-                        <h3 class="panel-title" style={{ marginBottom: '0.6rem' }}><i class="fa-solid fa-clipboard-check"></i> Plan-Driven Ration — Pen {penId}</h3>
-                        <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0.7rem 0.9rem', marginBottom: '1rem' }}>
-                            <div style={{ fontWeight: '700', color: 'var(--text-pure)', fontSize: '0.88rem' }}>
-                                {resolved.system === 'v2' ? (
-                                    <>{resolved.plan.name} v{resolved.plan.version} — Bracket {resolved.bracketMin}–{resolved.bracketMax}kg</>
-                                ) : (
-                                    <>{resolved.plan.name} — {resolved.usesAdaptationTable ? `Adaptation Day ${resolved.adaptationDay} of 7` : `Week ${resolved.week.week}`}</>
-                                )}
-                                <span style={{ marginLeft: '0.5rem', color: '#4a90d9', fontSize: '0.68rem', border: '1px solid rgba(74,144,217,0.3)', borderRadius: '4px', padding: '0.1rem 0.4rem' }}>
-                                    {resolved.forageType === 'chari' ? 'CHARI' : 'SILAGE'}
-                                </span>
-                                {resolved.system === 'v2' && (
-                                    <span style={{ marginLeft: '0.5rem', color: resolved.phase === 'ADAPTATION' ? 'var(--accent-gold)' : 'var(--primary-green-light)', fontSize: '0.72rem' }}>
-                                        {resolved.phase === 'ADAPTATION' ? `DAY ${resolved.dayNo} (ADAPTATION)` : 'STEADY STATE'}
-                                    </span>
-                                )}
-                            </div>
-                            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                                {batch.headCount} head{resolved.daysOnFeed != null && <>{' · '}Day {resolved.daysOnFeed} on feed</>}
-                            </div>
-                        </div>
-
-                        <div class="table-wrapper">
-                            <table class="data-table" style={{ fontSize: '0.85rem' }}>
-                                <thead>
-                                    <tr>
-                                        <th>INGREDIENT</th>
-                                        <th>PLAN QTY (KG/HEAD/DAY)</th>
-                                        <th>TODAY'S QTY</th>
-                                        <th style={{ width: '60px', textAlign: 'center' }}>RESET</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {batch.planIngredientRows.map(row => (
-                                        <tr key={row.id}>
-                                            <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{row.name}</td>
-                                            <td>{row.planQty.toFixed(3)} kg</td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    step="0.001"
-                                                    className="form-control"
-                                                    style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: row.isOverridden ? 'var(--accent-gold)' : 'inherit' }}
-                                                    value={row.qtyPerHead}
-                                                    onChange={(e) => handlePlanOverride(penId, row.id, e.target.value)}
-                                                    disabled={!isAdmin}
-                                                />
-                                            </td>
-                                            <td style={{ textAlign: 'center' }}>
-                                                {row.isOverridden ? (
-                                                    <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => handleResetOverride(penId, row.id)} title="Reset to plan quantity">
-                                                        <i class="fa-solid fa-rotate-left"></i>
-                                                    </button>
-                                                ) : (
-                                                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>—</span>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    {batch.extraIngredientRows.map(row => (
-                                        <tr key={row.id} style={{ background: 'rgba(212,175,55,0.06)' }}>
-                                            <td style={{ fontWeight: '600', color: 'var(--accent-gold)' }}>
-                                                {row.name} <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '400' }}>(added, not in plan)</span>
-                                            </td>
-                                            <td>—</td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    step="0.001"
-                                                    className="form-control"
-                                                    style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: 'var(--accent-gold)' }}
-                                                    value={row.qtyPerHead}
-                                                    onChange={(e) => handleExtraIngredientQty(penId, row.id, e.target.value)}
-                                                    disabled={!isAdmin}
-                                                />
-                                            </td>
-                                            <td style={{ textAlign: 'center' }}>
-                                                <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => handleRemoveExtraIngredient(penId, row.id)} title="Remove this ingredient">
-                                                    <i class="fa-solid fa-xmark"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        {isAdmin && batch.availableExtraIngredients.length > 0 && (
-                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.8rem', flexWrap: 'wrap' }}>
-                                <select
-                                    className="form-control form-control-sm"
-                                    style={{ maxWidth: '280px', width: 'auto', flex: '1 1 auto' }}
-                                    value={overrideAddChoice}
-                                    onChange={(e) => setAddIngredientChoice(penId, e.target.value)}
-                                >
-                                    <option value="">Substitute / add an ingredient not in this plan…</option>
-                                    {batch.availableExtraIngredients.map(i => {
-                                        const stockQty = getIngredientStockQty(i.id);
-                                        return <option key={i.id} value={i.id}>{i.name}{stockQty !== null ? ` (${stockQty.toFixed(2)}kg in stock)` : ''}</option>;
-                                    })}
-                                </select>
-                                <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleAddExtraIngredient(penId)} disabled={!overrideAddChoice}>
-                                    <i className="fa-solid fa-circle-plus"></i> Add
-                                </button>
-                            </div>
-                        )}
-
-                        {batch.dietDiffered && (
-                            <div style={{ background: 'rgba(212,175,55,0.1)', border: '1px solid rgba(212,175,55,0.3)', borderRadius: '8px', padding: '0.6rem 0.9rem', marginTop: '1rem', fontSize: '0.78rem', color: 'var(--accent-gold)' }}>
-                                <i class="fa-solid fa-triangle-exclamation"></i> Today's feeding differs from the Ration Plan — this will be recorded in the feed log's notes.
-                            </div>
-                        )}
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1rem', marginTop: '1rem' }}>
-                            <div>
-                                <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total batch to mix</span>
-                                <strong style={{ fontSize: '1.2rem', color: 'var(--accent-gold)', fontFamily: 'var(--font-heading)' }}>{batch.totalBatchWeight.toFixed(2)} kg</strong>
-                                {isSuperAdmin && (
-                                    <span style={{ marginLeft: '0.6rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                                        ({Math.round(batch.totalCostSingle * batch.headCount).toLocaleString()} PKR)
-                                    </span>
-                                )}
-                            </div>
-                            <button type="button" class="btn btn-primary btn-sm" onClick={() => handleLogFeedForPen(penId)}>
-                                <i class="fa-solid fa-clipboard-check"></i> Log This Feeding (Pen {penId})
-                            </button>
-                        </div>
-                    </div>
-                );
-            })}
-            {logSaved && (
-                <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
-                    <i class="fa-solid fa-circle-check"></i> Feed logged for {formatDate(logDate)}.
-                </span>
-            )}
-        </div>
-    );
-
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
 
@@ -741,7 +620,13 @@ export default function TMRCalculator() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
 
                     {selectedTMRPen === 'all' ? (
-                        renderAllPensCards()
+                        <div class="glass-panel" style={{ textAlign: 'center', padding: '2.5rem 1.5rem' }}>
+                            <i class="fa-solid fa-scale-balanced" style={{ fontSize: '2rem', color: 'var(--text-muted)', marginBottom: '1rem' }}></i>
+                            <h3 class="panel-title" style={{ justifyContent: 'center', marginBottom: '0.5rem' }}>Herd Average Diet</h3>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '440px', margin: '0 auto' }}>
+                                The average diet across every pen is on the right, weighted by each pen's headcount. To edit a specific pen's ration, select that pen above (Pen A, Pen B…).
+                            </p>
+                        </div>
                     ) : isBlocked ? (
                         <div class="glass-panel" style={{ borderTop: '4px solid hsl(0,75%,55%)', textAlign: 'center', padding: '2.5rem 1.5rem' }}>
                             <i class="fa-solid fa-ban" style={{ fontSize: '2rem', color: 'hsl(0,75%,60%)', marginBottom: '1rem' }}></i>
@@ -1063,9 +948,100 @@ export default function TMRCalculator() {
                                     </div>
                                 </>
                             ) : selectedTMRPen === 'all' ? (
-                                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1.5rem 0' }}>
-                                    Editing every pen at once — see each pen's own ration card on the left. Each has its own quantities, add-ingredient option, and "Log This Feeding" button.
-                                </p>
+                                allPensResolutions.length === 0 ? (
+                                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1.5rem 0' }}>
+                                        No pens have an assigned Ration Plan yet — nothing to average.
+                                    </p>
+                                ) : (
+                                    <>
+                                        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '-0.6rem', marginBottom: '1rem' }}>
+                                            Headcount-weighted average across {allPensResolutions.length} pen{allPensResolutions.length === 1 ? '' : 's'} ({allPensTotalHeadCount} head) — read-only, since pens can be on different brackets. Select a pen above to edit its own ration.
+                                        </p>
+
+                                        {allPensMismatch && !allPensConfirmedMismatch && (
+                                            <div style={{ background: 'rgba(220, 53, 69, 0.1)', border: '1px solid rgba(220, 53, 69, 0.35)', borderRadius: '8px', padding: '1rem 1.2rem', marginBottom: '1.2rem' }}>
+                                                <div style={{ fontWeight: '700', color: 'hsl(0,75%,70%)', marginBottom: '0.5rem' }}>
+                                                    <i class="fa-solid fa-triangle-exclamation"></i> Pens don't share the same forage type / feeding phase
+                                                </div>
+                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.8rem' }}>
+                                                    {allPensMismatchedPens.join(' · ')} — averaging these together blends meaningfully different rations.
+                                                </div>
+                                                <button type="button" class="btn btn-secondary btn-sm" onClick={() => setAllPensConfirmedMismatch(true)}>
+                                                    Average Anyway
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {allPensAggregateIngredients.length > 0 && (
+                                            <>
+                                                <div class="table-wrapper" style={{ marginBottom: '1.2rem' }}>
+                                                    <table class="data-table">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>FEED INGREDIENT</th>
+                                                                <th>AVG QTY / HEAD</th>
+                                                                <th>BATCH WEIGHT</th>
+                                                                {isSuperAdmin && <th>BATCH COST</th>}
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {allPensAggregateIngredients.map(ing => (
+                                                                <tr key={ing.id}>
+                                                                    <td><strong>{ing.name}</strong></td>
+                                                                    <td>{ing.avgPerHead.toFixed(3)} kg</td>
+                                                                    <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{ing.wetBatch.toFixed(2)} kg</strong></td>
+                                                                    {isSuperAdmin && <td>{Math.round(ing.cost).toLocaleString()} PKR</td>}
+                                                                </tr>
+                                                            ))}
+                                                            <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                                                                <td><strong>Total Feed Mix</strong></td>
+                                                                <td><strong>{allPensAggregateIngredients.reduce((sum, i) => sum + i.avgPerHead, 0).toFixed(3)} kg</strong></td>
+                                                                <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{allPensTotalBatchWeight.toFixed(2)} kg</strong></td>
+                                                                {isSuperAdmin && <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(allPensTotalCost).toLocaleString()} PKR</strong></td>}
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.2rem', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem' }}>
+                                                    <div>
+                                                        <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total batch to mix</span>
+                                                        <strong style={{ fontSize: '1.4rem', color: 'var(--accent-gold)', fontFamily: 'var(--font-heading)' }}>
+                                                            {allPensTotalBatchWeight.toFixed(2)} kg
+                                                        </strong>
+                                                        {isSuperAdmin && (
+                                                            <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                                                                Cost: <strong style={{ color: 'var(--accent-gold)' }}>{Math.round(allPensTotalCost).toLocaleString()} PKR</strong>
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div style={{ textAlign: 'right', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                                        For {allPensTotalHeadCount} animals across {allPensResolutions.length} pen{allPensResolutions.length === 1 ? '' : 's'}
+                                                    </div>
+                                                </div>
+
+                                                <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.2rem', marginTop: '1.2rem' }}>
+                                                    <input
+                                                        type="date"
+                                                        class="form-control"
+                                                        style={{ width: '150px', minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.82rem' }}
+                                                        value={logDate}
+                                                        max={todayPKT()}
+                                                        onChange={(e) => setLogDate(e.target.value)}
+                                                    />
+                                                    <button type="button" class="btn btn-primary btn-sm" onClick={handleLogAllPensFromAllView}>
+                                                        <i class="fa-solid fa-clipboard-check"></i> Log This Feeding — {allPensResolutions.length} Pen{allPensResolutions.length === 1 ? '' : 's'}
+                                                    </button>
+                                                    {logSaved && (
+                                                        <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
+                                                            <i class="fa-solid fa-circle-check"></i> Feed logged for {formatDate(logDate)}.
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </>
+                                        )}
+                                    </>
+                                )
                             ) : (
                                 <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1.5rem 0' }}>
                                     Nothing to calculate yet — select a pen with an assigned Ration Plan.
