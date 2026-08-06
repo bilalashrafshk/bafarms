@@ -15,9 +15,12 @@ const addDaysPKT = (dateStr, delta) => {
 export default function TMRCalculator() {
     const {
         feedIngredients, animals, staffUser, feedLogs, logFeed, deleteFeedLog,
-        pens, getPenRationRow, getPenWeightFlags, getIngredientStockPrice, getIngredientStockQty
+        pens, savePen, rationPlans, rationPlansV2, getPenRationRow, getPenWeightFlags, getIngredientStockPrice, getIngredientStockQty
     } = useContext(FarmContext);
-    const isAdmin = staffUser?.role === 'Internal Corporate Staff';
+    // Herd Management access (admin-configurable in Settings) is the real gate for editing
+    // diets — the "Internal Corporate Staff" role is just an email-domain login role, so it's
+    // OR'd in for backward compatibility (matches FeedStock.jsx / RationPlans.jsx).
+    const isAdmin = staffUser?.accessHerd !== false || staffUser?.role === 'Internal Corporate Staff';
     // Cost figures (per-ingredient and batch total) are restricted to the DB-backed
     // Super Admin flag, not the broader "Internal Corporate Staff" role — pen staff
     // logging feed should see quantities to mix, not what it costs.
@@ -294,6 +297,26 @@ export default function TMRCalculator() {
             delete next[id];
             return next;
         });
+    };
+
+    // Quick diet assignment straight from the "All" pens view, so herd-access staff don't
+    // have to leave this page to attach/change a pen's Ration Plan — mirrors handlePenPlanChange
+    // in RationPlans.jsx (a pen points at exactly one of legacy rationPlanId / v2 planId).
+    const handleQuickPlanAssign = (penId, rawValue) => {
+        if (!isAdmin) return;
+        const existing = pens.find(p => p.id === penId) || { id: penId, rationPlanId: null, planId: null, cycleStartDate: null, forageType: 'silage', expectedExitDate: null, notes: '' };
+        if (!rawValue) {
+            savePen({ ...existing, rationPlanId: null, planId: null });
+            return;
+        }
+        const sep = rawValue.indexOf(':');
+        const kind = rawValue.slice(0, sep);
+        const id = rawValue.slice(sep + 1);
+        if (kind === 'v2') {
+            savePen({ ...existing, rationPlanId: null, planId: id });
+        } else {
+            savePen({ ...existing, rationPlanId: id, planId: null });
+        }
     };
 
     // Snapshots the currently calculated batch (for the selected pen and date) into the
@@ -679,6 +702,60 @@ export default function TMRCalculator() {
                             <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '0.8rem', marginBottom: 0 }}>
                                 <i class="fa-solid fa-circle-info"></i> Overrides/additions here apply to today's logged feeding only — the Ration Plan schedule itself is unchanged. Manage the schedule from Ration Plans.
                             </p>
+                        </div>
+                    ) : selectedTMRPen === 'all' && isAdmin ? (
+                        /* Quick diet assign from the "All" pens view — still just writes to the
+                           same pen.rationPlanId/planId that Ration Plans → Pen Assignment does,
+                           so nothing is fed without a plan; this just saves a trip to that page. */
+                        <div class="glass-panel">
+                            <i class="fa-solid fa-clipboard-list" style={{ fontSize: '1.6rem', color: 'var(--text-muted)', marginBottom: '0.6rem' }}></i>
+                            <h3 class="panel-title" style={{ marginBottom: '0.3rem' }}>Select a Pen, or Assign a Diet Below</h3>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                                Choose a pen above to feed, or assign/change a Ration Plan for any pen right here.
+                            </p>
+                            <div class="table-wrapper">
+                                <table class="data-table" style={{ fontSize: '0.85rem' }}>
+                                    <thead>
+                                        <tr>
+                                            <th>PEN</th>
+                                            <th>HEAD COUNT</th>
+                                            <th>ASSIGNED PLAN</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {activePens.map(p => {
+                                            const penConfig = pens.find(pc => pc.id === p) || {};
+                                            const penCount = animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased' && a.pen === p).length;
+                                            return (
+                                                <tr key={p}>
+                                                    <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>Pen {p}</td>
+                                                    <td>{penCount}</td>
+                                                    <td>
+                                                        <select
+                                                            class="form-control"
+                                                            style={{ minHeight: '32px', height: '32px', padding: '0.2rem 0.5rem' }}
+                                                            value={penConfig.planId ? `v2:${penConfig.planId}` : (penConfig.rationPlanId ? `legacy:${penConfig.rationPlanId}` : '')}
+                                                            onChange={e => handleQuickPlanAssign(p, e.target.value)}
+                                                        >
+                                                            <option value="">— No plan —</option>
+                                                            <optgroup label="Imported Plans (v2)">
+                                                                {rationPlansV2.map(plan => (
+                                                                    <option key={plan.id} value={`v2:${plan.id}`}>{plan.name} v{plan.version}</option>
+                                                                ))}
+                                                            </optgroup>
+                                                            <optgroup label="Legacy Plans">
+                                                                {rationPlans.map(plan => (
+                                                                    <option key={plan.id} value={`legacy:${plan.id}`}>{plan.name}</option>
+                                                                ))}
+                                                            </optgroup>
+                                                        </select>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     ) : (
                         /* Rations are only ever set by a Ration Plan (under Ration Plans) — this
