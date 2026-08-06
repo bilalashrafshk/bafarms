@@ -56,19 +56,7 @@ export default function Dashboard({ onNavigate }) {
     // timestamps, so none of this drifts by a day depending on where the code runs.
     const today = todayAsDate();
 
-    // D. Safe Withdrawal Warnings
-    const activeWithholdings = [];
-    treatments.forEach(t => {
-        const daysPassed = daysBetween(today, t.date);
-        if (daysPassed < t.withholding) {
-            const animal = animals.find(a => a.id === t.animalId);
-            activeWithholdings.push({
-                rfid: animal ? animal.rfid : `Animal #${t.animalId}`,
-                medicine: t.medicine,
-                daysRemaining: t.withholding - daysPassed
-            });
-        }
-    });
+
 
     // E. ACTION REQUIRED COMPUTATIONS
     const WEIGH_INTERVAL_DAYS = systemParams.weighIntervalDays ?? 14;
@@ -222,15 +210,7 @@ export default function Dashboard({ onNavigate }) {
             icon: 'fa-arrow-trend-down',
             action: null
         })),
-        ...activeWithholdings.map(w => ({
-            type: 'withholding',
-            rfid: w.rfid,
-            msg: `${w.rfid} — Med lock`,
-            desc: `${w.medicine} · ${w.daysRemaining}d remaining`,
-            color: 'var(--accent-gold)',
-            icon: 'fa-ban',
-            action: null
-        })),
+
         ...overdueWeighing.map(a => ({
             type: 'weigh',
             rfid: a.rfid,
