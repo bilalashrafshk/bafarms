@@ -1607,6 +1607,7 @@ export default function TMRCalculator() {
                                                         {isSuperAdmin && (
                                                             <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
                                                                 Cost: <strong style={{ color: 'var(--accent-gold)' }}>{Math.round(allPensTotalCost * activeFeedingScale).toLocaleString()} PKR</strong>
+                                                                {' '}({Math.round((allPensTotalCost / (allPensTotalHeadCount || 1)) * activeFeedingScale).toLocaleString()} PKR/head)
                                                             </span>
                                                         )}
                                                     </div>
