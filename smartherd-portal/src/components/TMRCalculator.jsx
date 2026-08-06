@@ -520,6 +520,122 @@ export default function TMRCalculator() {
     const allPensTotalBatchWeight = allPensAggregateIngredients.reduce((sum, i) => sum + i.wetBatch, 0);
     const allPensTotalCost = allPensAggregateIngredients.reduce((sum, i) => sum + i.cost, 0);
 
+    const [showPerPenBreakdown, setShowPerPenBreakdown] = useState(false);
+
+    const allPensTableRows = (() => {
+        if (allPensTotalHeadCount === 0) return [];
+        const map = {};
+        allPensResolutions.forEach(({ batch }) => {
+            const penHead = batch.headCount || 0;
+            batch.planIngredientRows.forEach(r => {
+                if (!map[r.id]) {
+                    map[r.id] = {
+                        id: r.id,
+                        name: r.name,
+                        planWetTotal: 0,
+                        fedWetTotal: 0,
+                        isOverridden: false,
+                        isExtra: false
+                    };
+                }
+                map[r.id].planWetTotal += r.planQty * penHead;
+                map[r.id].fedWetTotal += r.qtyPerHead * penHead;
+                if (r.isOverridden) map[r.id].isOverridden = true;
+            });
+
+            batch.extraIngredientRows.forEach(r => {
+                if (!map[r.id]) {
+                    map[r.id] = {
+                        id: r.id,
+                        name: r.name,
+                        planWetTotal: 0,
+                        fedWetTotal: 0,
+                        isOverridden: true,
+                        isExtra: true
+                    };
+                }
+                map[r.id].fedWetTotal += r.qtyPerHead * penHead;
+            });
+        });
+
+        return Object.values(map).map(r => ({
+            id: r.id,
+            name: r.name,
+            avgPlanQty: r.planWetTotal / allPensTotalHeadCount,
+            avgFedQty: r.fedWetTotal / allPensTotalHeadCount,
+            isOverridden: r.isOverridden,
+            isExtra: r.isExtra
+        }));
+    })();
+
+    const handleAllPensOverride = (id, targetAvgStr) => {
+        const targetAvg = parseFloat(targetAvgStr);
+        if (isNaN(targetAvg)) return;
+
+        const row = allPensTableRows.find(r => r.id === id);
+        if (!row) return;
+
+        if (row.isExtra) {
+            const currentAvg = row.avgFedQty;
+            setExtraIngredientsByPen(prev => {
+                const next = { ...prev };
+                activePens.forEach(penId => {
+                    const penBatch = computePenBatch(penId);
+                    const currentPenQty = penBatch.extraIngredientRows.find(r => r.id === id)?.qtyPerHead || 0;
+                    let newPenQty = targetAvg;
+                    if (currentAvg > 0 && currentPenQty > 0) {
+                        newPenQty = parseFloat((currentPenQty * (targetAvg / currentAvg)).toFixed(3));
+                    }
+                    next[penId] = { ...(next[penId] || {}), [id]: newPenQty };
+                });
+                return next;
+            });
+        } else {
+            const baseAvg = row.avgPlanQty > 0 ? row.avgPlanQty : row.avgFedQty;
+            setPlanOverridesByPen(prev => {
+                const next = { ...prev };
+                activePens.forEach(penId => {
+                    const penBatch = computePenBatch(penId);
+                    const planQty = penBatch.planIngredientRows.find(r => r.id === id)?.planQty || 0;
+                    let newPenQty = targetAvg;
+                    if (baseAvg > 0 && planQty > 0) {
+                        newPenQty = parseFloat((planQty * (targetAvg / baseAvg)).toFixed(3));
+                    }
+                    next[penId] = { ...(next[penId] || {}), [id]: newPenQty };
+                });
+                return next;
+            });
+        }
+    };
+
+    const handleAllPensResetOverride = (id) => {
+        setPlanOverridesByPen(prev => {
+            const next = { ...prev };
+            activePens.forEach(penId => {
+                if (next[penId]) {
+                    const copy = { ...next[penId] };
+                    delete copy[id];
+                    next[penId] = copy;
+                }
+            });
+            return next;
+        });
+    };
+
+    const handleAllPensRemoveExtraIngredient = (id) => {
+        setExtraIngredientsByPen(prev => {
+            const next = { ...prev };
+            activePens.forEach(penId => {
+                if (next[penId]) {
+                    const copy = { ...next[penId] };
+                    delete copy[id];
+                    next[penId] = copy;
+                }
+            });
+            return next;
+        });
+    };
+
     // Logs every pen with a resolved plan as its own feed-log record — same per-pen
     // provenance as "Feed All Pens", preserving all overrides and custom added ingredients.
     const handleLogAllPensFromAllView = () => {
@@ -637,25 +753,88 @@ export default function TMRCalculator() {
 
                     {selectedTMRPen === 'all' ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-                            {/* Bulk Action Header Panel */}
-                            <div className="glass-panel" style={{ borderTop: '4px solid var(--accent-gold)' }}>
+                            {/* Main Herd Aggregate Ration Panel */}
+                            <div className="glass-panel" style={{ borderTop: '4px solid var(--primary-green-light)' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem', marginBottom: '0.6rem' }}>
                                     <h3 className="panel-title" style={{ marginBottom: 0 }}>
-                                        <i className="fa-solid fa-layer-group"></i> All Pens — Custom Diets & Overrides
+                                        <i className="fa-solid fa-clipboard-check"></i> Plan-Driven Ration — All Pens (Herd Average)
                                     </h3>
                                     <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                                        {activePens.length} Pens ({activeHerdCount} animals)
+                                        {allPensResolutions.length} Pens ({allPensTotalHeadCount} head)
                                     </span>
                                 </div>
-                                <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '0.8rem' }}>
-                                    Adjust today's fed quantities or add custom ingredients for individual pens below, or add an extra ingredient to all pens at once.
+
+                                <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                                    Weighted average diet across all pens. Editing any quantity here scales the diet proportionally across all pens for today's feeding.
                                 </p>
 
+                                <div className="table-wrapper">
+                                    <table className="data-table" style={{ fontSize: '0.85rem' }}>
+                                        <thead>
+                                            <tr>
+                                                <th>INGREDIENT</th>
+                                                <th>AVG PLAN QTY</th>
+                                                <th>TODAY'S AVG QTY (KG/HEAD)</th>
+                                                <th style={{ width: '60px', textAlign: 'center' }}>RESET</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {allPensTableRows.filter(r => !r.isExtra).map(row => (
+                                                <tr key={row.id}>
+                                                    <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{row.name}</td>
+                                                    <td>{row.avgPlanQty.toFixed(3)} kg</td>
+                                                    <td>
+                                                        <input
+                                                            type="number"
+                                                            step="0.001"
+                                                            className="form-control"
+                                                            style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: row.isOverridden ? 'var(--accent-gold)' : 'inherit' }}
+                                                            value={parseFloat(row.avgFedQty.toFixed(3))}
+                                                            onChange={(e) => handleAllPensOverride(row.id, e.target.value)}
+                                                            disabled={!isAdmin}
+                                                        />
+                                                    </td>
+                                                    <td style={{ textAlign: 'center' }}>
+                                                        {row.isOverridden ? (
+                                                            <button type="button" className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => handleAllPensResetOverride(row.id)} title="Reset to plan quantity across all pens">
+                                                                <i className="fa-solid fa-rotate-left"></i>
+                                                            </button>
+                                                        ) : (
+                                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>—</span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {allPensTableRows.filter(r => r.isExtra).map(row => (
+                                                <tr key={row.id} style={{ background: 'rgba(212,175,55,0.06)' }}>
+                                                    <td style={{ fontWeight: '600', color: 'var(--accent-gold)' }}>
+                                                        {row.name} <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '400' }}>(added to all pens)</span>
+                                                    </td>
+                                                    <td>—</td>
+                                                    <td>
+                                                        <input
+                                                            type="number"
+                                                            step="0.001"
+                                                            className="form-control"
+                                                            style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: 'var(--accent-gold)' }}
+                                                            value={parseFloat(row.avgFedQty.toFixed(3))}
+                                                            onChange={(e) => handleAllPensOverride(row.id, e.target.value)}
+                                                            disabled={!isAdmin}
+                                                        />
+                                                    </td>
+                                                    <td style={{ textAlign: 'center' }}>
+                                                        <button type="button" className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => handleAllPensRemoveExtraIngredient(row.id)} title="Remove this ingredient from all pens">
+                                                            <i className="fa-solid fa-xmark"></i>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+
                                 {isAdmin && bulkAvailableExtraIngredients.length > 0 && (
-                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', background: 'rgba(0,0,0,0.15)', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                                        <span style={{ fontSize: '0.78rem', fontWeight: '600', color: 'var(--accent-gold)' }}>
-                                            <i className="fa-solid fa-wand-magic-sparkles"></i> Bulk Action:
-                                        </span>
+                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.8rem', flexWrap: 'wrap' }}>
                                         <select
                                             className="form-control form-control-sm"
                                             style={{ maxWidth: '280px', width: 'auto', flex: '1 1 auto' }}
@@ -669,14 +848,34 @@ export default function TMRCalculator() {
                                             })}
                                         </select>
                                         <button type="button" className="btn btn-secondary btn-sm" onClick={handleAddExtraIngredientToAllPens} disabled={!bulkAddChoice}>
-                                            <i className="fa-solid fa-plus-minus"></i> Add to All Pens
+                                            <i className="fa-solid fa-circle-plus"></i> Add
                                         </button>
                                     </div>
                                 )}
+
+                                {allPensTableRows.some(r => r.isOverridden) && (
+                                    <div style={{ background: 'rgba(212,175,55,0.1)', border: '1px solid rgba(212,175,55,0.3)', borderRadius: '8px', padding: '0.5rem 0.8rem', marginTop: '0.8rem', fontSize: '0.76rem', color: 'var(--accent-gold)' }}>
+                                        <i className="fa-solid fa-triangle-exclamation"></i> Today's feeding differs from the Ration Plan across one or more pens.
+                                    </div>
+                                )}
+
+                                <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '0.8rem', marginBottom: 0 }}>
+                                    <i className="fa-solid fa-circle-info"></i> Overrides/additions here apply to today's logged feeding only — the Ration Plan schedule itself is unchanged.
+                                </p>
                             </div>
 
-                            {/* List of Pen Cards */}
-                            {activePens.map(penId => {
+                            {/* Optional Collapsible Per-Pen Breakdown */}
+                            <div style={{ textAlign: 'center' }}>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => setShowPerPenBreakdown(!showPerPenBreakdown)}
+                                >
+                                    <i className={`fa-solid fa-chevron-${showPerPenBreakdown ? 'up' : 'down'}`}></i> {showPerPenBreakdown ? 'Hide' : 'Show'} Per-Pen Individual Breakdown ({activePens.length} Pens)
+                                </button>
+                            </div>
+
+                            {showPerPenBreakdown && activePens.map(penId => {
                                 const penBatch = computePenBatch(penId);
                                 const {
                                     resolvedPlanRow: penResolvedPlanRow,
