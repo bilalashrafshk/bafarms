@@ -58,9 +58,18 @@ export function resolveRation({ pen, plan, rows, rowItems, today = todayAsDate()
     const phase = daysOnFeed <= adaptationDays ? 'ADAPTATION' : 'STEADY';
     const dayNo = phase === 'ADAPTATION' ? daysOnFeed : null;
 
-    const matches = rows.filter(r => (
+    const normForage = (ft) => (ft || '').toLowerCase().trim();
+    const isForageMatch = (rowForage, penForage) => {
+        const rf = normForage(rowForage);
+        const pf = normForage(penForage);
+        if (rf === pf) return true;
+        if (rf === 'mixed' || rf === 'both' || pf === 'mixed' || pf === 'both') return true;
+        return false;
+    };
+
+    const allMatches = rows.filter(r => (
         r.planId === pen.planId &&
-        r.forageType === pen.forageType &&
+        isForageMatch(r.forageType, pen.forageType) &&
         r.phase === phase &&
         (phase === 'ADAPTATION' ? r.dayNo === dayNo : (r.dayNo === null || r.dayNo === undefined)) &&
         // Brackets are inclusive-integer buckets (e.g. 130-134, then 135-139) — confirmed
@@ -70,6 +79,9 @@ export function resolveRation({ pen, plan, rows, rowItems, today = todayAsDate()
         // that would wrongly block feeding for in-between projected weights.
         projectedWeight >= r.wtMin && projectedWeight < r.wtMax + 1
     ));
+
+    const exactMatches = allMatches.filter(r => normForage(r.forageType) === normForage(pen.forageType));
+    const matches = exactMatches.length > 0 ? exactMatches : allMatches;
 
     if (matches.length === 0) {
         throw new NoMatchingRationError(

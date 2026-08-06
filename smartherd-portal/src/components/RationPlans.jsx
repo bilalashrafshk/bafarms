@@ -321,7 +321,11 @@ export default function RationPlans() {
     const [bulkAdaptationText, setBulkAdaptationText] = useState('');
 
     const DAYS_OF_WEEK = [1, 2, 3, 4, 5, 6, 7];
-    const FORAGE_TYPES = [{ id: 'silage', label: 'Silage' }, { id: 'chari', label: 'Chari' }];
+    const FORAGE_TYPES = [
+        { id: 'silage', label: 'Silage' },
+        { id: 'chari', label: 'Chari' },
+        { id: 'mixed', label: 'Mixed (Chari + Silage)' }
+    ];
 
     const blankWeek = (weekNum, ingredientIds, prevWeek) => ({
         week: weekNum,

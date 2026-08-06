@@ -960,7 +960,7 @@ export default function TMRCalculator() {
                                             ) : (
                                                 <>{penResolvedPlanRow.usesAdaptationTable ? `Adaptation Day ${penResolvedPlanRow.adaptationDay}` : `Week ${penResolvedPlanRow.week.week}`}</>
                                             )}
-                                            {' · '}{penResolvedPlanRow.forageType === 'chari' ? 'CHARI' : 'SILAGE'}
+                                            {' · '}{(penResolvedPlanRow.forageType || 'silage').toUpperCase()}
                                             {penResolvedPlanRow.daysOnFeed != null && <> · Day {penResolvedPlanRow.daysOnFeed} on feed</>}
                                         </div>
 
@@ -1141,7 +1141,7 @@ export default function TMRCalculator() {
                                         </>
                                     )}
                                     <span style={{ marginLeft: '0.5rem', color: '#4a90d9', fontSize: '0.7rem', border: '1px solid rgba(74,144,217,0.3)', borderRadius: '4px', padding: '0.1rem 0.4rem' }}>
-                                        {resolvedPlanRow.forageType === 'chari' ? 'CHARI' : 'SILAGE'}
+                                        {(resolvedPlanRow.forageType || 'silage').toUpperCase()}
                                     </span>
                                     {resolvedPlanRow.system === 'v2' && (
                                         <span style={{ marginLeft: '0.5rem', color: resolvedPlanRow.phase === 'ADAPTATION' ? 'var(--accent-gold)' : 'var(--primary-green-light)', fontSize: '0.75rem' }}>

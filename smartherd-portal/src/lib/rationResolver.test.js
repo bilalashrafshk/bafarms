@@ -156,6 +156,25 @@ describe('resolveRation — no-match blocking', () => {
     });
 });
 
+describe('resolveRation — mixed forage type support', () => {
+    it('resolves a plan row with forageType="mixed" for pens configured as silage, chari, or mixed', () => {
+        const rows = [{ id: 50, planId: 'mixed-plan', phase: 'STEADY', dayNo: null, forageType: 'mixed', wtMin: 200, wtMax: 205, targetAdg: 1.12 }];
+        const rowItems = [
+            { rowId: 50, ingredientId: 'silage', qtyKgPerHeadPerDay: 4.0 },
+            { rowId: 50, ingredientId: 'chari', qtyKgPerHeadPerDay: 3.5 }
+        ];
+        const planMixed = { id: 'mixed-plan', adaptationDays: 7, adgFloor: 1.0 };
+
+        const penSilage = makePen(201.0, { planId: 'mixed-plan', forageType: 'silage', cycleStartDate: '2026-01-01' });
+        const penChari = makePen(201.0, { planId: 'mixed-plan', forageType: 'chari', cycleStartDate: '2026-01-01' });
+        const penMixed = makePen(201.0, { planId: 'mixed-plan', forageType: 'mixed', cycleStartDate: '2026-01-01' });
+
+        expect(resolveRation({ pen: penSilage, plan: planMixed, rows, rowItems, today }).items).toHaveLength(2);
+        expect(resolveRation({ pen: penChari, plan: planMixed, rows, rowItems, today }).items).toHaveLength(2);
+        expect(resolveRation({ pen: penMixed, plan: planMixed, rows, rowItems, today }).items).toHaveLength(2);
+    });
+});
+
 describe('findContiguityGaps', () => {
     // Brackets are inclusive-integer buckets (e.g. 120-124, then 125-129) — this is the
     // real convention used throughout ration_rows.csv (verified against all 972 adjacent
