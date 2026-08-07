@@ -1698,9 +1698,16 @@ export const FarmProvider = ({ children }) => {
     const undoActivity = async (item) => {
         const currentUser = staffUserRef.current?.name || staffUserRef.current?.email || 'Admin';
 
-        if (item.eventType === 'pen_transfer') {
+        if (item.eventType === 'pen_transfer' || (item.note && item.note.includes('Moved '))) {
             const animalId = item.animalId;
-            const targetPen = (item.fromPen === 'Unassigned' || !item.fromPen) ? null : item.fromPen;
+            let fromPen = item.fromPen;
+            if (!fromPen && item.note && item.note.includes('Moved ')) {
+                const match = item.note.match(/Moved\s+(?:Pen\s+)?([^\s→]+)\s*→/i);
+                if (match && match[1]) {
+                    fromPen = match[1];
+                }
+            }
+            const targetPen = (fromPen === 'Unassigned' || !fromPen) ? null : fromPen;
             setAnimals(prev => prev.map(a => a.id === animalId ? { ...a, pen: targetPen } : a));
             setEvents(prev => prev.filter(e => e.id !== item.sortId));
             persistMutation('UPDATE_ANIMAL', { id: animalId, pen: targetPen });
