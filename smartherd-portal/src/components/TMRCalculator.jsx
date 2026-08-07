@@ -117,95 +117,6 @@ export default function TMRCalculator() {
 
     const [isTractorMode, setIsTractorMode] = useState(false);
 
-    // ─── TRACTOR MODE: multi-pen batch aggregation ───
-    // Pens eligible for a tractor batch are those with any Ration Plan assigned
-    // (legacy or v2) and active animals — selecting several sums qty×headCount per
-    // ingredient across them, but only after confirming they share the same forage
-    // type and phase. An adaptation-phase pen and a steady-state pen (or silage vs.
-    // chari) use meaningfully different rations, so silently summing them would
-    // produce a wrong batch — this requires an explicit "aggregate anyway" click.
-    const tractorEligiblePens = activePens.filter(p => pens.some(pc => pc.id === p && (pc.rationPlanId || pc.planId)));
-    const [tractorSelectedPens, setTractorSelectedPens] = useState([]);
-    const [tractorConfirmedMismatch, setTractorConfirmedMismatch] = useState(false);
-
-    const openTractorMode = () => {
-        setTractorSelectedPens(selectedTMRPen !== 'all' && tractorEligiblePens.includes(selectedTMRPen) ? [selectedTMRPen] : []);
-        setTractorConfirmedMismatch(false);
-        setIsTractorMode(true);
-    };
-
-    const toggleTractorPen = (penId) => {
-        setTractorConfirmedMismatch(false);
-        setTractorSelectedPens(prev => prev.includes(penId) ? prev.filter(p => p !== penId) : [...prev, penId]);
-    };
-
-    // Resolve each selected pen independently — never assume they share a plan.
-    const tractorPenResolutions = tractorSelectedPens
-        .map(penId => ({ penId, resolved: getPenRationRow(penId, logDate) }))
-        .filter(r => r.resolved && !r.resolved.blocked);
-
-    const tractorPhaseOf = (resolved) => resolved.system === 'v2' ? resolved.phase : (resolved.usesAdaptationTable ? 'ADAPTATION' : 'STEADY');
-    const tractorForageTypes = [...new Set(tractorPenResolutions.map(r => r.resolved.forageType))];
-    const tractorPhases = [...new Set(tractorPenResolutions.map(r => tractorPhaseOf(r.resolved)))];
-    const tractorMismatch = tractorForageTypes.length > 1 || tractorPhases.length > 1;
-    const tractorMismatchedPens = tractorMismatch
-        ? tractorPenResolutions.map(r => `Pen ${r.penId} (${r.resolved.forageType}, ${tractorPhaseOf(r.resolved)})`)
-        : [];
-
-    // Aggregate qty×headCount per ingredient across all resolved pens in Tractor Mode,
-    // reflecting live overrides, added ingredients, and active feeding run scaling.
-    const tractorAggregateIngredients = (() => {
-        if (tractorPenResolutions.length === 0) return [];
-        if (tractorMismatch && !tractorConfirmedMismatch) return [];
-        const totals = {};
-        tractorSelectedPens.forEach(penId => {
-            const batch = computePenBatch(penId);
-            if (!batch.isPlanDriven) return;
-            const headCount = batch.headCount || 0;
-            batch.displayIngredients.forEach(ing => {
-                const id = ing.id;
-                const batchQty = ing.wetBatch * activeFeedingScale;
-                const cost = ing.costSingle * headCount * activeFeedingScale;
-                if (!totals[id]) totals[id] = { id, name: ing.name, wetBatch: 0, cost: 0, isExtra: ing.isExtra, isOverridden: ing.isOverridden };
-                totals[id].wetBatch += batchQty;
-                totals[id].cost += cost;
-            });
-        });
-        return Object.values(totals);
-    })();
-
-    const tractorTotalHeadCount = tractorPenResolutions.reduce((sum, r) => sum + (r.resolved.headCount || 0), 0);
-    const tractorTotalBatchWeight = tractorAggregateIngredients.reduce((sum, i) => sum + i.wetBatch, 0);
-    const tractorTotalCost = tractorAggregateIngredients.reduce((sum, i) => sum + i.cost, 0);
-
-    // One click into Tractor Mode with every eligible pen already checked — "feed all
-    // pens together" without making the user tick each box by hand. Still lands in the
-    // same mismatch-confirmation flow as manual multi-select, so a genuinely mixed
-    // forage/phase farm still gets the "aggregate anyway" guard before logging.
-    const openFeedAllPens = () => {
-        setTractorSelectedPens(tractorEligiblePens);
-        setTractorConfirmedMismatch(false);
-        setIsTractorMode(true);
-    };
-
-    // Daily feed-log state
-    const [logSaved, setLogSaved] = useState(false);
-
-    // Rations are only ever set by a Ration Plan (managed under Ration Plans, not
-    // here). This page's job is strictly to feed today's plan-driven batch and
-    // calculate the total kg to mix — no recipe editing lives here. Procurement
-    // cost is likewise set per Ration Plan and never shown on this page.
-
-    // Sync animalsCount when herd data loads/changes or pen selection changes
-    useEffect(() => {
-        if (selectedTMRPen === 'all') {
-            if (activeHerdCount > 0) setAnimalsCount(activeHerdCount);
-        } else {
-            const penCount = animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased' && a.pen === selectedTMRPen).length;
-            setAnimalsCount(Math.max(1, penCount));
-        }
-    }, [activeHerdCount, selectedTMRPen, animals]);
-
     // 2. QUANTITY MATH — plan-driven only. Ingredient quantities are as-fed kg/head/day
     // straight from the Ration Plan's weekly schedule (no moisture/DM conversion — small
     // quantities like urea or minerals matter, so nothing here is rounded to whole kg;
@@ -223,6 +134,9 @@ export default function TMRCalculator() {
     // `headCountOverride` lets the single-pen view size the batch off the user-editable
     // "Calves" input instead of the pen's registered head count (e.g. for pens not yet
     // fully logged in the system); per-pen cards under "All" always use the real headcount.
+    // Defined here (before Tractor Mode below) since tractorAggregateIngredients calls
+    // it eagerly during render — declaring it later would throw a temporal-dead-zone
+    // "Cannot access before initialization" error the moment a tractor batch is computed.
     const computePenBatch = (penId, headCountOverride) => {
         const resolvedPlanRow = getPenRationRow(penId, logDate);
         const isBlocked = !!resolvedPlanRow?.blocked;
@@ -316,6 +230,189 @@ export default function TMRCalculator() {
             displayIngredients, totalDM, totalBatchWeight, totalCostSingle, dietDiffered
         };
     };
+
+    // Headcount-weighted avg plan qty / fed qty per ingredient across a set of
+    // already-resolved pen batches (`{ penId, batch }[]`, from computePenBatch above).
+    // Shared by the "All Pens" aggregate view and Tractor Mode so both edit an
+    // aggregate quantity the exact same way — the only difference between them is
+    // which pens are passed in (every active pen vs. just the tractor-checked ones).
+    const computeAggregateTableRows = (resolutions, totalHeadCount) => {
+        if (totalHeadCount === 0) return [];
+        const map = {};
+        resolutions.forEach(({ batch }) => {
+            const penHead = batch.headCount || 0;
+            batch.planIngredientRows.forEach(r => {
+                if (!map[r.id]) {
+                    map[r.id] = { id: r.id, name: r.name, planWetTotal: 0, fedWetTotal: 0, isOverridden: false, isExtra: false };
+                }
+                map[r.id].planWetTotal += r.planQty * penHead;
+                map[r.id].fedWetTotal += r.qtyPerHead * penHead;
+                if (r.isOverridden) map[r.id].isOverridden = true;
+            });
+
+            batch.extraIngredientRows.forEach(r => {
+                if (!map[r.id]) {
+                    map[r.id] = { id: r.id, name: r.name, planWetTotal: 0, fedWetTotal: 0, isOverridden: true, isExtra: true };
+                }
+                map[r.id].fedWetTotal += r.qtyPerHead * penHead;
+            });
+        });
+
+        return Object.values(map).map(r => ({
+            id: r.id,
+            name: r.name,
+            avgPlanQty: r.planWetTotal / totalHeadCount,
+            avgFedQty: r.fedWetTotal / totalHeadCount,
+            isOverridden: r.isOverridden,
+            isExtra: r.isExtra
+        }));
+    };
+
+    // Applies a target herd/tractor-average quantity for one ingredient by scaling
+    // each pen's own existing quantity proportionally (rather than flattening every
+    // pen to the same value) — so pens with a naturally larger ration stay
+    // proportionally larger. `penIds`/`tableRows` scope this to whichever pens the
+    // calling view is actually showing (all active pens, or just the tractor-checked
+    // ones), so an edit here never touches a pen that isn't part of that batch.
+    const handleAggregateOverride = (penIds, tableRows, id, targetAvgStr) => {
+        const targetAvgInput = parseFloat(targetAvgStr);
+        if (isNaN(targetAvgInput)) return;
+        const targetAvg = activeFeedingScale > 0 ? targetAvgInput / activeFeedingScale : targetAvgInput;
+
+        const row = tableRows.find(r => r.id === id);
+        if (!row) return;
+
+        if (row.isExtra) {
+            const currentAvg = row.avgFedQty;
+            setExtraIngredientsByPen(prev => {
+                const next = { ...prev };
+                penIds.forEach(penId => {
+                    const penBatch = computePenBatch(penId);
+                    const currentPenQty = penBatch.extraIngredientRows.find(r => r.id === id)?.qtyPerHead || 0;
+                    let newPenQty = targetAvg;
+                    if (currentAvg > 0 && currentPenQty > 0) {
+                        newPenQty = parseFloat((currentPenQty * (targetAvg / currentAvg)).toFixed(3));
+                    }
+                    next[penId] = { ...(next[penId] || {}), [id]: newPenQty };
+                });
+                return next;
+            });
+        } else {
+            const baseAvg = row.avgPlanQty > 0 ? row.avgPlanQty : row.avgFedQty;
+            setPlanOverridesByPen(prev => {
+                const next = { ...prev };
+                penIds.forEach(penId => {
+                    const penBatch = computePenBatch(penId);
+                    const planQty = penBatch.planIngredientRows.find(r => r.id === id)?.planQty || 0;
+                    let newPenQty = targetAvg;
+                    if (baseAvg > 0 && planQty > 0) {
+                        newPenQty = parseFloat((planQty * (targetAvg / baseAvg)).toFixed(3));
+                    }
+                    next[penId] = { ...(next[penId] || {}), [id]: newPenQty };
+                });
+                return next;
+            });
+        }
+    };
+
+    // ─── TRACTOR MODE: multi-pen batch aggregation ───
+    // Pens eligible for a tractor batch are those with any Ration Plan assigned
+    // (legacy or v2) and active animals — selecting several sums qty×headCount per
+    // ingredient across them, but only after confirming they share the same forage
+    // type and phase. An adaptation-phase pen and a steady-state pen (or silage vs.
+    // chari) use meaningfully different rations, so silently summing them would
+    // produce a wrong batch — this requires an explicit "aggregate anyway" click.
+    const tractorEligiblePens = activePens.filter(p => pens.some(pc => pc.id === p && (pc.rationPlanId || pc.planId)));
+    const [tractorSelectedPens, setTractorSelectedPens] = useState([]);
+    const [tractorConfirmedMismatch, setTractorConfirmedMismatch] = useState(false);
+
+    const openTractorMode = () => {
+        setTractorSelectedPens(selectedTMRPen !== 'all' && tractorEligiblePens.includes(selectedTMRPen) ? [selectedTMRPen] : []);
+        setTractorConfirmedMismatch(false);
+        setIsTractorMode(true);
+    };
+
+    const toggleTractorPen = (penId) => {
+        setTractorConfirmedMismatch(false);
+        setTractorSelectedPens(prev => prev.includes(penId) ? prev.filter(p => p !== penId) : [...prev, penId]);
+    };
+
+    // Resolve each selected pen independently — never assume they share a plan.
+    // Carries its own `batch` (via computePenBatch) so every aggregate below reads
+    // live overrides/extras exactly once per pen, instead of each aggregate
+    // re-resolving the pen separately (previously a source of drift between the
+    // mismatch check, the aggregate totals, and the override math).
+    const tractorPenResolutions = tractorSelectedPens
+        .map(penId => ({ penId, batch: computePenBatch(penId) }))
+        .map(r => ({ ...r, resolved: r.batch.resolvedPlanRow }))
+        .filter(r => r.batch.isPlanDriven);
+
+    const tractorPhaseOf = (resolved) => resolved.system === 'v2' ? resolved.phase : (resolved.usesAdaptationTable ? 'ADAPTATION' : 'STEADY');
+    const tractorForageTypes = [...new Set(tractorPenResolutions.map(r => r.resolved.forageType))];
+    const tractorPhases = [...new Set(tractorPenResolutions.map(r => tractorPhaseOf(r.resolved)))];
+    const tractorMismatch = tractorForageTypes.length > 1 || tractorPhases.length > 1;
+    const tractorMismatchedPens = tractorMismatch
+        ? tractorPenResolutions.map(r => `Pen ${r.penId} (${r.resolved.forageType}, ${tractorPhaseOf(r.resolved)})`)
+        : [];
+
+    // Aggregate qty×headCount per ingredient across all resolved pens in Tractor Mode,
+    // reflecting live overrides, added ingredients, and active feeding run scaling.
+    const tractorAggregateIngredients = (() => {
+        if (tractorPenResolutions.length === 0) return [];
+        if (tractorMismatch && !tractorConfirmedMismatch) return [];
+        const totals = {};
+        tractorPenResolutions.forEach(({ batch }) => {
+            const headCount = batch.headCount || 0;
+            batch.displayIngredients.forEach(ing => {
+                const id = ing.id;
+                const batchQty = ing.wetBatch * activeFeedingScale;
+                const cost = ing.costSingle * headCount * activeFeedingScale;
+                if (!totals[id]) totals[id] = { id, name: ing.name, wetBatch: 0, cost: 0, isExtra: false, isOverridden: false };
+                totals[id].wetBatch += batchQty;
+                totals[id].cost += cost;
+                if (ing.isExtra) totals[id].isExtra = true;
+                if (ing.isOverridden) totals[id].isOverridden = true;
+            });
+        });
+        return Object.values(totals);
+    })();
+
+    const tractorTotalHeadCount = tractorPenResolutions.reduce((sum, r) => sum + (r.batch.headCount || 0), 0);
+    const tractorTotalBatchWeight = tractorAggregateIngredients.reduce((sum, i) => sum + i.wetBatch, 0);
+    const tractorTotalCost = tractorAggregateIngredients.reduce((sum, i) => sum + i.cost, 0);
+    // Headcount-weighted avg plan/fed qty per ingredient, scoped strictly to the pens
+    // actually checked in Tractor Mode — the base an in-mixer edit scales against, so
+    // typing a new batch weight here only ever rewrites overrides for these pens (see
+    // handleAggregateOverride below), never the whole herd's.
+    const tractorTableRows = computeAggregateTableRows(tractorPenResolutions, tractorTotalHeadCount);
+
+    // One click into Tractor Mode with every eligible pen already checked — "feed all
+    // pens together" without making the user tick each box by hand. Still lands in the
+    // same mismatch-confirmation flow as manual multi-select, so a genuinely mixed
+    // forage/phase farm still gets the "aggregate anyway" guard before logging.
+    const openFeedAllPens = () => {
+        setTractorSelectedPens(tractorEligiblePens);
+        setTractorConfirmedMismatch(false);
+        setIsTractorMode(true);
+    };
+
+    // Daily feed-log state
+    const [logSaved, setLogSaved] = useState(false);
+
+    // Rations are only ever set by a Ration Plan (managed under Ration Plans, not
+    // here). This page's job is strictly to feed today's plan-driven batch and
+    // calculate the total kg to mix — no recipe editing lives here. Procurement
+    // cost is likewise set per Ration Plan and never shown on this page.
+
+    // Sync animalsCount when herd data loads/changes or pen selection changes
+    useEffect(() => {
+        if (selectedTMRPen === 'all') {
+            if (activeHerdCount > 0) setAnimalsCount(activeHerdCount);
+        } else {
+            const penCount = animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased' && a.pen === selectedTMRPen).length;
+            setAnimalsCount(Math.max(1, penCount));
+        }
+    }, [activeHerdCount, selectedTMRPen, animals]);
 
     // Editing is per-pen (keyed by penId) so the same handlers work for the single
     // selected pen's table and for every pen's own table stacked under "All".
@@ -569,92 +666,7 @@ export default function TMRCalculator() {
 
     const [showPerPenBreakdown, setShowPerPenBreakdown] = useState(false);
 
-    const allPensTableRows = (() => {
-        if (allPensTotalHeadCount === 0) return [];
-        const map = {};
-        allPensResolutions.forEach(({ batch }) => {
-            const penHead = batch.headCount || 0;
-            batch.planIngredientRows.forEach(r => {
-                if (!map[r.id]) {
-                    map[r.id] = {
-                        id: r.id,
-                        name: r.name,
-                        planWetTotal: 0,
-                        fedWetTotal: 0,
-                        isOverridden: false,
-                        isExtra: false
-                    };
-                }
-                map[r.id].planWetTotal += r.planQty * penHead;
-                map[r.id].fedWetTotal += r.qtyPerHead * penHead;
-                if (r.isOverridden) map[r.id].isOverridden = true;
-            });
-
-            batch.extraIngredientRows.forEach(r => {
-                if (!map[r.id]) {
-                    map[r.id] = {
-                        id: r.id,
-                        name: r.name,
-                        planWetTotal: 0,
-                        fedWetTotal: 0,
-                        isOverridden: true,
-                        isExtra: true
-                    };
-                }
-                map[r.id].fedWetTotal += r.qtyPerHead * penHead;
-            });
-        });
-
-        return Object.values(map).map(r => ({
-            id: r.id,
-            name: r.name,
-            avgPlanQty: r.planWetTotal / allPensTotalHeadCount,
-            avgFedQty: r.fedWetTotal / allPensTotalHeadCount,
-            isOverridden: r.isOverridden,
-            isExtra: r.isExtra
-        }));
-    })();
-
-    const handleAllPensOverride = (id, targetAvgStr) => {
-        const targetAvgInput = parseFloat(targetAvgStr);
-        if (isNaN(targetAvgInput)) return;
-        const targetAvg = activeFeedingScale > 0 ? targetAvgInput / activeFeedingScale : targetAvgInput;
-
-        const row = allPensTableRows.find(r => r.id === id);
-        if (!row) return;
-
-        if (row.isExtra) {
-            const currentAvg = row.avgFedQty;
-            setExtraIngredientsByPen(prev => {
-                const next = { ...prev };
-                activePens.forEach(penId => {
-                    const penBatch = computePenBatch(penId);
-                    const currentPenQty = penBatch.extraIngredientRows.find(r => r.id === id)?.qtyPerHead || 0;
-                    let newPenQty = targetAvg;
-                    if (currentAvg > 0 && currentPenQty > 0) {
-                        newPenQty = parseFloat((currentPenQty * (targetAvg / currentAvg)).toFixed(3));
-                    }
-                    next[penId] = { ...(next[penId] || {}), [id]: newPenQty };
-                });
-                return next;
-            });
-        } else {
-            const baseAvg = row.avgPlanQty > 0 ? row.avgPlanQty : row.avgFedQty;
-            setPlanOverridesByPen(prev => {
-                const next = { ...prev };
-                activePens.forEach(penId => {
-                    const penBatch = computePenBatch(penId);
-                    const planQty = penBatch.planIngredientRows.find(r => r.id === id)?.planQty || 0;
-                    let newPenQty = targetAvg;
-                    if (baseAvg > 0 && planQty > 0) {
-                        newPenQty = parseFloat((planQty * (targetAvg / baseAvg)).toFixed(3));
-                    }
-                    next[penId] = { ...(next[penId] || {}), [id]: newPenQty };
-                });
-                return next;
-            });
-        }
-    };
+    const allPensTableRows = computeAggregateTableRows(allPensResolutions, allPensTotalHeadCount);
 
     const handleAllPensResetOverride = (id) => {
         setPlanOverridesByPen(prev => {
@@ -838,7 +850,7 @@ export default function TMRCalculator() {
                                                             className="form-control"
                                                             style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: row.isOverridden ? 'var(--accent-gold)' : 'inherit' }}
                                                             value={parseFloat(row.avgFedQty.toFixed(3))}
-                                                            onChange={(e) => handleAllPensOverride(row.id, e.target.value)}
+                                                            onChange={(e) => handleAggregateOverride(activePens, allPensTableRows, row.id, e.target.value)}
                                                             disabled={!isAdmin}
                                                         />
                                                     </td>
@@ -866,7 +878,7 @@ export default function TMRCalculator() {
                                                             className="form-control"
                                                             style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: 'var(--accent-gold)' }}
                                                             value={parseFloat(row.avgFedQty.toFixed(3))}
-                                                            onChange={(e) => handleAllPensOverride(row.id, e.target.value)}
+                                                            onChange={(e) => handleAggregateOverride(activePens, allPensTableRows, row.id, e.target.value)}
                                                             disabled={!isAdmin}
                                                         />
                                                     </td>
@@ -1838,7 +1850,7 @@ export default function TMRCalculator() {
                                                             const newScaledBatch = parseFloat(e.target.value) || 0;
                                                             const newUnscaledBatch = activeFeedingScale > 0 ? newScaledBatch / activeFeedingScale : newScaledBatch;
                                                             const newAvgPerHead = tractorTotalHeadCount > 0 ? newUnscaledBatch / tractorTotalHeadCount : 0;
-                                                            handleAllPensOverride(ing.id, newAvgPerHead.toString());
+                                                            handleAggregateOverride(tractorSelectedPens, tractorTableRows, ing.id, newAvgPerHead.toString());
                                                         }}
                                                         disabled={!isAdmin}
                                                     />

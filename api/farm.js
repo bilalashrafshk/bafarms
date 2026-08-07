@@ -1650,20 +1650,39 @@ module.exports = async (req, res) => {
                 const { id, rfid, breed, entryDate, entryWeight, targetWeight, purchasePrice, source, status, pen, price, desc, images } = payload;
                 const isAdmin = !!(perms && perms.isAdmin);
 
-                const currentRes = await client.query('SELECT entry_weight, purchase_price, pen FROM ba_animals WHERE id = $1', [id]);
+                const currentRes = await client.query('SELECT * FROM ba_animals WHERE id = $1', [id]);
                 if (currentRes.rows.length === 0) {
                     return res.status(404).json({ success: false, error: 'Animal not found.' });
                 }
                 const current = currentRes.rows[0];
-                const newEntryWeight = parseFloat(entryWeight);
-                const newPurchasePrice = parseFloat(purchasePrice);
-                const entryWeightChanged = newEntryWeight !== parseFloat(current.entry_weight);
-                const purchasePriceChanged = newPurchasePrice !== parseFloat(current.purchase_price);
+
+                // Every UPDATE below runs as a full-row write, so any field missing from
+                // payload (e.g. the activity log's Undo button, which only ever sends
+                // { id, pen } or { id, status }) must fall back to the row's existing
+                // value instead of nulling it out — several columns (rfid, breed,
+                // entry_date, target_weight, status) are NOT NULL, so a naive partial
+                // payload used to hard-fail the whole update (or silently null the
+                // nullable columns) on every pen-transfer/status undo.
+                const finalRfid = rfid !== undefined ? rfid : current.rfid;
+                const finalBreed = breed !== undefined ? breed : current.breed;
+                const finalEntryDate = entryDate !== undefined ? entryDate : current.entry_date;
+                const finalEntryWeight = entryWeight !== undefined ? parseFloat(entryWeight) : parseFloat(current.entry_weight);
+                const finalTargetWeight = targetWeight !== undefined ? targetWeight : current.target_weight;
+                const finalPurchasePrice = purchasePrice !== undefined ? parseFloat(purchasePrice) : parseFloat(current.purchase_price);
+                const finalSource = source !== undefined ? source : current.source;
+                const finalStatus = status !== undefined ? status : current.status;
+                const finalPen = pen !== undefined ? (pen || null) : current.pen;
+                const finalPrice = price !== undefined ? (price || null) : current.price;
+                const finalDesc = desc !== undefined ? (desc || null) : current.description;
+                const finalImages = images !== undefined ? images : current.images;
+
+                const entryWeightChanged = finalEntryWeight !== parseFloat(current.entry_weight);
+                const purchasePriceChanged = finalPurchasePrice !== parseFloat(current.purchase_price);
                 // Moving an animal in/out of a pen changes both pens' rosters — refresh
                 // whichever pen(s) actually changed after the write below (same staleness
                 // trigger as ADD_ANIMAL/LOG_WEIGHT; a same-pen no-op save shouldn't recompute).
                 const oldPen = current.pen;
-                const newPen = pen || null;
+                const newPen = finalPen;
                 const penChanged = oldPen !== newPen;
 
                 // Non-super-admins can't directly overwrite purchase price or entry (gross)
@@ -1673,8 +1692,8 @@ module.exports = async (req, res) => {
                 // with Herd access, same as before.
                 if (!isAdmin && (entryWeightChanged || purchasePriceChanged)) {
                     const changes = {};
-                    if (entryWeightChanged) changes.entryWeight = newEntryWeight;
-                    if (purchasePriceChanged) changes.purchasePrice = newPurchasePrice;
+                    if (entryWeightChanged) changes.entryWeight = finalEntryWeight;
+                    if (purchasePriceChanged) changes.purchasePrice = finalPurchasePrice;
 
                     const existingPending = await client.query(
                         `SELECT id FROM ba_pending_approvals WHERE animal_id = $1 AND action = 'UPDATE_ANIMAL' AND status = 'pending'`,
@@ -1685,7 +1704,7 @@ module.exports = async (req, res) => {
                             INSERT INTO ba_pending_approvals (action, animal_id, animal_rfid, animal_breed, payload, previous_snapshot, requested_by)
                             VALUES ('UPDATE_ANIMAL', $1, $2, $3, $4, $5, $6)
                         `, [
-                            id, rfid, breed, JSON.stringify(changes),
+                            id, finalRfid, finalBreed, JSON.stringify(changes),
                             JSON.stringify({ entryWeight: parseFloat(current.entry_weight), purchasePrice: parseFloat(current.purchase_price) }),
                             session.email.toLowerCase().trim()
                         ]);
@@ -1695,7 +1714,7 @@ module.exports = async (req, res) => {
                         UPDATE ba_animals
                         SET rfid = $1, breed = $2, entry_date = $3, target_weight = $4, source = $5, status = $6, pen = $7, price = $8, description = $9, images = $10
                         WHERE id = $11
-                    `, [rfid, breed, entryDate, targetWeight, source, status, pen || null, price || null, desc || null, images ? JSON.stringify(images) : null, id]);
+                    `, [finalRfid, finalBreed, finalEntryDate, finalTargetWeight, finalSource, finalStatus, finalPen, finalPrice, finalDesc, finalImages ? JSON.stringify(finalImages) : null, id]);
 
                     if (penChanged) {
                         await refreshPenCache(client, oldPen);
@@ -1714,8 +1733,8 @@ module.exports = async (req, res) => {
                     SET rfid = $1, breed = $2, entry_date = $3, entry_weight = $4, target_weight = $5, purchase_price = $6, source = $7, status = $8, pen = $9, price = $10, description = $11, images = $12
                     WHERE id = $13
                 `, [
-                    rfid, breed, entryDate, entryWeight, targetWeight, purchasePrice, source, status, pen || null,
-                    price || null, desc || null, images ? JSON.stringify(images) : null,
+                    finalRfid, finalBreed, finalEntryDate, finalEntryWeight, finalTargetWeight, finalPurchasePrice, finalSource, finalStatus, finalPen,
+                    finalPrice, finalDesc, finalImages ? JSON.stringify(finalImages) : null,
                     id
                 ]);
 
