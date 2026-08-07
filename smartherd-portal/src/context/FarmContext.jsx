@@ -740,13 +740,13 @@ export const FarmProvider = ({ children }) => {
     // has one combined "minerals" ingredient, so both limestone and mineralPack point at it and
     // get split by mineralSplitRatio below.
     const defaultFeedStockItems = [
-        { id: 'silage', name: 'Silage', unit: 'kg', isDefault: true, derivedFromIngredientId: 'silage' },
-        { id: 'maizeGrain', name: 'Maize', unit: 'kg', isDefault: true, derivedFromIngredientId: 'maizeGrain' },
-        { id: 'glutenFeed', name: 'Gluten Feed', unit: 'kg', isDefault: true, derivedFromIngredientId: 'glutenFeed' },
-        { id: 'straw', name: 'Toori (Straw)', unit: 'kg', isDefault: true, derivedFromIngredientId: 'straw' },
-        { id: 'urea', name: 'Urea', unit: 'kg', isDefault: true, derivedFromIngredientId: 'urea' },
-        { id: 'limestone', name: 'Limestone', unit: 'kg', isDefault: true, derivedFromIngredientId: 'minerals' },
-        { id: 'mineralPack', name: 'Mineral Pack', unit: 'kg', isDefault: true, derivedFromIngredientId: 'minerals' }
+        { id: 'silage', name: 'Silage', unit: 'kg', category: 'feed', isDefault: true, derivedFromIngredientId: 'silage' },
+        { id: 'maizeGrain', name: 'Maize', unit: 'kg', category: 'feed', isDefault: true, derivedFromIngredientId: 'maizeGrain' },
+        { id: 'glutenFeed', name: 'Gluten Feed', unit: 'kg', category: 'feed', isDefault: true, derivedFromIngredientId: 'glutenFeed' },
+        { id: 'straw', name: 'Toori (Straw)', unit: 'kg', category: 'feed', isDefault: true, derivedFromIngredientId: 'straw' },
+        { id: 'urea', name: 'Urea', unit: 'kg', category: 'feed', isDefault: true, derivedFromIngredientId: 'urea' },
+        { id: 'limestone', name: 'Limestone', unit: 'kg', category: 'feed', isDefault: true, derivedFromIngredientId: 'minerals' },
+        { id: 'mineralPack', name: 'Mineral Pack', unit: 'kg', category: 'feed', isDefault: true, derivedFromIngredientId: 'minerals' }
     ];
     const [feedStockItems, setFeedStockItems] = useState(() => loadStoredData('ba_feed_stock_items', defaultFeedStockItems));
 
@@ -766,7 +766,7 @@ export const FarmProvider = ({ children }) => {
         setFeedStockItems(prev => {
             const missing = weightRationDefaults.filter(d => !prev.some(i => i.id === d.id));
             if (missing.length === 0) return prev;
-            return [...prev, ...missing.map(d => ({ id: d.id, name: d.name, unit: 'kg', isDefault: true, derivedFromIngredientId: d.id }))];
+            return [...prev, ...missing.map(d => ({ id: d.id, name: d.name, unit: 'kg', category: 'feed', isDefault: true, derivedFromIngredientId: d.id }))];
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -1046,16 +1046,22 @@ export const FarmProvider = ({ children }) => {
         }, 0);
     };
 
-    // Creates a paired feedStockItems + feedIngredients entry for a brand-new raw material —
-    // the single "add item" path shared by the Stock Ledger, Purchases, and Ration Plans forms,
-    // so anything you can buy you can immediately ration, and anything you can ration is always
-    // backed by real trackable stock (no untracked "custom_" ingredients with a typed-in price).
-    const addStockTrackedIngredient = (name) => {
+    // Creates a new feedStockItems entry — the single "add item" path shared by the Stock
+    // Ledger and Purchases forms, so anything the farm buys (feed, medicine, or anything
+    // else animal-related) is backed by real trackable stock. Only 'feed' category items
+    // also get a paired feedIngredients entry, since only those are meant to be selectable
+    // in a TMR/ration recipe — medicine and other supplies are purchased/issued here but
+    // never fed as part of a ration.
+    const addStockTrackedIngredient = (name, category = 'feed', unit = 'kg') => {
         const trimmed = (name || '').trim();
         if (!trimmed) return null;
         const id = 'item_' + Date.now();
-        updateFeedStockItems([...feedStockItems, { id, name: trimmed, unit: 'kg', isDefault: false, derivedFromIngredientId: id }]);
-        updateFeedIngredients([...feedIngredients, { id, name: trimmed, dmTarget: 0, price: 0, isDefault: false }]);
+        const item = { id, name: trimmed, unit: unit || 'kg', category, isDefault: false };
+        if (category === 'feed') {
+            item.derivedFromIngredientId = id;
+            updateFeedIngredients([...feedIngredients, { id, name: trimmed, dmTarget: 0, price: 0, isDefault: false }]);
+        }
+        updateFeedStockItems([...feedStockItems, item]);
         return id;
     };
 
@@ -1546,6 +1552,7 @@ export const FarmProvider = ({ children }) => {
 
     const addTreatment = async (animalId, date, type, medicine, dosage, withholding, protocolTaskId = null) => {
         const id = treatments.length > 0 ? Math.max(...treatments.map(t => t.id)) + 1 : 1;
+        const currentUser = staffUserRef.current?.name || staffUserRef.current?.email || 'Admin';
         const newTreatment = {
             id,
             animalId: parseInt(animalId),
@@ -1554,18 +1561,23 @@ export const FarmProvider = ({ children }) => {
             medicine,
             dosage,
             withholding: parseInt(withholding) || 0,
-            protocolTaskId: protocolTaskId || null
+            protocolTaskId: protocolTaskId || null,
+            createdBy: currentUser
         };
 
         // 1. Sync UI locally
         setTreatments(prev => [...prev, newTreatment]);
 
         // 2. Queue database transaction durably
-        persistMutation('LOG_TREATMENT', { animalId: parseInt(animalId), date, type, medicine, dosage, withholding: parseInt(withholding) || 0, protocolTaskId: protocolTaskId || null });
+        persistMutation('LOG_TREATMENT', { animalId: parseInt(animalId), date, type, medicine, dosage, withholding: parseInt(withholding) || 0, protocolTaskId: protocolTaskId || null, createdBy: currentUser });
     };
 
     const transitionAnimalStatus = async (animalId, nextStatus) => {
         const today = todayPKT();
+        const currentUser = staffUserRef.current?.name || staffUserRef.current?.email || 'Admin';
+        const existing = animals.find(a => a.id === parseInt(animalId));
+        const prevStatus = existing ? existing.status : 'Quarantined';
+
         // 1. Sync UI locally
         setAnimals(prev => prev.map(animal => {
             if (animal.id === parseInt(animalId)) {
@@ -1573,7 +1585,16 @@ export const FarmProvider = ({ children }) => {
             }
             return animal;
         }));
-        setEvents(prev => [...prev, { id: Date.now(), animalId: parseInt(animalId), date: today, eventType: 'status_change', note: `→ ${nextStatus}` }]);
+        setEvents(prev => [...prev, {
+            id: Date.now(),
+            animalId: parseInt(animalId),
+            date: today,
+            eventType: 'status_change',
+            note: `→ ${nextStatus}`,
+            prevStatus,
+            nextStatus,
+            createdBy: currentUser
+        }]);
 
         // 2. Queue database transaction durably
         persistMutation('TRANSITION_STATUS', { animalId: parseInt(animalId), status: nextStatus, date: today, note: `→ ${nextStatus}` });
@@ -1614,6 +1635,22 @@ export const FarmProvider = ({ children }) => {
     const updateAnimal = async (updatedAnimal) => {
         const existing = animals.find(a => a.id === updatedAnimal.id);
         const isAdmin = staffUserRef.current?.isAdmin === true;
+        const currentUser = staffUserRef.current?.name || staffUserRef.current?.email || 'Admin';
+
+        if (existing && updatedAnimal.pen !== undefined && String(updatedAnimal.pen) !== String(existing.pen)) {
+            const fromPen = existing.pen || 'Unassigned';
+            const toPen = updatedAnimal.pen || 'Unassigned';
+            setEvents(prev => [...prev, {
+                id: Date.now(),
+                animalId: existing.id,
+                date: todayPKT(),
+                eventType: 'pen_transfer',
+                note: `Moved ${fromPen} → ${toPen}`,
+                fromPen,
+                toPen,
+                createdBy: currentUser
+            }]);
+        }
 
         const newEntryWeight = updatedAnimal.entryWeight !== undefined ? parseFloat(updatedAnimal.entryWeight) : existing?.entryWeight;
         const newPurchasePrice = updatedAnimal.purchasePrice !== undefined ? parseFloat(updatedAnimal.purchasePrice) : existing?.purchasePrice;
@@ -1621,11 +1658,6 @@ export const FarmProvider = ({ children }) => {
             newEntryWeight !== existing.entryWeight || newPurchasePrice !== existing.purchasePrice
         );
 
-        // Non-admins can freely edit every field EXCEPT entry (gross) weight and
-        // purchase price — those two are staged for super-admin approval instead of
-        // being applied locally, so wait for the server's verdict before touching
-        // local state (same non-optimistic pattern as recordSale). Every other field
-        // in the same submission still saves immediately server-side.
         if (!isAdmin && sensitiveChanged) {
             try {
                 const { res, data } = await sendMutationToServer('UPDATE_ANIMAL', updatedAnimal);
@@ -1646,10 +1678,6 @@ export const FarmProvider = ({ children }) => {
         // 1. Sync UI locally
         setAnimals(prev => prev.map(a => a.id === updatedAnimal.id ? { ...a, ...updatedAnimal } : a));
 
-        // If the entry weight or entry date was corrected, the baseline weight log
-        // created automatically at registration is now stale — ripple the fix through
-        // to ADG on every log that follows it (same chain recalculation as editing a
-        // weight log directly).
         if (existing) {
             const newEntryDate = updatedAnimal.entryDate ?? existing.entryDate;
             if (newEntryWeight !== existing.entryWeight || newEntryDate !== existing.entryDate) {
@@ -1665,6 +1693,33 @@ export const FarmProvider = ({ children }) => {
         // 2. Queue DB transaction durably
         persistMutation('UPDATE_ANIMAL', updatedAnimal);
         return { success: true };
+    };
+
+    const undoActivity = async (item) => {
+        const currentUser = staffUserRef.current?.name || staffUserRef.current?.email || 'Admin';
+
+        if (item.eventType === 'pen_transfer') {
+            const animalId = item.animalId;
+            const targetPen = (item.fromPen === 'Unassigned' || !item.fromPen) ? null : item.fromPen;
+            setAnimals(prev => prev.map(a => a.id === animalId ? { ...a, pen: targetPen } : a));
+            setEvents(prev => prev.filter(e => e.id !== item.sortId));
+            persistMutation('UPDATE_ANIMAL', { id: animalId, pen: targetPen });
+        } else if (item.eventType === 'status_change') {
+            const animalId = item.animalId;
+            const targetStatus = item.prevStatus || 'Quarantined';
+            setAnimals(prev => prev.map(a => a.id === animalId ? { ...a, status: targetStatus } : a));
+            setEvents(prev => prev.filter(e => e.id !== item.sortId));
+            persistMutation('TRANSITION_STATUS', { animalId, status: targetStatus, date: todayPKT(), note: `Restored to ${targetStatus}` });
+        } else if (item.eventType === 'treatment') {
+            deleteTreatment(item.sortId);
+        } else if (item.eventType === 'weight') {
+            deleteWeightLog(item.sortId);
+        } else if (item.eventType === 'sold' || item.eventType === 'deceased') {
+            const animalId = item.animalId;
+            setAnimals(prev => prev.map(a => a.id === animalId ? { ...a, status: 'Fattening', salePrice: null, buyerName: null, saleDate: null, deceasedDate: null, deceasedCause: null } : a));
+            setEvents(prev => prev.filter(e => e.id !== item.sortId));
+            persistMutation('UPDATE_ANIMAL', { id: animalId, status: 'Fattening' });
+        }
     };
 
     // Admin-only: approve a staged sensitive-field edit or delete request. Applies
@@ -2742,6 +2797,7 @@ export const FarmProvider = ({ children }) => {
             recordDeath,
             deleteAnimal,
             updateAnimal,
+            undoActivity,
             deleteWeightLog,
             updateWeightLog,
             deleteTreatment,
