@@ -38,7 +38,7 @@ export default function ActivityFeed() {
             toPen: e.toPen,
             prevStatus: e.prevStatus,
             nextStatus: e.nextStatus,
-            createdBy: e.createdBy || 'Admin',
+            createdBy: e.createdBy || null,
             sortId: e.id
         })),
         ...treatments.map(t => ({
@@ -48,7 +48,7 @@ export default function ActivityFeed() {
             category: 'treatment',
             eventType: 'treatment',
             note: `${t.type}: ${t.medicine} ${t.dosage}${t.withholding > 0 ? ` — ${t.withholding}d withholding` : ''}`,
-            createdBy: t.createdBy || 'Admin',
+            createdBy: t.createdBy || null,
             sortId: t.id
         })),
         ...weightLogs.map(w => ({
@@ -58,7 +58,7 @@ export default function ActivityFeed() {
             category: 'weight',
             eventType: 'weight',
             note: `Weighed ${w.weight} kg${w.adg !== 0 ? ` (${w.adg > 0 ? '+' : ''}${w.adg} kg/d ADG)` : ''}`,
-            createdBy: w.createdBy || 'Admin',
+            createdBy: w.createdBy || null,
             sortId: w.id
         })),
     ].sort((a, b) => {
@@ -112,9 +112,11 @@ export default function ActivityFeed() {
                             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.45rem' }}>
                                 <span style={{ fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)', fontSize: '0.88rem' }}>{rfid}</span>
                                 <span style={{ color: 'var(--text-main)', fontSize: '0.83rem' }}>{item.note}</span>
-                                <span style={{ fontSize: '0.7rem', color: 'var(--accent-gold)', background: 'rgba(255,193,7,0.1)', padding: '0.1rem 0.45rem', borderRadius: '4px', border: '1px solid rgba(255,193,7,0.2)', fontWeight: '600' }}>
-                                    by {item.createdBy || 'Admin'}
-                                </span>
+                                {item.createdBy && item.createdBy !== 'Admin' && (
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--accent-gold)', background: 'rgba(255,193,7,0.1)', padding: '0.1rem 0.45rem', borderRadius: '4px', border: '1px solid rgba(255,193,7,0.2)', fontWeight: '600' }}>
+                                        by {item.createdBy}
+                                    </span>
+                                )}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexShrink: 0 }}>
                                 <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontFamily: 'var(--font-heading)', whiteSpace: 'nowrap' }}>{formatDate(item.date)}</span>

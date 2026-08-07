@@ -1552,7 +1552,7 @@ export const FarmProvider = ({ children }) => {
 
     const addTreatment = async (animalId, date, type, medicine, dosage, withholding, protocolTaskId = null) => {
         const id = treatments.length > 0 ? Math.max(...treatments.map(t => t.id)) + 1 : 1;
-        const currentUser = staffUserRef.current?.name || staffUserRef.current?.email || 'Admin';
+        const currentUser = staffUserRef.current?.email || staffUserRef.current?.name || null;
         const newTreatment = {
             id,
             animalId: parseInt(animalId),
@@ -1574,7 +1574,7 @@ export const FarmProvider = ({ children }) => {
 
     const transitionAnimalStatus = async (animalId, nextStatus) => {
         const today = todayPKT();
-        const currentUser = staffUserRef.current?.name || staffUserRef.current?.email || 'Admin';
+        const currentUser = staffUserRef.current?.email || staffUserRef.current?.name || null;
         const existing = animals.find(a => a.id === parseInt(animalId));
         const prevStatus = existing ? existing.status : 'Quarantined';
 
@@ -1635,7 +1635,7 @@ export const FarmProvider = ({ children }) => {
     const updateAnimal = async (updatedAnimal) => {
         const existing = animals.find(a => a.id === updatedAnimal.id);
         const isAdmin = staffUserRef.current?.isAdmin === true;
-        const currentUser = staffUserRef.current?.name || staffUserRef.current?.email || 'Admin';
+        const currentUser = staffUserRef.current?.email || staffUserRef.current?.name || null;
 
         if (existing && updatedAnimal.pen !== undefined && String(updatedAnimal.pen) !== String(existing.pen)) {
             const fromPen = existing.pen || 'Unassigned';
