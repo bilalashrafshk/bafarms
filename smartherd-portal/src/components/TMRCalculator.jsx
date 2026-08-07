@@ -1847,10 +1847,17 @@ export default function TMRCalculator() {
                                                         style={{ width: '110px', height: '36px', minHeight: '36px', textAlign: 'right', fontSize: '1.05rem', fontWeight: '700', color: 'var(--primary-green-light)', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)' }}
                                                         value={parseFloat(ing.wetBatch.toFixed(2))}
                                                         onChange={(e) => {
+                                                            // `ing.wetBatch` is already scaled to the active feeding
+                                                            // (Full Day / Feeding N of the split), so the typed value
+                                                            // is this feeding's batch weight — pass its per-head
+                                                            // equivalent straight through. handleAggregateOverride
+                                                            // does its own /activeFeedingScale conversion to a
+                                                            // full-day value internally; unscaling here too was
+                                                            // dividing twice, inflating whatever was typed whenever
+                                                            // a split other than Full Day (100%) was active.
                                                             const newScaledBatch = parseFloat(e.target.value) || 0;
-                                                            const newUnscaledBatch = activeFeedingScale > 0 ? newScaledBatch / activeFeedingScale : newScaledBatch;
-                                                            const newAvgPerHead = tractorTotalHeadCount > 0 ? newUnscaledBatch / tractorTotalHeadCount : 0;
-                                                            handleAggregateOverride(tractorSelectedPens, tractorTableRows, ing.id, newAvgPerHead.toString());
+                                                            const newAvgPerHeadThisFeeding = tractorTotalHeadCount > 0 ? newScaledBatch / tractorTotalHeadCount : 0;
+                                                            handleAggregateOverride(tractorSelectedPens, tractorTableRows, ing.id, newAvgPerHeadThisFeeding.toString());
                                                         }}
                                                         disabled={!isAdmin}
                                                     />
