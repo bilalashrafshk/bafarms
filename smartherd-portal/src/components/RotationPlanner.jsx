@@ -5,12 +5,50 @@ import { formatDate } from '../utils/formatDate';
 import { todayPKT, parseDateOnly, daysBetween } from '../utils/dateOnly';
 
 export default function RotationPlanner() {
-    const { animals, treatments, transitionAnimalStatus, recordSale, addTreatment, deleteTreatment, quarantineProtocols, systemParams } = useContext(FarmContext);
+    const { animals, treatments, transitionAnimalStatus, updateAnimal, recordSale, addTreatment, deleteTreatment, quarantineProtocols, systemParams, pens } = useContext(FarmContext);
 
     const [activeTab, setActiveTab] = useState('quarantine');
     const [searchQuery, setSearchQuery] = useState('');
     const [penFilter, setPenFilter] = useState('all');
     const [loggingTask, setLoggingTask] = useState(null);
+
+    // Bulk selection state
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [bulkTargetStatus, setBulkTargetStatus] = useState('');
+    const [bulkTargetPen, setBulkTargetPen] = useState('');
+
+    const toggleSelect = (id) => {
+        setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    };
+
+    const toggleSelectAll = (currentList) => {
+        const listIds = currentList.map(c => c.id);
+        const allSelected = listIds.length > 0 && listIds.every(id => selectedIds.includes(id));
+        if (allSelected) {
+            setSelectedIds(prev => prev.filter(id => !listIds.includes(id)));
+        } else {
+            setSelectedIds(prev => [...new Set([...prev, ...listIds])]);
+        }
+    };
+
+    const handleApplyBulkStatus = () => {
+        if (!bulkTargetStatus || selectedIds.length === 0) return;
+        selectedIds.forEach(id => {
+            transitionAnimalStatus(id, bulkTargetStatus);
+        });
+        setSelectedIds([]);
+        setBulkTargetStatus('');
+    };
+
+    const handleApplyBulkPen = () => {
+        if (!bulkTargetPen || selectedIds.length === 0) return;
+        const penVal = bulkTargetPen === 'none' ? null : bulkTargetPen;
+        selectedIds.forEach(id => {
+            updateAnimal({ id, pen: penVal });
+        });
+        setSelectedIds([]);
+        setBulkTargetPen('');
+    };
 
     // Sale modal state
     const [saleAnimal, setSaleAnimal] = useState(null);
@@ -153,6 +191,9 @@ export default function RotationPlanner() {
     const cellStyle = { padding: '0.5rem 0.7rem', borderBottom: '1px solid rgba(255,255,255,0.03)', color: 'var(--text-main)', fontSize: '0.85rem', verticalAlign: 'middle' };
     const headStyle = { padding: '0.45rem 0.7rem', background: 'rgba(255,255,255,0.02)', fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid rgba(255,255,255,0.06)', whiteSpace: 'nowrap' };
 
+    const currentTabList = activeTab === 'quarantine' ? fQ : activeTab === 'fattening' ? fF : activeTab === 'sick' ? fS : activeTab === 'market' ? fM : [];
+    const isAllCurrentSelected = currentTabList.length > 0 && currentTabList.every(c => selectedIds.includes(c.id));
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
@@ -188,6 +229,41 @@ export default function RotationPlanner() {
                 </select>
             </div>
 
+            {/* Bulk Actions Toolbar Bar */}
+            {selectedIds.length > 0 && (
+                <div style={{ background: 'rgba(255,193,7,0.1)', border: '1px solid rgba(255,193,7,0.3)', borderRadius: '10px', padding: '0.8rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.8rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <strong style={{ fontSize: '0.9rem', color: 'var(--accent-gold)' }}>
+                            <i className="fa-solid fa-square-check"></i> {selectedIds.length} Animal{selectedIds.length === 1 ? '' : 's'} Selected
+                        </strong>
+                        <button type="button" className="btn btn-secondary btn-sm" style={{ padding: '0.15rem 0.5rem', fontSize: '0.72rem' }} onClick={() => setSelectedIds([])}>
+                            Clear
+                        </button>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '600' }}>Move Status:</span>
+                        <select className="form-control" style={{ width: '150px', minHeight: '34px', padding: '0.2rem 0.6rem', fontSize: '0.82rem' }} value={bulkTargetStatus} onChange={e => setBulkTargetStatus(e.target.value)}>
+                            <option value="">Select Status...</option>
+                            <option value="Quarantined">→ Quarantine</option>
+                            <option value="Fattening">→ Fattening</option>
+                            <option value="Sick">→ Sick Pen</option>
+                        </select>
+                        <button type="button" className="btn btn-primary btn-sm" style={{ minHeight: '34px' }} disabled={!bulkTargetStatus} onClick={handleApplyBulkStatus}>
+                            Apply Status
+                        </button>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '600', marginLeft: '0.4rem' }}>Or Pen:</span>
+                        <select className="form-control" style={{ width: '130px', minHeight: '34px', padding: '0.2rem 0.6rem', fontSize: '0.82rem' }} value={bulkTargetPen} onChange={e => setBulkTargetPen(e.target.value)}>
+                            <option value="">Select Pen...</option>
+                            <option value="none">Unassigned</option>
+                            {activePens.map(p => <option key={p} value={p}>Pen {p}</option>)}
+                        </select>
+                        <button type="button" className="btn btn-secondary btn-sm" style={{ minHeight: '34px' }} disabled={!bulkTargetPen} onClick={handleApplyBulkPen}>
+                            Apply Pen
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Phase tabs + table */}
             <div class="glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
 
@@ -209,6 +285,9 @@ export default function RotationPlanner() {
                         <table class="data-table" style={{ fontSize: '0.83rem' }}>
                             <thead>
                                 <tr>
+                                    <th style={{ ...headStyle, width: '40px', textAlign: 'center' }}>
+                                        <input type="checkbox" checked={isAllCurrentSelected} onChange={() => toggleSelectAll(fQ)} />
+                                    </th>
                                     <th style={headStyle}>Tag</th>
                                     <th style={headStyle}>Breed</th>
                                     <th style={headStyle}>Pen</th>
@@ -224,6 +303,9 @@ export default function RotationPlanner() {
                                     const cleared = c.dof >= systemParams.quarantineDays;
                                     return (
                                         <tr key={c.id} style={{ borderLeft: cleared ? '3px solid var(--primary-green-light)' : '3px solid var(--accent-gold)' }}>
+                                            <td style={{ ...cellStyle, textAlign: 'center' }}>
+                                                <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => toggleSelect(c.id)} />
+                                            </td>
                                             <td style={{ ...cellStyle, fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)' }}>{c.rfid}</td>
                                             <td style={cellStyle}>{c.breed}</td>
                                             <td style={cellStyle}>{c.pen ? <span style={{ color: 'var(--accent-gold)', fontWeight: '600' }}>{c.pen}</span> : <span style={{ opacity: 0.3 }}>—</span>}</td>
@@ -253,7 +335,7 @@ export default function RotationPlanner() {
                                         </tr>
                                     );
                                 })}
-                                {fQ.length === 0 && <tr><td colSpan={7 + quarantineProtocols.length} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-circle-check" style={{ color: 'var(--primary-green-light)', marginRight: '0.5rem' }}></i>Quarantine pen is empty.</td></tr>}
+                                {fQ.length === 0 && <tr><td colSpan={8 + quarantineProtocols.length} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-circle-check" style={{ color: 'var(--primary-green-light)', marginRight: '0.5rem' }}></i>Quarantine pen is empty.</td></tr>}
                             </tbody>
                         </table>
                     </div>
@@ -265,6 +347,9 @@ export default function RotationPlanner() {
                         <table class="data-table" style={{ fontSize: '0.83rem' }}>
                             <thead>
                                 <tr>
+                                    <th style={{ ...headStyle, width: '40px', textAlign: 'center' }}>
+                                        <input type="checkbox" checked={isAllCurrentSelected} onChange={() => toggleSelectAll(fF)} />
+                                    </th>
                                     <th style={headStyle}>Tag</th>
                                     <th style={headStyle}>Breed</th>
                                     <th style={headStyle}>Pen</th>
@@ -278,6 +363,9 @@ export default function RotationPlanner() {
                             <tbody>
                                 {fF.map(c => (
                                     <tr key={c.id}>
+                                        <td style={{ ...cellStyle, textAlign: 'center' }}>
+                                            <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => toggleSelect(c.id)} />
+                                        </td>
                                         <td style={{ ...cellStyle, fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)' }}>{c.rfid}</td>
                                         <td style={cellStyle}>{c.breed}</td>
                                         <td style={cellStyle}>{c.pen ? <span style={{ color: 'var(--accent-gold)', fontWeight: '600' }}>{c.pen}</span> : <span style={{ opacity: 0.3 }}>—</span>}</td>
@@ -300,7 +388,7 @@ export default function RotationPlanner() {
                                         </td>
                                     </tr>
                                 ))}
-                                {fF.length === 0 && <tr><td colSpan={8} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>No fattening animals match criteria.</td></tr>}
+                                {fF.length === 0 && <tr><td colSpan={9} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>No fattening animals match criteria.</td></tr>}
                             </tbody>
                         </table>
                     </div>
@@ -312,6 +400,9 @@ export default function RotationPlanner() {
                         <table class="data-table" style={{ fontSize: '0.83rem' }}>
                             <thead>
                                 <tr>
+                                    <th style={{ ...headStyle, width: '40px', textAlign: 'center' }}>
+                                        <input type="checkbox" checked={isAllCurrentSelected} onChange={() => toggleSelectAll(fS)} />
+                                    </th>
                                     <th style={headStyle}>Tag</th>
                                     <th style={headStyle}>Breed</th>
                                     <th style={headStyle}>Pen</th>
@@ -324,6 +415,9 @@ export default function RotationPlanner() {
                             <tbody>
                                 {fS.map(c => (
                                     <tr key={c.id}>
+                                        <td style={{ ...cellStyle, textAlign: 'center' }}>
+                                            <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => toggleSelect(c.id)} />
+                                        </td>
                                         <td style={{ ...cellStyle, fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'hsl(0,75%,65%)' }}>{c.rfid}</td>
                                         <td style={cellStyle}>{c.breed}</td>
                                         <td style={cellStyle}>{c.pen ? <span style={{ color: 'var(--accent-gold)', fontWeight: '600' }}>{c.pen}</span> : <span style={{ opacity: 0.3 }}>—</span>}</td>
@@ -342,7 +436,7 @@ export default function RotationPlanner() {
                                         </td>
                                     </tr>
                                 ))}
-                                {fS.length === 0 && <tr><td colSpan={7} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-circle-check" style={{ color: 'var(--primary-green-light)', marginRight: '0.5rem' }}></i>Sick pen is clear.</td></tr>}
+                                {fS.length === 0 && <tr><td colSpan={8} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-circle-check" style={{ color: 'var(--primary-green-light)', marginRight: '0.5rem' }}></i>Sick pen is clear.</td></tr>}
                             </tbody>
                         </table>
                     </div>
@@ -354,6 +448,9 @@ export default function RotationPlanner() {
                         <table class="data-table" style={{ fontSize: '0.83rem' }}>
                             <thead>
                                 <tr>
+                                    <th style={{ ...headStyle, width: '40px', textAlign: 'center' }}>
+                                        <input type="checkbox" checked={isAllCurrentSelected} onChange={() => toggleSelectAll(fM)} />
+                                    </th>
                                     <th style={headStyle}>Tag</th>
                                     <th style={headStyle}>Breed</th>
                                     <th style={headStyle}>Pen</th>
@@ -366,6 +463,9 @@ export default function RotationPlanner() {
                             <tbody>
                                 {fM.map(c => (
                                     <tr key={c.id} style={{ borderLeft: '3px solid var(--accent-gold)' }}>
+                                        <td style={{ ...cellStyle, textAlign: 'center' }}>
+                                            <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => toggleSelect(c.id)} />
+                                        </td>
                                         <td style={{ ...cellStyle, fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--accent-gold)' }}>{c.rfid}</td>
                                         <td style={cellStyle}>{c.breed}</td>
                                         <td style={cellStyle}>{c.pen ? <span style={{ color: 'var(--accent-gold)', fontWeight: '600' }}>{c.pen}</span> : <span style={{ opacity: 0.3 }}>—</span>}</td>
@@ -379,7 +479,7 @@ export default function RotationPlanner() {
                                         </td>
                                     </tr>
                                 ))}
-                                {fM.length === 0 && <tr><td colSpan={7} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>No animals at market weight yet.</td></tr>}
+                                {fM.length === 0 && <tr><td colSpan={8} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>No animals at market weight yet.</td></tr>}
                             </tbody>
                         </table>
                     </div>
