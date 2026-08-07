@@ -787,11 +787,11 @@ async function resolvePermissions(client, session) {
 
     await client.query(`
         INSERT INTO ba_staff_permissions (email, is_admin, access_sales, access_herd)
-        VALUES ($1, $2, TRUE, TRUE)
+        VALUES ($1, $2, TRUE, $3)
         ON CONFLICT (email) DO NOTHING
-    `, [email, isAdmin]);
+    `, [email, isAdmin, isAdmin]);
 
-    return { isAdmin, accessSales: true, accessHerd: true };
+    return { isAdmin, accessSales: true, accessHerd: isAdmin };
 }
 
 // Action categories used to gate POST mutations by section access. Public checkout

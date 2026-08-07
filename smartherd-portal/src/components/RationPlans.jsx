@@ -12,7 +12,7 @@ export default function RationPlans() {
     // Herd Management access (admin-configurable in Settings) is the real gate for editing
     // diets — the "Internal Corporate Staff" role is just an email-domain login role, so it's
     // OR'd in for backward compatibility (matches FeedStock.jsx).
-    const isAdmin = staffUser?.accessHerd !== false || staffUser?.role === 'Internal Corporate Staff';
+    const isAdmin = staffUser?.accessHerd === true || staffUser?.isAdmin === true;
 
     const [activeTab, setActiveTab] = useState('plans');
 

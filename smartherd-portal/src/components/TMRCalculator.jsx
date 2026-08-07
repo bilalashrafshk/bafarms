@@ -54,7 +54,7 @@ export default function TMRCalculator() {
     // Herd Management access (admin-configurable in Settings) is the real gate for editing
     // diets — the "Internal Corporate Staff" role is just an email-domain login role, so it's
     // OR'd in for backward compatibility (matches FeedStock.jsx / RationPlans.jsx).
-    const isAdmin = staffUser?.accessHerd !== false || staffUser?.role === 'Internal Corporate Staff';
+    const isAdmin = staffUser?.accessHerd === true || staffUser?.isAdmin === true;
     // Cost figures (per-ingredient and batch total) are restricted to the DB-backed
     // Super Admin flag, not the broader "Internal Corporate Staff" role — pen staff
     // logging feed should see quantities to mix, not what it costs.

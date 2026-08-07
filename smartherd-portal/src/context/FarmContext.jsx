@@ -233,6 +233,57 @@ export const FarmProvider = ({ children }) => {
         localStorage.setItem('ba_failed_mutations', JSON.stringify(failedMutations));
     }, [failedMutations]);
 
+    // Active session security heartbeat: verifies token validity & authorization with /api/auth.
+    // Immediately evicts users whose session token has expired or whose access was revoked.
+    useEffect(() => {
+        if (!isLoggedIn || !staffUser?.token) return;
+
+        let isMounted = true;
+        const verifyActiveSession = async () => {
+            try {
+                const res = await fetch('/api/auth', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${staffUser.token}`
+                    },
+                    body: JSON.stringify({ refresh: true })
+                });
+                const data = await res.json().catch(() => ({}));
+
+                if (!res.ok || !data.success) {
+                    if (isMounted) {
+                        console.warn('Session invalidated or access revoked by auth server:', data.error);
+                        handleLogout();
+                    }
+                    return;
+                }
+
+                if (data.token && data.user && isMounted) {
+                    setStaffUser(prev => {
+                        const updated = { ...prev, ...data.user, token: data.token };
+                        localStorage.setItem('ba_staff_user', JSON.stringify(updated));
+                        return updated;
+                    });
+                }
+            } catch (err) {
+                // Ignore transient network drops
+            }
+        };
+
+        verifyActiveSession();
+
+        const onFocus = () => verifyActiveSession();
+        window.addEventListener('focus', onFocus);
+        const interval = setInterval(verifyActiveSession, 30000);
+
+        return () => {
+            isMounted = false;
+            window.removeEventListener('focus', onFocus);
+            clearInterval(interval);
+        };
+    }, [isLoggedIn, staffUser?.token]);
+
     // Sends one mutation to the server. Shared by the immediate fast-path send in
     // persistMutation and the durable queue flush loop below, so both stay in sync
     // on auth headers / request shape.

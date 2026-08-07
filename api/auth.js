@@ -52,7 +52,7 @@ const verifyAndAuthorizeEmail = (email) => {
         return { authorized: true, role: 'Internal Corporate Staff' };
     }
 
-    const allowedEmails = getEmailList(process.env.ALLOWED_EMAILS || process.env.VITE_ALLOWED_EMAILS, ['guest@gmail.com']);
+    const allowedEmails = getEmailList(process.env.ALLOWED_EMAILS || process.env.VITE_ALLOWED_EMAILS, []);
     if (allowedEmails.includes(cleaned)) {
         return { authorized: true, role: 'External Guest/Evaluator' };
     }

@@ -28,16 +28,17 @@ function AppContent() {
         pendingApprovals, approvePendingChange, rejectPendingChange
     } = useContext(FarmContext);
 
-    const isAdmin = staffUser?.role === 'Internal Corporate Staff';
-    // Fine-grained section access from the staff-permissions system (defaults to
-    // visible until the first GET sync resolves — actual writes stay gated server-side).
-    const canAccessSales = staffUser?.accessSales !== false;
-    const canAccessHerd = staffUser?.accessHerd !== false;
-    const isPermissionsAdmin = staffUser?.isAdmin === true || isAdmin;
-    // Strictly the DB-backed Super Admin flag (not the broader "Internal Corporate
-    // Staff" role) — this is the only flag the herd sensitive-field approval queue
-    // cares about, matching the server-side gate in api/farm.js.
     const isSuperAdmin = staffUser?.isAdmin === true;
+    const canAccessSales = staffUser?.accessSales === true || isSuperAdmin;
+    const canAccessHerd = staffUser?.accessHerd === true || isSuperAdmin;
+    const isPermissionsAdmin = isSuperAdmin;
+
+    useEffect(() => {
+        const herdTabs = ['rotation', 'herd', 'weights', 'vet', 'tmr', 'rationPlans', 'feedStock', 'feedReport', 'activity'];
+        if (herdTabs.includes(activeTab) && !canAccessHerd) {
+            setActiveTab('dashboard');
+        }
+    }, [activeTab, canAccessHerd]);
 
     const [showSyncPanel, setShowSyncPanel] = useState(false);
     const [showMobileMore, setShowMobileMore] = useState(false);
