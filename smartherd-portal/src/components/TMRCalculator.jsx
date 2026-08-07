@@ -12,6 +12,40 @@ const addDaysPKT = (dateStr, delta) => {
     return d.toISOString().split('T')[0];
 };
 
+// Number input for editing a diet override (plan qty, extra ingredient, tractor batch
+// weight, etc). These all display a value that gets recomputed — sometimes through
+// proportional multi-pen scaling and `.toFixed()` rounding — the instant it's committed.
+// A plain controlled <input value={computedValue}> fights typing in that situation: every
+// keystroke commits immediately, the recomputed value snaps back slightly different from
+// what was typed, and the next keystroke lands on that reformatted text instead of the
+// user's intended number (e.g. typing "46" over "4.01" ends up as "4.6" or similar). This
+// keeps its own draft text while focused and only commits on blur/Enter, exactly like a
+// normal form field, so the underlying data only ever changes once the user is done typing.
+function DeferredNumberInput({ value, onCommit, ...props }) {
+    const [draft, setDraft] = useState(null);
+    const commit = () => {
+        if (draft !== null) {
+            onCommit(draft);
+            setDraft(null);
+        }
+    };
+    return (
+        <input
+            {...props}
+            type="number"
+            value={draft !== null ? draft : value}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                    commit();
+                    e.target.blur();
+                }
+            }}
+        />
+    );
+}
+
 export default function TMRCalculator() {
     const {
         feedIngredients, animals, staffUser, feedLogs, logFeed, deleteFeedLog,
@@ -844,13 +878,12 @@ export default function TMRCalculator() {
                                                     <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{row.name}</td>
                                                     <td>{row.avgPlanQty.toFixed(3)} kg</td>
                                                     <td>
-                                                        <input
-                                                            type="number"
+                                                        <DeferredNumberInput
                                                             step="0.001"
                                                             className="form-control"
                                                             style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: row.isOverridden ? 'var(--accent-gold)' : 'inherit' }}
                                                             value={parseFloat(row.avgFedQty.toFixed(3))}
-                                                            onChange={(e) => handleAggregateOverride(activePens, allPensTableRows, row.id, e.target.value)}
+                                                            onCommit={(val) => handleAggregateOverride(activePens, allPensTableRows, row.id, val)}
                                                             disabled={!isAdmin}
                                                         />
                                                     </td>
@@ -872,13 +905,12 @@ export default function TMRCalculator() {
                                                     </td>
                                                     <td>—</td>
                                                     <td>
-                                                        <input
-                                                            type="number"
+                                                        <DeferredNumberInput
                                                             step="0.001"
                                                             className="form-control"
                                                             style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: 'var(--accent-gold)' }}
                                                             value={parseFloat(row.avgFedQty.toFixed(3))}
-                                                            onChange={(e) => handleAggregateOverride(activePens, allPensTableRows, row.id, e.target.value)}
+                                                            onCommit={(val) => handleAggregateOverride(activePens, allPensTableRows, row.id, val)}
                                                             disabled={!isAdmin}
                                                         />
                                                     </td>
@@ -1037,13 +1069,12 @@ export default function TMRCalculator() {
                                                             <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{row.name}</td>
                                                             <td>{row.planQty.toFixed(3)} kg</td>
                                                             <td>
-                                                                <input
-                                                                    type="number"
+                                                                <DeferredNumberInput
                                                                     step="0.001"
                                                                     className="form-control"
                                                                     style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: row.isOverridden ? 'var(--accent-gold)' : 'inherit' }}
                                                                     value={row.qtyPerHead}
-                                                                    onChange={(e) => handlePlanOverride(penId, row.id, e.target.value)}
+                                                                    onCommit={(val) => handlePlanOverride(penId, row.id, val)}
                                                                     disabled={!isAdmin}
                                                                 />
                                                             </td>
@@ -1065,13 +1096,12 @@ export default function TMRCalculator() {
                                                             </td>
                                                             <td>—</td>
                                                             <td>
-                                                                <input
-                                                                    type="number"
+                                                                <DeferredNumberInput
                                                                     step="0.001"
                                                                     className="form-control"
                                                                     style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: 'var(--accent-gold)' }}
                                                                     value={row.qtyPerHead}
-                                                                    onChange={(e) => handleExtraIngredientQty(penId, row.id, e.target.value)}
+                                                                    onCommit={(val) => handleExtraIngredientQty(penId, row.id, val)}
                                                                     disabled={!isAdmin}
                                                                 />
                                                             </td>
@@ -1251,13 +1281,12 @@ export default function TMRCalculator() {
                                                 <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{row.name}</td>
                                                 <td>{row.planQty.toFixed(3)} kg</td>
                                                 <td>
-                                                    <input
-                                                        type="number"
+                                                    <DeferredNumberInput
                                                         step="0.001"
                                                         className="form-control"
                                                         style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: row.isOverridden ? 'var(--accent-gold)' : 'inherit' }}
                                                         value={row.qtyPerHead}
-                                                        onChange={(e) => handlePlanOverride(selectedTMRPen, row.id, e.target.value)}
+                                                        onCommit={(val) => handlePlanOverride(selectedTMRPen, row.id, val)}
                                                         disabled={!isAdmin}
                                                     />
                                                 </td>
@@ -1279,13 +1308,12 @@ export default function TMRCalculator() {
                                                 </td>
                                                 <td>—</td>
                                                 <td>
-                                                    <input
-                                                        type="number"
+                                                    <DeferredNumberInput
                                                         step="0.001"
                                                         className="form-control"
                                                         style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: 'var(--accent-gold)' }}
                                                         value={row.qtyPerHead}
-                                                        onChange={(e) => handleExtraIngredientQty(selectedTMRPen, row.id, e.target.value)}
+                                                        onCommit={(val) => handleExtraIngredientQty(selectedTMRPen, row.id, val)}
                                                         disabled={!isAdmin}
                                                     />
                                                 </td>
@@ -1840,13 +1868,12 @@ export default function TMRCalculator() {
                                             <div class="tractor-mix-item" key={ing.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', ...(ing.id === 'minerals' ? { borderLeftColor: 'var(--accent-gold)' } : {}) }}>
                                                 <span>{idx + 1}. WET {ing.name.toUpperCase()}</span>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                                    <input
-                                                        type="number"
+                                                    <DeferredNumberInput
                                                         step="0.1"
                                                         className="form-control"
                                                         style={{ width: '110px', height: '36px', minHeight: '36px', textAlign: 'right', fontSize: '1.05rem', fontWeight: '700', color: 'var(--primary-green-light)', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)' }}
                                                         value={parseFloat(ing.wetBatch.toFixed(2))}
-                                                        onChange={(e) => {
+                                                        onCommit={(val) => {
                                                             // `ing.wetBatch` is already scaled to the active feeding
                                                             // (Full Day / Feeding N of the split), so the typed value
                                                             // is this feeding's batch weight — pass its per-head
@@ -1855,7 +1882,7 @@ export default function TMRCalculator() {
                                                             // full-day value internally; unscaling here too was
                                                             // dividing twice, inflating whatever was typed whenever
                                                             // a split other than Full Day (100%) was active.
-                                                            const newScaledBatch = parseFloat(e.target.value) || 0;
+                                                            const newScaledBatch = parseFloat(val) || 0;
                                                             const newAvgPerHeadThisFeeding = tractorTotalHeadCount > 0 ? newScaledBatch / tractorTotalHeadCount : 0;
                                                             handleAggregateOverride(tractorSelectedPens, tractorTableRows, ing.id, newAvgPerHeadThisFeeding.toString());
                                                         }}
