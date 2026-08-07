@@ -504,19 +504,6 @@ export default function TMRCalculator() {
         setTimeout(() => setLogSaved(false), 2500);
     };
 
-    const handleLogAllPensFromAllView = () => {
-        if (allPensResolutions.length === 0) return;
-        if (allPensMismatch && !allPensConfirmedMismatch) return;
-        activePens.forEach(penId => {
-            const batch = computePenBatch(penId);
-            if (batch.isPlanDriven) {
-                logBatchForPen(penId, batch, batch.headCount);
-            }
-        });
-        setLogSaved(true);
-        setTimeout(() => setLogSaved(false), 2500);
-    };
-
     // ─── "ALL" PENS AGGREGATE (average diet across the whole herd) ───
     const [bulkAddChoice, setBulkAddChoice] = useState('');
     const handleAddExtraIngredientToAllPens = () => {

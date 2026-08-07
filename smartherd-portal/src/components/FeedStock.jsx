@@ -56,12 +56,16 @@ export default function FeedStock() {
     // ─── ITEM MASTER (add/remove stock line items) ───
     const [isAddItemFormOpen, setIsAddItemFormOpen] = useState(false);
     const [newItemName, setNewItemName] = useState('');
+    const [newItemCategory, setNewItemCategory] = useState('feed');
+    const [newItemUnit, setNewItemUnit] = useState('kg');
 
     const handleAddItem = (e) => {
         e.preventDefault();
         if (!isAdmin || !newItemName.trim()) return;
-        addStockTrackedIngredient(newItemName.trim());
+        addStockTrackedIngredient(newItemName.trim(), newItemCategory, newItemUnit.trim() || 'kg');
         setNewItemName('');
+        setNewItemCategory('feed');
+        setNewItemUnit('kg');
         setIsAddItemFormOpen(false);
     };
 
@@ -98,9 +102,12 @@ export default function FeedStock() {
     const [pRate, setPRate] = useState('');
     const [pSupplier, setPSupplier] = useState('');
     const [pNotes, setPNotes] = useState('');
-    // Lets an admin add a brand-new stock item right from the purchase form (e.g. a feed
-    // that's never been bought before) instead of a round trip to the Stock Ledger tab first.
+    // Lets an admin add a brand-new stock item right from the purchase form (e.g. a feed,
+    // medicine, or other supply that's never been bought before) instead of a round trip
+    // to the Stock Ledger tab first.
     const [pNewItemName, setPNewItemName] = useState('');
+    const [pNewItemCategory, setPNewItemCategory] = useState('feed');
+    const [pNewItemUnit, setPNewItemUnit] = useState('kg');
 
     const handleAddPurchase = (e) => {
         e.preventDefault();
@@ -108,12 +115,14 @@ export default function FeedStock() {
         let itemId = pItemId;
         if (itemId === '__new__') {
             if (!pNewItemName.trim()) return;
-            itemId = addStockTrackedIngredient(pNewItemName.trim());
+            itemId = addStockTrackedIngredient(pNewItemName.trim(), pNewItemCategory, pNewItemUnit.trim() || 'kg');
         }
         if (!itemId) return;
         addFeedPurchase({ date: pDate, itemId, quantity: pQty, rate: pRate, supplier: pSupplier, notes: pNotes });
         setPItemId('');
         setPNewItemName('');
+        setPNewItemCategory('feed');
+        setPNewItemUnit('kg');
         setPQty('');
         setPRate('');
         setPSupplier('');
@@ -173,9 +182,15 @@ export default function FeedStock() {
 
     // Actual cost per pen within the selected date range, priced at each issue's own
     // FIFO cost.
+    // Feed-only: mixing feed kg with e.g. medicine ml/doses into one "qty issued" total
+    // would be meaningless, so this summary (titled "Actual Feed Cost by Pen") sticks to
+    // feed-category items. Cost still totals fine across units — only the raw qty column
+    // needs a single, consistent unit to mean anything.
     const perPenCost = useMemo(() => {
         const totals = {};
         filteredIssues.forEach(iss => {
+            const item = feedStockItems.find(i => i.id === iss.itemId);
+            if ((item?.category || 'feed') !== 'feed') return;
             const cost = issueCosts[iss.id]?.cost ?? 0;
             const pen = iss.pen || 'ALL';
             if (!totals[pen]) totals[pen] = { pen, qty: 0, cost: 0 };
@@ -183,13 +198,25 @@ export default function FeedStock() {
             totals[pen].cost += cost;
         });
         return Object.values(totals).sort((a, b) => b.cost - a.cost);
-    }, [filteredIssues, issueCosts]);
+    }, [filteredIssues, issueCosts, feedStockItems]);
 
     const totalStockValue = ledger.reduce((sum, l) => sum + l.closingValue, 0);
     const totalConsumptionValue = filteredIssues.reduce((sum, iss) => sum + (issueCosts[iss.id]?.cost ?? 0), 0);
 
     const itemName = (id) => feedStockItems.find(i => i.id === id)?.name || id;
+    const itemUnit = (id) => feedStockItems.find(i => i.id === id)?.unit || 'kg';
+    const itemCategory = (id) => feedStockItems.find(i => i.id === id)?.category || 'feed';
     const penLabel = (pen) => pen === 'ALL' ? 'All Pens' : pen === 'PRODUCTION' ? 'Premix Production' : `Pen ${pen}`;
+
+    // ─── ITEM CATEGORIES ───
+    // Feed items double as TMR ration ingredients (see addStockTrackedIngredient); medicine
+    // and "other" items are purchase/issue-tracked only — they never appear in a ration.
+    const CATEGORY_LABELS = { feed: 'Feed', medicine: 'Medicine', other: 'Other' };
+    const groupItemsByCategory = (items) => {
+        const groups = { feed: [], medicine: [], other: [] };
+        items.forEach(i => { (groups[i.category || 'feed'] || groups.other).push(i); });
+        return groups;
+    };
 
     // ─── PREMIX PRODUCTION (e.g. "Wanda") ───
     const [isAddPremixFormOpen, setIsAddPremixFormOpen] = useState(false);
@@ -212,9 +239,10 @@ export default function FeedStock() {
         }
     };
 
-    // Raw materials a formula can draw from — every stock item except premix items
-    // themselves, so a premix can't (accidentally) be defined in terms of another premix.
-    const rawMaterialItems = feedStockItems.filter(i => !i.isPremix);
+    // Raw materials a formula can draw from — every feed-category stock item except premix
+    // items themselves (so a premix can't accidentally be defined in terms of another
+    // premix), and never medicine/other items, which aren't fed as part of a ration.
+    const rawMaterialItems = feedStockItems.filter(i => !i.isPremix && (i.category || 'feed') === 'feed');
 
     const [selectedPremixId, setSelectedPremixId] = useState(() => premixTypes[0]?.id || '');
     React.useEffect(() => {
@@ -410,13 +438,30 @@ export default function FeedStock() {
 
                         {isAddItemFormOpen && (
                             <form onSubmit={handleAddItem} style={{ background: 'rgba(0, 0, 0, 0.2)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '0.8rem 1rem', marginBottom: '1.2rem' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: '2fr auto', gap: '0.8rem', alignItems: 'flex-end' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '0.8rem', alignItems: 'flex-end' }}>
                                     <div class="form-group" style={{ marginBottom: 0 }}>
                                         <label style={{ fontSize: '0.75rem' }}>Item Name</label>
                                         <input type="text" class="form-control" placeholder="e.g. Molasses" value={newItemName} onChange={e => setNewItemName(e.target.value)} required />
                                     </div>
+                                    <div class="form-group" style={{ marginBottom: 0 }}>
+                                        <label style={{ fontSize: '0.75rem' }}>Category</label>
+                                        <select class="form-control" value={newItemCategory} onChange={e => setNewItemCategory(e.target.value)}>
+                                            <option value="feed">Feed (rationable)</option>
+                                            <option value="medicine">Medicine</option>
+                                            <option value="other">Other</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style={{ marginBottom: 0 }}>
+                                        <label style={{ fontSize: '0.75rem' }}>Unit</label>
+                                        <input type="text" class="form-control" placeholder="kg, ml, dose…" value={newItemUnit} onChange={e => setNewItemUnit(e.target.value)} />
+                                    </div>
                                     <button type="submit" class="btn btn-primary">Add</button>
                                 </div>
+                                {newItemCategory !== 'feed' && (
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.6rem', marginBottom: 0 }}>
+                                        <i class="fa-solid fa-circle-info"></i> {CATEGORY_LABELS[newItemCategory]} items are tracked for purchases/stock only — they won't appear as a selectable TMR ration ingredient.
+                                    </p>
+                                )}
                             </form>
                         )}
 
@@ -425,6 +470,7 @@ export default function FeedStock() {
                                 <thead>
                                     <tr>
                                         <th>ITEM</th>
+                                        <th>CATEGORY</th>
                                         <th>OPENING STOCK</th>
                                         <th>PURCHASED</th>
                                         <th>ISSUED</th>
@@ -435,9 +481,12 @@ export default function FeedStock() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {ledger.map(row => (
+                                    {ledger.map(row => {
+                                        const unit = row.item.unit || 'kg';
+                                        return (
                                         <tr key={row.item.id}>
                                             <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{row.item.name}</td>
+                                            <td style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{CATEGORY_LABELS[row.item.category || 'feed']}</td>
                                             <td>
                                                 {isAdmin ? (
                                                     <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -448,9 +497,9 @@ export default function FeedStock() {
                                                             style={{ width: '80px', minHeight: '30px', height: '30px', padding: '0.15rem 0.4rem', fontSize: '0.8rem' }}
                                                             value={getOpeningDraftVal(row.item.id, 'qty')}
                                                             onChange={e => handleOpeningDraftChange(row.item.id, 'qty', e.target.value)}
-                                                            title="Opening qty (kg)"
+                                                            title={`Opening qty (${unit})`}
                                                         />
-                                                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>kg @</span>
+                                                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{unit} @</span>
                                                         <input
                                                             type="number"
                                                             step="0.01"
@@ -466,13 +515,13 @@ export default function FeedStock() {
                                                         </button>
                                                     </div>
                                                 ) : (
-                                                    <span>{row.openingQty.toFixed(2)} kg ({Math.round(row.openingValue).toLocaleString()} PKR)</span>
+                                                    <span>{row.openingQty.toFixed(2)} {unit} ({Math.round(row.openingValue).toLocaleString()} PKR)</span>
                                                 )}
                                             </td>
-                                            <td>{row.purchasedQty.toFixed(2)} kg</td>
-                                            <td>{row.issuedQty.toFixed(2)} kg</td>
-                                            <td><strong style={{ color: row.closingQty < 0 ? 'hsl(0,75%,60%)' : 'var(--primary-green-light)' }}>{row.closingQty.toFixed(2)} kg</strong></td>
-                                            <td>{row.avgRate.toFixed(2)} PKR/kg</td>
+                                            <td>{row.purchasedQty.toFixed(2)} {unit}</td>
+                                            <td>{row.issuedQty.toFixed(2)} {unit}</td>
+                                            <td><strong style={{ color: row.closingQty < 0 ? 'hsl(0,75%,60%)' : 'var(--primary-green-light)' }}>{row.closingQty.toFixed(2)} {unit}</strong></td>
+                                            <td>{row.avgRate.toFixed(2)} PKR/{unit}</td>
                                             <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(row.closingValue).toLocaleString()} PKR</strong></td>
                                             {isAdmin && (
                                                 <td style={{ textAlign: 'center' }}>
@@ -486,10 +535,11 @@ export default function FeedStock() {
                                                 </td>
                                             )}
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                     {ledger.length === 0 && (
                                         <tr>
-                                            <td colSpan={isAdmin ? 8 : 7} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                            <td colSpan={isAdmin ? 9 : 8} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No stock items defined yet.
                                             </td>
                                         </tr>
@@ -522,22 +572,40 @@ export default function FeedStock() {
                                     <label>Item</label>
                                     <select class="form-control" value={pItemId} onChange={e => setPItemId(e.target.value)} required>
                                         <option value="">Select item…</option>
-                                        {feedStockItems.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                                        {Object.entries(groupItemsByCategory(feedStockItems)).map(([cat, items]) => items.length > 0 && (
+                                            <optgroup key={cat} label={CATEGORY_LABELS[cat]}>
+                                                {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                                            </optgroup>
+                                        ))}
                                         <option value="__new__">+ Add new item…</option>
                                     </select>
                                 </div>
                                 {pItemId === '__new__' && (
-                                    <div class="form-group">
-                                        <label>New Item Name</label>
-                                        <input type="text" class="form-control" placeholder="e.g. Molasses" value={pNewItemName} onChange={e => setPNewItemName(e.target.value)} required />
-                                    </div>
+                                    <>
+                                        <div class="form-group">
+                                            <label>New Item Name</label>
+                                            <input type="text" class="form-control" placeholder="e.g. Molasses" value={pNewItemName} onChange={e => setPNewItemName(e.target.value)} required />
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Category</label>
+                                            <select class="form-control" value={pNewItemCategory} onChange={e => setPNewItemCategory(e.target.value)}>
+                                                <option value="feed">Feed (rationable)</option>
+                                                <option value="medicine">Medicine</option>
+                                                <option value="other">Other</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Unit</label>
+                                            <input type="text" class="form-control" placeholder="kg, ml, dose…" value={pNewItemUnit} onChange={e => setPNewItemUnit(e.target.value)} />
+                                        </div>
+                                    </>
                                 )}
                                 <div class="form-group">
-                                    <label>Quantity (kg)</label>
+                                    <label>Quantity ({pItemId === '__new__' ? (pNewItemUnit.trim() || 'kg') : itemUnit(pItemId) || 'kg'})</label>
                                     <input type="number" step="0.01" class="form-control" placeholder="e.g. 500" value={pQty} onChange={e => setPQty(e.target.value)} required />
                                 </div>
                                 <div class="form-group">
-                                    <label>Rate (PKR/kg)</label>
+                                    <label>Rate (PKR/{pItemId === '__new__' ? (pNewItemUnit.trim() || 'kg') : itemUnit(pItemId) || 'kg'})</label>
                                     <input type="number" step="0.01" class="form-control" placeholder="e.g. 55" value={pRate} onChange={e => setPRate(e.target.value)} required />
                                 </div>
                                 <div class="form-group">
@@ -592,15 +660,16 @@ export default function FeedStock() {
                                         // it at that point would silently reprice history it was already
                                         // used to cost (a premix batch, a pen's actual feed cost, etc).
                                         const touched = remaining < p.quantity - 0.005;
+                                        const unit = itemUnit(p.itemId);
                                         return (
                                             <tr key={p.id}>
                                                 <td>{formatDate(p.date)}</td>
                                                 <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(p.itemId)}</td>
-                                                <td>{p.quantity.toFixed(2)} kg</td>
-                                                <td>{p.rate.toFixed(2)} PKR/kg</td>
+                                                <td>{p.quantity.toFixed(2)} {unit}</td>
+                                                <td>{p.rate.toFixed(2)} PKR/{unit}</td>
                                                 <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(p.quantity * p.rate).toLocaleString()} PKR</strong></td>
                                                 <td>{p.supplier || '—'}</td>
-                                                <td style={{ color: remaining <= 0.005 ? 'var(--text-muted)' : 'var(--primary-green-light)' }}>{Math.max(0, remaining).toFixed(2)} kg</td>
+                                                <td style={{ color: remaining <= 0.005 ? 'var(--text-muted)' : 'var(--primary-green-light)' }}>{Math.max(0, remaining).toFixed(2)} {unit}</td>
                                                 {isAdmin && (
                                                     <td style={{ textAlign: 'center' }}>
                                                         {p.supplier === 'In-house production' ? (
@@ -650,7 +719,11 @@ export default function FeedStock() {
                                     <label>Item</label>
                                     <select class="form-control" value={iItemId} onChange={e => { setIItemId(e.target.value); setILotId(''); }} required>
                                         <option value="">Select item…</option>
-                                        {feedStockItems.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                                        {Object.entries(groupItemsByCategory(feedStockItems)).map(([cat, items]) => items.length > 0 && (
+                                            <optgroup key={cat} label={CATEGORY_LABELS[cat]}>
+                                                {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                                            </optgroup>
+                                        ))}
                                     </select>
                                 </div>
                                 <div class="form-group">
@@ -662,19 +735,20 @@ export default function FeedStock() {
                                     </select>
                                 </div>
                                 <div class="form-group">
-                                    <label>Quantity (kg)</label>
+                                    <label>Quantity ({iItemId ? itemUnit(iItemId) : 'kg'})</label>
                                     <input type="number" step="0.01" class="form-control" placeholder="e.g. 45.5" value={iQty} onChange={e => setIQty(e.target.value)} required />
                                 </div>
                                 {(() => {
                                     const availableLots = (lotsByItemId[iItemId] || []).filter(l => l.remaining > 0.005);
                                     if (availableLots.length <= 1) return null;
+                                    const unit = itemUnit(iItemId);
                                     return (
                                         <div class="form-group">
                                             <label>Draw From</label>
                                             <select class="form-control" value={iLotId} onChange={e => setILotId(e.target.value)}>
                                                 <option value="">Auto (FIFO — oldest first)</option>
                                                 {availableLots.map(l => (
-                                                    <option key={l.id} value={l.id}>{formatDate(l.date)} · {l.supplier || '—'} · {l.rate.toFixed(2)} PKR/kg · {l.remaining.toFixed(0)}kg left</option>
+                                                    <option key={l.id} value={l.id}>{formatDate(l.date)} · {l.supplier || '—'} · {l.rate.toFixed(2)} PKR/{unit} · {l.remaining.toFixed(0)}{unit} left</option>
                                                 ))}
                                             </select>
                                         </div>
@@ -758,7 +832,7 @@ export default function FeedStock() {
                                             <td>{formatDate(iss.date)}</td>
                                             <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(iss.itemId)}</td>
                                             <td>{penLabel(iss.pen)}</td>
-                                            <td>{iss.quantity.toFixed(2)} kg</td>
+                                            <td>{iss.quantity.toFixed(2)} {itemUnit(iss.itemId)}</td>
                                             <td>
                                                 {iss.source === 'auto' ? (
                                                     <span style={{ fontSize: '0.72rem', color: 'var(--primary-green-light)' }}><i class="fa-solid fa-arrows-rotate"></i> TMR log</span>
@@ -784,7 +858,7 @@ export default function FeedStock() {
                                                             class="btn btn-secondary"
                                                             style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
                                                             onClick={() => {
-                                                                if (window.confirm(`Undo this issue?\n\n${formatDate(iss.date)} · ${itemName(iss.itemId)} · ${iss.quantity.toFixed(2)} kg\n\nThis cannot be undone.`)) {
+                                                                if (window.confirm(`Undo this issue?\n\n${formatDate(iss.date)} · ${itemName(iss.itemId)} · ${iss.quantity.toFixed(2)} ${itemUnit(iss.itemId)}\n\nThis cannot be undone.`)) {
                                                                     deleteFeedStockIssue(iss.id);
                                                                 }
                                                             }}
