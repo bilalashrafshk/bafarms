@@ -1356,9 +1356,6 @@ export default function TMRCalculator() {
                             <div class="form-header-bar" style={{ marginBottom: '1.2rem', gap: '1rem', flexWrap: 'wrap' }}>
                                 <h3 class="panel-title" style={{ marginBottom: '0' }}><i class="fa-solid fa-scale-balanced"></i> Batch Recipe</h3>
                                 <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
-                                    <button type="button" class="btn btn-secondary" style={{ minHeight: '44px' }} onClick={openFeedAllPens} disabled={tractorEligiblePens.length === 0} title="Opens Tractor Mode with every eligible pen already selected">
-                                        <i class="fa-solid fa-layer-group"></i> Feed All Pens
-                                    </button>
                                     <button type="button" class="btn btn-secondary" style={{ minHeight: '44px' }} onClick={openTractorMode} disabled={tractorEligiblePens.length === 0}>
                                         <i class="fa-solid fa-tractor"></i> Tractor Mode
                                     </button>
