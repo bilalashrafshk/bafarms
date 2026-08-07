@@ -152,22 +152,23 @@ export default function TMRCalculator() {
         ? tractorPenResolutions.map(r => `Pen ${r.penId} (${r.resolved.forageType}, ${tractorPhaseOf(r.resolved)})`)
         : [];
 
-    // Aggregate qty×headCount per ingredient across all resolved pens, once a
-    // mismatch is either absent or explicitly confirmed by the user.
+    // Aggregate qty×headCount per ingredient across all resolved pens in Tractor Mode,
+    // reflecting live overrides, added ingredients, and active feeding run scaling.
     const tractorAggregateIngredients = (() => {
         if (tractorPenResolutions.length === 0) return [];
         if (tractorMismatch && !tractorConfirmedMismatch) return [];
         const totals = {};
-        tractorPenResolutions.forEach(({ resolved }) => {
-            const headCount = resolved.headCount || 0;
-            Object.entries(resolved.week.ingredients || {}).forEach(([id, qtyPerHead]) => {
-                const ing = feedIngredients.find(i => i.id === id) || { id, name: id.charAt(0).toUpperCase() + id.slice(1) };
-                const stockPrice = getIngredientStockPrice(id);
-                const price = (stockPrice !== null && stockPrice > 0) ? stockPrice : (ing.price || 0);
-                const batchQty = (parseFloat(qtyPerHead) || 0) * headCount;
-                if (!totals[id]) totals[id] = { id, name: ing.name, wetBatch: 0, cost: 0 };
+        tractorSelectedPens.forEach(penId => {
+            const batch = computePenBatch(penId);
+            if (!batch.isPlanDriven) return;
+            const headCount = batch.headCount || 0;
+            batch.displayIngredients.forEach(ing => {
+                const id = ing.id;
+                const batchQty = ing.wetBatch * activeFeedingScale;
+                const cost = ing.costSingle * headCount * activeFeedingScale;
+                if (!totals[id]) totals[id] = { id, name: ing.name, wetBatch: 0, cost: 0, isExtra: ing.isExtra, isOverridden: ing.isOverridden };
                 totals[id].wetBatch += batchQty;
-                totals[id].cost += batchQty * price;
+                totals[id].cost += cost;
             });
         });
         return Object.values(totals);
@@ -319,7 +320,9 @@ export default function TMRCalculator() {
     // Editing is per-pen (keyed by penId) so the same handlers work for the single
     // selected pen's table and for every pen's own table stacked under "All".
     const handlePlanOverride = (penId, id, value) => {
-        setPlanOverridesByPen(prev => ({ ...prev, [penId]: { ...(prev[penId] || {}), [id]: parseFloat(value) || 0 } }));
+        const val = parseFloat(value) || 0;
+        const fullDayVal = activeFeedingScale > 0 ? val / activeFeedingScale : val;
+        setPlanOverridesByPen(prev => ({ ...prev, [penId]: { ...(prev[penId] || {}), [id]: fullDayVal } }));
     };
 
     const handleResetOverride = (penId, id) => {
@@ -338,7 +341,9 @@ export default function TMRCalculator() {
     };
 
     const handleExtraIngredientQty = (penId, id, value) => {
-        setExtraIngredientsByPen(prev => ({ ...prev, [penId]: { ...(prev[penId] || {}), [id]: parseFloat(value) || 0 } }));
+        const val = parseFloat(value) || 0;
+        const fullDayVal = activeFeedingScale > 0 ? val / activeFeedingScale : val;
+        setExtraIngredientsByPen(prev => ({ ...prev, [penId]: { ...(prev[penId] || {}), [id]: fullDayVal } }));
     };
 
     const handleRemoveExtraIngredient = (penId, id) => {
@@ -489,7 +494,25 @@ export default function TMRCalculator() {
     const handleLogAllPens = () => {
         if (tractorPenResolutions.length === 0) return;
         if (tractorMismatch && !tractorConfirmedMismatch) return;
-        tractorPenResolutions.forEach(({ penId, resolved }) => logPenBatch(penId, resolved, logDate));
+        tractorSelectedPens.forEach(penId => {
+            const batch = computePenBatch(penId);
+            if (batch.isPlanDriven) {
+                logBatchForPen(penId, batch, batch.headCount);
+            }
+        });
+        setLogSaved(true);
+        setTimeout(() => setLogSaved(false), 2500);
+    };
+
+    const handleLogAllPensFromAllView = () => {
+        if (allPensResolutions.length === 0) return;
+        if (allPensMismatch && !allPensConfirmedMismatch) return;
+        activePens.forEach(penId => {
+            const batch = computePenBatch(penId);
+            if (batch.isPlanDriven) {
+                logBatchForPen(penId, batch, batch.headCount);
+            }
+        });
         setLogSaved(true);
         setTimeout(() => setLogSaved(false), 2500);
     };
@@ -606,8 +629,9 @@ export default function TMRCalculator() {
     })();
 
     const handleAllPensOverride = (id, targetAvgStr) => {
-        const targetAvg = parseFloat(targetAvgStr);
-        if (isNaN(targetAvg)) return;
+        const targetAvgInput = parseFloat(targetAvgStr);
+        if (isNaN(targetAvgInput)) return;
+        const targetAvg = activeFeedingScale > 0 ? targetAvgInput / activeFeedingScale : targetAvgInput;
 
         const row = allPensTableRows.find(r => r.id === id);
         if (!row) return;
@@ -1731,14 +1755,111 @@ export default function TMRCalculator() {
                                 </div>
                             )}
 
+                            {/* Daily Feeding Schedule Split Selector inside Tractor Mode */}
+                            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', padding: '0.8rem 1rem', maxWidth: '640px', margin: '0 auto 1.2rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem', marginBottom: numFeedings > 1 ? '0.6rem' : 0 }}>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-pure)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                        <i className="fa-solid fa-clock-rotate-left" style={{ color: 'var(--accent-gold)' }}></i> Daily Feeding Schedule
+                                    </span>
+                                    <div style={{ display: 'flex', gap: '0.3rem' }}>
+                                        {[1, 2, 3].map(n => (
+                                            <button
+                                                key={n}
+                                                type="button"
+                                                className={`filter-btn ${numFeedings === n ? 'active' : ''}`}
+                                                style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', minHeight: '28px' }}
+                                                onClick={() => {
+                                                    setNumFeedings(n);
+                                                    setActiveFeedingIndex(0);
+                                                }}
+                                            >
+                                                {n} {n === 1 ? 'Feeding (100%)' : 'Feedings'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {numFeedings > 1 && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap', background: 'rgba(0,0,0,0.2)', padding: '0.6rem 0.8rem', borderRadius: '8px', marginBottom: '0.6rem' }}>
+                                        <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: '600' }}>Custom Split (%):</span>
+                                        {activeSplitList.map((pct, idx) => (
+                                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-pure)' }}>Feed {idx + 1}:</span>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    max="100"
+                                                    className="form-control"
+                                                    style={{ width: '60px', height: '28px', minHeight: '28px', padding: '0.1rem 0.4rem', fontSize: '0.8rem', textAlign: 'center' }}
+                                                    value={pct}
+                                                    onChange={(e) => handleSplitPctChange(idx, e.target.value)}
+                                                />
+                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>%</span>
+                                            </div>
+                                        ))}
+                                        <span style={{ fontSize: '0.72rem', fontWeight: '700', marginLeft: 'auto', color: totalSplitPct === 100 ? 'var(--primary-green-light)' : 'hsl(0,75%,65%)' }}>
+                                            Total: {totalSplitPct}% {totalSplitPct !== 100 && '(must = 100%)'}
+                                        </span>
+                                    </div>
+                                )}
+
+                                {numFeedings > 1 && (
+                                    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.4rem' }}>
+                                        <button
+                                            type="button"
+                                            className={`filter-btn ${activeFeedingIndex === 0 ? 'active' : ''}`}
+                                            style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', minHeight: '26px' }}
+                                            onClick={() => setActiveFeedingIndex(0)}
+                                        >
+                                            Full Day Total (100%)
+                                        </button>
+                                        {activeSplitList.map((pct, idx) => {
+                                            const feedNum = idx + 1;
+                                            const label = numFeedings === 2 ? (feedNum === 1 ? 'Morning' : 'Evening') : (feedNum === 1 ? 'Morning' : feedNum === 2 ? 'Afternoon' : 'Evening');
+                                            return (
+                                                <button
+                                                    key={feedNum}
+                                                    type="button"
+                                                    className={`filter-btn ${activeFeedingIndex === feedNum ? 'active' : ''}`}
+                                                    style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', minHeight: '26px' }}
+                                                    onClick={() => setActiveFeedingIndex(feedNum)}
+                                                >
+                                                    Feeding {feedNum} ({label} — {pct}%)
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
                             {tractorAggregateIngredients.length > 0 && (
                                 <>
-                                    <p class="batch-sub">Total batch for {tractorTotalHeadCount} calves across {tractorPenResolutions.length} pen{tractorPenResolutions.length === 1 ? '' : 's'}{tractorMismatch ? ' (mismatched forage/phase — confirmed)' : ''}</p>
+                                    <p class="batch-sub">
+                                        Total batch for {tractorTotalHeadCount} calves across {tractorPenResolutions.length} pen{tractorPenResolutions.length === 1 ? '' : 's'}
+                                        {activeFeedingIndex > 0 ? ` — Feeding ${activeFeedingIndex} of ${numFeedings} (${activeFeedingPct}%)` : ' — Full Day Total (100%)'}
+                                        {tractorMismatch ? ' (mismatched forage/phase — confirmed)' : ''}
+                                    </p>
                                     <div class="tractor-mix-list">
                                         {tractorAggregateIngredients.map((ing, idx) => (
-                                            <div class="tractor-mix-item" key={ing.id} style={ing.id === 'minerals' ? { borderLeftColor: 'var(--accent-gold)' } : {}}>
+                                            <div class="tractor-mix-item" key={ing.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', ...(ing.id === 'minerals' ? { borderLeftColor: 'var(--accent-gold)' } : {}) }}>
                                                 <span>{idx + 1}. WET {ing.name.toUpperCase()}</span>
-                                                <strong>{ing.wetBatch.toFixed(3)} KG</strong>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                                    <input
+                                                        type="number"
+                                                        step="0.1"
+                                                        className="form-control"
+                                                        style={{ width: '110px', height: '36px', minHeight: '36px', textAlign: 'right', fontSize: '1.05rem', fontWeight: '700', color: 'var(--primary-green-light)', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)' }}
+                                                        value={parseFloat(ing.wetBatch.toFixed(2))}
+                                                        onChange={(e) => {
+                                                            const newScaledBatch = parseFloat(e.target.value) || 0;
+                                                            const newUnscaledBatch = activeFeedingScale > 0 ? newScaledBatch / activeFeedingScale : newScaledBatch;
+                                                            const newAvgPerHead = tractorTotalHeadCount > 0 ? newUnscaledBatch / tractorTotalHeadCount : 0;
+                                                            handleAllPensOverride(ing.id, newAvgPerHead.toString());
+                                                        }}
+                                                        disabled={!isAdmin}
+                                                    />
+                                                    <span style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--text-muted)' }}>KG</span>
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
