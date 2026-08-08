@@ -891,9 +891,9 @@ export const FarmProvider = ({ children }) => {
         });
     };
 
-    const addFeedPurchase = (purchase) => {
+    const addFeedPurchase = async (purchase) => {
         const record = {
-            id: `fp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            id: purchase.id || `fp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             itemId: purchase.itemId,
             date: purchase.date || todayPKT(),
             quantity: parseFloat(purchase.quantity) || 0,
@@ -901,14 +901,40 @@ export const FarmProvider = ({ children }) => {
             supplier: purchase.supplier || '',
             notes: purchase.notes || ''
         };
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('ADD_FEED_PURCHASE', record);
+        }
         setFeedPurchases(prev => [...prev, record]);
         persistMutation('ADD_FEED_PURCHASE', record);
         return record;
     };
 
-    const deleteFeedPurchase = (id) => {
+    const handleNonAdminDelete = async (action, payload) => {
+        try {
+            const { res, data } = await sendMutationToServer(action, payload);
+            if (!res.ok || data.success === false) {
+                alert(data.error || 'Delete request could not be submitted.');
+                return { success: false, error: data.error || 'Delete request could not be submitted.' };
+            }
+            refreshApprovals();
+            alert('Deletion request submitted for Super Admin approval.');
+            return { success: true, pending: true };
+        } catch (err) {
+            console.error(`${action} (pending) failed:`, err);
+            alert('Network error — deletion request was not submitted. Please try again.');
+            return { success: false, error: 'Network error — request was not submitted.' };
+        }
+    };
+
+    const deleteFeedPurchase = async (id) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('DELETE_FEED_PURCHASE', { id });
+        }
         setFeedPurchases(prev => prev.filter(p => p.id !== id));
         persistMutation('DELETE_FEED_PURCHASE', { id });
+        return { success: true };
     };
 
     const addFeedStockIssue = (issue) => {
@@ -918,9 +944,6 @@ export const FarmProvider = ({ children }) => {
             date: issue.date || todayPKT(),
             pen: issue.pen || 'ALL',
             quantity: parseFloat(issue.quantity) || 0,
-            // Explicit lot chosen via a lot picker (premix batch / manual issue), so FIFO
-            // costing draws from that purchase first instead of always defaulting to the
-            // oldest lot. Left unset (null) for auto-synced TMR issues, which always FIFO.
             lotId: issue.lotId || null,
             notes: issue.notes || ''
         };
@@ -929,9 +952,14 @@ export const FarmProvider = ({ children }) => {
         return record;
     };
 
-    const deleteFeedStockIssue = (id) => {
+    const deleteFeedStockIssue = async (id) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('DELETE_FEED_STOCK_ISSUE', { id });
+        }
         setFeedStockIssues(prev => prev.filter(i => i.id !== id));
         persistMutation('DELETE_FEED_STOCK_ISSUE', { id });
+        return { success: true };
     };
 
     // Merges auto-derived issues (from every "Log This Feeding" record in TMR — same
@@ -1807,6 +1835,65 @@ export const FarmProvider = ({ children }) => {
                 setAnimals(prev => prev.filter(a => a.id !== approval.animalId));
                 setWeightLogs(prev => prev.filter(w => w.animalId !== approval.animalId));
                 setTreatments(prev => prev.filter(t => t.animalId !== approval.animalId));
+            } else if (approval.action === 'DELETE_FEED_PURCHASE') {
+                setFeedPurchases(prev => prev.filter(p => p.id !== (approval.payload?.id)));
+            } else if (approval.action === 'DELETE_FEED_STOCK_ISSUE') {
+                setFeedStockIssues(prev => prev.filter(i => i.id !== (approval.payload?.id)));
+            } else if (approval.action === 'DELETE_WEIGHT_LOG') {
+                setWeightLogs(prev => prev.filter(w => w.id !== (approval.payload?.logId)));
+            } else if (approval.action === 'DELETE_TREATMENT') {
+                setTreatments(prev => prev.filter(t => t.id !== (approval.payload?.treatmentId)));
+            } else if (approval.action === 'DELETE_FEED_LOG') {
+                const changes = approval.payload || {};
+                setFeedLogs(prev => prev.filter(f => !(f.date === changes.date && (f.pen === changes.pen || (!f.pen && changes.pen === 'ALL')) && (changes.feedingIndex === undefined || changes.feedingIndex === null || f.feedingIndex === changes.feedingIndex))));
+            } else if (approval.action === 'DELETE_RATION_PLAN') {
+                setRationPlans(prev => prev.filter(p => p.id !== (approval.payload?.id)));
+                setPens(prev => prev.map(pen => pen.rationPlanId === (approval.payload?.id) ? { ...pen, rationPlanId: null } : pen));
+            } else if (approval.action === 'DELETE_PEN') {
+                setPens(prev => prev.filter(p => p.id !== (approval.payload?.id)));
+            } else if (approval.action === 'DELETE_ORDER') {
+                setOrders(prev => prev.filter(o => o.id !== (approval.payload?.orderId)));
+            } else if (approval.action === 'DELETE_MEAT_CUT') {
+                setMeatCuts(prev => prev.filter(c => c.id !== (approval.payload?.cutId)));
+            } else if (approval.action === 'DELETE_ENQUIRY') {
+                setEnquiries(prev => prev.filter(e => e.id !== (approval.payload?.enquiryId)));
+            } else if (approval.action === 'DELETE_QUOTATION') {
+                setQuotations(prev => prev.filter(q => q.id !== (approval.payload?.quoteId)));
+            } else if (approval.action === 'DELETE_SPEC_SHEET') {
+                setSpecSheets(prev => prev.filter(s => s.docRef !== (approval.payload?.refId)));
+            } else if (approval.action === 'RECORD_DEATH') {
+                const changes = approval.payload || {};
+                setAnimals(prev => prev.map(a => a.id === approval.animal_id || a.id === approval.animalId ? { ...a, status: 'Deceased', deceasedDate: changes.deceasedDate, deceasedCause: changes.deceasedCause } : a));
+            } else if (approval.action === 'RECORD_SALE') {
+                const changes = approval.payload || {};
+                setAnimals(prev => prev.map(a => a.id === approval.animal_id || a.id === approval.animalId ? { ...a, status: 'Sold', salePrice: parseFloat(changes.salePrice), buyerName: changes.buyerName, saleDate: changes.saleDate } : a));
+            } else if (approval.action === 'ADD_FEED_PURCHASE') {
+                const changes = approval.payload || {};
+                setFeedPurchases(prev => [...prev, changes]);
+            } else if (approval.action === 'SAVE_SETTINGS') {
+                const changes = approval.payload || {};
+                if (changes.key) setSettings(prev => ({ ...prev, [changes.key]: changes.value }));
+            } else if (approval.action === 'ADD_MEAT_CUT') {
+                const changes = approval.payload || {};
+                setMeatCuts(prev => [...prev, changes]);
+            } else if (approval.action === 'UPDATE_MEAT_CUT') {
+                const changes = approval.payload || {};
+                setMeatCuts(prev => prev.map(c => c.id === changes.id ? changes : c));
+            } else if (approval.action === 'UPDATE_WEIGHT_LOGS_BATCH') {
+                const changes = approval.payload || {};
+                if (changes.logs) {
+                    setWeightLogs(prev => {
+                        const next = [...prev];
+                        changes.logs.forEach(log => {
+                            const idx = next.findIndex(w => w.id === log.id);
+                            if (idx >= 0) next[idx] = { ...next[idx], ...log };
+                        });
+                        return next;
+                    });
+                }
+                if (changes.currentWeight !== undefined) {
+                    setAnimals(prev => prev.map(a => a.id === (approval.animal_id || approval.animalId) ? { ...a, currentWeight: changes.currentWeight } : a));
+                }
             }
 
             setPendingApprovals(prev => prev.filter(p => p.id !== approval.id));
@@ -1836,25 +1923,46 @@ export const FarmProvider = ({ children }) => {
     };
 
     const deleteWeightLog = async (logId) => {
-        // 1. Sync UI locally
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('DELETE_WEIGHT_LOG', { logId });
+        }
         setWeightLogs(prev => prev.filter(w => w.id !== logId));
-
-        // 2. Queue DB transaction durably
         persistMutation('DELETE_WEIGHT_LOG', { logId });
+        return { success: true };
     };
 
     const deleteTreatment = async (treatmentId) => {
-        // 1. Sync UI locally
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('DELETE_TREATMENT', { treatmentId });
+        }
         setTreatments(prev => prev.filter(t => t.id !== treatmentId));
-
-        // 2. Queue DB transaction durably
         persistMutation('DELETE_TREATMENT', { treatmentId });
+        return { success: true };
     };
 
     // Unlike most mutations in this file, recordSale is NOT optimistic: the backend
     // enforces the medicine withholding (food-safety) period and can legitimately
     // reject a sale, so we wait for its verdict before touching local state.
     const recordSale = async (animalId, salePrice, buyerName, saleDate) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            try {
+                const { res, data } = await sendMutationToServer('RECORD_SALE', { animalId: parseInt(animalId), salePrice: parseFloat(salePrice), buyerName, saleDate });
+                if (!res.ok || data.success === false) {
+                    alert(data.error || 'Sale request could not be submitted.');
+                    return { success: false, error: data.error || 'Sale request could not be submitted.' };
+                }
+                refreshApprovals();
+                alert('Sale record request submitted for Super Admin approval.');
+                return { success: true, pending: true };
+            } catch (err) {
+                console.error('RECORD_SALE (pending) failed:', err);
+                alert('Network error — sale request was not submitted.');
+                return { success: false, error: 'Network error — request was not submitted.' };
+            }
+        }
         try {
             const res = await fetch('/api/farm', {
                 method: 'POST',
@@ -1872,8 +1980,6 @@ export const FarmProvider = ({ children }) => {
                 return { success: false, error: message };
             }
 
-            // Server confirmed the sale (or no DB is configured, in which case we run
-            // local-only and there's nothing authoritative to check against).
             setAnimals(prev => prev.map(a => a.id === parseInt(animalId)
                 ? { ...a, status: 'Sold', salePrice: parseFloat(salePrice), buyerName, saleDate }
                 : a
@@ -1888,15 +1994,17 @@ export const FarmProvider = ({ children }) => {
     };
 
     const recordDeath = async (animalId, deceasedDate, deceasedCause) => {
-        // 1. Sync UI locally
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('RECORD_DEATH', { animalId: parseInt(animalId), deceasedDate, deceasedCause });
+        }
         setAnimals(prev => prev.map(a => a.id === parseInt(animalId)
             ? { ...a, status: 'Deceased', deceasedDate, deceasedCause }
             : a
         ));
         setEvents(prev => [...prev, { id: Date.now(), animalId: parseInt(animalId), date: deceasedDate, eventType: 'deceased', note: `Deceased — ${deceasedCause}` }]);
-
-        // 2. Queue database transaction durably
         persistMutation('RECORD_DEATH', { animalId: parseInt(animalId), deceasedDate, deceasedCause });
+        return { success: true };
     };
 
     const updateTMRPrices = (prices) => {
@@ -1973,9 +2081,14 @@ export const FarmProvider = ({ children }) => {
         persistMutation('LOG_FEED', record);
     };
 
-    const deleteFeedLog = (date, pen, feedingIndex) => {
+    const deleteFeedLog = async (date, pen, feedingIndex) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('DELETE_FEED_LOG', { date, pen, feedingIndex });
+        }
         setFeedLogs(prev => prev.filter(f => !(f.date === date && f.pen === pen && (feedingIndex === undefined || (f.feedingIndex || 0) === feedingIndex))));
         persistMutation('DELETE_FEED_LOG', { date, pen, feedingIndex });
+        return { success: true };
     };
 
     // ─── RATION PLANS & PEN ASSIGNMENT ───
@@ -2020,12 +2133,17 @@ export const FarmProvider = ({ children }) => {
         return duplicated;
     };
 
-    const deleteRationPlan = (id) => {
+    const deleteRationPlan = async (id) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('DELETE_RATION_PLAN', { id });
+        }
         setRationPlans(prev => prev.filter(p => p.id !== id));
         // Unassign any pen that was pointed at this plan, mirroring the server's
         // ON DELETE SET NULL / explicit unassign in the DELETE_RATION_PLAN handler.
         setPens(prev => prev.map(p => (p.rationPlanId === id ? { ...p, rationPlanId: null } : p)));
         persistMutation('DELETE_RATION_PLAN', { id });
+        return { success: true };
     };
 
     const savePen = (pen) => {
@@ -2049,9 +2167,14 @@ export const FarmProvider = ({ children }) => {
         return record;
     };
 
-    const deletePen = (id) => {
+    const deletePen = async (id) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('DELETE_PEN', { id });
+        }
         setPens(prev => prev.filter(p => p.id !== id));
         persistMutation('DELETE_PEN', { id });
+        return { success: true };
     };
 
     // Imports a CSV-defined ration plan (RATION_SYSTEM_SPEC.md) — the primary, strict
@@ -2663,25 +2786,45 @@ export const FarmProvider = ({ children }) => {
     };
 
     const deleteOrder = async (orderId) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('DELETE_ORDER', { orderId });
+        }
         setOrders(prev => prev.filter(o => o.id !== orderId));
         persistMutation('DELETE_ORDER', { orderId });
+        return { success: true };
     };
 
     const addMeatCut = async (newCut) => {
         const id = newCut.id || newCut.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
         const cut = { id, ...newCut };
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('ADD_MEAT_CUT', cut);
+        }
         setMeatCuts(prev => [...prev, cut]);
         persistMutation('ADD_MEAT_CUT', cut);
+        return { success: true };
     };
 
     const updateMeatCut = async (updatedCut) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('UPDATE_MEAT_CUT', updatedCut);
+        }
         setMeatCuts(prev => prev.map(c => c.id === updatedCut.id ? updatedCut : c));
         persistMutation('UPDATE_MEAT_CUT', updatedCut);
+        return { success: true };
     };
 
     const deleteMeatCut = async (cutId) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('DELETE_MEAT_CUT', { cutId });
+        }
         setMeatCuts(prev => prev.filter(c => c.id !== cutId));
         persistMutation('DELETE_MEAT_CUT', { cutId });
+        return { success: true };
     };
 
     const resetSystem = async () => {
@@ -2712,8 +2855,13 @@ export const FarmProvider = ({ children }) => {
     };
 
     const deleteEnquiry = async (enquiryId) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('DELETE_ENQUIRY', { enquiryId });
+        }
         setEnquiries(prev => prev.filter(e => e.id !== enquiryId));
         persistMutation('DELETE_ENQUIRY', { enquiryId });
+        return { success: true };
     };
 
     const updateQuotationStatus = async (quoteId, newStatus) => {
@@ -2722,8 +2870,13 @@ export const FarmProvider = ({ children }) => {
     };
 
     const deleteQuotation = async (quoteId) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('DELETE_QUOTATION', { quoteId });
+        }
         setQuotations(prev => prev.filter(q => q.id !== quoteId));
         persistMutation('DELETE_QUOTATION', { quoteId });
+        return { success: true };
     };
 
     const duplicateQuotation = async (quote) => {
@@ -2743,8 +2896,13 @@ export const FarmProvider = ({ children }) => {
     };
 
     const deleteSpecSheet = async (refId) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('DELETE_SPEC_SHEET', { refId });
+        }
         setSpecSheets(prev => prev.filter(s => s.docRef !== refId));
         persistMutation('DELETE_SPEC_SHEET', { refId });
+        return { success: true };
     };
 
     // Admin-only: grant/restrict a staff member's access to Sales vs Herd Management.

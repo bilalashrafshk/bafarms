@@ -1911,6 +1911,72 @@ module.exports = async (req, res) => {
                     // No ba_events row here — the animal (and its event history) is gone the
                     // instant this runs. The ba_pending_approvals row itself, which is never
                     // cascade-deleted, is the permanent audit record for this decision.
+                } else if (approval.action === 'DELETE_FEED_PURCHASE') {
+                    await client.query('DELETE FROM ba_feed_purchases WHERE id = $1', [changes.id]);
+                } else if (approval.action === 'DELETE_FEED_STOCK_ISSUE') {
+                    await client.query('DELETE FROM ba_feed_stock_issues WHERE id = $1', [changes.id]);
+                } else if (approval.action === 'DELETE_WEIGHT_LOG') {
+                    await client.query('DELETE FROM ba_weights WHERE id = $1', [changes.logId]);
+                } else if (approval.action === 'DELETE_TREATMENT') {
+                    await client.query('DELETE FROM ba_treatments WHERE id = $1', [changes.treatmentId]);
+                } else if (approval.action === 'DELETE_FEED_LOG') {
+                    if (changes.feedingIndex === undefined || changes.feedingIndex === null) {
+                        await client.query('DELETE FROM ba_feed_logs WHERE date = $1 AND pen = $2', [changes.date, changes.pen || 'ALL']);
+                    } else {
+                        await client.query('DELETE FROM ba_feed_logs WHERE date = $1 AND pen = $2 AND feeding_index = $3', [changes.date, changes.pen || 'ALL', changes.feedingIndex]);
+                    }
+                } else if (approval.action === 'DELETE_RATION_PLAN') {
+                    await client.query('UPDATE ba_pens SET ration_plan_id = NULL WHERE ration_plan_id = $1', [changes.id]);
+                    await client.query('DELETE FROM ba_ration_plans WHERE id = $1', [changes.id]);
+                } else if (approval.action === 'DELETE_PEN') {
+                    await client.query('DELETE FROM ba_pens WHERE id = $1', [changes.id]);
+                } else if (approval.action === 'DELETE_ORDER') {
+                    await client.query('DELETE FROM ba_orders WHERE id = $1', [changes.orderId]);
+                } else if (approval.action === 'DELETE_ENQUIRY') {
+                    await client.query('DELETE FROM ba_export_enquiries WHERE id = $1', [changes.enquiryId]);
+                } else if (approval.action === 'DELETE_QUOTATION') {
+                    await client.query('DELETE FROM ba_quotations WHERE id = $1', [changes.quoteId]);
+                } else if (approval.action === 'DELETE_SPEC_SHEET') {
+                    await client.query('DELETE FROM ba_spec_sheets WHERE doc_ref = $1', [changes.refId]);
+                } else if (approval.action === 'DELETE_MEAT_CUT') {
+                    await client.query('DELETE FROM ba_meat_cuts WHERE id = $1', [changes.cutId]);
+                } else if (approval.action === 'RECORD_DEATH') {
+                    await client.query(`UPDATE ba_animals SET status = 'Deceased', deceased_date = $1, deceased_cause = $2 WHERE id = $3`, [changes.deceasedDate, changes.deceasedCause, approval.animal_id]);
+                    await client.query(`INSERT INTO ba_events (animal_id, date, event_type, note, created_by) VALUES ($1, $2, 'deceased', $3, $4)`, [approval.animal_id, changes.deceasedDate, `Deceased — ${changes.deceasedCause}`, userEmail]);
+                } else if (approval.action === 'RECORD_SALE') {
+                    await client.query(`UPDATE ba_animals SET status = 'Sold', sale_price = $1, buyer_name = $2, sale_date = $3 WHERE id = $4`, [changes.salePrice, changes.buyerName, changes.saleDate, approval.animal_id]);
+                    await client.query(`INSERT INTO ba_events (animal_id, date, event_type, note, created_by) VALUES ($1, $2, 'sold', $3, $4)`, [approval.animal_id, changes.saleDate, `Sold to ${changes.buyerName} — PKR ${changes.salePrice?.toLocaleString()}`, userEmail]);
+                } else if (approval.action === 'ADD_FEED_PURCHASE') {
+                    await client.query(`
+                        INSERT INTO ba_feed_purchases (id, item_id, date, quantity, rate, supplier, notes, created_by, created_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                        ON CONFLICT (id) DO UPDATE SET item_id = EXCLUDED.item_id, date = EXCLUDED.date, quantity = EXCLUDED.quantity, rate = EXCLUDED.rate, supplier = EXCLUDED.supplier, notes = EXCLUDED.notes
+                    `, [changes.id, changes.itemId, changes.date, changes.quantity || 0, changes.rate || 0, changes.supplier || null, changes.notes || null, approval.requested_by]);
+                } else if (approval.action === 'SAVE_SETTINGS') {
+                    await client.query(`
+                        INSERT INTO ba_settings (key, value, updated_by, updated_at)
+                        VALUES ($1, $2, $3, NOW())
+                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+                    `, [changes.key, JSON.stringify(changes.value), approval.requested_by]);
+                } else if (approval.action === 'UPDATE_WEIGHT_LOGS_BATCH') {
+                    for (const log of (changes.logs || [])) {
+                        await client.query(`UPDATE ba_weights SET date = $1, weight = $2, adg = $3 WHERE id = $4`, [log.date, log.weight, log.adg, log.id]);
+                    }
+                    if (changes.currentWeight !== undefined) {
+                        await client.query(`UPDATE ba_animals SET current_weight = $1 WHERE id = $2`, [changes.currentWeight, approval.animal_id]);
+                    }
+                } else if (approval.action === 'ADD_MEAT_CUT') {
+                    await client.query(`
+                        INSERT INTO ba_meat_cuts (id, title, category, price, weight, description, ribbon, rfid, marbling, fat_ratio, images)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                        ON CONFLICT (id) DO NOTHING
+                    `, [changes.id, changes.title, changes.category || 'cuts', changes.price, changes.weight || null, changes.desc || null, changes.ribbon || null, changes.rfid || null, changes.marbling || null, changes.fatRatio || null, JSON.stringify(changes.images || [])]);
+                } else if (approval.action === 'UPDATE_MEAT_CUT') {
+                    await client.query(`
+                        UPDATE ba_meat_cuts
+                        SET title=$1, price=$2, weight=$3, description=$4, ribbon=$5, rfid=$6, marbling=$7, fat_ratio=$8, images=$9
+                        WHERE id=$10
+                    `, [changes.title, changes.price, changes.weight || null, changes.desc || null, changes.ribbon || null, changes.rfid || null, changes.marbling || null, changes.fatRatio || null, JSON.stringify(changes.images || []), changes.id]);
                 }
 
                 await client.query(
@@ -1945,6 +2011,25 @@ module.exports = async (req, res) => {
 
             if (action === 'RECORD_DEATH') {
                 const { animalId, deceasedDate, deceasedCause } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'RECORD_DEATH' AND animal_id = $1 AND status = 'pending'`,
+                        [animalId]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const animalRes = await client.query('SELECT * FROM ba_animals WHERE id = $1', [animalId]);
+                        if (animalRes.rows.length === 0) {
+                            return res.status(404).json({ success: false, error: 'Animal not found.' });
+                        }
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, animal_id, animal_rfid, animal_breed, payload, previous_snapshot, requested_by)
+                            VALUES ('RECORD_DEATH', $1, $2, $3, $4, $5, $6)
+                        `, [animalId, animalRes.rows[0].rfid, animalRes.rows[0].breed, JSON.stringify({ animalId, deceasedDate, deceasedCause }), JSON.stringify(animalRes.rows[0]), session.email.toLowerCase().trim()]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
+
                 await client.query(`
                     UPDATE ba_animals
                     SET status = 'Deceased', deceased_date = $1, deceased_cause = $2
@@ -1959,10 +2044,10 @@ module.exports = async (req, res) => {
 
             if (action === 'RECORD_SALE') {
                 const { animalId, salePrice, buyerName, saleDate } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
 
                 // Food-safety gate: refuse the sale if any logged treatment's withholding
-                // (withdrawal) period has not yet elapsed as of the sale date. This is the
-                // authoritative check — UI filters elsewhere are a convenience, not a guarantee.
+                // (withdrawal) period has not yet elapsed as of the sale date.
                 const withholdRes = await client.query(
                     'SELECT date, medicine, withholding FROM ba_treatments WHERE animal_id = $1 AND withholding > 0',
                     [animalId]
@@ -1988,6 +2073,24 @@ module.exports = async (req, res) => {
                     });
                 }
 
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'RECORD_SALE' AND animal_id = $1 AND status = 'pending'`,
+                        [animalId]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const animalRes = await client.query('SELECT * FROM ba_animals WHERE id = $1', [animalId]);
+                        if (animalRes.rows.length === 0) {
+                            return res.status(404).json({ success: false, error: 'Animal not found.' });
+                        }
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, animal_id, animal_rfid, animal_breed, payload, previous_snapshot, requested_by)
+                            VALUES ('RECORD_SALE', $1, $2, $3, $4, $5, $6)
+                        `, [animalId, animalRes.rows[0].rfid, animalRes.rows[0].breed, JSON.stringify({ animalId, salePrice, buyerName, saleDate }), JSON.stringify(animalRes.rows[0]), session.email.toLowerCase().trim()]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
+
                 await client.query(`
                     UPDATE ba_animals
                     SET status = 'Sold', sale_price = $1, buyer_name = $2, sale_date = $3
@@ -2002,6 +2105,24 @@ module.exports = async (req, res) => {
 
             if (action === 'DELETE_WEIGHT_LOG') {
                 const { logId } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'DELETE_WEIGHT_LOG' AND (payload->>'logId') = $1 AND status = 'pending'`,
+                        [String(logId)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT w.*, a.rfid as animal_rfid, a.breed as animal_breed FROM ba_weights w LEFT JOIN ba_animals a ON w.animal_id = a.id WHERE w.id = $1', [logId]);
+                        if (currentRes.rows.length > 0) {
+                            const row = currentRes.rows[0];
+                            await client.query(`
+                                INSERT INTO ba_pending_approvals (action, animal_id, animal_rfid, animal_breed, payload, previous_snapshot, requested_by)
+                                VALUES ('DELETE_WEIGHT_LOG', $1, $2, $3, $4, $5, $6)
+                            `, [row.animal_id, row.animal_rfid || null, row.animal_breed || null, JSON.stringify({ logId }), JSON.stringify(row), session.email.toLowerCase().trim()]);
+                        }
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
                 await client.query('DELETE FROM ba_weights WHERE id = $1', [logId]);
                 return res.status(200).json({ success: true });
             }
@@ -2012,6 +2133,21 @@ module.exports = async (req, res) => {
             // animal's refreshed currentWeight in one transaction so they never drift.
             if (action === 'UPDATE_WEIGHT_LOGS_BATCH') {
                 const { animalId, logs, currentWeight } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'UPDATE_WEIGHT_LOGS_BATCH' AND animal_id = $1 AND status = 'pending'`,
+                        [animalId]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const animalRes = await client.query('SELECT * FROM ba_animals WHERE id = $1', [animalId]);
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, animal_id, animal_rfid, animal_breed, payload, previous_snapshot, requested_by)
+                            VALUES ('UPDATE_WEIGHT_LOGS_BATCH', $1, $2, $3, $4, $5, $6)
+                        `, [animalId, animalRes.rows[0]?.rfid || null, animalRes.rows[0]?.breed || null, JSON.stringify({ animalId, logs, currentWeight }), JSON.stringify(animalRes.rows[0] || {}), session.email.toLowerCase().trim()]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
                 for (const log of (logs || [])) {
                     await client.query(`
                         UPDATE ba_weights
@@ -2031,6 +2167,24 @@ module.exports = async (req, res) => {
 
             if (action === 'DELETE_TREATMENT') {
                 const { treatmentId } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'DELETE_TREATMENT' AND (payload->>'treatmentId') = $1 AND status = 'pending'`,
+                        [String(treatmentId)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT t.*, a.rfid as animal_rfid, a.breed as animal_breed FROM ba_treatments t LEFT JOIN ba_animals a ON t.animal_id = a.id WHERE t.id = $1', [treatmentId]);
+                        if (currentRes.rows.length > 0) {
+                            const row = currentRes.rows[0];
+                            await client.query(`
+                                INSERT INTO ba_pending_approvals (action, animal_id, animal_rfid, animal_breed, payload, previous_snapshot, requested_by)
+                                VALUES ('DELETE_TREATMENT', $1, $2, $3, $4, $5, $6)
+                            `, [row.animal_id, row.animal_rfid || null, row.animal_breed || null, JSON.stringify({ treatmentId }), JSON.stringify(row), session.email.toLowerCase().trim()]);
+                        }
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
                 await client.query('DELETE FROM ba_treatments WHERE id = $1', [treatmentId]);
                 return res.status(200).json({ success: true });
             }
@@ -2089,6 +2243,23 @@ module.exports = async (req, res) => {
 
             if (action === 'DELETE_FEED_LOG') {
                 const { date, pen, feedingIndex } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'DELETE_FEED_LOG' AND (payload->>'date') = $1 AND (payload->>'pen') = $2 AND status = 'pending'`,
+                        [String(date), String(pen || 'ALL')]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT * FROM ba_feed_logs WHERE date = $1 AND pen = $2', [date, pen || 'ALL']);
+                        if (currentRes.rows.length > 0) {
+                            await client.query(`
+                                INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                                VALUES ('DELETE_FEED_LOG', $1, $2, $3)
+                            `, [JSON.stringify({ date, pen: pen || 'ALL', feedingIndex }), JSON.stringify(currentRes.rows[0]), session.email.toLowerCase().trim()]);
+                        }
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
                 if (feedingIndex === undefined || feedingIndex === null) {
                     // No specific session given — clear every feeding logged for that pen/day.
                     await client.query('DELETE FROM ba_feed_logs WHERE date = $1 AND pen = $2', [date, pen || 'ALL']);
@@ -2128,6 +2299,23 @@ module.exports = async (req, res) => {
 
             if (action === 'DELETE_RATION_PLAN') {
                 const { id } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'DELETE_RATION_PLAN' AND (payload->>'id') = $1 AND status = 'pending'`,
+                        [String(id)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT * FROM ba_ration_plans WHERE id = $1', [id]);
+                        if (currentRes.rows.length > 0) {
+                            await client.query(`
+                                INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                                VALUES ('DELETE_RATION_PLAN', $1, $2, $3)
+                            `, [JSON.stringify({ id }), JSON.stringify(currentRes.rows[0]), session.email.toLowerCase().trim()]);
+                        }
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
                 await client.query('UPDATE ba_pens SET ration_plan_id = NULL WHERE ration_plan_id = $1', [id]);
                 await client.query('DELETE FROM ba_ration_plans WHERE id = $1', [id]);
                 return res.status(200).json({ success: true });
@@ -2170,6 +2358,23 @@ module.exports = async (req, res) => {
 
             if (action === 'DELETE_PEN') {
                 const { id } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'DELETE_PEN' AND (payload->>'id') = $1 AND status = 'pending'`,
+                        [String(id)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT * FROM ba_pens WHERE id = $1', [id]);
+                        if (currentRes.rows.length > 0) {
+                            await client.query(`
+                                INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                                VALUES ('DELETE_PEN', $1, $2, $3)
+                            `, [JSON.stringify({ id }), JSON.stringify(currentRes.rows[0]), session.email.toLowerCase().trim()]);
+                        }
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
                 await client.query('DELETE FROM ba_pens WHERE id = $1', [id]);
                 return res.status(200).json({ success: true });
             }
@@ -2489,12 +2694,29 @@ module.exports = async (req, res) => {
             // staff member is never silently invisible/lost on another.
             if (action === 'SAVE_SETTINGS') {
                 const { key, value } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
 
                 if (!key || !SETTINGS_KEYS.has(key)) {
                     return res.status(400).json({ success: false, error: "Unknown or missing settings key" });
                 }
                 if (value === undefined) {
                     return res.status(400).json({ success: false, error: "Settings value is required" });
+                }
+
+                const sensitiveSettingsKeys = new Set(['feed_ingredients', 'feed_stock_items', 'feed_opening_stock', 'mineral_split_ratio']);
+                if (!isAdmin && sensitiveSettingsKeys.has(key)) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'SAVE_SETTINGS' AND (payload->>'key') = $1 AND status = 'pending'`,
+                        [key]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT value FROM ba_settings WHERE key = $1', [key]);
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                            VALUES ('SAVE_SETTINGS', $1, $2, $3)
+                        `, [JSON.stringify({ key, value }), JSON.stringify(currentRes.rows[0] || {}), session.email.toLowerCase().trim()]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
                 }
 
                 await client.query(`
@@ -2511,9 +2733,24 @@ module.exports = async (req, res) => {
 
             if (action === 'ADD_FEED_PURCHASE') {
                 const { id, itemId, date, quantity, rate, supplier, notes } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
 
                 if (!id || !itemId || !date) {
                     return res.status(400).json({ success: false, error: "Purchase id, item and date are required" });
+                }
+
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'ADD_FEED_PURCHASE' AND (payload->>'id') = $1 AND status = 'pending'`,
+                        [String(id)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                            VALUES ('ADD_FEED_PURCHASE', $1, $2, $3)
+                        `, [JSON.stringify({ id, itemId, date, quantity, rate, supplier, notes }), JSON.stringify({}), session.email.toLowerCase().trim()]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
                 }
 
                 await client.query(`
@@ -2533,6 +2770,23 @@ module.exports = async (req, res) => {
 
             if (action === 'DELETE_FEED_PURCHASE') {
                 const { id } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'DELETE_FEED_PURCHASE' AND (payload->>'id') = $1 AND status = 'pending'`,
+                        [String(id)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT * FROM ba_feed_purchases WHERE id = $1', [id]);
+                        if (currentRes.rows.length > 0) {
+                            await client.query(`
+                                INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                                VALUES ('DELETE_FEED_PURCHASE', $1, $2, $3)
+                            `, [JSON.stringify({ id }), JSON.stringify(currentRes.rows[0]), session.email.toLowerCase().trim()]);
+                        }
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
                 await client.query('DELETE FROM ba_feed_purchases WHERE id = $1', [id]);
                 return res.status(200).json({ success: true });
             }
@@ -2561,6 +2815,23 @@ module.exports = async (req, res) => {
 
             if (action === 'DELETE_FEED_STOCK_ISSUE') {
                 const { id } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'DELETE_FEED_STOCK_ISSUE' AND (payload->>'id') = $1 AND status = 'pending'`,
+                        [String(id)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT * FROM ba_feed_stock_issues WHERE id = $1', [id]);
+                        if (currentRes.rows.length > 0) {
+                            await client.query(`
+                                INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                                VALUES ('DELETE_FEED_STOCK_ISSUE', $1, $2, $3)
+                            `, [JSON.stringify({ id }), JSON.stringify(currentRes.rows[0]), session.email.toLowerCase().trim()]);
+                        }
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
                 await client.query('DELETE FROM ba_feed_stock_issues WHERE id = $1', [id]);
                 return res.status(200).json({ success: true });
             }
@@ -2609,6 +2880,23 @@ module.exports = async (req, res) => {
 
             if (action === 'DELETE_ORDER') {
                 const { orderId } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'DELETE_ORDER' AND (payload->>'orderId') = $1 AND status = 'pending'`,
+                        [String(orderId)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT * FROM ba_orders WHERE id = $1', [orderId]);
+                        if (currentRes.rows.length > 0) {
+                            await client.query(`
+                                INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                                VALUES ('DELETE_ORDER', $1, $2, $3)
+                            `, [JSON.stringify({ orderId }), JSON.stringify(currentRes.rows[0]), session.email.toLowerCase().trim()]);
+                        }
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
                 await client.query('DELETE FROM ba_orders WHERE id=$1', [orderId]);
                 return res.status(200).json({ success: true });
             }
@@ -2621,6 +2909,23 @@ module.exports = async (req, res) => {
 
             if (action === 'DELETE_ENQUIRY') {
                 const { enquiryId } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'DELETE_ENQUIRY' AND (payload->>'enquiryId') = $1 AND status = 'pending'`,
+                        [String(enquiryId)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT * FROM ba_export_enquiries WHERE id = $1', [enquiryId]);
+                        if (currentRes.rows.length > 0) {
+                            await client.query(`
+                                INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                                VALUES ('DELETE_ENQUIRY', $1, $2, $3)
+                            `, [JSON.stringify({ enquiryId }), JSON.stringify(currentRes.rows[0]), session.email.toLowerCase().trim()]);
+                        }
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
                 await client.query('DELETE FROM ba_export_enquiries WHERE id=$1', [enquiryId]);
                 return res.status(200).json({ success: true });
             }
@@ -2668,6 +2973,23 @@ module.exports = async (req, res) => {
 
             if (action === 'DELETE_QUOTATION') {
                 const { quoteId } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'DELETE_QUOTATION' AND (payload->>'quoteId') = $1 AND status = 'pending'`,
+                        [String(quoteId)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT * FROM ba_quotations WHERE id = $1', [quoteId]);
+                        if (currentRes.rows.length > 0) {
+                            await client.query(`
+                                INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                                VALUES ('DELETE_QUOTATION', $1, $2, $3)
+                            `, [JSON.stringify({ quoteId }), JSON.stringify(currentRes.rows[0]), session.email.toLowerCase().trim()]);
+                        }
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
                 await client.query('DELETE FROM ba_quotations WHERE id=$1', [quoteId]);
                 return res.status(200).json({ success: true });
             }
@@ -2726,12 +3048,44 @@ module.exports = async (req, res) => {
 
             if (action === 'DELETE_SPEC_SHEET') {
                 const { refId } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'DELETE_SPEC_SHEET' AND (payload->>'refId') = $1 AND status = 'pending'`,
+                        [String(refId)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT * FROM ba_spec_sheets WHERE doc_ref = $1', [refId]);
+                        if (currentRes.rows.length > 0) {
+                            await client.query(`
+                                INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                                VALUES ('DELETE_SPEC_SHEET', $1, $2, $3)
+                            `, [JSON.stringify({ refId }), JSON.stringify(currentRes.rows[0]), session.email.toLowerCase().trim()]);
+                        }
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
                 await client.query('DELETE FROM ba_spec_sheets WHERE doc_ref=$1', [refId]);
                 return res.status(200).json({ success: true });
             }
 
             if (action === 'ADD_MEAT_CUT') {
                 const { id, title, category, price, weight, desc, ribbon, rfid, marbling, fatRatio, images } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'ADD_MEAT_CUT' AND (payload->>'id') = $1 AND status = 'pending'`,
+                        [String(id)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                            VALUES ('ADD_MEAT_CUT', $1, $2, $3)
+                        `, [JSON.stringify(payload), JSON.stringify({}), session.email.toLowerCase().trim()]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
 
                 await client.query(`
                     INSERT INTO ba_meat_cuts (id, title, category, price, weight, description, ribbon, rfid, marbling, fat_ratio, images)
@@ -2749,6 +3103,22 @@ module.exports = async (req, res) => {
 
             if (action === 'UPDATE_MEAT_CUT') {
                 const { id, title, price, weight, desc, ribbon, rfid, marbling, fatRatio, images } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'UPDATE_MEAT_CUT' AND (payload->>'id') = $1 AND status = 'pending'`,
+                        [String(id)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT * FROM ba_meat_cuts WHERE id = $1', [id]);
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                            VALUES ('UPDATE_MEAT_CUT', $1, $2, $3)
+                        `, [JSON.stringify(payload), JSON.stringify(currentRes.rows[0] || {}), session.email.toLowerCase().trim()]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
 
                 await client.query(`
                     UPDATE ba_meat_cuts
@@ -2766,6 +3136,23 @@ module.exports = async (req, res) => {
 
             if (action === 'DELETE_MEAT_CUT') {
                 const { cutId } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'DELETE_MEAT_CUT' AND (payload->>'cutId') = $1 AND status = 'pending'`,
+                        [String(cutId)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT * FROM ba_meat_cuts WHERE id = $1', [cutId]);
+                        if (currentRes.rows.length > 0) {
+                            await client.query(`
+                                INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                                VALUES ('DELETE_MEAT_CUT', $1, $2, $3)
+                            `, [JSON.stringify({ cutId }), JSON.stringify(currentRes.rows[0]), session.email.toLowerCase().trim()]);
+                        }
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
                 await client.query('DELETE FROM ba_meat_cuts WHERE id=$1', [cutId]);
                 return res.status(200).json({ success: true });
             }

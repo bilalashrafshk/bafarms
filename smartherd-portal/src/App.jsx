@@ -797,25 +797,92 @@ function AppContent() {
                             ) : pendingApprovals.map(item => (
                                 <div key={item.id} class="hud-detail-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.6rem' }}>
                                     <strong class="hud-value">
-                                        {item.action === 'DELETE_ANIMAL' ? 'Delete' : 'Edit'} — {item.animalRfid || `Animal #${item.animalId}`} ({item.animalBreed || '—'})
+                                        {(() => {
+                                            switch (item.action) {
+                                                case 'DELETE_ANIMAL': return `Delete Animal — ${item.animalRfid || 'Animal #' + item.animalId} (${item.animalBreed || '—'})`;
+                                                case 'UPDATE_ANIMAL': return `Edit Animal — ${item.animalRfid || 'Animal #' + item.animalId} (${item.animalBreed || '—'})`;
+                                                case 'RECORD_DEATH': return `Record Animal Death — ${item.animalRfid || 'Animal #' + item.animalId}`;
+                                                case 'RECORD_SALE': return `Record Animal Sale — ${item.animalRfid || 'Animal #' + item.animalId}`;
+                                                case 'ADD_FEED_PURCHASE': return `Add Feed Purchase — ID ${item.payload?.id || '—'}`;
+                                                case 'DELETE_FEED_PURCHASE': return `Delete Feed Purchase — ID ${item.payload?.id || '—'}`;
+                                                case 'DELETE_FEED_STOCK_ISSUE': return `Delete Feed Stock Issue — ID ${item.payload?.id || '—'}`;
+                                                case 'DELETE_WEIGHT_LOG': return `Delete Weight Log — ${item.animalRfid || 'Animal #' + item.animalId}`;
+                                                case 'UPDATE_WEIGHT_LOGS_BATCH': return `Update Weight History — ${item.animalRfid || 'Animal #' + item.animalId}`;
+                                                case 'DELETE_TREATMENT': return `Delete Treatment — ${item.animalRfid || 'Animal #' + item.animalId}`;
+                                                case 'DELETE_FEED_LOG': return `Delete Feed Log — Pen ${item.payload?.pen || 'ALL'} (${item.payload?.date || '—'})`;
+                                                case 'DELETE_RATION_PLAN': return `Delete Ration Plan — ${item.previousSnapshot?.name || item.payload?.id}`;
+                                                case 'DELETE_PEN': return `Delete Pen — ${item.payload?.id}`;
+                                                case 'SAVE_SETTINGS': return `Master Setting Change — ${item.payload?.key || 'Setting'}`;
+                                                case 'DELETE_ORDER': return `Delete Order — #${item.payload?.orderId}`;
+                                                case 'DELETE_ENQUIRY': return `Delete Export Enquiry — #${item.payload?.enquiryId}`;
+                                                case 'DELETE_QUOTATION': return `Delete Quotation — #${item.payload?.quoteId}`;
+                                                case 'DELETE_SPEC_SHEET': return `Delete Spec Sheet — ${item.payload?.refId}`;
+                                                case 'ADD_MEAT_CUT': return `Add Meat Cut — ${item.payload?.title || item.payload?.id}`;
+                                                case 'UPDATE_MEAT_CUT': return `Edit Meat Cut — ${item.payload?.title || item.payload?.id}`;
+                                                case 'DELETE_MEAT_CUT': return `Delete Meat Cut — ${item.previousSnapshot?.title || item.payload?.cutId}`;
+                                                default: return `${item.action}`;
+                                            }
+                                        })()}
                                     </strong>
                                     <span class="hud-label">Requested by {item.requestedBy} · {formatDate(item.requestedAt)}</span>
 
-                                    {item.action === 'UPDATE_ANIMAL' && item.payload && (
-                                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                                            {item.payload.entryWeight !== undefined && (
-                                                <div>Entry Weight: <strong style={{ color: 'var(--text-pure)' }}>{item.previousSnapshot?.entryWeight}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{item.payload.entryWeight}</strong> kg</div>
-                                            )}
-                                            {item.payload.purchasePrice !== undefined && (
-                                                <div>Purchase Price: <strong style={{ color: 'var(--text-pure)' }}>{item.previousSnapshot?.purchasePrice?.toLocaleString()}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{item.payload.purchasePrice?.toLocaleString()}</strong> PKR</div>
-                                            )}
-                                        </div>
-                                    )}
-                                    {item.action === 'DELETE_ANIMAL' && (
-                                        <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>
-                                            This will permanently remove the animal and its weight/treatment history.
-                                        </div>
-                                    )}
+                                    {(() => {
+                                        const snap = item.previousSnapshot || {};
+                                        const payload = item.payload || {};
+                                        switch (item.action) {
+                                            case 'UPDATE_ANIMAL':
+                                                if (!item.payload) return null;
+                                                return (
+                                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                                        {item.payload.entryWeight !== undefined && (
+                                                            <div>Entry Weight: <strong style={{ color: 'var(--text-pure)' }}>{snap.entryWeight}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{item.payload.entryWeight}</strong> kg</div>
+                                                        )}
+                                                        {item.payload.purchasePrice !== undefined && (
+                                                            <div>Purchase Price: <strong style={{ color: 'var(--text-pure)' }}>{snap.purchasePrice?.toLocaleString()}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{item.payload.purchasePrice?.toLocaleString()}</strong> PKR</div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            case 'RECORD_DEATH':
+                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Deceased Date: {payload.deceasedDate || '—'} · Cause: {payload.deceasedCause || 'N/A'}</div>;
+                                            case 'RECORD_SALE':
+                                                return <div style={{ fontSize: '0.78rem', color: 'var(--accent-gold)' }}>Buyer: {payload.buyerName || 'N/A'} · Sale Price: PKR {payload.salePrice?.toLocaleString()} · Sale Date: {payload.saleDate || '—'}</div>;
+                                            case 'ADD_FEED_PURCHASE':
+                                                return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Item: {payload.itemId} · Qty: {payload.quantity} kg · Rate: PKR {payload.rate}/kg · Supplier: {payload.supplier || 'N/A'}</div>;
+                                            case 'SAVE_SETTINGS':
+                                                return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Setting Key: {payload.key}</div>;
+                                            case 'ADD_MEAT_CUT':
+                                                return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Title: {payload.title} · Price: PKR {payload.price}</div>;
+                                            case 'UPDATE_MEAT_CUT':
+                                                return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Title: {payload.title} · New Price: PKR {payload.price}</div>;
+                                            case 'DELETE_ANIMAL':
+                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>This will permanently remove the animal and its history.</div>;
+                                            case 'DELETE_FEED_PURCHASE':
+                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Date: {snap.date || '—'} · Quantity: {snap.quantity || 0} kg · Supplier: {snap.supplier || 'N/A'} · Rate: PKR {snap.rate || 0}</div>;
+                                            case 'DELETE_FEED_STOCK_ISSUE':
+                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Date: {snap.date || '—'} · Quantity: {snap.quantity || 0} kg · Pen: {snap.pen || 'ALL'}</div>;
+                                            case 'DELETE_WEIGHT_LOG':
+                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Weight log on {snap.date}: {snap.weight} kg (ADG: {snap.adg || 0} kg/day)</div>;
+                                            case 'DELETE_TREATMENT':
+                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Treatment on {snap.date}: {snap.medicine || snap.type} (Dosage: {snap.dosage || '—'})</div>;
+                                            case 'DELETE_FEED_LOG':
+                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Feed log for {snap.date || item.payload?.date} (Pen {snap.pen || item.payload?.pen})</div>;
+                                            case 'DELETE_RATION_PLAN':
+                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Plan name: {snap.name || item.payload?.id}</div>;
+                                            case 'DELETE_PEN':
+                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Pen ID: {snap.id || item.payload?.id}</div>;
+                                            case 'DELETE_ORDER':
+                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Customer: {snap.customer_name || 'N/A'} · Total: PKR {snap.net_total || 0} · Date: {snap.date || '—'}</div>;
+                                            case 'DELETE_ENQUIRY':
+                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Customer: {snap.customer_name || snap.email || 'N/A'}</div>;
+                                            case 'DELETE_QUOTATION':
+                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Client: {snap.client_name || 'N/A'}</div>;
+                                            case 'DELETE_SPEC_SHEET':
+                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Doc Ref: {snap.doc_ref || item.payload?.refId}</div>;
+                                            case 'DELETE_MEAT_CUT':
+                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Cut: {snap.title || item.payload?.cutId}</div>;
+                                            default: return null;
+                                        }
+                                    })()}
 
                                     {rejectingId === item.id ? (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', width: '100%', marginTop: '0.3rem' }}>

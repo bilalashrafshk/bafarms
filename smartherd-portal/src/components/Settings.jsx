@@ -773,7 +773,7 @@ export default function Settings() {
                         <table class="data-table" style={{ fontSize: '0.85rem' }}>
                             <thead>
                                 <tr>
-                                    <th>ANIMAL</th>
+                                    <th>ITEM / ENTITY</th>
                                     <th>REQUEST</th>
                                     <th>REQUESTED BY</th>
                                     <th>REQUESTED AT</th>
@@ -785,13 +785,51 @@ export default function Settings() {
                             <tbody>
                                 {filteredApprovals.map(a => (
                                     <tr key={a.id}>
-                                        <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>{a.animalRfid || `#${a.animalId}`} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({a.animalBreed || '—'})</span></td>
+                                        <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
+                                            {a.animalRfid || (a.animalId ? `#${a.animalId}` : (a.previousSnapshot?.name || a.previousSnapshot?.title || a.previousSnapshot?.doc_ref || a.payload?.id || a.payload?.orderId || a.payload?.enquiryId || a.payload?.quoteId || a.payload?.refId || `ID ${a.id}`))}
+                                            {a.animalBreed && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> ({a.animalBreed})</span>}
+                                        </td>
                                         <td>
-                                            {a.action === 'DELETE_ANIMAL' ? 'Delete' : 'Edit'}
+                                            <strong style={{ display: 'block', fontSize: '0.82rem' }}>
+                                                {(() => {
+                                                    switch (a.action) {
+                                                        case 'DELETE_ANIMAL': return 'Delete Animal';
+                                                        case 'UPDATE_ANIMAL': return 'Edit Animal';
+                                                        case 'DELETE_FEED_PURCHASE': return 'Delete Feed Purchase';
+                                                        case 'DELETE_FEED_STOCK_ISSUE': return 'Delete Feed Stock Issue';
+                                                        case 'DELETE_WEIGHT_LOG': return 'Delete Weight Log';
+                                                        case 'DELETE_TREATMENT': return 'Delete Treatment';
+                                                        case 'DELETE_FEED_LOG': return 'Delete Feed Log';
+                                                        case 'DELETE_RATION_PLAN': return 'Delete Ration Plan';
+                                                        case 'DELETE_PEN': return 'Delete Pen';
+                                                        case 'DELETE_ORDER': return 'Delete Order';
+                                                        case 'DELETE_ENQUIRY': return 'Delete Export Enquiry';
+                                                        case 'DELETE_QUOTATION': return 'Delete Quotation';
+                                                        case 'DELETE_SPEC_SHEET': return 'Delete Spec Sheet';
+                                                        case 'DELETE_MEAT_CUT': return 'Delete Meat Cut';
+                                                        default: return a.action;
+                                                    }
+                                                })()}
+                                            </strong>
                                             {a.action === 'UPDATE_ANIMAL' && a.payload && (
                                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                                     {a.payload.entryWeight !== undefined && <div>Entry Weight → {a.payload.entryWeight} kg</div>}
-                                                    {a.payload.purchasePrice !== undefined && <div>Purchase Price → {a.payload.purchasePrice.toLocaleString()} PKR</div>}
+                                                    {a.payload.purchasePrice !== undefined && <div>Purchase Price → {a.payload.purchasePrice?.toLocaleString()} PKR</div>}
+                                                </div>
+                                            )}
+                                            {a.action === 'DELETE_FEED_PURCHASE' && a.previousSnapshot && (
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                                    {a.previousSnapshot.quantity} kg (Supplier: {a.previousSnapshot.supplier || 'N/A'})
+                                                </div>
+                                            )}
+                                            {a.action === 'DELETE_FEED_STOCK_ISSUE' && a.previousSnapshot && (
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                                    {a.previousSnapshot.quantity} kg to Pen {a.previousSnapshot.pen || 'ALL'}
+                                                </div>
+                                            )}
+                                            {a.action === 'DELETE_ORDER' && a.previousSnapshot && (
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                                    Customer: {a.previousSnapshot.customer_name} (PKR {a.previousSnapshot.net_total})
                                                 </div>
                                             )}
                                         </td>
