@@ -38,9 +38,11 @@ const getEmailList = (envVal, fallback) => {
     return envVal.split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
 };
 
+const { Client } = require('pg');
+
 // Authoritative server-side authorization check — mirrors (and replaces trust in) the
-// client-side logic that used to live in Login.jsx.
-const verifyAndAuthorizeEmail = (email) => {
+// client-side logic that used to live in Login.jsx. Checks domain, env vars, and ba_staff_permissions DB table.
+const verifyAndAuthorizeEmail = async (email) => {
     const cleaned = email.toLowerCase().trim();
 
     if (cleaned.endsWith('@bafoods.pk')) {
@@ -55,6 +57,27 @@ const verifyAndAuthorizeEmail = (email) => {
     const allowedEmails = getEmailList(process.env.ALLOWED_EMAILS || process.env.VITE_ALLOWED_EMAILS, []);
     if (allowedEmails.includes(cleaned)) {
         return { authorized: true, role: 'External Guest/Evaluator' };
+    }
+
+    // DB fallback check: allow login if email is pre-authorized or granted access in ba_staff_permissions table
+    const connectionString = process.env.DATABASE_URL;
+    if (connectionString) {
+        const client = new Client({ connectionString, ssl: { rejectUnauthorized: false } });
+        try {
+            await client.connect();
+            const dbRes = await client.query('SELECT is_admin FROM ba_staff_permissions WHERE LOWER(email) = $1', [cleaned]);
+            await client.end();
+            if (dbRes.rows.length > 0) {
+                const isAdmin = !!dbRes.rows[0].is_admin;
+                return {
+                    authorized: true,
+                    role: isAdmin ? 'Internal Corporate Staff' : 'External Guest/Evaluator'
+                };
+            }
+        } catch (e) {
+            console.error('Error checking ba_staff_permissions in auth API:', e);
+            try { await client.end(); } catch (_) {}
+        }
     }
 
     return { authorized: false };
@@ -104,7 +127,7 @@ module.exports = async (req, res) => {
             // Re-check authorization rather than trusting the old token's claims — if
             // the staff allowlist changed since the token was issued, that revocation
             // should take effect on the next refresh, not just on a future re-login.
-            const authResult = verifyAndAuthorizeEmail(decoded.email);
+            const authResult = await verifyAndAuthorizeEmail(decoded.email);
             if (!authResult.authorized) {
                 return res.status(403).json({ success: false, error: 'Access has been revoked.' });
             }
@@ -144,7 +167,7 @@ module.exports = async (req, res) => {
             return res.status(401).json({ success: false, error: 'Google account email is not verified.' });
         }
 
-        const authResult = verifyAndAuthorizeEmail(payload.email);
+        const authResult = await verifyAndAuthorizeEmail(payload.email);
         if (!authResult.authorized) {
             return res.status(403).json({ success: false, error: `Access Denied: "${payload.email}" is not registered in the staff directory.` });
         }

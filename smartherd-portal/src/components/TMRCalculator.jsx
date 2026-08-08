@@ -1,4 +1,5 @@
 import React, { useContext, useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 import { todayPKT, daysBetween, parseDateOnly } from '../utils/dateOnly';
@@ -85,6 +86,22 @@ export default function TMRCalculator() {
     // Which pens' ingredient breakdown is expanded in the Diet Preview panel — collapsed
     // by default so the panel shows one summary line per pen instead of dumping every
     // ingredient for every pen on screen at once (too much info, especially on mobile).
+    const [selectedFeedLogDetails, setSelectedFeedLogDetails] = useState(null);
+
+    const parseFeedingSession = (log) => {
+        if (!log) return 'Feed (100%)';
+        if (log.notes) {
+            const match = log.notes.match(/FEEDING (\d+) OF (\d+) \((\d+%)\)/i);
+            if (match) {
+                return `Feed ${match[1]} (${match[3]})`;
+            }
+            const matchAlt = log.notes.match(/FEEDING (\d+)/i);
+            if (matchAlt) {
+                return `Feed ${matchAlt[1]}`;
+            }
+        }
+        return 'Feed (100%)';
+    };
     const [peekExpandedPens, setPeekExpandedPens] = useState(new Set());
     const togglePeekPen = (penId) => setPeekExpandedPens(prev => {
         const next = new Set(prev);
@@ -1932,59 +1949,250 @@ export default function TMRCalculator() {
                 of later recipe edits. Full historical view lives in Feed & Growth Report. */}
             {recentFeedLogs.length > 0 && (
                 <div class="glass-panel">
-                    <h3 class="panel-title"><i class="fa-solid fa-clock-rotate-left"></i> Recent Feed History</h3>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+                        <h3 class="panel-title" style={{ margin: 0 }}>
+                            <i class="fa-solid fa-clock-rotate-left"></i> Recent Feed History
+                        </h3>
+                        <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                            <i class="fa-solid fa-circle-info" style={{ marginRight: '4px' }}></i> Click any row to view full ingredient breakdown & per head details
+                        </span>
+                    </div>
                     <div class="table-wrapper">
                         <table class="data-table" style={{ fontSize: '0.85rem' }}>
                             <thead>
                                 <tr>
                                     <th>DATE</th>
                                     <th>PEN</th>
+                                    <th>SESSION / SPLIT</th>
                                     <th>ANIMALS</th>
                                     <th>TOTAL BATCH</th>
                                     <th>NOTES</th>
+                                    <th style={{ width: '80px', textAlign: 'center' }}>DETAILS</th>
                                     {isAdmin && <th style={{ width: '60px', textAlign: 'center' }}>REMOVE</th>}
                                 </tr>
                             </thead>
                             <tbody>
-                                {recentFeedLogs.map(log => (
-                                    <tr key={`${log.date}__${log.pen}`}>
-                                        <td>{formatDate(log.date)}</td>
-                                        <td>{log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`}</td>
-                                        <td>{log.animalCount}</td>
-                                        <td><strong style={{ color: 'var(--accent-gold)' }}>{(log.totalBatchKg || 0).toFixed(2)} kg</strong></td>
-                                        <td>
-                                            {log.dietDiffered ? (
-                                                <span style={{ fontSize: '0.72rem', color: 'var(--accent-gold)' }} title={log.notes}>
-                                                    <i class="fa-solid fa-triangle-exclamation"></i> Differed from plan
+                                {recentFeedLogs.map((log, idx) => {
+                                    const sessionLabel = parseFeedingSession(log);
+                                    return (
+                                        <tr
+                                            key={`${log.date}__${log.pen}__${idx}`}
+                                            style={{ cursor: 'pointer', transition: 'background 0.15s ease' }}
+                                            onClick={() => setSelectedFeedLogDetails(log)}
+                                            title="Click to view full ingredient breakdown"
+                                        >
+                                            <td>{formatDate(log.date)}</td>
+                                            <td><strong style={{ color: 'var(--text-pure)' }}>{log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`}</strong></td>
+                                            <td>
+                                                <span style={{
+                                                    fontSize: '0.74rem',
+                                                    fontWeight: '600',
+                                                    padding: '0.15rem 0.55rem',
+                                                    borderRadius: '4px',
+                                                    background: 'rgba(255, 193, 7, 0.12)',
+                                                    color: 'var(--accent-gold)',
+                                                    border: '1px solid rgba(255, 193, 7, 0.25)',
+                                                    display: 'inline-block'
+                                                }}>
+                                                    <i class="fa-solid fa-cookie-bite" style={{ marginRight: '4px', fontSize: '0.7rem' }}></i>
+                                                    {sessionLabel}
                                                 </span>
-                                            ) : (
-                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>As planned</span>
-                                            )}
-                                        </td>
-                                        {isAdmin && (
+                                            </td>
+                                            <td>{log.animalCount}</td>
+                                            <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '0.95rem' }}>{(log.totalBatchKg || 0).toFixed(2)} kg</strong></td>
+                                            <td>
+                                                {log.dietDiffered ? (
+                                                    <span style={{ fontSize: '0.72rem', color: 'var(--accent-gold)' }} title={log.notes}>
+                                                        <i class="fa-solid fa-triangle-exclamation"></i> Differed from plan
+                                                    </span>
+                                                ) : (
+                                                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>As planned</span>
+                                                )}
+                                            </td>
                                             <td style={{ textAlign: 'center' }}>
                                                 <button
                                                     type="button"
-                                                    class="btn btn-secondary"
-                                                    style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
-                                                    onClick={() => {
-                                                        const penLabel = log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`;
-                                                        if (window.confirm(`Undo this feed log?\n\n${formatDate(log.date)} · ${penLabel} · ${(log.totalBatchKg || 0).toFixed(2)} kg\n\nThis also reverses the matching entry in the Feed Stock ledger and the Feed & Growth Report. This cannot be undone.`)) {
-                                                            deleteFeedLog(log.date, log.pen);
-                                                        }
+                                                    class="btn btn-secondary btn-sm"
+                                                    style={{ padding: '0.15rem 0.55rem', minHeight: '26px', fontSize: '0.75rem', color: 'var(--accent-gold)', borderColor: 'rgba(255,193,7,0.3)' }}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedFeedLogDetails(log);
                                                     }}
-                                                    title="Undo this feed log"
+                                                    title="Click to view complete feed breakdown"
                                                 >
-                                                    <i class="fa-solid fa-trash-can"></i>
+                                                    <i class="fa-solid fa-eye"></i> View
                                                 </button>
                                             </td>
-                                        )}
-                                    </tr>
-                                ))}
+                                            {isAdmin && (
+                                                <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                                                    <button
+                                                        type="button"
+                                                        class="btn btn-secondary"
+                                                        style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
+                                                        onClick={() => {
+                                                            const penLabel = log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`;
+                                                            if (window.confirm(`Undo this feed log?\n\n${formatDate(log.date)} · ${penLabel} · ${(log.totalBatchKg || 0).toFixed(2)} kg\n\nThis also reverses the matching entry in the Feed Stock ledger and the Feed & Growth Report. This cannot be undone.`)) {
+                                                                deleteFeedLog(log.date, log.pen);
+                                                            }
+                                                        }}
+                                                        title="Undo this feed log"
+                                                    >
+                                                        <i class="fa-solid fa-trash-can"></i>
+                                                    </button>
+                                                </td>
+                                            )}
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
                 </div>
+            )}
+
+            {/* Complete Feed Breakdown Modal */}
+            {selectedFeedLogDetails && createPortal(
+                <div
+                    className="portal-modal-overlay"
+                    onClick={() => setSelectedFeedLogDetails(null)}
+                    style={{
+                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                        background: 'rgba(0, 0, 0, 0.78)', backdropFilter: 'blur(5px)',
+                        zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
+                    }}
+                >
+                    <div
+                        className="glass-panel animate-scale-up"
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                            width: '100%', maxWidth: '820px', maxHeight: '92vh', overflowY: 'auto',
+                            border: '1px solid rgba(255, 255, 255, 0.15)', boxShadow: '0 25px 60px rgba(0,0,0,0.6)',
+                            background: 'var(--panel-bg, #121824)', borderRadius: '14px', padding: '1.8rem'
+                        }}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.2rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '1rem' }}>
+                            <div>
+                                <h3 className="panel-title" style={{ fontSize: '1.35rem', marginBottom: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                    <i className="fa-solid fa-wheat-awn" style={{ color: 'var(--accent-gold)' }}></i>
+                                    Feed Log Breakdown — {selectedFeedLogDetails.pen === 'ALL' ? 'All Pens' : `Pen ${selectedFeedLogDetails.pen}`}
+                                </h3>
+                                <p style={{ color: 'var(--text-muted)', fontSize: '0.83rem', margin: 0 }}>
+                                    Logged on <strong>{formatDate(selectedFeedLogDetails.date)}</strong>
+                                    {selectedFeedLogDetails.createdBy && (
+                                        <span> by <strong style={{ color: 'var(--accent-gold)' }}>{selectedFeedLogDetails.createdBy}</strong></span>
+                                    )}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => setSelectedFeedLogDetails(null)}
+                                style={{ fontSize: '1.1rem', padding: '0.15rem 0.6rem', lineHeight: 1 }}
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Summary Metrics Grid */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.8rem', marginBottom: '1.5rem' }}>
+                            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Feeding Session</span>
+                                <strong style={{ fontSize: '0.98rem', color: 'var(--accent-gold)' }}>{parseFeedingSession(selectedFeedLogDetails)}</strong>
+                            </div>
+                            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Head Count</span>
+                                <strong style={{ fontSize: '0.98rem', color: 'var(--text-pure)' }}>{selectedFeedLogDetails.animalCount} animals</strong>
+                            </div>
+                            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Batch Weight</span>
+                                <strong style={{ fontSize: '0.98rem', color: 'var(--primary-green-light)' }}>{(selectedFeedLogDetails.totalBatchKg || 0).toFixed(2)} kg</strong>
+                            </div>
+                            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Avg Feed / Head</span>
+                                <strong style={{ fontSize: '0.98rem', color: 'var(--text-pure)' }}>{((selectedFeedLogDetails.totalBatchKg || 0) / (selectedFeedLogDetails.animalCount || 1)).toFixed(2)} kg/head</strong>
+                            </div>
+                            {isSuperAdmin && (
+                                <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Cost</span>
+                                    <strong style={{ fontSize: '0.98rem', color: 'var(--accent-gold)' }}>{Math.round(selectedFeedLogDetails.totalCost || 0).toLocaleString()} PKR</strong>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Complete Ingredient Breakdown Table */}
+                        <h4 style={{ fontSize: '0.95rem', color: 'var(--text-pure)', marginBottom: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <i className="fa-solid fa-list-check" style={{ color: 'var(--accent-gold)' }}></i> Complete Ingredient Breakdown
+                        </h4>
+                        <div className="table-wrapper" style={{ marginBottom: '1.4rem' }}>
+                            <table className="data-table" style={{ fontSize: '0.85rem' }}>
+                                <thead>
+                                    <tr>
+                                        <th>INGREDIENT</th>
+                                        <th style={{ textAlign: 'right' }}>BATCH TOTAL (KG)</th>
+                                        <th style={{ textAlign: 'right' }}>FED / HEAD (KG)</th>
+                                        <th style={{ textAlign: 'right' }}>PLANNED / HEAD</th>
+                                        {isSuperAdmin && <th style={{ textAlign: 'right' }}>PRICE / KG</th>}
+                                        {isSuperAdmin && <th style={{ textAlign: 'right' }}>TOTAL COST</th>}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(selectedFeedLogDetails.ingredients || []).map((ing, idx) => {
+                                        const fedHead = ing.wetSingle || (ing.wetBatch / (selectedFeedLogDetails.animalCount || 1)) || 0;
+                                        const isDiff = ing.plannedQtyKg != null && Math.abs(fedHead - ing.plannedQtyKg) > 0.001;
+                                        return (
+                                            <tr key={ing.id || idx}>
+                                                <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>
+                                                    {ing.name}
+                                                    {isDiff && (
+                                                        <span style={{ marginLeft: '0.45rem', fontSize: '0.7rem', color: 'var(--accent-gold)' }}>
+                                                            <i className="fa-solid fa-pen-clip"></i> modified
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td style={{ textAlign: 'right', fontWeight: '700', color: 'var(--primary-green-light)' }}>
+                                                    {(ing.wetBatch || 0).toFixed(2)} kg
+                                                </td>
+                                                <td style={{ textAlign: 'right', fontWeight: '600' }}>
+                                                    {fedHead.toFixed(2)} kg
+                                                </td>
+                                                <td style={{ textAlign: 'right', color: isDiff ? 'var(--accent-gold)' : 'var(--text-muted)' }}>
+                                                    {ing.plannedQtyKg != null ? `${ing.plannedQtyKg.toFixed(2)} kg` : '—'}
+                                                </td>
+                                                {isSuperAdmin && (
+                                                    <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>
+                                                        {ing.price ? `${ing.price.toFixed(2)} PKR` : '—'}
+                                                    </td>
+                                                )}
+                                                {isSuperAdmin && (
+                                                    <td style={{ textAlign: 'right', fontWeight: '600', color: 'var(--accent-gold)' }}>
+                                                        {ing.costSingle ? `${Math.round(ing.costSingle * selectedFeedLogDetails.animalCount).toLocaleString()} PKR` : '—'}
+                                                    </td>
+                                                )}
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Plan Notes & Audit Provenance */}
+                        {selectedFeedLogDetails.notes && (
+                            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', padding: '1rem 1.2rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
+                                <strong style={{ fontSize: '0.76rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', marginBottom: '0.4rem', letterSpacing: '0.5px' }}>
+                                    <i className="fa-solid fa-note-sticky" style={{ color: 'var(--accent-gold)', marginRight: '4px' }}></i> Log Rationale & Diet Plan Notes:
+                                </strong>
+                                <span style={{ fontSize: '0.85rem', color: 'var(--text-main)', lineHeight: 1.55 }}>
+                                    {selectedFeedLogDetails.notes}
+                                </span>
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.8rem' }}>
+                            <button type="button" className="btn btn-secondary" onClick={() => setSelectedFeedLogDetails(null)}>Close</button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
             )}
 
         </div>

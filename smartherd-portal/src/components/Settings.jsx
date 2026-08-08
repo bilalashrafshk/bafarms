@@ -7,7 +7,7 @@ export default function Settings() {
         medCategories, updateMedCategories,
         systemParams, updateSystemParams,
         quarantineProtocols, updateQuarantineProtocols,
-        staffUser, staffPermissions, updateStaffPermission,
+        staffUser, staffPermissions, updateStaffPermission, deleteStaffPermission,
         allApprovals
     } = useContext(FarmContext);
 
@@ -214,6 +214,17 @@ export default function Settings() {
             return;
         }
         setNewStaffEmail('');
+    };
+
+    const handleRemoveStaff = async (email) => {
+        if (!isPermsAdmin) return;
+        if (window.confirm(`Revoke access for ${email}? They will no longer be able to log in.`)) {
+            setPermSavingEmail(email);
+            setPermError('');
+            const result = await deleteStaffPermission(email);
+            if (!result.success) setPermError(result.error);
+            setPermSavingEmail(null);
+        }
     };
 
     return (
@@ -662,6 +673,7 @@ export default function Settings() {
                                         <th style={{ textAlign: 'center' }}>SALES ACCESS</th>
                                         <th style={{ textAlign: 'center' }}>HERD ACCESS</th>
                                         <th style={{ textAlign: 'center' }}>SUPER ADMIN</th>
+                                        <th style={{ textAlign: 'center' }}>REVOKE ACCESS</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -697,11 +709,27 @@ export default function Settings() {
                                                     onChange={() => handleTogglePermission(p.email, 'isAdmin', p.isAdmin)}
                                                 />
                                             </td>
+                                            <td style={{ textAlign: 'center' }}>
+                                                {p.email !== staffUser?.email ? (
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-secondary btn-sm"
+                                                        style={{ padding: '0.15rem 0.5rem', fontSize: '0.72rem', color: 'hsl(0,75%,70%)', borderColor: 'rgba(220,53,69,0.3)' }}
+                                                        disabled={permSavingEmail === p.email}
+                                                        onClick={() => handleRemoveStaff(p.email)}
+                                                        title="Revoke staff access"
+                                                    >
+                                                        <i className="fa-solid fa-user-minus"></i> Remove
+                                                    </button>
+                                                ) : (
+                                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>—</span>
+                                                )}
+                                            </td>
                                         </tr>
                                     ))}
                                     {staffPermissions.length === 0 && (
                                         <tr>
-                                            <td colSpan={4} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                            <td colSpan={5} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No staff members have logged in yet, or none have been pre-authorized.
                                             </td>
                                         </tr>

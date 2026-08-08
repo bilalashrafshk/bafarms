@@ -318,6 +318,9 @@ async function ensureColumns(client) {
     // since). Nullable/additive — existing rows are unaffected.
     await client.query(`ALTER TABLE ba_events ADD COLUMN IF NOT EXISTS from_pen VARCHAR(50)`);
     await client.query(`ALTER TABLE ba_events ADD COLUMN IF NOT EXISTS to_pen VARCHAR(50)`);
+    await client.query(`ALTER TABLE ba_events ADD COLUMN IF NOT EXISTS created_by VARCHAR(150)`);
+    await client.query(`ALTER TABLE ba_weights ADD COLUMN IF NOT EXISTS created_by VARCHAR(150)`);
+    await client.query(`ALTER TABLE ba_treatments ADD COLUMN IF NOT EXISTS created_by VARCHAR(150)`);
 
     // Approval queue for sensitive herd changes made by non-super-admin staff: edits to
     // an animal's purchase price / entry (gross) weight, and any animal deletion, are
@@ -911,7 +914,7 @@ const SALES_ACTIONS = new Set([
     'SAVE_QUOTATION', 'UPDATE_QUOTATION_STATUS', 'DELETE_QUOTATION',
     'SAVE_SPEC_SHEET', 'DELETE_SPEC_SHEET', 'ADD_MEAT_CUT', 'UPDATE_MEAT_CUT', 'DELETE_MEAT_CUT'
 ]);
-const ADMIN_ONLY_ACTIONS = new Set(['RESET_DATABASE', 'UPDATE_STAFF_PERMISSIONS', 'APPROVE_PENDING_CHANGE', 'REJECT_PENDING_CHANGE']);
+const ADMIN_ONLY_ACTIONS = new Set(['RESET_DATABASE', 'UPDATE_STAFF_PERMISSIONS', 'DELETE_STAFF_PERMISSIONS', 'APPROVE_PENDING_CHANGE', 'REJECT_PENDING_CHANGE']);
 
 // Insert 6 default meat cuts if ba_meat_cuts is empty
 // Schema-migration idempotency checks (ensureTables/ensureColumns/ensureDefaultCuts)
@@ -1232,7 +1235,8 @@ module.exports = async (req, res) => {
                 animalId: row.animal_id,
                 date: formatDate(row.date),
                 weight: parseFloat(row.weight),
-                adg: parseFloat(row.adg || 0)
+                adg: parseFloat(row.adg || 0),
+                createdBy: row.created_by || null
             }));
 
             const treatments = treatmentsRes.rows.map(row => ({
@@ -1243,7 +1247,8 @@ module.exports = async (req, res) => {
                 medicine: row.medicine,
                 dosage: row.dosage,
                 withholding: parseInt(row.withholding || 0),
-                protocolTaskId: row.protocol_task_id || null
+                protocolTaskId: row.protocol_task_id || null,
+                createdBy: row.created_by || null
             }));
 
             const events = eventsRes.rows.map(row => ({
@@ -1253,7 +1258,8 @@ module.exports = async (req, res) => {
                 eventType: row.event_type,
                 note: row.note,
                 fromPen: row.from_pen,
-                toPen: row.to_pen
+                toPen: row.to_pen,
+                createdBy: row.created_by || null
             }));
 
             const feedLogs = feedLogsRes.rows.map(row => ({
@@ -1486,6 +1492,7 @@ module.exports = async (req, res) => {
         // ─── POST ENDPOINT: LOG TRANSACTION DATA ───
         if (req.method === 'POST') {
             const { action, payload } = req.body;
+            const userEmail = session && session.email ? session.email.toLowerCase().trim() : null;
 
             if (!action) {
                 return res.status(400).json({ success: false, error: "Action is required" });
@@ -1523,6 +1530,15 @@ module.exports = async (req, res) => {
                 return res.status(200).json({ success: true });
             }
 
+            if (action === 'DELETE_STAFF_PERMISSIONS') {
+                const { email } = payload;
+                if (!email) {
+                    return res.status(400).json({ success: false, error: "Email is required" });
+                }
+                await client.query('DELETE FROM ba_staff_permissions WHERE LOWER(email) = $1', [email.toLowerCase().trim()]);
+                return res.status(200).json({ success: true });
+            }
+
             if (action === 'ADD_ANIMAL') {
                 const { rfid, breed, entryDate, entryWeight, targetWeight, purchasePrice, source, status, pen, price, desc, images } = payload;
 
@@ -1539,17 +1555,17 @@ module.exports = async (req, res) => {
 
                 // Create initial entry scale
                 await client.query(`
-                    INSERT INTO ba_weights (animal_id, date, weight, adg)
-                    VALUES ($1, $2, $3, 0)
-                `, [animal.id, entryDate, entryWeight]);
+                    INSERT INTO ba_weights (animal_id, date, weight, adg, created_by)
+                    VALUES ($1, $2, $3, 0, $4)
+                `, [animal.id, entryDate, entryWeight, userEmail]);
 
                 // Log registration event — to_pen records which pen this animal actually
                 // entered on entryDate, so the pen-membership ledger below can tell it
                 // apart from animals added to the pen later.
                 await client.query(`
-                    INSERT INTO ba_events (animal_id, date, event_type, note, to_pen)
-                    VALUES ($1, $2, 'registered', $3, $4)
-                `, [animal.id, entryDate, `Registered — ${breed}, ${entryWeight}kg, ${status}`, pen || null]);
+                    INSERT INTO ba_events (animal_id, date, event_type, note, to_pen, created_by)
+                    VALUES ($1, $2, 'registered', $3, $4, $5)
+                `, [animal.id, entryDate, `Registered — ${breed}, ${entryWeight}kg, ${status}`, pen || null, userEmail]);
 
                 // Registering straight into a pen changes that pen's roster/avg weight
                 // just as much as a weigh-in does — keep the ration engine's cache in sync.
@@ -1562,9 +1578,9 @@ module.exports = async (req, res) => {
                 const { animalId, date, weight, adg } = payload;
 
                 await client.query(`
-                    INSERT INTO ba_weights (animal_id, date, weight, adg)
-                    VALUES ($1, $2, $3, $4)
-                `, [animalId, date, weight, adg]);
+                    INSERT INTO ba_weights (animal_id, date, weight, adg, created_by)
+                    VALUES ($1, $2, $3, $4, $5)
+                `, [animalId, date, weight, adg, userEmail]);
 
                 await client.query(`
                     UPDATE ba_animals
@@ -1585,9 +1601,9 @@ module.exports = async (req, res) => {
                 const { animalId, date, type, medicine, dosage, withholding, protocolTaskId } = payload;
 
                 await client.query(`
-                    INSERT INTO ba_treatments (animal_id, date, type, medicine, dosage, withholding, protocol_task_id)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
-                `, [animalId, date, type, medicine, dosage, withholding, protocolTaskId || null]);
+                    INSERT INTO ba_treatments (animal_id, date, type, medicine, dosage, withholding, protocol_task_id, created_by)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                `, [animalId, date, type, medicine, dosage, withholding, protocolTaskId || null, userEmail]);
 
                 return res.status(200).json({ success: true });
             }
@@ -1602,9 +1618,9 @@ module.exports = async (req, res) => {
                 `, [status, animalId]);
 
                 await client.query(`
-                    INSERT INTO ba_events (animal_id, date, event_type, note)
-                    VALUES ($1, $2, $3, $4)
-                `, [animalId, date || new Date().toISOString().split('T')[0], 'status_change', note || status]);
+                    INSERT INTO ba_events (animal_id, date, event_type, note, created_by)
+                    VALUES ($1, $2, $3, $4, $5)
+                `, [animalId, date || new Date().toISOString().split('T')[0], 'status_change', note || status, userEmail]);
 
                 return res.status(200).json({ success: true });
             }
@@ -1612,9 +1628,9 @@ module.exports = async (req, res) => {
             if (action === 'LOG_EVENT') {
                 const { animalId, date, eventType, note } = payload;
                 await client.query(`
-                    INSERT INTO ba_events (animal_id, date, event_type, note)
-                    VALUES ($1, $2, $3, $4)
-                `, [animalId, date, eventType, note]);
+                    INSERT INTO ba_events (animal_id, date, event_type, note, created_by)
+                    VALUES ($1, $2, $3, $4, $5)
+                `, [animalId, date, eventType, note, userEmail]);
                 return res.status(200).json({ success: true });
             }
 
@@ -1720,9 +1736,9 @@ module.exports = async (req, res) => {
                         await refreshPenCache(client, oldPen);
                         await refreshPenCache(client, newPen);
                         await client.query(`
-                            INSERT INTO ba_events (animal_id, date, event_type, note, from_pen, to_pen)
-                            VALUES ($1, $2, 'pen_transfer', $3, $4, $5)
-                        `, [id, new Date().toISOString().split('T')[0], `Moved ${oldPen || 'Unassigned'} → ${newPen || 'Unassigned'}`, oldPen, newPen]);
+                            INSERT INTO ba_events (animal_id, date, event_type, note, from_pen, to_pen, created_by)
+                            VALUES ($1, $2, 'pen_transfer', $3, $4, $5, $6)
+                        `, [id, new Date().toISOString().split('T')[0], `Moved Pen ${oldPen || 'Unassigned'} → Pen ${newPen || 'Unassigned'}`, oldPen, newPen, userEmail]);
                     }
 
                     return res.status(200).json({ success: true, pending: true, pendingFields: Object.keys(changes) });
@@ -1742,9 +1758,9 @@ module.exports = async (req, res) => {
                     await refreshPenCache(client, oldPen);
                     await refreshPenCache(client, newPen);
                     await client.query(`
-                        INSERT INTO ba_events (animal_id, date, event_type, note, from_pen, to_pen)
-                        VALUES ($1, $2, 'pen_transfer', $3, $4, $5)
-                    `, [id, new Date().toISOString().split('T')[0], `Moved ${oldPen || 'Unassigned'} → ${newPen || 'Unassigned'}`, oldPen, newPen]);
+                        INSERT INTO ba_events (animal_id, date, event_type, note, from_pen, to_pen, created_by)
+                        VALUES ($1, $2, 'pen_transfer', $3, $4, $5, $6)
+                    `, [id, new Date().toISOString().split('T')[0], `Moved Pen ${oldPen || 'Unassigned'} → Pen ${newPen || 'Unassigned'}`, oldPen, newPen, userEmail]);
                 }
 
                 return res.status(200).json({ success: true });
@@ -1779,9 +1795,9 @@ module.exports = async (req, res) => {
                         changes && changes.purchasePrice !== undefined ? `Purchase Price → ${changes.purchasePrice.toLocaleString()} PKR` : null
                     ].filter(Boolean).join(', ');
                     await client.query(`
-                        INSERT INTO ba_events (animal_id, date, event_type, note)
-                        VALUES ($1, $2, 'approval_decision', $3)
-                    `, [approval.animal_id, today, `Approved edit — ${fieldSummary} (requested by ${approval.requested_by})`]);
+                        INSERT INTO ba_events (animal_id, date, event_type, note, created_by)
+                        VALUES ($1, $2, 'approval_decision', $3, $4)
+                    `, [approval.animal_id, today, `Approved edit — ${fieldSummary} (requested by ${approval.requested_by})`, userEmail]);
                 } else if (approval.action === 'DELETE_ANIMAL') {
                     await client.query('DELETE FROM ba_animals WHERE id = $1', [approval.animal_id]);
                     // No ba_events row here — the animal (and its event history) is gone the
@@ -1812,9 +1828,9 @@ module.exports = async (req, res) => {
                 const today = new Date().toISOString().split('T')[0];
                 const label = resolved.action === 'DELETE_ANIMAL' ? 'deletion' : 'edit';
                 await client.query(`
-                    INSERT INTO ba_events (animal_id, date, event_type, note)
-                    VALUES ($1, $2, 'approval_decision', $3)
-                `, [resolved.animal_id, today, `Rejected ${label} request from ${resolved.requested_by}${note ? ` — ${note}` : ''}`]);
+                    INSERT INTO ba_events (animal_id, date, event_type, note, created_by)
+                    VALUES ($1, $2, 'approval_decision', $3, $4)
+                `, [resolved.animal_id, today, `Rejected ${label} request from ${resolved.requested_by}${note ? ` — ${note}` : ''}`, userEmail]);
 
                 return res.status(200).json({ success: true });
             }
@@ -1827,9 +1843,9 @@ module.exports = async (req, res) => {
                     WHERE id = $3
                 `, [deceasedDate, deceasedCause, animalId]);
                 await client.query(`
-                    INSERT INTO ba_events (animal_id, date, event_type, note)
-                    VALUES ($1, $2, 'deceased', $3)
-                `, [animalId, deceasedDate, `Deceased — ${deceasedCause}`]);
+                    INSERT INTO ba_events (animal_id, date, event_type, note, created_by)
+                    VALUES ($1, $2, 'deceased', $3, $4)
+                `, [animalId, deceasedDate, `Deceased — ${deceasedCause}`, userEmail]);
                 return res.status(200).json({ success: true });
             }
 
@@ -1870,9 +1886,11 @@ module.exports = async (req, res) => {
                     WHERE id = $4
                 `, [salePrice, buyerName, saleDate, animalId]);
                 await client.query(`
-                    INSERT INTO ba_events (animal_id, date, event_type, note)
-                    VALUES ($1, $2, 'sold', $3)
-                `, [animalId, saleDate, `Sold to ${buyerName} — PKR ${salePrice?.toLocaleString()}`]);
+                    INSERT INTO ba_events (animal_id, date, event_type, note, created_by)
+                    VALUES ($1, $2, 'sold', $3, $4)
+                `, [animalId, saleDate, `Sold to ${buyerName} — PKR ${salePrice?.toLocaleString()}`, userEmail]);
+                return res.status(200).json({ success: true });
+            }
                 return res.status(200).json({ success: true });
             }
 

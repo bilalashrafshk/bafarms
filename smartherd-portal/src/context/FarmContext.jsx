@@ -2771,6 +2771,28 @@ export const FarmProvider = ({ children }) => {
         }
     };
 
+    const deleteStaffPermission = async (email) => {
+        setStaffPermissions(prev => prev.filter(p => p.email !== email));
+        try {
+            const res = await fetch('/api/farm', {
+                method: 'POST',
+                headers: authHeaders(),
+                body: JSON.stringify({
+                    action: 'DELETE_STAFF_PERMISSIONS',
+                    payload: { email }
+                })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || data.success === false) {
+                return { success: false, error: data.error || 'Failed to remove staff member.' };
+            }
+            return { success: true };
+        } catch (err) {
+            console.error('DELETE_STAFF_PERMISSIONS failed:', err);
+            return { success: false, error: 'Network error — staff removal was not saved.' };
+        }
+    };
+
     return (
         <FarmContext.Provider value={{
             animals,
@@ -2880,6 +2902,7 @@ export const FarmProvider = ({ children }) => {
             dismissFailedMutation,
             staffPermissions,
             updateStaffPermission,
+            deleteStaffPermission,
             pendingApprovals,
             myRequests,
             allApprovals,
