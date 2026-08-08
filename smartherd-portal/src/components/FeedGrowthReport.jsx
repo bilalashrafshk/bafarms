@@ -51,8 +51,12 @@ export default function FeedGrowthReport() {
         return new Set(animals.filter(a => a.pen === penFilter).map(a => a.id));
     }, [animals, penFilter]);
 
+    // adg !== 0, not > 0 — a weight-loss weigh-in has a real negative ADG and must
+    // drag the average down, not be silently excluded (adg is exactly 0 only as a
+    // sentinel for "no prior weigh-in to compare against", see logWeight in
+    // FarmContext).
     const relevantWeightLogs = useMemo(
-        () => weightLogs.filter(w => w.adg > 0 && inRange(w.date) && relevantAnimalIds.has(w.animalId)),
+        () => weightLogs.filter(w => w.adg !== 0 && inRange(w.date) && relevantAnimalIds.has(w.animalId)),
         [weightLogs, relevantAnimalIds, dateFrom, dateTo]
     );
 
@@ -78,7 +82,7 @@ export default function FeedGrowthReport() {
             const penLogs = feedLogs.filter(f => inRange(f.date) && f.pen === pen);
             const penCost = penLogs.reduce((sum, f) => sum + (f.totalCost || 0), 0);
             const penDays = new Set(penLogs.map(f => f.date)).size;
-            const penWeightLogs = weightLogs.filter(w => w.adg > 0 && inRange(w.date) && penAnimalIds.has(w.animalId));
+            const penWeightLogs = weightLogs.filter(w => w.adg !== 0 && inRange(w.date) && penAnimalIds.has(w.animalId));
             const penAdg = penWeightLogs.length > 0
                 ? penWeightLogs.reduce((sum, w) => sum + w.adg, 0) / penWeightLogs.length
                 : null;

@@ -512,8 +512,8 @@ export default function WeightTracker() {
                                         <td>{formatDate(log.date)}</td>
                                         <td><strong>{log.weight} kg</strong></td>
                                         <td>
-                                            {log.adg > 0 ? (
-                                                <span class={log.adg >= (systemParams.adgAlertThreshold ?? 1.0) ? 'adg-text good' : 'adg-text alert'}>+{log.adg} kg/day</span>
+                                            {log.adg !== 0 ? (
+                                                <span class={log.adg >= (systemParams.adgAlertThreshold ?? 1.0) ? 'adg-text good' : 'adg-text alert'}>{log.adg > 0 ? '+' : ''}{log.adg} kg/day</span>
                                             ) : (
                                                 <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Baseline</span>
                                             )}
@@ -559,9 +559,9 @@ export default function WeightTracker() {
                                     <td>{formatDate(log.date)}</td>
                                     <td><strong>{log.weight} kg</strong></td>
                                     <td style={{ fontFamily: 'var(--font-heading)' }}>
-                                        {log.adg > 0 ? (
+                                        {log.adg !== 0 ? (
                                             <span className={log.adg >= (systemParams.adgAlertThreshold ?? 1.0) ? 'adg-text good' : 'adg-text alert'}>
-                                                +{log.adg} kg/day
+                                                {log.adg > 0 ? '+' : ''}{log.adg} kg/day
                                             </span>
                                         ) : (
                                             <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Baseline Record</span>

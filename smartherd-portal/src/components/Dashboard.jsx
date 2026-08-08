@@ -26,7 +26,12 @@ export default function Dashboard({ onNavigate }) {
 
     // B. Herd Average ADG — from actual weight logs only. Null (shown as "—") until
     // weight has actually been logged; no fallback/target default.
-    const logsWithAdg = weightLogs.filter(w => w.adg > 0);
+    // `adg !== 0` (not `> 0`) — a weighed-in animal that's LOSING weight has a real
+    // negative ADG and must drag the average down, not get silently excluded (which
+    // was inflating the reported average by only counting gains). adg is exactly 0
+    // as a sentinel for "no prior weigh-in to compare against" (see logWeight in
+    // FarmContext), so that case is still correctly excluded.
+    const logsWithAdg = weightLogs.filter(w => w.adg !== 0);
     const avgHerdAdg = logsWithAdg.length > 0
         ? parseFloat((logsWithAdg.reduce((sum, log) => sum + log.adg, 0) / logsWithAdg.length).toFixed(2))
         : null;
@@ -40,7 +45,10 @@ export default function Dashboard({ onNavigate }) {
     animals.forEach(animal => {
         const animalLogs = weightLogs.filter(w => w.animalId === animal.id)
                                      .sort((a, b) => daysBetween(b.date, a.date));
-        if (animalLogs.length > 0 && animalLogs[0].adg > 0 && animalLogs[0].adg < (systemParams.adgAlertThreshold ?? 1.0)) {
+        // adg !== 0 (see note above) — a calf actively losing weight (negative ADG)
+        // is the clearest case of underperforming and must still trigger this alert,
+        // not be skipped for having "too positive" a check.
+        if (animalLogs.length > 0 && animalLogs[0].adg !== 0 && animalLogs[0].adg < (systemParams.adgAlertThreshold ?? 1.0)) {
             alertCalves.push({
                 rfid: animal.rfid,
                 adg: animalLogs[0].adg,
@@ -247,7 +255,7 @@ export default function Dashboard({ onNavigate }) {
     const adgByDate = (() => {
         if (!weightLogs || weightLogs.length === 0) return [];
         const groups = {};
-        weightLogs.filter(w => w.adg > 0).forEach(w => {
+        weightLogs.filter(w => w.adg !== 0).forEach(w => {
             if (!groups[w.date]) groups[w.date] = { sum: 0, count: 0 };
             groups[w.date].sum += w.adg;
             groups[w.date].count += 1;
