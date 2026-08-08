@@ -12,6 +12,7 @@ const SORT_ACCESSORS = {
     tag: (a) => a.rfid,
     breed: (a) => a.breed,
     entryDate: (a) => a.entryDate || '',
+    entryWeight: (a) => a.entryWeight,
     weight: (a) => a.currentWeight,
     gain: (a) => a.currentWeight - a.entryWeight,
     cost: (a) => a.purchasePrice,
@@ -361,7 +362,8 @@ const handleSubmit = async (e) => {
                             {sortableTh('TAG', 'tag')}
                             {sortableTh('BREED', 'breed')}
                             {sortableTh('ENTRY DATE', 'entryDate')}
-                            {sortableTh('WT (KG)', 'weight')}
+                            {sortableTh('ENTRY WT (KG)', 'entryWeight')}
+                            {sortableTh('LATEST WT (KG)', 'weight')}
                             {sortableTh('GAIN', 'gain')}
                             {sortableTh('COST (PKR)', 'cost')}
                             {sortableTh('COST/KG', 'costPerKg')}
@@ -378,10 +380,16 @@ const handleSubmit = async (e) => {
                                 </td>
                                 <td>{animal.breed}</td>
                                 <td style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{animal.entryDate ? formatDate(animal.entryDate) : '—'}</td>
+                                <td>{animal.entryWeight} kg</td>
                                 <td><strong>{animal.currentWeight} kg</strong></td>
-                                <td style={{ color: 'var(--primary-green-light)', fontWeight: '600' }}>
-                                    +{parseFloat((animal.currentWeight - animal.entryWeight).toFixed(1))} kg
-                                </td>
+                                {(() => {
+                                    const gain = parseFloat((animal.currentWeight - animal.entryWeight).toFixed(1));
+                                    return (
+                                        <td style={{ color: gain >= 0 ? 'var(--primary-green-light)' : 'hsl(0,75%,60%)', fontWeight: '600' }}>
+                                            {gain > 0 ? '+' : ''}{gain} kg
+                                        </td>
+                                    );
+                                })()}
                                 <td>{animal.purchasePrice.toLocaleString()}</td>
                                 <td style={{ color: 'var(--text-muted)' }}>
                                     {animal.entryWeight ? `${Math.round(animal.purchasePrice / animal.entryWeight).toLocaleString()} /kg` : '—'}
