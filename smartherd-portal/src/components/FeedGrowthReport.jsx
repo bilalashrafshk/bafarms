@@ -9,16 +9,23 @@ import { todayPKT, daysBetween, parseDateOnly, todayAsDate } from '../utils/date
 // how much weight did the herd actually gain? Both source ledgers are append-only/dated,
 // so this view is always a historical report — never affected by later recipe edits.
 export default function FeedGrowthReport() {
-    const { animals, weightLogs, feedLogs, pens, getPenRationRow, systemParams } = useContext(FarmContext);
+    const { animals, weightLogs, feedLogs, getPenRationRow, getPenRosterAsOf, systemParams } = useContext(FarmContext);
     const adgFloor = systemParams?.adgAlertThreshold ?? 1.0;
 
+    // Every pen that could plausibly have history to report on — not just pens with
+    // animals in them right now. A pen config row can be deleted (it's just ration/cycle
+    // settings) and every animal can move out, but its feed logs keep the pen id forever
+    // (see logFeed/getCombinedFeedIssues in FarmContext) — so a fully turned-over or
+    // decommissioned pen must stay selectable here, the same way it still shows up in
+    // Feed Stock & Store Ledger's "Actual Feed Cost by Pen".
     const activePens = useMemo(() => {
-        const pens = new Set();
+        const set = new Set();
         animals.forEach(a => {
-            if (a.pen && a.status !== 'Sold' && a.status !== 'Deceased') pens.add(a.pen);
+            if (a.pen && a.status !== 'Sold' && a.status !== 'Deceased') set.add(a.pen);
         });
-        return Array.from(pens).sort();
-    }, [animals]);
+        feedLogs.forEach(f => { if (f.pen && f.pen !== 'ALL') set.add(f.pen); });
+        return Array.from(set).sort();
+    }, [animals, feedLogs]);
 
     const todayStr = todayPKT();
     const defaultFrom = (() => {
@@ -41,39 +48,36 @@ export default function FeedGrowthReport() {
             .sort((a, b) => daysBetween(b.date, a.date));
     }, [feedLogs, dateFrom, dateTo, penFilter]);
 
-    // Days within the selected range where a pen had active animals on feed but no feed
-    // log was recorded at all — the coverage badge below only covers partial (e.g.
+    // Days within the selected range where a pen had animals actually on feed — per the
+    // HISTORICAL roster on that exact day (getPenRosterAsOf, replaying each animal's
+    // registered/pen_transfer event trail), not today's live pen membership — but no feed
+    // log was recorded at all. The coverage badge below only covers partial (e.g.
     // split-feeding) gaps for days that already have at least one logged row; a fully
-    // missed day would otherwise just be silently absent from the table. Same walk as
-    // Dashboard's missed-feeding detection (start = later of the pen's cycle start date
-    // and its earliest active animal's entry date, through yesterday), clipped to the
-    // report's date range and pen filter, and merged in as synthetic 0% rows.
+    // missed day would otherwise just be silently absent from the table.
+    // Walking the historical roster day-by-day (instead of deriving one start date from
+    // whichever animals currently sit in the pen) is what makes this correct across
+    // mid-range pen shifts: a pen that was fully re-sorted into another pen part-way
+    // through the range still gets its real missed days flagged for the days it actually
+    // had cattle, and a pen whose config row was later deleted is still walked (via
+    // activePens, which stays populated from feed-log history alone — see above).
     const missedDayRows = useMemo(() => {
         const rows = [];
         const today = todayAsDate();
         const rangeStart = parseDateOnly(dateFrom);
         const rangeEnd = parseDateOnly(dateTo);
-        (pens || []).forEach(pen => {
-            if (penFilter !== 'ALL' && pen.id !== penFilter) return;
-            const penAnimals = animals.filter(a => a.pen === pen.id && a.status !== 'Sold' && a.status !== 'Deceased');
-            if (penAnimals.length === 0) return;
-            const earliestEntry = penAnimals.reduce((earliest, a) =>
-                (!earliest || parseDateOnly(a.entryDate) < parseDateOnly(earliest)) ? a.entryDate : earliest, null);
-            let startDateStr = pen.cycleStartDate;
-            if (!startDateStr || (earliestEntry && parseDateOnly(earliestEntry) > parseDateOnly(startDateStr))) {
-                startDateStr = earliestEntry;
-            }
-            if (!startDateStr) return;
-            let start = parseDateOnly(startDateStr);
-            if (start < rangeStart) start = rangeStart;
-            for (let d = new Date(start); d <= rangeEnd && d < today; d.setUTCDate(d.getUTCDate() + 1)) {
+        const lastDay = rangeEnd < today ? rangeEnd : new Date(today.getTime() - 86400000);
+        const penIds = penFilter === 'ALL' ? activePens : [penFilter];
+        penIds.forEach(penId => {
+            for (let d = new Date(rangeStart); d <= lastDay; d.setUTCDate(d.getUTCDate() + 1)) {
                 const dateStr = d.toISOString().split('T')[0];
-                const logged = feedLogs.some(f => f.pen === pen.id && f.date === dateStr);
-                if (!logged) rows.push({ date: dateStr, pen: pen.id, animalCount: penAnimals.length });
+                const headCount = getPenRosterAsOf(penId, parseDateOnly(dateStr)).length;
+                if (headCount === 0) continue;
+                const logged = feedLogs.some(f => f.pen === penId && f.date === dateStr);
+                if (!logged) rows.push({ date: dateStr, pen: penId, animalCount: headCount });
             }
         });
         return rows;
-    }, [pens, animals, feedLogs, dateFrom, dateTo, penFilter]);
+    }, [activePens, penFilter, feedLogs, dateFrom, dateTo, getPenRosterAsOf]);
 
     // A pen fed on a "split" schedule (Morning/Evening, or Morning/Afternoon/Evening) logs
     // one ba_feed_logs row per feeding — group those back up by date+pen so the Daily Feed
@@ -125,21 +129,53 @@ export default function FeedGrowthReport() {
 
     const totalFeedCost = filteredFeedLogs.reduce((sum, f) => sum + (f.totalCost || 0), 0);
     const daysLogged = new Set(filteredFeedLogs.map(f => f.date)).size;
-    const avgDailyCost = daysLogged > 0 ? totalFeedCost / daysLogged : 0;
 
-    // Animals in scope for the current pen filter
-    const relevantAnimalIds = useMemo(() => {
-        if (penFilter === 'ALL') return new Set(animals.map(a => a.id));
-        return new Set(animals.filter(a => a.pen === penFilter).map(a => a.id));
-    }, [animals, penFilter]);
+    // Feedlot-standard "head-days": for every day actually logged, how many animals were
+    // actually on feed that day — taken from animalCount captured on the feed log itself
+    // at logging time (see logFeed/TMRCalculator, which sources it from the historical
+    // pen roster on that date), not from who happens to be in the pen today. Cost/animal/day
+    // is then just total cost ÷ total head-days — a single division, and one that stays
+    // correct no matter how many animals were later sold, moved to another pen, or had
+    // their pen's config row deleted. (Collapsed to one entry per date+pen first so a
+    // split-fed day's Morning/Evening rows don't double-count the same headcount.)
+    const headDaysOf = (logs) => {
+        const perDay = new Map();
+        logs.forEach(f => {
+            const key = `${f.date}__${f.pen}`;
+            if (!perDay.has(key)) perDay.set(key, f.animalCount || 0);
+        });
+        return Array.from(perDay.values()).reduce((sum, c) => sum + c, 0);
+    };
+    const headDays = headDaysOf(filteredFeedLogs);
+    const avgHeadPerDay = daysLogged > 0 ? headDays / daysLogged : null;
+    const costPerAnimalPerDay = headDays > 0 ? totalFeedCost / headDays : null;
+
+    // Cache of "which animals actually stood in this pen on this date" (replays each
+    // animal's registered/pen_transfer event trail — see getPenRosterAsOf in FarmContext),
+    // so a weigh-in is attributed to whichever pen the animal was actually in that day, not
+    // wherever it lives now. Without this, moving an animal to another pen — or fully
+    // vacating and deleting a pen — would retroactively rewrite that pen's already-recorded
+    // ADG history.
+    const rosterCache = new Map();
+    const rosterIdsOnDate = (penId, dateStr) => {
+        const key = `${penId}__${dateStr}`;
+        if (!rosterCache.has(key)) {
+            rosterCache.set(key, new Set(getPenRosterAsOf(penId, parseDateOnly(dateStr)).map(a => a.id)));
+        }
+        return rosterCache.get(key);
+    };
 
     // adg !== 0, not > 0 — a weight-loss weigh-in has a real negative ADG and must
     // drag the average down, not be silently excluded (adg is exactly 0 only as a
     // sentinel for "no prior weigh-in to compare against", see logWeight in
     // FarmContext).
     const relevantWeightLogs = useMemo(
-        () => weightLogs.filter(w => w.adg !== 0 && inRange(w.date) && relevantAnimalIds.has(w.animalId)),
-        [weightLogs, relevantAnimalIds, dateFrom, dateTo]
+        () => weightLogs.filter(w => {
+            if (w.adg === 0 || !inRange(w.date)) return false;
+            if (penFilter === 'ALL') return true;
+            return rosterIdsOnDate(penFilter, w.date).has(w.animalId);
+        }),
+        [weightLogs, penFilter, dateFrom, dateTo, rosterCache]
     );
 
     const avgAdg = relevantWeightLogs.length > 0
@@ -152,28 +188,28 @@ export default function FeedGrowthReport() {
     const selectedPenPlanRow = penFilter !== 'ALL' ? getPenRationRow(penFilter) : null;
     const isBelowFloor = avgAdg !== null && avgAdg < adgFloor;
 
-    const animalCount = relevantAnimalIds.size;
-    const costPerAnimalPerDay = animalCount > 0 && daysLogged > 0 ? totalFeedCost / daysLogged / animalCount : null;
     const feedCostPerKgGain = avgAdg && avgAdg > 0 && costPerAnimalPerDay ? costPerAnimalPerDay / avgAdg : null;
 
     // Per-pen breakdown — only meaningful when viewing the whole herd
     const perPenBreakdown = useMemo(() => {
         if (penFilter !== 'ALL') return [];
         return activePens.map(pen => {
-            const penAnimalIds = new Set(animals.filter(a => a.pen === pen).map(a => a.id));
             const penLogs = feedLogs.filter(f => inRange(f.date) && f.pen === pen);
             const penCost = penLogs.reduce((sum, f) => sum + (f.totalCost || 0), 0);
             const penDays = new Set(penLogs.map(f => f.date)).size;
-            const penWeightLogs = weightLogs.filter(w => w.adg !== 0 && inRange(w.date) && penAnimalIds.has(w.animalId));
+            const penHeadDays = headDaysOf(penLogs);
+            const penCostPerAnimalPerDay = penHeadDays > 0 ? penCost / penHeadDays : null;
+            const penWeightLogs = weightLogs.filter(w => w.adg !== 0 && inRange(w.date) && rosterIdsOnDate(pen, w.date).has(w.animalId));
             const penAdg = penWeightLogs.length > 0
                 ? penWeightLogs.reduce((sum, w) => sum + w.adg, 0) / penWeightLogs.length
                 : null;
             const planRow = getPenRationRow(pen);
             return {
                 pen,
-                animalCount: penAnimalIds.size,
+                avgHeadPerDay: penDays > 0 ? penHeadDays / penDays : 0,
                 totalCost: penCost,
                 daysLogged: penDays,
+                costPerAnimalPerDay: penCostPerAnimalPerDay,
                 avgAdg: penAdg,
                 planName: planRow?.plan?.name ?? null,
                 targetAdg: planRow?.week?.targetAdg ?? null,
@@ -181,7 +217,7 @@ export default function FeedGrowthReport() {
             };
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activePens, animals, feedLogs, weightLogs, dateFrom, dateTo, penFilter, getPenRationRow, adgFloor]);
+    }, [activePens, feedLogs, weightLogs, dateFrom, dateTo, penFilter, getPenRationRow, adgFloor, rosterCache]);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
@@ -242,6 +278,9 @@ export default function FeedGrowthReport() {
                     </div>
                     <div class="stat-val">{Math.round(totalFeedCost).toLocaleString()} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR</small></div>
                     <span class="stat-lbl"><i class="fa-solid fa-calendar-check"></i> {daysLogged} day{daysLogged === 1 ? '' : 's'} logged in range</span>
+                    <span class="stat-lbl" style={{ display: 'block', marginTop: '0.2rem' }} title="Priced at each ingredient's ration/stock-average rate on the day it was logged. For the real cost of the specific lot(s) each pen's feed was physically drawn from, see Feed Stock & Store Ledger → Actual Feed Cost by Pen.">
+                        Reference cost as logged — not FIFO actual (see Store Ledger)
+                    </span>
                 </div>
 
                 <div class="glass-panel stat-box">
@@ -271,7 +310,9 @@ export default function FeedGrowthReport() {
                         <div class="stat-icon"><i class="fa-solid fa-cow"></i></div>
                     </div>
                     <div class="stat-val">{costPerAnimalPerDay !== null ? Math.round(costPerAnimalPerDay) : '—'} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR</small></div>
-                    <span class="stat-lbl">{animalCount} animal{animalCount === 1 ? '' : 's'} in scope</span>
+                    <span class="stat-lbl" title="Total cost ÷ head-days (animals actually on feed, summed across each logged day) — not today's live pen headcount, so this stays correct even after animals are sold, re-sorted into another pen, or a pen is closed out.">
+                        {avgHeadPerDay !== null ? avgHeadPerDay.toFixed(1) : '—'} avg head/day · {headDays} head-days
+                    </span>
                 </div>
 
                 <div class="glass-panel stat-box">
@@ -294,9 +335,10 @@ export default function FeedGrowthReport() {
                                 <tr>
                                     <th>PEN</th>
                                     <th>PLAN</th>
-                                    <th>ANIMALS</th>
+                                    <th title="Avg animals actually on feed per logged day (head-days ÷ days logged) — not today's live pen headcount">AVG HEAD/DAY</th>
                                     <th>DAYS LOGGED</th>
                                     <th>TOTAL FEED COST</th>
+                                    <th>COST/ANIMAL/DAY</th>
                                     <th>AVG ADG</th>
                                     <th>TARGET ADG</th>
                                 </tr>
@@ -306,9 +348,10 @@ export default function FeedGrowthReport() {
                                     <tr key={row.pen}>
                                         <td><strong>Pen {row.pen}</strong></td>
                                         <td>{row.planName ?? '—'}</td>
-                                        <td>{row.animalCount}</td>
+                                        <td>{row.avgHeadPerDay.toFixed(1)}</td>
                                         <td>{row.daysLogged}</td>
                                         <td>{Math.round(row.totalCost).toLocaleString()} PKR</td>
+                                        <td>{row.costPerAnimalPerDay !== null ? `${Math.round(row.costPerAnimalPerDay)} PKR` : '—'}</td>
                                         <td style={{ color: row.avgAdg === null ? 'var(--text-muted)' : (row.isBelowFloor ? 'hsl(0, 75%, 55%)' : (row.avgAdg >= 1.2 ? 'var(--primary-green-light)' : 'var(--accent-gold)')) }}>
                                             {row.avgAdg !== null ? `${row.avgAdg.toFixed(2)} kg/day` : '—'}
                                             {row.isBelowFloor && <i class="fa-solid fa-triangle-exclamation" style={{ marginLeft: '0.35rem' }} title="Below ADG floor"></i>}

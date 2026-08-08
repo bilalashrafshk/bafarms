@@ -706,12 +706,16 @@ export default function RationPlans() {
 
     const [newPenId, setNewPenId] = useState('');
 
-    const handleAddPen = (e) => {
+    const handleAddPen = async (e) => {
         e.preventDefault();
         if (!isAdmin) return;
         const id = newPenId.trim();
         if (!id) return;
-        savePen({ id, rationPlanId: null, cycleStartDate: null, forageType: 'silage', expectedExitDate: null, notes: '' });
+        const result = await savePen({ id, rationPlanId: null, cycleStartDate: null, forageType: 'silage', expectedExitDate: null, notes: '' });
+        if (result?.success === false) {
+            alert(result.error || 'Failed to add pen.');
+            return;
+        }
         setNewPenId('');
     };
 

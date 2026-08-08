@@ -2198,6 +2198,22 @@ export const FarmProvider = ({ children }) => {
     };
 
     const savePen = async (pen) => {
+        // A pen config row is just settings (ration plan/cycle/forage) — the actual
+        // membership lives on each animal's own `pen` field, and feed logs/stock issues
+        // key their history to this same id string forever, independent of whether a
+        // pen row currently exists (see deletePen below). So a *new* pen id that already
+        // has feed history from a pen that was since deleted (and never recreated) would
+        // silently inherit that old cost/coverage history the moment it's created — block
+        // that specific collision rather than let two unrelated pens merge under one id.
+        const isNewPen = !pens.some(p => String(p.id) === String(pen.id));
+        if (isNewPen) {
+            const hasHistory = feedLogs.some(f => String(f.pen) === String(pen.id))
+                || feedStockIssues.some(i => String(i.pen) === String(pen.id));
+            if (hasHistory) {
+                return { success: false, error: `Pen "${pen.id}" already has feed history from an earlier pen that used this id. Choose a different id to avoid merging unrelated records.` };
+            }
+        }
+
         const record = {
             ...pen,
             id: pen.id,
@@ -3076,6 +3092,7 @@ export const FarmProvider = ({ children }) => {
             savePen,
             deletePen,
             getPenRationRow,
+            getPenRosterAsOf,
             getPenWeightFlags,
             fetchLoading,
             dbUnconfigured,
