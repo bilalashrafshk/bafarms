@@ -68,9 +68,10 @@ const verifyAndAuthorizeEmail = async (email) => {
             const dbRes = await client.query('SELECT is_admin FROM ba_staff_permissions WHERE LOWER(email) = $1', [cleaned]);
             await client.end();
             if (dbRes.rows.length > 0) {
+                const isAdmin = !!dbRes.rows[0].is_admin;
                 return {
                     authorized: true,
-                    role: 'Internal Corporate Staff'
+                    role: isAdmin ? 'Internal Corporate Staff' : 'External Guest/Evaluator'
                 };
             }
         } catch (e) {
