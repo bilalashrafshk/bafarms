@@ -1775,6 +1775,11 @@ export const FarmProvider = ({ children }) => {
     };
 
     const undoActivity = async (item) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            alert('Undo is restricted to Super Admins.');
+            return { success: false, error: 'Unauthorized: Undo requires Super Admin access.' };
+        }
         const currentUser = staffUserRef.current?.name || staffUserRef.current?.email || 'Admin';
 
         if (item.eventType === 'pen_transfer' || (item.note && item.note.includes('Moved '))) {
