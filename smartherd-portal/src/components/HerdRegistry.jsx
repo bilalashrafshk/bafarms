@@ -37,6 +37,19 @@ export default function HerdRegistry() {
     const [notice, setNotice] = useState(null);
     const [showMyRequests, setShowMyRequests] = useState(false);
 
+    // Advanced Feedlot Filter State
+    const [entryDateFrom, setEntryDateFrom] = useState('');
+    const [entryDateTo, setEntryDateTo] = useState('');
+    const [selectedPen, setSelectedPen] = useState('All');
+    const [selectedBreed, setSelectedBreed] = useState('All');
+    const [selectedMandi, setSelectedMandi] = useState('All');
+    const [minWeight, setMinWeight] = useState('');
+    const [maxWeight, setMaxWeight] = useState('');
+    const [weightType, setWeightType] = useState('currentWeight'); // 'currentWeight' | 'entryWeight'
+    const [gainFilter, setGainFilter] = useState('All'); // 'All' | 'positive' | 'stagnantOrLoss' | 'highGain'
+    const [marketReadyFilter, setMarketReadyFilter] = useState('All'); // 'All' | 'ready' | 'inProgress'
+    const [showFilterPanel, setShowFilterPanel] = useState(false);
+
     // Deceased modal state
     const [deathAnimal, setDeathAnimal] = useState(null);
     const [deathDate, setDeathDate] = useState(todayPKT());
@@ -56,6 +69,104 @@ export default function HerdRegistry() {
     // lets staff register an animal with a breed that isn't in the configured list yet.
     const [customBreedMode, setCustomBreedMode] = useState(false);
     const CUSTOM_BREED_OPTION = '__custom__';
+
+    // Derived unique dropdown options from herd data
+    const uniquePens = React.useMemo(() => {
+        const pens = new Set();
+        animals.forEach(a => { if (a.pen) pens.add(a.pen); });
+        return Array.from(pens).sort();
+    }, [animals]);
+
+    const uniqueBreeds = React.useMemo(() => {
+        const breeds = new Set();
+        animals.forEach(a => { if (a.breed) breeds.add(a.breed); });
+        return Array.from(breeds).sort();
+    }, [animals]);
+
+    const uniqueMandis = React.useMemo(() => {
+        const mandis = new Set();
+        animals.forEach(a => { if (a.source) mandis.add(a.source); });
+        return Array.from(mandis).sort();
+    }, [animals]);
+
+    // Feedlot shortcut metrics
+    const stagnantCount = React.useMemo(() => {
+        return animals.filter(a => (a.currentWeight - a.entryWeight) <= 0).length;
+    }, [animals]);
+
+    const marketReadyCount = React.useMemo(() => {
+        return animals.filter(a => a.currentWeight >= (a.targetWeight || 360)).length;
+    }, [animals]);
+
+    const recentArrivalsCount = React.useMemo(() => {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - 30);
+        const yyyy = cutoff.getFullYear();
+        const mm = String(cutoff.getMonth() + 1).padStart(2, '0');
+        const dd = String(cutoff.getDate()).padStart(2, '0');
+        const cutoffStr = `${yyyy}-${mm}-${dd}`;
+        return animals.filter(a => a.entryDate && a.entryDate >= cutoffStr).length;
+    }, [animals]);
+
+    // Active filter count
+    const activeFilterCount = (
+        (entryDateFrom ? 1 : 0) +
+        (entryDateTo ? 1 : 0) +
+        (selectedPen !== 'All' ? 1 : 0) +
+        (selectedBreed !== 'All' ? 1 : 0) +
+        (selectedMandi !== 'All' ? 1 : 0) +
+        (minWeight !== '' ? 1 : 0) +
+        (maxWeight !== '' ? 1 : 0) +
+        (gainFilter !== 'All' ? 1 : 0) +
+        (marketReadyFilter !== 'All' ? 1 : 0)
+    );
+
+    const handleResetFilters = () => {
+        setSearch('');
+        setFilterStatus('All');
+        setEntryDateFrom('');
+        setEntryDateTo('');
+        setSelectedPen('All');
+        setSelectedBreed('All');
+        setSelectedMandi('All');
+        setMinWeight('');
+        setMaxWeight('');
+        setGainFilter('All');
+        setMarketReadyFilter('All');
+    };
+
+    const applyDatePreset = (preset) => {
+        const today = new Date();
+        const formatDateStr = (d) => {
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        };
+
+        if (preset === '7d') {
+            const d = new Date(today);
+            d.setDate(d.getDate() - 7);
+            setEntryDateFrom(formatDateStr(d));
+            setEntryDateTo(formatDateStr(today));
+        } else if (preset === '30d') {
+            const d = new Date(today);
+            d.setDate(d.getDate() - 30);
+            setEntryDateFrom(formatDateStr(d));
+            setEntryDateTo(formatDateStr(today));
+        } else if (preset === '90d') {
+            const d = new Date(today);
+            d.setDate(d.getDate() - 90);
+            setEntryDateFrom(formatDateStr(d));
+            setEntryDateTo(formatDateStr(today));
+        } else if (preset === 'thisYear') {
+            setEntryDateFrom(`${today.getFullYear()}-01-01`);
+            setEntryDateTo(formatDateStr(today));
+        } else if (preset === 'clear') {
+            setEntryDateFrom('');
+            setEntryDateTo('');
+        }
+    };
 
     const exportCSV = () => {
         const headers = ['RFID,Breed,Entry Date,Entry Weight (kg),Current Weight (kg),Total Gain (kg),Purchase Cost (PKR),Cost per KG (PKR),Source,Pen,Status'];
@@ -85,7 +196,8 @@ export default function HerdRegistry() {
         doc.text('BA Farms — Herd Registry', 14, 15);
         doc.setFontSize(10);
         doc.setTextColor(100);
-        doc.text(`Generated ${formatDate(todayPKT())} · ${filteredAnimals.length} animal${filteredAnimals.length === 1 ? '' : 's'} · Avg Purchase Price/Gross Weight: ${Math.round(avgPerKg).toLocaleString()} PKR/kg`, 14, 21);
+        const filterNote = activeFilterCount > 0 || search || filterStatus !== 'All' ? ' (Filtered View)' : '';
+        doc.text(`Generated ${formatDate(todayPKT())} · ${filteredAnimals.length} animal${filteredAnimals.length === 1 ? '' : 's'}${filterNote} · Avg Purchase Price/Gross Weight: ${Math.round(avgPerKg).toLocaleString()} PKR/kg`, 14, 21);
 
         autoTable(doc, {
             startY: 27,
@@ -151,23 +263,23 @@ export default function HerdRegistry() {
         setDeathCause('Disease');
     };
 
-const handleSubmit = async (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (!entryWeight || !purchasePrice) return;
 
-        const selectedBreed = (breed || '').trim() || (breedsConfig[0]?.name || 'Sahiwal');
-        const matchedBreed = breedsConfig.find(b => b.name.toLowerCase() === selectedBreed.toLowerCase());
+        const selectedBreedName = (breed || '').trim() || (breedsConfig[0]?.name || 'Sahiwal');
+        const matchedBreed = breedsConfig.find(b => b.name.toLowerCase() === selectedBreedName.toLowerCase());
         const defaultTarget = matchedBreed ? matchedBreed.defaultTargetWeight : (parseFloat(targetWeight) || 360);
 
         // A newly typed custom breed isn't in the registry yet — add it now so it's
         // available in future dropdowns and shows up alongside the presets in Settings.
         if (customBreedMode && !matchedBreed) {
-            updateBreedsConfig([...breedsConfig, { name: selectedBreed, defaultTargetWeight: defaultTarget }]);
+            updateBreedsConfig([...breedsConfig, { name: selectedBreedName, defaultTargetWeight: defaultTarget }]);
         }
 
         const payload = {
             rfid,
-            breed: selectedBreed,
+            breed: selectedBreedName,
             entryWeight: parseFloat(entryWeight),
             purchasePrice: parseFloat(purchasePrice),
             source,
@@ -225,16 +337,82 @@ const handleSubmit = async (e) => {
         return map;
     }, [myRequests]);
 
-    // Filter and Search Logic
-    const filteredAnimals = animals.filter(animal => {
-        const matchesSearch = (
-            animal.rfid.toLowerCase().includes(search.toLowerCase()) ||
-            animal.breed.toLowerCase().includes(search.toLowerCase()) ||
-            (animal.source || '').toLowerCase().includes(search.toLowerCase())
-        );
-        const matchesFilter = filterStatus === 'All' || animal.status === filterStatus;
-        return matchesSearch && matchesFilter;
-    });
+    // Comprehensive Filter Pipeline
+    const filteredAnimals = React.useMemo(() => {
+        return animals.filter(animal => {
+            // Text Search
+            if (search.trim()) {
+                const s = search.toLowerCase().trim();
+                const matches = (
+                    (animal.rfid || '').toLowerCase().includes(s) ||
+                    (animal.breed || '').toLowerCase().includes(s) ||
+                    (animal.source || '').toLowerCase().includes(s) ||
+                    (animal.pen || '').toLowerCase().includes(s)
+                );
+                if (!matches) return false;
+            }
+
+            // Status Tab Filter
+            if (filterStatus !== 'All' && animal.status !== filterStatus) {
+                return false;
+            }
+
+            // Entry Date From (On or After)
+            if (entryDateFrom) {
+                if (!animal.entryDate || animal.entryDate < entryDateFrom) return false;
+            }
+
+            // Entry Date To (On or Before)
+            if (entryDateTo) {
+                if (!animal.entryDate || animal.entryDate > entryDateTo) return false;
+            }
+
+            // Pen / Lot Filter
+            if (selectedPen !== 'All') {
+                if (selectedPen === '__unassigned__') {
+                    if (animal.pen) return false;
+                } else if (animal.pen !== selectedPen) {
+                    return false;
+                }
+            }
+
+            // Breed Filter
+            if (selectedBreed !== 'All' && animal.breed !== selectedBreed) {
+                return false;
+            }
+
+            // Mandi / Source Filter
+            if (selectedMandi !== 'All') {
+                if (selectedMandi === '__unassigned__') {
+                    if (animal.source) return false;
+                } else if (animal.source !== selectedMandi) {
+                    return false;
+                }
+            }
+
+            // Weight Range (Current Weight or Entry Weight)
+            const wtVal = weightType === 'entryWeight' ? animal.entryWeight : animal.currentWeight;
+            if (minWeight !== '' && !isNaN(parseFloat(minWeight))) {
+                if (wtVal == null || wtVal < parseFloat(minWeight)) return false;
+            }
+            if (maxWeight !== '' && !isNaN(parseFloat(maxWeight))) {
+                if (wtVal == null || wtVal > parseFloat(maxWeight)) return false;
+            }
+
+            // Gain Filter
+            const gain = animal.currentWeight - animal.entryWeight;
+            if (gainFilter === 'positive' && gain <= 0) return false;
+            if (gainFilter === 'stagnantOrLoss' && gain > 0) return false;
+            if (gainFilter === 'highGain' && gain < 20) return false;
+
+            // Market Readiness Filter
+            const target = animal.targetWeight || 360;
+            if (marketReadyFilter === 'ready' && animal.currentWeight < target) return false;
+            if (marketReadyFilter === 'inProgress' && animal.currentWeight >= target) return false;
+
+            return true;
+        });
+    }, [animals, search, filterStatus, entryDateFrom, entryDateTo, selectedPen, selectedBreed, selectedMandi, minWeight, maxWeight, weightType, gainFilter, marketReadyFilter]);
 
     // Overall purchase average = total purchase cost / total gross (entry) weight, across the current view
     const totalPurchaseCost = filteredAnimals.reduce((sum, a) => sum + (a.purchasePrice || 0), 0);
@@ -277,43 +455,370 @@ const handleSubmit = async (e) => {
     );
 
     return (
-        <div class="glass-panel">
+        <div className="glass-panel">
 
-            {/* Header with Search and Registration toggle */}
-            <div class="form-header-bar">
-                <div class="search-bar-wrap">
-                    <i class="fa-solid fa-magnifying-glass"></i>
+            {/* Header with Search, Filter toggle and Registration */}
+            <div className="form-header-bar">
+                <div className="search-bar-wrap">
+                    <i className="fa-solid fa-magnifying-glass"></i>
                     <input
                         type="text"
                         placeholder="Search Tag, Breed, or Mandi..."
-                        class="form-control search-control"
+                        className="form-control search-control"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
 
-                <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button
+                        className={`btn ${showFilterPanel || activeFilterCount > 0 ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setShowFilterPanel(!showFilterPanel)}
+                        title="Toggle Feedlot & Date Filters"
+                        style={{ position: 'relative' }}
+                    >
+                        <i className="fa-solid fa-filter"></i> Filters
+                        {activeFilterCount > 0 && (
+                            <span style={{
+                                marginLeft: '0.4rem',
+                                background: 'var(--accent-gold)',
+                                color: '#000',
+                                fontWeight: 'bold',
+                                borderRadius: '50%',
+                                padding: '0.1rem 0.45rem',
+                                fontSize: '0.7rem'
+                            }}>
+                                {activeFilterCount}
+                            </span>
+                        )}
+                    </button>
+
                     {!isSuperAdmin && myRequests.length > 0 && (
                         <button
-                            class="btn btn-secondary"
+                            className="btn btn-secondary"
                             style={{ borderColor: 'rgba(255,193,7,0.3)', color: 'hsl(43,90%,53%)' }}
                             onClick={() => setShowMyRequests(true)}
                             title="View the status of your submitted edit/delete requests"
                         >
-                            <i class="fa-solid fa-hourglass-half"></i> My Requests ({myRequests.filter(r => r.status === 'pending').length})
+                            <i className="fa-solid fa-hourglass-half"></i> My Requests ({myRequests.filter(r => r.status === 'pending').length})
                         </button>
                     )}
-                    <button class="btn btn-secondary" onClick={exportCSV} title="Export current view to CSV">
-                        <i class="fa-solid fa-file-csv"></i> Export CSV
+                    <button className="btn btn-secondary" onClick={exportCSV} title="Export current view to CSV">
+                        <i className="fa-solid fa-file-csv"></i> Export CSV
                     </button>
-                    <button class="btn btn-secondary" onClick={exportPDF} title="Export current view to PDF">
-                        <i class="fa-solid fa-file-pdf"></i> Export PDF
+                    <button className="btn btn-secondary" onClick={exportPDF} title="Export current view to PDF">
+                        <i className="fa-solid fa-file-pdf"></i> Export PDF
                     </button>
-                    <button class="btn btn-primary" onClick={openRegisterModal}>
-                        <i class="fa-solid fa-plus"></i> Register New Calf
+                    <button className="btn btn-primary" onClick={openRegisterModal}>
+                        <i className="fa-solid fa-plus"></i> Register New Calf
                     </button>
                 </div>
             </div>
+
+            {/* Quick Feedlot Shortcuts */}
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.8rem', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>Feedlot Presets:</span>
+                <button
+                    className={`btn btn-secondary ${gainFilter === 'stagnantOrLoss' ? 'active' : ''}`}
+                    style={{
+                        fontSize: '0.75rem', padding: '0.2rem 0.6rem', minHeight: '28px',
+                        borderColor: gainFilter === 'stagnantOrLoss' ? 'rgba(220,53,69,0.5)' : 'rgba(255,255,255,0.08)',
+                        color: gainFilter === 'stagnantOrLoss' ? 'hsl(0, 75%, 65%)' : 'var(--text-muted)',
+                        background: gainFilter === 'stagnantOrLoss' ? 'rgba(220,53,69,0.1)' : 'transparent'
+                    }}
+                    onClick={() => {
+                        if (gainFilter === 'stagnantOrLoss') {
+                            setGainFilter('All');
+                        } else {
+                            setGainFilter('stagnantOrLoss');
+                            setShowFilterPanel(true);
+                        }
+                    }}
+                >
+                    ⚠️ Weight Loss / Stagnant ({stagnantCount})
+                </button>
+                <button
+                    className={`btn btn-secondary ${marketReadyFilter === 'ready' ? 'active' : ''}`}
+                    style={{
+                        fontSize: '0.75rem', padding: '0.2rem 0.6rem', minHeight: '28px',
+                        borderColor: marketReadyFilter === 'ready' ? 'rgba(25,135,84,0.5)' : 'rgba(255,255,255,0.08)',
+                        color: marketReadyFilter === 'ready' ? 'var(--primary-green-light)' : 'var(--text-muted)',
+                        background: marketReadyFilter === 'ready' ? 'rgba(25,135,84,0.1)' : 'transparent'
+                    }}
+                    onClick={() => {
+                        if (marketReadyFilter === 'ready') {
+                            setMarketReadyFilter('All');
+                        } else {
+                            setMarketReadyFilter('ready');
+                            setShowFilterPanel(true);
+                        }
+                    }}
+                >
+                    🎯 Market Ready ({marketReadyCount})
+                </button>
+                <button
+                    className={`btn btn-secondary ${entryDateFrom ? 'active' : ''}`}
+                    style={{
+                        fontSize: '0.75rem', padding: '0.2rem 0.6rem', minHeight: '28px',
+                        borderColor: entryDateFrom ? 'rgba(255,193,7,0.5)' : 'rgba(255,255,255,0.08)',
+                        color: entryDateFrom ? 'var(--accent-gold)' : 'var(--text-muted)',
+                        background: entryDateFrom ? 'rgba(255,193,7,0.1)' : 'transparent'
+                    }}
+                    onClick={() => {
+                        if (entryDateFrom) {
+                            applyDatePreset('clear');
+                        } else {
+                            applyDatePreset('30d');
+                            setShowFilterPanel(true);
+                        }
+                    }}
+                >
+                    🆕 Recent Arrivals (30d) ({recentArrivalsCount})
+                </button>
+            </div>
+
+            {/* Expandable Advanced Feedlot Filter Panel */}
+            {showFilterPanel && (
+                <div className="feedlot-filter-panel">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.5rem' }}>
+                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-pure)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <i className="fa-solid fa-sliders" style={{ color: 'var(--accent-gold)' }}></i> Feedlot Advanced Filters
+                        </h4>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button
+                                className="btn btn-secondary"
+                                style={{ minHeight: '28px', padding: '0.15rem 0.6rem', fontSize: '0.75rem' }}
+                                onClick={handleResetFilters}
+                            >
+                                <i className="fa-solid fa-rotate-left"></i> Reset All
+                            </button>
+                            <button
+                                className="btn btn-secondary"
+                                style={{ minHeight: '28px', padding: '0.15rem 0.6rem', fontSize: '0.75rem' }}
+                                onClick={() => setShowFilterPanel(false)}
+                            >
+                                <i className="fa-solid fa-xmark"></i> Close
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="filter-grid-4">
+                        {/* 1. Entry Date Filters */}
+                        <div className="filter-group">
+                            <label><i className="fa-solid fa-calendar-days"></i> Entry Date Range</label>
+                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                <input
+                                    type="date"
+                                    className="form-control"
+                                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem' }}
+                                    value={entryDateFrom}
+                                    onChange={(e) => setEntryDateFrom(e.target.value)}
+                                    title="Entry On or After"
+                                />
+                                <span style={{ alignSelf: 'center', color: 'var(--text-muted)', fontSize: '0.75rem' }}>to</span>
+                                <input
+                                    type="date"
+                                    className="form-control"
+                                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem' }}
+                                    value={entryDateTo}
+                                    onChange={(e) => setEntryDateTo(e.target.value)}
+                                    title="Entry On or Before"
+                                />
+                            </div>
+                            <div className="date-preset-group">
+                                <button className="date-preset-btn" onClick={() => applyDatePreset('7d')}>7 Days</button>
+                                <button className="date-preset-btn" onClick={() => applyDatePreset('30d')}>30 Days</button>
+                                <button className="date-preset-btn" onClick={() => applyDatePreset('90d')}>90 Days</button>
+                                <button className="date-preset-btn" onClick={() => applyDatePreset('thisYear')}>This Year</button>
+                                <button className="date-preset-btn" onClick={() => applyDatePreset('clear')}>Clear</button>
+                            </div>
+                        </div>
+
+                        {/* 2. Pen, Breed & Mandi Filters */}
+                        <div className="filter-group">
+                            <label><i className="fa-solid fa-map-pin"></i> Lot, Breed & Source</label>
+                            <select
+                                className="form-control"
+                                style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', marginBottom: '0.4rem' }}
+                                value={selectedPen}
+                                onChange={(e) => setSelectedPen(e.target.value)}
+                            >
+                                <option value="All">All Pens / Lots</option>
+                                {uniquePens.map(p => (
+                                    <option key={p} value={p}>Pen {p}</option>
+                                ))}
+                                <option value="__unassigned__">Unassigned Pen</option>
+                            </select>
+
+                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                <select
+                                    className="form-control"
+                                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem' }}
+                                    value={selectedBreed}
+                                    onChange={(e) => setSelectedBreed(e.target.value)}
+                                >
+                                    <option value="All">All Breeds</option>
+                                    {uniqueBreeds.map(b => (
+                                        <option key={b} value={b}>{b}</option>
+                                    ))}
+                                </select>
+
+                                <select
+                                    className="form-control"
+                                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem' }}
+                                    value={selectedMandi}
+                                    onChange={(e) => setSelectedMandi(e.target.value)}
+                                >
+                                    <option value="All">All Mandis / Sources</option>
+                                    {uniqueMandis.map(m => (
+                                        <option key={m} value={m}>{m}</option>
+                                    ))}
+                                    <option value="__unassigned__">Unknown Mandi</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* 3. Weight Range Filters */}
+                        <div className="filter-group">
+                            <label><i className="fa-solid fa-weight-hanging"></i> Weight Range (kg)</label>
+                            <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.4rem' }}>
+                                <select
+                                    className="form-control"
+                                    style={{ fontSize: '0.78rem', padding: '0.35rem 0.4rem' }}
+                                    value={weightType}
+                                    onChange={(e) => setWeightType(e.target.value)}
+                                >
+                                    <option value="currentWeight">Latest Weight</option>
+                                    <option value="entryWeight">Entry Weight</option>
+                                </select>
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                <input
+                                    type="number"
+                                    className="form-control"
+                                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem' }}
+                                    placeholder="Min Weight"
+                                    value={minWeight}
+                                    onChange={(e) => setMinWeight(e.target.value)}
+                                />
+                                <input
+                                    type="number"
+                                    className="form-control"
+                                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem' }}
+                                    placeholder="Max Weight"
+                                    value={maxWeight}
+                                    onChange={(e) => setMaxWeight(e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        {/* 4. Gain Performance & Target Readiness */}
+                        <div className="filter-group">
+                            <label><i className="fa-solid fa-chart-line"></i> Gain & Target Status</label>
+                            <select
+                                className="form-control"
+                                style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', marginBottom: '0.4rem' }}
+                                value={gainFilter}
+                                onChange={(e) => setGainFilter(e.target.value)}
+                            >
+                                <option value="All">All Weight Gains</option>
+                                <option value="positive">Gaining Weight (+kg)</option>
+                                <option value="stagnantOrLoss">⚠️ Weight Loss / Stagnant (≤ 0kg)</option>
+                                <option value="highGain">🚀 High Gain (≥ 20kg)</option>
+                            </select>
+
+                            <select
+                                className="form-control"
+                                style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem' }}
+                                value={marketReadyFilter}
+                                onChange={(e) => setMarketReadyFilter(e.target.value)}
+                            >
+                                <option value="All">All Market Readiness</option>
+                                <option value="ready">🎯 Market Ready (≥ Target Wt)</option>
+                                <option value="inProgress">⏳ Fattening Phase (&lt; Target Wt)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Active Filter Chips Bar */}
+            {(activeFilterCount > 0 || search) && (
+                <div className="active-filter-chips">
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Active Filters:</span>
+                    
+                    {search && (
+                        <span className="filter-chip">
+                            Search: "{search}"
+                            <button onClick={() => setSearch('')}>✕</button>
+                        </span>
+                    )}
+
+                    {entryDateFrom && (
+                        <span className="filter-chip">
+                            Entry From: {formatDate(entryDateFrom)}
+                            <button onClick={() => setEntryDateFrom('')}>✕</button>
+                        </span>
+                    )}
+
+                    {entryDateTo && (
+                        <span className="filter-chip">
+                            Entry To: {formatDate(entryDateTo)}
+                            <button onClick={() => setEntryDateTo('')}>✕</button>
+                        </span>
+                    )}
+
+                    {selectedPen !== 'All' && (
+                        <span className="filter-chip">
+                            Pen: {selectedPen === '__unassigned__' ? 'Unassigned' : selectedPen}
+                            <button onClick={() => setSelectedPen('All')}>✕</button>
+                        </span>
+                    )}
+
+                    {selectedBreed !== 'All' && (
+                        <span className="filter-chip">
+                            Breed: {selectedBreed}
+                            <button onClick={() => setSelectedBreed('All')}>✕</button>
+                        </span>
+                    )}
+
+                    {selectedMandi !== 'All' && (
+                        <span className="filter-chip">
+                            Mandi: {selectedMandi === '__unassigned__' ? 'Unknown' : selectedMandi}
+                            <button onClick={() => setSelectedMandi('All')}>✕</button>
+                        </span>
+                    )}
+
+                    {(minWeight || maxWeight) && (
+                        <span className="filter-chip">
+                            {weightType === 'entryWeight' ? 'Entry Wt' : 'Latest Wt'}: {minWeight || '0'} - {maxWeight || '∞'} kg
+                            <button onClick={() => { setMinWeight(''); setMaxWeight(''); }}>✕</button>
+                        </span>
+                    )}
+
+                    {gainFilter !== 'All' && (
+                        <span className="filter-chip">
+                            Gain: {gainFilter === 'positive' ? 'Positive (+kg)' : gainFilter === 'stagnantOrLoss' ? '⚠️ Loss/Stagnant (≤0kg)' : '🚀 High Gain (≥20kg)'}
+                            <button onClick={() => setGainFilter('All')}>✕</button>
+                        </span>
+                    )}
+
+                    {marketReadyFilter !== 'All' && (
+                        <span className="filter-chip">
+                            Target: {marketReadyFilter === 'ready' ? '🎯 Market Ready' : '⏳ In Progress'}
+                            <button onClick={() => setMarketReadyFilter('All')}>✕</button>
+                        </span>
+                    )}
+
+                    <button
+                        className="btn btn-secondary"
+                        style={{ fontSize: '0.72rem', padding: '0.15rem 0.5rem', minHeight: '24px', marginLeft: 'auto' }}
+                        onClick={handleResetFilters}
+                    >
+                        Clear All
+                    </button>
+                </div>
+            )}
 
             {notice && (
                 <div style={{
@@ -324,32 +829,32 @@ const handleSubmit = async (e) => {
                     color: notice.type === 'error' ? 'hsl(0, 75%, 70%)' : 'hsl(43,90%,53%)'
                 }}>
                     <span><i className={`fa-solid ${notice.type === 'error' ? 'fa-triangle-exclamation' : 'fa-hourglass-half'}`}></i> {notice.text}</span>
-                    <button class="modal-close-btn" style={{ position: 'static' }} onClick={() => setNotice(null)}>
-                        <i class="fa-solid fa-xmark"></i>
+                    <button className="modal-close-btn" style={{ position: 'static' }} onClick={() => setNotice(null)}>
+                        <i className="fa-solid fa-xmark"></i>
                     </button>
                 </div>
             )}
 
             {/* Filtering toggles */}
-            <div class="table-filters">
-                <button class={`filter-btn ${filterStatus === 'All' ? 'active' : ''}`} onClick={() => setFilterStatus('All')}>All ({animals.length})</button>
-                <button class={`filter-btn ${filterStatus === 'Fattening' ? 'active' : ''}`} onClick={() => setFilterStatus('Fattening')}>Fattening ({animals.filter(a => a.status === 'Fattening').length})</button>
-                <button class={`filter-btn ${filterStatus === 'Quarantined' ? 'active' : ''}`} onClick={() => setFilterStatus('Quarantined')}>Quarantined ({animals.filter(a => a.status === 'Quarantined').length})</button>
-                <button class={`filter-btn ${filterStatus === 'Sick' ? 'active' : ''}`} onClick={() => setFilterStatus('Sick')}>Sick ({animals.filter(a => a.status === 'Sick').length})</button>
-                <button class={`filter-btn ${filterStatus === 'Deceased' ? 'active' : ''}`} onClick={() => setFilterStatus('Deceased')}>Deceased ({animals.filter(a => a.status === 'Deceased').length})</button>
-                <button class={`filter-btn ${filterStatus === 'Sold' ? 'active' : ''}`} onClick={() => setFilterStatus('Sold')}>Sold ({animals.filter(a => a.status === 'Sold').length})</button>
+            <div className="table-filters">
+                <button className={`filter-btn ${filterStatus === 'All' ? 'active' : ''}`} onClick={() => setFilterStatus('All')}>All ({animals.length})</button>
+                <button className={`filter-btn ${filterStatus === 'Fattening' ? 'active' : ''}`} onClick={() => setFilterStatus('Fattening')}>Fattening ({animals.filter(a => a.status === 'Fattening').length})</button>
+                <button className={`filter-btn ${filterStatus === 'Quarantined' ? 'active' : ''}`} onClick={() => setFilterStatus('Quarantined')}>Quarantined ({animals.filter(a => a.status === 'Quarantined').length})</button>
+                <button className={`filter-btn ${filterStatus === 'Sick' ? 'active' : ''}`} onClick={() => setFilterStatus('Sick')}>Sick ({animals.filter(a => a.status === 'Sick').length})</button>
+                <button className={`filter-btn ${filterStatus === 'Deceased' ? 'active' : ''}`} onClick={() => setFilterStatus('Deceased')}>Deceased ({animals.filter(a => a.status === 'Deceased').length})</button>
+                <button className={`filter-btn ${filterStatus === 'Sold' ? 'active' : ''}`} onClick={() => setFilterStatus('Sold')}>Sold ({animals.filter(a => a.status === 'Sold').length})</button>
             </div>
 
             {/* Average purchase price per kg of gross (entry) weight, across the current view */}
-            <div class="dashboard-grid" style={{ marginBottom: '1rem' }}>
-                <div class="glass-panel stat-box">
-                    <div class="stat-header">
+            <div className="dashboard-grid" style={{ marginBottom: '1rem' }}>
+                <div className="glass-panel stat-box">
+                    <div className="stat-header">
                         <h3>Avg Purchase Price / Gross Weight</h3>
-                        <div class="stat-icon"><i class="fa-solid fa-scale-balanced"></i></div>
+                        <div className="stat-icon"><i className="fa-solid fa-scale-balanced"></i></div>
                     </div>
-                    <div class="stat-val">{Math.round(avgCostPerKg).toLocaleString()} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR/kg</small></div>
-                    <span class="stat-lbl">
-                        <i class="fa-solid fa-cow"></i> {totalPurchaseCost.toLocaleString()} PKR ÷ {totalGrossWeight.toLocaleString()} kg across {filteredAnimals.length} animal{filteredAnimals.length === 1 ? '' : 's'}
+                    <div className="stat-val">{Math.round(avgCostPerKg).toLocaleString()} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR/kg</small></div>
+                    <span className="stat-lbl">
+                        <i className="fa-solid fa-cow"></i> {totalPurchaseCost.toLocaleString()} PKR ÷ {totalGrossWeight.toLocaleString()} kg across {filteredAnimals.length} animal{filteredAnimals.length === 1 ? '' : 's'}
                     </span>
                 </div>
             </div>
@@ -448,9 +953,14 @@ const handleSubmit = async (e) => {
                         ))}
                         {sortedAnimals.length === 0 && (
                             <tr>
-                                <td colSpan="10" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                                <td colSpan="11" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                                     <i className="fa-solid fa-cow" style={{ fontSize: '2rem', marginBottom: '0.5rem', display: 'block' }}></i>
                                     No animal records matching your filters were found in the database.
+                                    <div style={{ marginTop: '0.8rem' }}>
+                                        <button className="btn btn-secondary" onClick={handleResetFilters}>
+                                            <i className="fa-solid fa-rotate-left"></i> Reset All Filters
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         )}

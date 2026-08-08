@@ -1,7 +1,7 @@
 import React, { useContext, useState, useMemo } from 'react';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
-import { todayPKT, daysBetween } from '../utils/dateOnly';
+import { todayPKT, daysBetween, parseDateOnly, todayAsDate } from '../utils/dateOnly';
 
 // Cross-references the dated feed-log ledger (what was fed, and its cost, on a given
 // day) against per-animal weight logs (ADG) to answer: for a chosen date range,
@@ -9,7 +9,7 @@ import { todayPKT, daysBetween } from '../utils/dateOnly';
 // how much weight did the herd actually gain? Both source ledgers are append-only/dated,
 // so this view is always a historical report — never affected by later recipe edits.
 export default function FeedGrowthReport() {
-    const { animals, weightLogs, feedLogs, getPenRationRow, systemParams } = useContext(FarmContext);
+    const { animals, weightLogs, feedLogs, pens, getPenRationRow, systemParams } = useContext(FarmContext);
     const adgFloor = systemParams?.adgAlertThreshold ?? 1.0;
 
     const activePens = useMemo(() => {
@@ -40,6 +40,40 @@ export default function FeedGrowthReport() {
             .filter(f => penFilter === 'ALL' ? true : f.pen === penFilter)
             .sort((a, b) => daysBetween(b.date, a.date));
     }, [feedLogs, dateFrom, dateTo, penFilter]);
+
+    // Days within the selected range where a pen had active animals on feed but no feed
+    // log was recorded at all — the coverage badge below only covers partial (e.g.
+    // split-feeding) gaps for days that already have at least one logged row; a fully
+    // missed day would otherwise just be silently absent from the table. Same walk as
+    // Dashboard's missed-feeding detection (start = later of the pen's cycle start date
+    // and its earliest active animal's entry date, through yesterday), clipped to the
+    // report's date range and pen filter, and merged in as synthetic 0% rows.
+    const missedDayRows = useMemo(() => {
+        const rows = [];
+        const today = todayAsDate();
+        const rangeStart = parseDateOnly(dateFrom);
+        const rangeEnd = parseDateOnly(dateTo);
+        (pens || []).forEach(pen => {
+            if (penFilter !== 'ALL' && pen.id !== penFilter) return;
+            const penAnimals = animals.filter(a => a.pen === pen.id && a.status !== 'Sold' && a.status !== 'Deceased');
+            if (penAnimals.length === 0) return;
+            const earliestEntry = penAnimals.reduce((earliest, a) =>
+                (!earliest || parseDateOnly(a.entryDate) < parseDateOnly(earliest)) ? a.entryDate : earliest, null);
+            let startDateStr = pen.cycleStartDate;
+            if (!startDateStr || (earliestEntry && parseDateOnly(earliestEntry) > parseDateOnly(startDateStr))) {
+                startDateStr = earliestEntry;
+            }
+            if (!startDateStr) return;
+            let start = parseDateOnly(startDateStr);
+            if (start < rangeStart) start = rangeStart;
+            for (let d = new Date(start); d <= rangeEnd && d < today; d.setUTCDate(d.getUTCDate() + 1)) {
+                const dateStr = d.toISOString().split('T')[0];
+                const logged = feedLogs.some(f => f.pen === pen.id && f.date === dateStr);
+                if (!logged) rows.push({ date: dateStr, pen: pen.id, animalCount: penAnimals.length });
+            }
+        });
+        return rows;
+    }, [pens, animals, feedLogs, dateFrom, dateTo, penFilter]);
 
     // A pen fed on a "split" schedule (Morning/Evening, or Morning/Afternoon/Evening) logs
     // one ba_feed_logs row per feeding — group those back up by date+pen so the Daily Feed
@@ -288,10 +322,12 @@ export default function FeedGrowthReport() {
                 </div>
             )}
 
-            {/* Day-by-day feed log within range */}
+            {/* Day-by-day feed log within range — logged rows plus, merged in and sorted
+                alongside them, synthetic 0% rows for pen-days that had active animals on
+                feed but no feed log at all (missedDayRows above). */}
             <div class="glass-panel">
                 <h3 class="panel-title"><i class="fa-solid fa-calendar-days"></i> Daily Feed Log</h3>
-                {filteredFeedLogs.length === 0 ? (
+                {filteredFeedLogs.length === 0 && missedDayRows.length === 0 ? (
                     <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No feed has been logged in this date range yet. Use "Log This Feeding" on the TMR Calculator to start building history.</p>
                 ) : (
                     <div class="table-wrapper">
@@ -308,17 +344,36 @@ export default function FeedGrowthReport() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredFeedLogs.map(log => (
-                                    <tr key={`${log.date}__${log.pen}__${log.feedingIndex || 0}`}>
-                                        <td>{formatDate(log.date)}</td>
-                                        <td>{log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`}</td>
-                                        <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{sessionLabel(log)}</td>
-                                        <td>{log.animalCount}</td>
-                                        <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(log.totalCost).toLocaleString()} PKR</strong></td>
-                                        <td>{Math.round(log.costPerAnimal)} PKR</td>
-                                        <td>{coverageBadge(log)}</td>
-                                    </tr>
-                                ))}
+                                {[
+                                    ...filteredFeedLogs.map(log => ({ type: 'logged', date: log.date, pen: log.pen, log })),
+                                    ...missedDayRows.map(m => ({ type: 'missed', date: m.date, pen: m.pen, missed: m }))
+                                ]
+                                    .sort((a, b) => daysBetween(b.date, a.date))
+                                    .map(row => row.type === 'logged' ? (
+                                        <tr key={`${row.log.date}__${row.log.pen}__${row.log.feedingIndex || 0}`}>
+                                            <td>{formatDate(row.log.date)}</td>
+                                            <td>{row.log.pen === 'ALL' ? 'All Pens' : `Pen ${row.log.pen}`}</td>
+                                            <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{sessionLabel(row.log)}</td>
+                                            <td>{row.log.animalCount}</td>
+                                            <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(row.log.totalCost).toLocaleString()} PKR</strong></td>
+                                            <td>{Math.round(row.log.costPerAnimal)} PKR</td>
+                                            <td>{coverageBadge(row.log)}</td>
+                                        </tr>
+                                    ) : (
+                                        <tr key={`missed__${row.missed.date}__${row.missed.pen}`}>
+                                            <td>{formatDate(row.missed.date)}</td>
+                                            <td>{`Pen ${row.missed.pen}`}</td>
+                                            <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>—</td>
+                                            <td>{row.missed.animalCount}</td>
+                                            <td>—</td>
+                                            <td>—</td>
+                                            <td>
+                                                <span style={{ color: 'hsl(0, 75%, 60%)', fontWeight: 600 }} title="No feed logged this day">
+                                                    0%<i class="fa-solid fa-triangle-exclamation" style={{ marginLeft: '0.35rem' }}></i>
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))}
                             </tbody>
                         </table>
                     </div>
