@@ -1899,6 +1899,21 @@ export const FarmProvider = ({ children }) => {
                 if (changes.currentWeight !== undefined) {
                     setAnimals(prev => prev.map(a => a.id === (approval.animal_id || approval.animalId) ? { ...a, currentWeight: changes.currentWeight } : a));
                 }
+            } else if (approval.action === 'SAVE_RATION_PLAN') {
+                const changes = approval.payload || {};
+                setRationPlans(prev => {
+                    const exists = prev.some(p => p.id === changes.id);
+                    return exists ? prev.map(p => (p.id === changes.id ? { ...p, ...changes } : p)) : [...prev, changes];
+                });
+            } else if (approval.action === 'SAVE_PEN') {
+                const changes = approval.payload || {};
+                setPens(prev => {
+                    const exists = prev.some(p => String(p.id) === String(changes.id));
+                    return exists ? prev.map(p => (String(p.id) === String(changes.id) ? { ...p, ...changes } : p)) : [...prev, changes];
+                });
+            } else if (approval.action === 'UPDATE_RATION_PLAN_V2') {
+                const changes = approval.payload || {};
+                setRationPlansV2(prev => prev.map(p => (p.id === changes.id ? { ...p, ...changes } : p)));
             }
 
             setPendingApprovals(prev => prev.filter(p => p.id !== approval.id));
@@ -2098,24 +2113,22 @@ export const FarmProvider = ({ children }) => {
 
     // ─── RATION PLANS & PEN ASSIGNMENT ───
 
-    const saveRationPlan = (plan) => {
+    const saveRationPlan = async (plan) => {
         const record = {
-            id: plan.id || `plan-${Date.now()}`,
-            name: plan.name || 'Untitled Plan',
-            description: plan.description || '',
-            adgFloor: plan.adgFloor ?? 1.0,
-            weeks: plan.weeks || [],
-            // Day 1-7 adaptation table (percentage-based, per forage_type), separate from
-            // the weight-indexed steady-state rows in `weeks`. Empty = plan has no
-            // adaptation table yet, and getPenRationRow falls back to the legacy per-week
-            // scheduleMode/dailyIngredients behavior for backward compatibility.
-            adaptation: plan.adaptation || [],
-            // Per-plan procurement price overrides (PKR/kg), keyed by ingredient id.
-            // Ingredients not present here fall back to the global feed ingredient price.
-            ingredientPrices: plan.ingredientPrices || {},
-            isDefault: !!plan.isDefault
+            ...plan,
+            id: plan?.id || `plan-${Date.now()}`,
+            name: plan?.name || 'Custom Plan',
+            description: plan?.description || '',
+            adgFloor: parseFloat(plan?.adgFloor) || 1.0,
+            weeks: plan?.weeks || [],
+            adaptation: plan?.adaptation || [],
+            ingredientPrices: plan?.ingredientPrices || {},
+            isDefault: !!plan?.isDefault
         };
-
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('SAVE_RATION_PLAN', record);
+        }
         setRationPlans(prev => {
             const exists = prev.some(p => p.id === record.id);
             return exists ? prev.map(p => (p.id === record.id ? { ...p, ...record } : p)) : [...prev, record];
@@ -2133,6 +2146,10 @@ export const FarmProvider = ({ children }) => {
             name: `${plan.name} (Copy)`,
             isDefault: false
         };
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return handleNonAdminDelete('SAVE_RATION_PLAN', duplicated);
+        }
         setRationPlans(prev => [...prev, duplicated]);
         persistMutation('SAVE_RATION_PLAN', duplicated);
         return duplicated;
@@ -2151,7 +2168,7 @@ export const FarmProvider = ({ children }) => {
         return { success: true };
     };
 
-    const savePen = (pen) => {
+    const savePen = async (pen) => {
         const record = {
             ...pen,
             id: pen.id,
@@ -2162,6 +2179,11 @@ export const FarmProvider = ({ children }) => {
             expectedExitDate: pen.expectedExitDate || null,
             notes: pen.notes || ''
         };
+
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('SAVE_PEN', record);
+        }
 
         setPens(prev => {
             const exists = prev.some(p => String(p.id) === String(record.id));
@@ -2210,6 +2232,10 @@ export const FarmProvider = ({ children }) => {
     // default flag. Never touches the imported bracket/ingredient rows themselves; fixing
     // those still means uploading a new CSV version (see importRationPlanCSV).
     const updateRationPlanV2 = async ({ id, name, adaptationDays, adgFloor, isDefault }) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('UPDATE_RATION_PLAN_V2', { id, name, adaptationDays, adgFloor, isDefault });
+        }
         const { res, data } = await sendMutationToServer('UPDATE_RATION_PLAN_V2', {
             id, name, adaptationDays, adgFloor, isDefault
         });
@@ -2227,6 +2253,10 @@ export const FarmProvider = ({ children }) => {
     // version. Server re-validates bounds + bracket contiguity against sibling rows before
     // writing, since live pens may already be resolving against this exact version.
     const updateRationRow = async ({ rowId, wtMin, wtMax, targetAdg, estCostPerHeadPerDay, items }) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('UPDATE_RATION_ROW', { rowId, wtMin, wtMax, targetAdg, estCostPerHeadPerDay, items });
+        }
         const { res, data } = await sendMutationToServer('UPDATE_RATION_ROW', {
             rowId, wtMin, wtMax, targetAdg, estCostPerHeadPerDay, items
         });

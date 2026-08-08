@@ -1977,6 +1977,41 @@ module.exports = async (req, res) => {
                         SET title=$1, price=$2, weight=$3, description=$4, ribbon=$5, rfid=$6, marbling=$7, fat_ratio=$8, images=$9
                         WHERE id=$10
                     `, [changes.title, changes.price, changes.weight || null, changes.desc || null, changes.ribbon || null, changes.rfid || null, changes.marbling || null, changes.fatRatio || null, JSON.stringify(changes.images || []), changes.id]);
+                } else if (approval.action === 'SAVE_RATION_PLAN') {
+                    await client.query(`
+                        INSERT INTO ba_ration_plans (id, name, description, adg_floor, weeks, adaptation, ingredient_prices, wanda_stock_item_id, is_default, created_by, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+                        ON CONFLICT (id) DO UPDATE SET
+                            name = EXCLUDED.name, description = EXCLUDED.description, adg_floor = EXCLUDED.adg_floor,
+                            weeks = EXCLUDED.weeks, adaptation = EXCLUDED.adaptation, ingredient_prices = EXCLUDED.ingredient_prices,
+                            wanda_stock_item_id = EXCLUDED.wanda_stock_item_id, is_default = EXCLUDED.is_default, updated_at = NOW()
+                    `, [changes.id, changes.name, changes.description || null, changes.adgFloor || 1.0, JSON.stringify(changes.weeks || []), JSON.stringify(changes.adaptation || []), JSON.stringify(changes.ingredientPrices || {}), changes.wandaStockItemId || null, !!changes.isDefault, approval.requested_by]);
+                } else if (approval.action === 'SAVE_PEN') {
+                    await client.query(`
+                        INSERT INTO ba_pens (id, ration_plan_id, plan_id, cycle_start_date, forage_type, expected_exit_date, notes, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+                        ON CONFLICT (id) DO UPDATE SET
+                            ration_plan_id = EXCLUDED.ration_plan_id, plan_id = EXCLUDED.plan_id,
+                            cycle_start_date = EXCLUDED.cycle_start_date, forage_type = EXCLUDED.forage_type,
+                            expected_exit_date = EXCLUDED.expected_exit_date, notes = EXCLUDED.notes, updated_at = NOW()
+                    `, [changes.id, changes.rationPlanId || null, changes.planId || null, changes.cycleStartDate || null, changes.forageType || 'silage', changes.expectedExitDate || null, changes.notes || null]);
+                    if (changes.planId) {
+                        const cache = await recomputePenWeightCache(client, changes.id, changes.planId, changes.forageType || 'silage');
+                        await client.query(`UPDATE ba_pens SET last_actual_weight_kg = $1, last_weigh_date = $2, current_target_adg = $3 WHERE id = $4`, [cache.lastActualWeightKg, cache.lastWeighDate, cache.currentTargetAdg, changes.id]);
+                    }
+                } else if (approval.action === 'UPDATE_RATION_PLAN_V2') {
+                    await client.query(`UPDATE ba_ration_plans_v2 SET name = $1, adaptation_days = $2, adg_floor = $3, is_default = $4 WHERE id = $5`, [changes.name?.trim(), changes.adaptationDays || 7, changes.adgFloor || 1.0, !!changes.isDefault, changes.id]);
+                } else if (approval.action === 'UPDATE_RATION_ROW') {
+                    await client.query(`UPDATE ba_ration_rows SET wt_min = $1, wt_max = $2, target_adg = $3 WHERE id = $4`, [changes.wtMin, changes.wtMax, changes.targetAdg, changes.rowId]);
+                    if (changes.items) {
+                        await client.query('DELETE FROM ba_ration_row_items WHERE row_id = $1', [changes.rowId]);
+                        for (const [ingredientId, qtyRaw] of Object.entries(changes.items)) {
+                            const qty = parseFloat(qtyRaw) || 0;
+                            if (qty > 0) {
+                                await client.query('INSERT INTO ba_ration_row_items (row_id, ingredient_id, amount_kg_head_day) VALUES ($1, $2, $3)', [changes.rowId, ingredientId, qty]);
+                            }
+                        }
+                    }
                 }
 
                 await client.query(
@@ -2259,7 +2294,6 @@ module.exports = async (req, res) => {
                         }
                     }
                     return res.status(200).json({ success: true, pending: true });
-                }
                 if (feedingIndex === undefined || feedingIndex === null) {
                     // No specific session given — clear every feeding logged for that pen/day.
                     await client.query('DELETE FROM ba_feed_logs WHERE date = $1 AND pen = $2', [date, pen || 'ALL']);
@@ -2271,9 +2305,25 @@ module.exports = async (req, res) => {
 
             if (action === 'SAVE_RATION_PLAN') {
                 const { id, name, description, adgFloor, weeks, adaptation, ingredientPrices, isDefault, wandaStockItemId } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
 
                 if (!id || !name) {
                     return res.status(400).json({ success: false, error: "Plan id and name are required" });
+                }
+
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'SAVE_RATION_PLAN' AND (payload->>'id') = $1 AND status = 'pending'`,
+                        [String(id)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT * FROM ba_ration_plans WHERE id = $1', [id]);
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                            VALUES ('SAVE_RATION_PLAN', $1, $2, $3)
+                        `, [JSON.stringify(payload), JSON.stringify(currentRes.rows[0] || {}), session.email.toLowerCase().trim()]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
                 }
 
                 await client.query(`
@@ -2323,9 +2373,25 @@ module.exports = async (req, res) => {
 
             if (action === 'SAVE_PEN') {
                 const { id, rationPlanId, planId, cycleStartDate, forageType, expectedExitDate, notes } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
 
                 if (!id) {
                     return res.status(400).json({ success: false, error: "Pen id is required" });
+                }
+
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'SAVE_PEN' AND (payload->>'id') = $1 AND status = 'pending'`,
+                        [String(id)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT * FROM ba_pens WHERE id = $1', [id]);
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                            VALUES ('SAVE_PEN', $1, $2, $3)
+                        `, [JSON.stringify(payload), JSON.stringify(currentRes.rows[0] || {}), session.email.toLowerCase().trim()]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
                 }
 
                 await client.query(`
@@ -2341,9 +2407,6 @@ module.exports = async (req, res) => {
                         updated_at = NOW()
                 `, [id, rationPlanId || null, planId || null, cycleStartDate || null, forageType || 'silage', expectedExitDate || null, notes || null]);
 
-                // New-system (v2) plan assignment: seed the pen's cached weight/ADG fields
-                // straight away so the resolution engine has something to project from
-                // before the next weigh-in, instead of leaving them null and blocking feeding.
                 if (planId) {
                     const cache = await recomputePenWeightCache(client, id, planId, forageType || 'silage');
                     await client.query(`
@@ -2386,9 +2449,6 @@ module.exports = async (req, res) => {
                     return res.status(400).json({ success: false, errors: ['planKey, planName and at least one row are required.'] });
                 }
 
-                // Ingredient names must match the farm's existing feed stock list exactly
-                // (by normalized name) — never let an import introduce an ad-hoc ingredient
-                // name that silently diverges from what staff already use in Feed Stock/TMR.
                 const ingRes = await client.query(`SELECT value FROM ba_settings WHERE key = 'feed_ingredients'`);
                 const feedIngredients = ingRes.rows.length
                     ? ((typeof ingRes.rows[0].value === 'string' ? JSON.parse(ingRes.rows[0].value) : ingRes.rows[0].value) || [])
@@ -2420,8 +2480,6 @@ module.exports = async (req, res) => {
                     return res.status(400).json({ success: false, errors });
                 }
 
-                // Per-row structural/numeric validation (spec §7) — the qty bound (0-25kg)
-                // is the exact check that would have caught real-world unit-entry mistakes.
                 rows.forEach((r, idx) => {
                     const label = `Row ${idx + 1} (${r.forageType} ${r.phase}${r.dayNo ? ' day ' + r.dayNo : ''}, ${r.wtMin}-${r.wtMax}kg)`;
                     const wtMin = parseFloat(r.wtMin), wtMax = parseFloat(r.wtMax), targetAdg = parseFloat(r.targetAdg);
@@ -2445,11 +2503,6 @@ module.exports = async (req, res) => {
                     return res.status(400).json({ success: false, errors });
                 }
 
-                // Bracket contiguity per (forage_type, phase, day_no) — reject the whole file,
-                // naming the offending brackets, rather than importing a silent gap/overlap.
-                // Brackets are inclusive-integer buckets (e.g. 130-134, then 135-139) — every
-                // adjacent pair in the real ration_rows.csv data steps by wtMax+1 = nextWtMin,
-                // never wtMax = nextWtMin, so contiguity is checked against that +1 offset.
                 const groups = {};
                 rows.forEach(r => {
                     const key = `${r.forageType}|${r.phase}|${r.dayNo ?? ''}`;
@@ -2468,22 +2521,10 @@ module.exports = async (req, res) => {
                     return res.status(400).json({ success: false, errors });
                 }
 
-                // Never overwrite an existing plan version — pens keep resolving against
-                // whatever version they're pointed at until explicitly reassigned.
                 const verRes = await client.query('SELECT COALESCE(MAX(version), 0) AS max_version FROM ba_ration_plans_v2 WHERE plan_key = $1', [planKey]);
                 const version = parseInt(verRes.rows[0].max_version, 10) + 1;
                 const planId = `${planKey}-v${version}`;
 
-                // The whole import (plan + rows + items) runs as one transaction. Previously
-                // each row/item was its own awaited INSERT — for a 333-row plan that's 600+
-                // sequential network round trips to Neon, which is exactly what blew past
-                // Vercel's function timeout and produced the reported HTTP 504. Worse, because
-                // none of it was transactional, a mid-loop timeout left a half-written plan
-                // sitting in the DB (confirmed live: a "nothing was written" 504 that actually
-                // left 256/333 and 233/333 rows behind) — a real data-integrity bug, not just
-                // a UX one. BEGIN/COMMIT here means it's now all-or-nothing: either the plan
-                // is fully there or a failure rolls back to nothing, matching the error message
-                // the client already shows.
                 try {
                     await client.query('BEGIN');
 
@@ -2492,9 +2533,6 @@ module.exports = async (req, res) => {
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
                     `, [planId, planKey, version, planName, adaptationDays || 7, adgFloor || 1.0, !!isDefault, session ? session.email : null]);
 
-                    // Batch-insert every row in a single multi-row INSERT instead of one await
-                    // per row. Postgres preserves input row order in a multi-row VALUES
-                    // INSERT ... RETURNING, so rowsInsertRes.rows[idx] lines up with rows[idx].
                     const rowValues = [];
                     const rowParams = [];
                     rows.forEach((r, idx) => {
@@ -2518,8 +2556,6 @@ module.exports = async (req, res) => {
                         targetAdg: parseFloat(r.targetAdg), estCostPerHeadPerDay: r.estCostPerHeadPerDay || null
                     }));
 
-                    // Same batching for the (row, ingredient) items — flatten across every
-                    // row into one multi-row INSERT instead of one await per ingredient per row.
                     const itemValues = [];
                     const itemParams = [];
                     let itemIdx = 0;
@@ -2566,16 +2602,27 @@ module.exports = async (req, res) => {
                 }
             }
 
-            // Metadata-only edit for an imported (v2) plan — name, adaptation window,
-            // ADG floor, default flag. Never touches ba_ration_rows/ba_ration_row_items:
-            // correcting the actual bracket/ingredient data still means re-uploading a
-            // new CSV version (spec §4.3's never-overwrite rule), this just lets a typo'd
-            // display name or wrong adaptation-day count be fixed without a re-import.
             if (action === 'UPDATE_RATION_PLAN_V2') {
                 const { id, name, adaptationDays, adgFloor, isDefault } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
 
                 if (!id || !name || !name.trim()) {
                     return res.status(400).json({ success: false, error: "Plan id and name are required" });
+                }
+
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'UPDATE_RATION_PLAN_V2' AND (payload->>'id') = $1 AND status = 'pending'`,
+                        [String(id)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT * FROM ba_ration_plans_v2 WHERE id = $1', [id]);
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                            VALUES ('UPDATE_RATION_PLAN_V2', $1, $2, $3)
+                        `, [JSON.stringify(payload), JSON.stringify(currentRes.rows[0] || {}), session.email.toLowerCase().trim()]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
                 }
 
                 const existsRes = await client.query('SELECT id FROM ba_ration_plans_v2 WHERE id = $1', [id]);
@@ -2592,11 +2639,6 @@ module.exports = async (req, res) => {
                 return res.status(200).json({ success: true });
             }
 
-            // Row-level correction for an already-imported (v2) plan — lets a single
-            // bracket's weight range/target ADG/ingredient quantities be fixed in place
-            // (e.g. a typo caught after import) without re-uploading a whole new CSV
-            // version. Re-runs the same bound + contiguity checks IMPORT_RATION_PLAN
-            // applies (spec §7) against this row's siblings in the same
             // (forage_type, phase, day_no) group, so a bad edit can't silently break
             // the bracket sequence that live pens are already resolving against.
             if (action === 'UPDATE_RATION_ROW') {
