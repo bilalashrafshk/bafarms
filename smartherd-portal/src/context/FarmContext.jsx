@@ -1939,8 +1939,13 @@ export const FarmProvider = ({ children }) => {
     const logFeed = (entry) => {
         const date = entry.date || todayPKT();
         const pen = entry.pen || 'ALL';
+        // feedingIndex 0 = a single Full Day (100%) log; 1-3 = which feeding of a
+        // Morning/Evening (or Morning/Afternoon/Evening) split this is. Each feeding_index
+        // is its own row in the DB, so logging "Feeding 2 of 2" no longer overwrites
+        // "Feeding 1 of 2" from earlier the same day.
+        const feedingIndex = entry.feedingIndex || 0;
         const record = {
-            id: `${date}__${pen}`,
+            id: `${date}__${pen}__${feedingIndex}`,
             date,
             pen,
             animalCount: entry.animalCount || 0,
@@ -1950,14 +1955,17 @@ export const FarmProvider = ({ children }) => {
             totalCost: entry.totalCost || 0,
             costPerAnimal: entry.costPerAnimal || 0,
             notes: entry.notes || '',
-            dietDiffered: !!entry.dietDiffered
+            dietDiffered: !!entry.dietDiffered,
+            feedingIndex,
+            numFeedings: entry.numFeedings || 1,
+            feedingPct: entry.feedingPct !== undefined ? entry.feedingPct : 100
         };
 
-        // 1. Sync UI locally immediately (upsert by date+pen)
+        // 1. Sync UI locally immediately (upsert by date+pen+feedingIndex)
         setFeedLogs(prev => {
-            const exists = prev.some(f => f.date === date && f.pen === pen);
+            const exists = prev.some(f => f.date === date && f.pen === pen && (f.feedingIndex || 0) === feedingIndex);
             return exists
-                ? prev.map(f => (f.date === date && f.pen === pen) ? { ...f, ...record } : f)
+                ? prev.map(f => (f.date === date && f.pen === pen && (f.feedingIndex || 0) === feedingIndex) ? { ...f, ...record } : f)
                 : [...prev, record];
         });
 
@@ -1965,9 +1973,9 @@ export const FarmProvider = ({ children }) => {
         persistMutation('LOG_FEED', record);
     };
 
-    const deleteFeedLog = (date, pen) => {
-        setFeedLogs(prev => prev.filter(f => !(f.date === date && f.pen === pen)));
-        persistMutation('DELETE_FEED_LOG', { date, pen });
+    const deleteFeedLog = (date, pen, feedingIndex) => {
+        setFeedLogs(prev => prev.filter(f => !(f.date === date && f.pen === pen && (feedingIndex === undefined || (f.feedingIndex || 0) === feedingIndex))));
+        persistMutation('DELETE_FEED_LOG', { date, pen, feedingIndex });
     };
 
     // ─── RATION PLANS & PEN ASSIGNMENT ───

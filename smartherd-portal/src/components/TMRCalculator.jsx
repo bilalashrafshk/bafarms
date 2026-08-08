@@ -90,6 +90,12 @@ export default function TMRCalculator() {
 
     const parseFeedingSession = (log) => {
         if (!log) return 'Feed (100%)';
+        // Prefer the structured feedingIndex/feedingPct columns (backed by the DB, and
+        // always in sync — a log fetched fresh from the server always has these). Notes
+        // parsing is only a fallback for anything still going through the old code path.
+        if (log.feedingIndex) {
+            return `Feed ${log.feedingIndex} (${Math.round(log.feedingPct)}%)`;
+        }
         if (log.notes) {
             const match = log.notes.match(/FEEDING (\d+) OF (\d+) \((\d+%)\)/i);
             if (match) {
@@ -583,6 +589,12 @@ export default function TMRCalculator() {
             totalCost: batch.totalCostSingle * headCount * activeFeedingScale,
             costPerAnimal: batch.totalCostSingle * activeFeedingScale,
             createdBy: staffUser?.email || staffUser?.name || null,
+            // A "Full Day" log (index 0) is complete on its own — no other session is
+            // expected that day — so it's always recorded as 1 feeding at 100%, regardless
+            // of whatever split ratio happens to be selected in the UI at the time.
+            feedingIndex: activeFeedingIndex,
+            numFeedings: activeFeedingIndex === 0 ? 1 : numFeedings,
+            feedingPct: activeFeedingIndex === 0 ? 100 : activeFeedingPct,
             notes
         });
         setLogSaved(true);
@@ -2032,7 +2044,7 @@ export default function TMRCalculator() {
                                                         onClick={() => {
                                                             const penLabel = log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`;
                                                             if (window.confirm(`Undo this feed log?\n\n${formatDate(log.date)} · ${penLabel} · ${(log.totalBatchKg || 0).toFixed(2)} kg\n\nThis also reverses the matching entry in the Feed Stock ledger and the Feed & Growth Report. This cannot be undone.`)) {
-                                                                deleteFeedLog(log.date, log.pen);
+                                                                deleteFeedLog(log.date, log.pen, log.feedingIndex);
                                                             }
                                                         }}
                                                         title="Undo this feed log"

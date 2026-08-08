@@ -49,7 +49,7 @@ const verifyAndAuthorizeEmail = async (email) => {
         return { authorized: true, role: 'Internal Corporate Staff' };
     }
 
-    const adminEmails = getEmailList(process.env.ADMIN_EMAILS || process.env.VITE_ADMIN_EMAILS, ['bilalashrafshk@gmail.com']);
+    const adminEmails = getEmailList(process.env.ADMIN_EMAILS || process.env.VITE_ADMIN_EMAILS, ['bilalashrafshk@gmail.com', 'bilalashraf248@gmail.com']);
     if (adminEmails.includes(cleaned)) {
         return { authorized: true, role: 'Internal Corporate Staff' };
     }

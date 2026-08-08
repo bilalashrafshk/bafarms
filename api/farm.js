@@ -367,6 +367,41 @@ async function ensureColumns(client) {
     await client.query(`
         ALTER TABLE ba_feed_logs ADD COLUMN IF NOT EXISTS diet_differed BOOLEAN NOT NULL DEFAULT FALSE;
     `);
+    // Split-feeding tracking: a pen can be fed 1 (Full Day), 2 (Morning/Evening), or 3
+    // (Morning/Afternoon/Evening) times a day (TMR's "Feeding N of M" split, which used
+    // to only be encoded as free text in `notes`). Each feeding is now its own row, keyed
+    // by feeding_index (0 = Full Day / legacy single log, 1-3 = which feeding of the
+    // split), so a later feeding no longer overwrites an earlier one from the same day —
+    // needed so the Feed & Growth Report can tell a fully-fed day apart from a day where
+    // e.g. only the morning feed was ever logged and the evening feed was missed.
+    await client.query(`
+        ALTER TABLE ba_feed_logs ADD COLUMN IF NOT EXISTS feeding_index INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ba_feed_logs ADD COLUMN IF NOT EXISTS num_feedings INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE ba_feed_logs ADD COLUMN IF NOT EXISTS feeding_pct NUMERIC NOT NULL DEFAULT 100;
+    `);
+    // Backfill pre-existing rows from the "FEEDING N OF M (P%)" marker TMR already wrote
+    // into `notes` for split feedings — one-time (guarded by num_feedings = 1, the column
+    // default, so it never re-parses a row that's already been backfilled or explicitly set).
+    await client.query(`
+        UPDATE ba_feed_logs
+        SET feeding_index = (regexp_match(notes, 'FEEDING (\\d+) OF (\\d+) \\((\\d+)%\\)'))[1]::int,
+            num_feedings = (regexp_match(notes, 'FEEDING (\\d+) OF (\\d+) \\((\\d+)%\\)'))[2]::int,
+            feeding_pct = (regexp_match(notes, 'FEEDING (\\d+) OF (\\d+) \\((\\d+)%\\)'))[3]::numeric
+        WHERE num_feedings = 1 AND notes ~ 'FEEDING \\d+ OF \\d+ \\(\\d+%\\)';
+    `);
+    // The old UNIQUE(date, pen) constraint would silently let a second feeding of the
+    // same day overwrite the first — swap it for one that also keys on feeding_index.
+    await client.query(`
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ba_feed_logs_date_pen_key') THEN
+                ALTER TABLE ba_feed_logs DROP CONSTRAINT ba_feed_logs_date_pen_key;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ba_feed_logs_date_pen_feeding_index_key') THEN
+                ALTER TABLE ba_feed_logs ADD CONSTRAINT ba_feed_logs_date_pen_feeding_index_key UNIQUE (date, pen, feeding_index);
+            END IF;
+        END $$;
+    `);
     // Optional pin to a specific purchase lot (or 'opening' for opening stock) an issue
     // should draw from — set when a "Log a Batch" / manual Issue lot picker is used to
     // override the default FIFO (oldest lot first) draw. NULL means "auto/FIFO".
@@ -502,7 +537,10 @@ async function ensureTables(client) {
                 notes TEXT,
                 created_by VARCHAR(150),
                 created_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(date, pen)
+                feeding_index INTEGER NOT NULL DEFAULT 0,
+                num_feedings INTEGER NOT NULL DEFAULT 1,
+                feeding_pct NUMERIC NOT NULL DEFAULT 100,
+                UNIQUE(date, pen, feeding_index)
             );
 
             CREATE TABLE IF NOT EXISTS ba_ration_plans (
@@ -714,7 +752,10 @@ async function ensureTables(client) {
             notes TEXT,
             created_by VARCHAR(150),
             created_at TIMESTAMP DEFAULT NOW(),
-            UNIQUE(date, pen)
+            feeding_index INTEGER NOT NULL DEFAULT 0,
+            num_feedings INTEGER NOT NULL DEFAULT 1,
+            feeding_pct NUMERIC NOT NULL DEFAULT 100,
+            UNIQUE(date, pen, feeding_index)
         );
 
         CREATE TABLE IF NOT EXISTS ba_ration_plans (
@@ -778,15 +819,23 @@ async function resolvePermissions(client, session) {
     if (!session || !session.email) return null;
     const email = session.email.toLowerCase().trim();
 
+    const adminEmails = (process.env.ADMIN_EMAILS || process.env.VITE_ADMIN_EMAILS || 'bilalashrafshk@gmail.com,bilalashraf248@gmail.com')
+        .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+    const isEnvAdmin = adminEmails.includes(email);
+
     const existing = await client.query('SELECT * FROM ba_staff_permissions WHERE email = $1', [email]);
     if (existing.rows.length > 0) {
         const row = existing.rows[0];
+        // Self-heal: an env-configured admin should never be stuck as non-admin just
+        // because their row was bootstrapped before ADMIN_EMAILS included them.
+        if (isEnvAdmin && !row.is_admin) {
+            await client.query('UPDATE ba_staff_permissions SET is_admin = TRUE WHERE email = $1', [email]);
+            return { isAdmin: true, accessSales: row.access_sales, accessHerd: row.access_herd };
+        }
         return { isAdmin: row.is_admin, accessSales: row.access_sales, accessHerd: row.access_herd };
     }
 
-    const adminEmails = (process.env.ADMIN_EMAILS || process.env.VITE_ADMIN_EMAILS || 'bilalashrafshk@gmail.com')
-        .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-    const isAdmin = adminEmails.includes(email);
+    const isAdmin = isEnvAdmin;
 
     await client.query(`
         INSERT INTO ba_staff_permissions (email, is_admin, access_sales, access_herd)
@@ -926,6 +975,54 @@ const ADMIN_ONLY_ACTIONS = new Set(['RESET_DATABASE', 'UPDATE_STAFF_PERMISSIONS'
 // container (the standard way to cache setup work in a Vercel/Lambda function), so
 // migrations only actually run again after a cold start (i.e. after a new deploy).
 let schemaEnsured = false;
+
+// Throttle for checkMissedFeeds — same warm-container caching idea as schemaEnsured,
+// but time-based (30 min) rather than once-ever, since new feed logs land continuously.
+let lastMissedFeedCheck = 0;
+
+// Scans the last 14 days of ba_feed_logs for any pen/day where a split feeding (Morning/
+// Evening, or Morning/Afternoon/Evening) never got fully logged — e.g. only the Morning
+// feed was recorded and the Evening feed was missed — and raises a 'feed_missed' ba_events
+// entry for it so it shows up in the Activity Feed, not just as a badge in the Feed & Growth
+// Report. Today itself is excluded (the day isn't over, so a still-missing evening feed
+// isn't necessarily "missed" yet). Fully idempotent: the whole 14-day window's feed_missed
+// events are cleared and recomputed from scratch each run, so a late catch-up log or a
+// newly-discovered gap both resolve correctly without needing to track what was seen before.
+async function checkMissedFeeds(client) {
+    const today = new Date().toISOString().split('T')[0];
+    const windowStart = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const res = await client.query(`
+        SELECT date, pen, array_agg(feeding_index) AS indexes, SUM(feeding_pct) AS logged_pct, MAX(num_feedings) AS num_feedings
+        FROM ba_feed_logs
+        WHERE date < $1 AND date >= $2
+        GROUP BY date, pen
+    `, [today, windowStart]);
+
+    await client.query(`DELETE FROM ba_events WHERE event_type = 'feed_missed' AND date >= $1 AND date < $2`, [windowStart, today]);
+
+    const SESSION_LABELS = { 2: ['Morning', 'Evening'], 3: ['Morning', 'Afternoon', 'Evening'] };
+
+    for (const row of res.rows) {
+        const numFeedings = parseInt(row.num_feedings || 1);
+        const loggedPct = parseFloat(row.logged_pct || 0);
+        if (numFeedings <= 1 || loggedPct >= 99.5) continue; // single full-day log, or fully covered split
+
+        const loggedIndexes = new Set(row.indexes.map(i => parseInt(i)));
+        const labels = SESSION_LABELS[numFeedings] || [];
+        const missing = [];
+        for (let i = 1; i <= numFeedings; i++) {
+            if (!loggedIndexes.has(i)) missing.push(labels[i - 1] || `Feeding ${i}`);
+        }
+        if (missing.length === 0) continue;
+
+        const note = `Pen ${row.pen} — only ${Math.round(loggedPct)}% of feed logged (missing: ${missing.join(', ')})`;
+        await client.query(`
+            INSERT INTO ba_events (animal_id, date, event_type, note)
+            VALUES (NULL, $1, 'feed_missed', $2)
+        `, [row.date, note]);
+    }
+}
 
 async function ensureDefaultCuts(client) {
     const countRes = await client.query('SELECT COUNT(*) FROM ba_meat_cuts');
@@ -1097,6 +1194,14 @@ module.exports = async (req, res) => {
             schemaEnsured = true;
         }
 
+        // 1b. Re-scan recent feed logs for missed feedings at most once every 30 minutes
+        // per warm container — cheap enough to run opportunistically on real requests
+        // instead of needing a dedicated cron job.
+        if (isStaff && Date.now() - lastMissedFeedCheck > 30 * 60 * 1000) {
+            lastMissedFeedCheck = Date.now();
+            await checkMissedFeeds(client);
+        }
+
         // 2. Resolve this staff member's per-section access (null if unauthenticated)
         const perms = isStaff ? await resolvePermissions(client, session) : null;
         const canHerd = isStaff && !!(perms && (perms.isAdmin || perms.accessHerd));
@@ -1174,7 +1279,7 @@ module.exports = async (req, res) => {
                 canHerd ? client.query('SELECT * FROM ba_weights ORDER BY date ASC, id ASC') : EMPTY,
                 canHerd ? client.query('SELECT * FROM ba_treatments ORDER BY date ASC, id ASC') : EMPTY,
                 canHerd ? client.query('SELECT * FROM ba_events ORDER BY date ASC, id ASC') : EMPTY,
-                canHerd ? client.query('SELECT * FROM ba_feed_logs ORDER BY date DESC, pen ASC') : EMPTY,
+                canHerd ? client.query('SELECT * FROM ba_feed_logs ORDER BY date DESC, pen ASC, feeding_index ASC') : EMPTY,
                 canHerd ? client.query('SELECT * FROM ba_ration_plans ORDER BY created_at ASC') : EMPTY,
                 canHerd ? client.query('SELECT * FROM ba_ration_plans_v2 ORDER BY plan_key ASC, version ASC') : EMPTY,
                 canHerd ? client.query('SELECT * FROM ba_ration_rows ORDER BY plan_id ASC, forage_type ASC, phase ASC, day_no ASC, wt_min ASC') : EMPTY,
@@ -1274,6 +1379,9 @@ module.exports = async (req, res) => {
                 costPerAnimal: parseFloat(row.cost_per_animal || 0),
                 notes: row.notes || '',
                 dietDiffered: !!row.diet_differed,
+                feedingIndex: parseInt(row.feeding_index || 0),
+                numFeedings: parseInt(row.num_feedings || 1),
+                feedingPct: parseFloat(row.feeding_pct || 100),
                 createdBy: row.created_by || null
             }));
 
@@ -1937,15 +2045,26 @@ module.exports = async (req, res) => {
                     date, pen, animalCount, ingredients,
                     totalDmKg, totalBatchKg, totalCost, costPerAnimal, notes, dietDiffered
                 } = payload;
+                let { feedingIndex, numFeedings, feedingPct } = payload;
 
                 if (!date) {
                     return res.status(400).json({ success: false, error: "Date is required" });
                 }
 
+                // Older callers (or callers that only set the human-readable note) don't pass
+                // structured split-feeding fields — fall back to parsing the same "FEEDING N
+                // OF M (P%)" marker TMR already writes into notes for a split feeding.
+                if (feedingIndex === undefined || numFeedings === undefined || feedingPct === undefined) {
+                    const match = notes && notes.match(/FEEDING (\d+) OF (\d+) \((\d+)%\)/i);
+                    feedingIndex = match ? parseInt(match[1]) : 0;
+                    numFeedings = match ? parseInt(match[2]) : 1;
+                    feedingPct = match ? parseInt(match[3]) : 100;
+                }
+
                 await client.query(`
-                    INSERT INTO ba_feed_logs (date, pen, animal_count, ingredients, total_dm_kg, total_batch_kg, total_cost, cost_per_animal, notes, diet_differed, created_by, created_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
-                    ON CONFLICT (date, pen) DO UPDATE SET
+                    INSERT INTO ba_feed_logs (date, pen, animal_count, ingredients, total_dm_kg, total_batch_kg, total_cost, cost_per_animal, notes, diet_differed, feeding_index, num_feedings, feeding_pct, created_by, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+                    ON CONFLICT (date, pen, feeding_index) DO UPDATE SET
                         animal_count = EXCLUDED.animal_count,
                         ingredients = EXCLUDED.ingredients,
                         total_dm_kg = EXCLUDED.total_dm_kg,
@@ -1954,20 +2073,28 @@ module.exports = async (req, res) => {
                         cost_per_animal = EXCLUDED.cost_per_animal,
                         notes = EXCLUDED.notes,
                         diet_differed = EXCLUDED.diet_differed,
+                        num_feedings = EXCLUDED.num_feedings,
+                        feeding_pct = EXCLUDED.feeding_pct,
                         created_by = EXCLUDED.created_by,
                         created_at = NOW()
                 `, [
                     date, pen || 'ALL', animalCount || 0, JSON.stringify(ingredients || []),
                     totalDmKg || 0, totalBatchKg || 0, totalCost || 0, costPerAnimal || 0,
-                    notes || null, !!dietDiffered, session ? session.email : null
+                    notes || null, !!dietDiffered, feedingIndex, numFeedings, feedingPct,
+                    session ? session.email : null
                 ]);
 
                 return res.status(200).json({ success: true });
             }
 
             if (action === 'DELETE_FEED_LOG') {
-                const { date, pen } = payload;
-                await client.query('DELETE FROM ba_feed_logs WHERE date = $1 AND pen = $2', [date, pen || 'ALL']);
+                const { date, pen, feedingIndex } = payload;
+                if (feedingIndex === undefined || feedingIndex === null) {
+                    // No specific session given — clear every feeding logged for that pen/day.
+                    await client.query('DELETE FROM ba_feed_logs WHERE date = $1 AND pen = $2', [date, pen || 'ALL']);
+                } else {
+                    await client.query('DELETE FROM ba_feed_logs WHERE date = $1 AND pen = $2 AND feeding_index = $3', [date, pen || 'ALL', feedingIndex]);
+                }
                 return res.status(200).json({ success: true });
             }
 

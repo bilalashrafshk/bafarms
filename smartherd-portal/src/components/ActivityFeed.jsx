@@ -11,6 +11,7 @@ const EVENT_META = {
     treatment:     { icon: 'fa-syringe',            color: 'hsl(280,60%,65%)' },
     weight:        { icon: 'fa-weight-scale',       color: 'hsl(160,55%,50%)' },
     approval_decision: { icon: 'fa-user-shield',    color: 'var(--accent-gold)' },
+    feed_missed:   { icon: 'fa-triangle-exclamation', color: 'hsl(0,75%,60%)' },
 };
 
 export default function ActivityFeed() {
@@ -21,6 +22,8 @@ export default function ActivityFeed() {
     const isAdmin = staffUser?.isAdmin === true;
 
     const getRfid = (animalId) => {
+        // Pen-level events (e.g. 'feed_missed') aren't tied to a single animal.
+        if (animalId === null || animalId === undefined) return null;
         const a = animals.find(a => a.id === animalId);
         return a ? a.rfid : `#${animalId}`;
     };
@@ -75,7 +78,7 @@ export default function ActivityFeed() {
         })
         .filter(item => {
             if (!tagSearch.trim()) return true;
-            return getRfid(item.animalId).toLowerCase().includes(tagSearch.trim().toLowerCase());
+            return (getRfid(item.animalId) || '').toLowerCase().includes(tagSearch.trim().toLowerCase());
         })
         .slice(0, 150);
 
@@ -110,7 +113,7 @@ export default function ActivityFeed() {
                         <div key={item.key} style={{ display: 'flex', gap: '0.7rem', alignItems: 'center', padding: '0.55rem 0.35rem', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                             <i className={`fa-solid ${meta.icon}`} style={{ color: meta.color, fontSize: '0.85rem', flexShrink: 0, width: '16px', textAlign: 'center' }}></i>
                             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.45rem' }}>
-                                <span style={{ fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)', fontSize: '0.88rem' }}>{rfid}</span>
+                                {rfid && <span style={{ fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)', fontSize: '0.88rem' }}>{rfid}</span>}
                                 <span style={{ color: 'var(--text-main)', fontSize: '0.83rem' }}>{item.note}</span>
                                 {item.createdBy && (
                                     <span style={{ fontSize: '0.7rem', color: 'var(--accent-gold)', background: 'rgba(255,193,7,0.1)', padding: '0.1rem 0.45rem', borderRadius: '4px', border: '1px solid rgba(255,193,7,0.2)', fontWeight: '600' }}>
@@ -120,7 +123,7 @@ export default function ActivityFeed() {
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexShrink: 0 }}>
                                 <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontFamily: 'var(--font-heading)', whiteSpace: 'nowrap' }}>{formatDate(item.date)}</span>
-                                {isAdmin && (
+                                {isAdmin && item.eventType !== 'feed_missed' && (
                                     <button
                                         type="button"
                                         className="btn btn-secondary btn-sm"

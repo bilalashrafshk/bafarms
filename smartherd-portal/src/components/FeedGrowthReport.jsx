@@ -41,6 +41,54 @@ export default function FeedGrowthReport() {
             .sort((a, b) => daysBetween(b.date, a.date));
     }, [feedLogs, dateFrom, dateTo, penFilter]);
 
+    // A pen fed on a "split" schedule (Morning/Evening, or Morning/Afternoon/Evening) logs
+    // one ba_feed_logs row per feeding — group those back up by date+pen so the Daily Feed
+    // Log below can show, per day, how much of that day's feeding actually got logged
+    // (100%, or e.g. 50% with the Evening feed still missing).
+    const SESSION_LABELS = { 2: ['Morning', 'Evening'], 3: ['Morning', 'Afternoon', 'Evening'] };
+    const dailyCoverage = useMemo(() => {
+        const map = new Map();
+        filteredFeedLogs.forEach(f => {
+            const key = `${f.date}__${f.pen}`;
+            const entry = map.get(key) || { pct: 0, numFeedings: 1, indexes: new Set() };
+            entry.pct += (f.feedingPct !== undefined && f.feedingPct !== null) ? f.feedingPct : 100;
+            entry.numFeedings = Math.max(entry.numFeedings, f.numFeedings || 1);
+            entry.indexes.add(f.feedingIndex || 0);
+            map.set(key, entry);
+        });
+        return map;
+    }, [filteredFeedLogs]);
+
+    const sessionLabel = (log) => {
+        if (!log.feedingIndex) return 'Full Day (100%)';
+        const labels = SESSION_LABELS[log.numFeedings] || [];
+        const name = labels[log.feedingIndex - 1] || `Feeding ${log.feedingIndex}`;
+        return `${name} (${Math.round(log.feedingPct)}%)`;
+    };
+
+    const coverageBadge = (log) => {
+        const entry = dailyCoverage.get(`${log.date}__${log.pen}`);
+        const pct = Math.min(100, Math.round(entry ? entry.pct : (log.feedingPct ?? 100)));
+        const numFeedings = entry ? entry.numFeedings : (log.numFeedings || 1);
+        if (numFeedings <= 1 || pct >= 100) {
+            return <span style={{ color: 'var(--primary-green-light)', fontWeight: 600 }}>{pct}%</span>;
+        }
+        const labels = SESSION_LABELS[numFeedings] || [];
+        const missing = [];
+        for (let i = 1; i <= numFeedings; i++) {
+            if (!entry.indexes.has(i)) missing.push(labels[i - 1] || `Feeding ${i}`);
+        }
+        const isToday = log.date === todayStr;
+        return (
+            <span
+                style={{ color: isToday ? 'var(--accent-gold)' : 'hsl(0, 75%, 60%)', fontWeight: 600 }}
+                title={missing.length ? `Missing: ${missing.join(', ')}${isToday ? ' (day still in progress)' : ''}` : ''}
+            >
+                {pct}%{missing.length > 0 && <i class="fa-solid fa-triangle-exclamation" style={{ marginLeft: '0.35rem' }}></i>}
+            </span>
+        );
+    };
+
     const totalFeedCost = filteredFeedLogs.reduce((sum, f) => sum + (f.totalCost || 0), 0);
     const daysLogged = new Set(filteredFeedLogs.map(f => f.date)).size;
     const avgDailyCost = daysLogged > 0 ? totalFeedCost / daysLogged : 0;
@@ -252,19 +300,23 @@ export default function FeedGrowthReport() {
                                 <tr>
                                     <th>DATE</th>
                                     <th>PEN</th>
+                                    <th>SESSION</th>
                                     <th>ANIMALS</th>
                                     <th>TOTAL COST</th>
                                     <th>COST / ANIMAL</th>
+                                    <th>DAY COVERAGE</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filteredFeedLogs.map(log => (
-                                    <tr key={`${log.date}__${log.pen}`}>
+                                    <tr key={`${log.date}__${log.pen}__${log.feedingIndex || 0}`}>
                                         <td>{formatDate(log.date)}</td>
                                         <td>{log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`}</td>
+                                        <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{sessionLabel(log)}</td>
                                         <td>{log.animalCount}</td>
                                         <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(log.totalCost).toLocaleString()} PKR</strong></td>
                                         <td>{Math.round(log.costPerAnimal)} PKR</td>
+                                        <td>{coverageBadge(log)}</td>
                                     </tr>
                                 ))}
                             </tbody>
