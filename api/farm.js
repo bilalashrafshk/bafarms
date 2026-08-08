@@ -2300,6 +2300,8 @@ module.exports = async (req, res) => {
                         }
                     }
                     return res.status(200).json({ success: true, pending: true });
+                }
+
                 if (feedingIndex === undefined || feedingIndex === null) {
                     // No specific session given — clear every feeding logged for that pen/day.
                     await client.query('DELETE FROM ba_feed_logs WHERE date = $1 AND pen = $2', [date, pen || 'ALL']);
