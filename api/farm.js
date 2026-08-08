@@ -914,7 +914,7 @@ const SALES_ACTIONS = new Set([
     'SAVE_QUOTATION', 'UPDATE_QUOTATION_STATUS', 'DELETE_QUOTATION',
     'SAVE_SPEC_SHEET', 'DELETE_SPEC_SHEET', 'ADD_MEAT_CUT', 'UPDATE_MEAT_CUT', 'DELETE_MEAT_CUT'
 ]);
-const ADMIN_ONLY_ACTIONS = new Set(['RESET_DATABASE', 'UPDATE_STAFF_PERMISSIONS', 'DELETE_STAFF_PERMISSIONS', 'APPROVE_PENDING_CHANGE', 'REJECT_PENDING_CHANGE']);
+const ADMIN_ONLY_ACTIONS = new Set(['RESET_DATABASE', 'APPROVE_PENDING_CHANGE', 'REJECT_PENDING_CHANGE']);
 
 // Insert 6 default meat cuts if ba_meat_cuts is empty
 // Schema-migration idempotency checks (ensureTables/ensureColumns/ensureDefaultCuts)
@@ -1188,7 +1188,7 @@ module.exports = async (req, res) => {
                 canSales ? client.query('SELECT * FROM ba_export_enquiries ORDER BY created_at DESC') : EMPTY,
                 canSales ? client.query('SELECT * FROM ba_quotations ORDER BY id DESC') : EMPTY,
                 canSales ? client.query('SELECT * FROM ba_spec_sheets ORDER BY doc_ref DESC') : EMPTY,
-                (isStaff && perms && perms.isAdmin) ? client.query('SELECT email, is_admin, access_sales, access_herd FROM ba_staff_permissions ORDER BY email ASC') : EMPTY,
+                isStaff ? client.query('SELECT email, is_admin, access_sales, access_herd FROM ba_staff_permissions ORDER BY email ASC') : EMPTY,
                 // Super-admin's review queue: every open request from any staff member,
                 // regardless of who's logged in — this is what the login-triggered
                 // approval popup is built from. animal_rfid/animal_breed are read
