@@ -819,23 +819,15 @@ async function resolvePermissions(client, session) {
     if (!session || !session.email) return null;
     const email = session.email.toLowerCase().trim();
 
-    const adminEmails = (process.env.ADMIN_EMAILS || process.env.VITE_ADMIN_EMAILS || 'bilalashrafshk@gmail.com,bilalashraf248@gmail.com')
-        .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-    const isEnvAdmin = adminEmails.includes(email);
-
     const existing = await client.query('SELECT * FROM ba_staff_permissions WHERE email = $1', [email]);
     if (existing.rows.length > 0) {
         const row = existing.rows[0];
-        // Self-heal: an env-configured admin should never be stuck as non-admin just
-        // because their row was bootstrapped before ADMIN_EMAILS included them.
-        if (isEnvAdmin && !row.is_admin) {
-            await client.query('UPDATE ba_staff_permissions SET is_admin = TRUE WHERE email = $1', [email]);
-            return { isAdmin: true, accessSales: row.access_sales, accessHerd: row.access_herd };
-        }
         return { isAdmin: row.is_admin, accessSales: row.access_sales, accessHerd: row.access_herd };
     }
 
-    const isAdmin = isEnvAdmin;
+    const adminEmails = (process.env.ADMIN_EMAILS || process.env.VITE_ADMIN_EMAILS || 'bilalashrafshk@gmail.com')
+        .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+    const isAdmin = adminEmails.includes(email);
 
     await client.query(`
         INSERT INTO ba_staff_permissions (email, is_admin, access_sales, access_herd)

@@ -221,6 +221,15 @@ export const FarmProvider = ({ children }) => {
     // off their own pass — that race is what used to let a fresh GET clobber a pen/
     // ration-plan edit that hadn't finished (re-)saving yet after a re-login.
     const flushPromiseRef = useRef(null);
+    // Tracks in-flight direct (non-queued) mutation sends — see persistMutation's
+    // "send straight through" fast path. Without this, the sliding-session token
+    // refresh (every 30s) can trigger syncState's authoritative GET while a just-saved
+    // record (e.g. a feed purchase) is still mid-flight to the server; the GET can win
+    // the race and its full-array overwrite (setFeedPurchases(data.feedPurchases), etc.)
+    // would then briefly hide the new record from the UI even though it lands in the DB
+    // moments later. syncState awaits this set before firing its GET, same as it
+    // already awaits flushQueue() for the durable-queue path.
+    const inFlightDirectRef = useRef(new Set());
 
     useEffect(() => { pendingRef.current = pendingMutations; }, [pendingMutations]);
     useEffect(() => { staffUserRef.current = staffUser; }, [staffUser]);
@@ -382,6 +391,8 @@ export const FarmProvider = ({ children }) => {
         const item = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, action, payload, createdAt: Date.now() };
 
         if (pendingRef.current.length === 0 && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+            const marker = {};
+            inFlightDirectRef.current.add(marker);
             try {
                 const { res, data } = await sendMutationToServer(action, payload);
 
@@ -401,6 +412,8 @@ export const FarmProvider = ({ children }) => {
                 return;
             } catch (err) {
                 // Network error mid-flight — fall through and queue it durably below.
+            } finally {
+                inFlightDirectRef.current.delete(marker);
             }
         }
 
@@ -1410,6 +1423,15 @@ export const FarmProvider = ({ children }) => {
     // right after login rather than waiting for a page reload.
     useEffect(() => {
         const syncState = async () => {
+            // Wait out any direct (non-queued) mutation sends still in flight — e.g. a
+            // feed purchase just saved a moment before this sync fired (the sliding-
+            // session token refresh triggers this effect every ~30s). Without this, the
+            // GET below can win the race against that POST and its full-array overwrite
+            // would briefly hide the new record even though it lands in the DB moments
+            // later.
+            while (inFlightDirectRef.current.size > 0) {
+                await new Promise(r => setTimeout(r, 50));
+            }
             // Replay any locally-queued writes (made while offline or mid-session-expiry)
             // with the current token BEFORE pulling the "authoritative" snapshot below.
             // Otherwise this GET can race the queued POST and win, overwriting a just-made

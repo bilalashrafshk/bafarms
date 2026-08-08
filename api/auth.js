@@ -49,7 +49,7 @@ const verifyAndAuthorizeEmail = async (email) => {
         return { authorized: true, role: 'Internal Corporate Staff' };
     }
 
-    const adminEmails = getEmailList(process.env.ADMIN_EMAILS || process.env.VITE_ADMIN_EMAILS, ['bilalashrafshk@gmail.com', 'bilalashraf248@gmail.com']);
+    const adminEmails = getEmailList(process.env.ADMIN_EMAILS || process.env.VITE_ADMIN_EMAILS, ['bilalashrafshk@gmail.com']);
     if (adminEmails.includes(cleaned)) {
         return { authorized: true, role: 'Internal Corporate Staff' };
     }
@@ -60,7 +60,7 @@ const verifyAndAuthorizeEmail = async (email) => {
     }
 
     // DB fallback check: allow login if email is pre-authorized or granted access in ba_staff_permissions table
-    const connectionString = process.env.DATABASE_URL;
+    const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.bafarms_DATABASE_URL || process.env.bafarms_DATABASE_URL_UNPOOLED;
     if (connectionString) {
         const client = new Client({ connectionString, ssl: { rejectUnauthorized: false } });
         try {
