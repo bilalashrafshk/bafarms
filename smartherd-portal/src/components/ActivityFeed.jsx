@@ -12,10 +12,13 @@ const EVENT_META = {
     weight:        { icon: 'fa-weight-scale',       color: 'hsl(160,55%,50%)' },
     approval_decision: { icon: 'fa-user-shield',    color: 'var(--accent-gold)' },
     feed_missed:   { icon: 'fa-triangle-exclamation', color: 'hsl(0,75%,60%)' },
+    feed_log:      { icon: 'fa-wheat-awn',          color: 'hsl(140,65%,55%)' },
+    feed_purchase: { icon: 'fa-cart-shopping',     color: 'hsl(210,75%,60%)' },
+    feed_issue:    { icon: 'fa-boxes-packing',      color: 'hsl(30,80%,55%)' },
 };
 
 export default function ActivityFeed() {
-    const { animals, events, treatments, weightLogs, staffUser, undoActivity } = useContext(FarmContext);
+    const { animals, events, treatments, weightLogs, feedLogs, feedPurchases, feedStockIssues, feedStockItems, staffUser, undoActivity } = useContext(FarmContext);
     const [filter, setFilter] = useState('all');
     const [tagSearch, setTagSearch] = useState('');
 
@@ -64,6 +67,44 @@ export default function ActivityFeed() {
             createdBy: w.createdBy || null,
             sortId: w.id
         })),
+        ...(feedLogs || []).map(f => ({
+            key: `fl-${f.id || (f.date + '-' + f.pen + '-' + (f.feedingIndex || 0))}`,
+            animalId: null,
+            date: f.date,
+            category: 'feeds',
+            eventType: 'feed_log',
+            note: `Fed Pen ${f.pen || 'ALL'} — ${f.totalBatchKg || 0} kg TMR (${f.animalCount || 0} head${f.feedingIndex !== undefined ? `, Feeding #${f.feedingIndex + 1}` : ''})`,
+            createdBy: f.createdBy || null,
+            sortId: f.id || Date.parse(f.date) || 0
+        })),
+        ...(feedPurchases || []).map(p => {
+            const itemObj = (feedStockItems || []).find(i => i.id === p.itemId);
+            const itemName = itemObj ? itemObj.name : p.itemId;
+            return {
+                key: `fp-${p.id}`,
+                animalId: null,
+                date: p.date,
+                category: 'feeds',
+                eventType: 'feed_purchase',
+                note: `Purchased ${p.quantity?.toLocaleString() || 0} kg ${itemName} @ PKR ${p.rate || 0}/kg${p.supplier ? ` (${p.supplier})` : ''}`,
+                createdBy: p.createdBy || null,
+                sortId: p.id || Date.parse(p.date) || 0
+            };
+        }),
+        ...(feedStockIssues || []).map(s => {
+            const itemObj = (feedStockItems || []).find(i => i.id === s.itemId);
+            const itemName = itemObj ? itemObj.name : s.itemId;
+            return {
+                key: `fi-${s.id}`,
+                animalId: null,
+                date: s.date,
+                category: 'feeds',
+                eventType: 'feed_issue',
+                note: `Feed Issue: ${s.quantity?.toLocaleString() || 0} kg ${itemName} to Pen ${s.pen || 'ALL'}${s.notes ? ` (${s.notes})` : ''}`,
+                createdBy: s.createdBy || null,
+                sortId: s.id || Date.parse(s.date) || 0
+            };
+        }),
     ].sort((a, b) => {
         const dateDiff = new Date(b.date) - new Date(a.date);
         return dateDiff !== 0 ? dateDiff : b.sortId - a.sortId;
@@ -74,6 +115,7 @@ export default function ActivityFeed() {
             if (filter === 'status') return item.category === 'status' || item.category === 'sold' || item.category === 'deceased';
             if (filter === 'treatments') return item.category === 'treatment';
             if (filter === 'weights') return item.category === 'weight';
+            if (filter === 'feeds') return item.category === 'feeds' || item.eventType === 'feed_missed';
             return true;
         })
         .filter(item => {
@@ -103,6 +145,7 @@ export default function ActivityFeed() {
                 <button className={`filter-btn ${filter === 'status' ? 'active' : ''}`} onClick={() => setFilter('status')}>Status & Moves</button>
                 <button className={`filter-btn ${filter === 'treatments' ? 'active' : ''}`} onClick={() => setFilter('treatments')}>Treatments</button>
                 <button className={`filter-btn ${filter === 'weights' ? 'active' : ''}`} onClick={() => setFilter('weights')}>Weights</button>
+                <button className={`filter-btn ${filter === 'feeds' ? 'active' : ''}`} onClick={() => setFilter('feeds')}>Feeds</button>
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>

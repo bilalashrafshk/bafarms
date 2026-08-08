@@ -15,9 +15,9 @@ import Login from './components/Login';
 import Settings from './components/Settings';
 import SalesManager from './components/SalesManager';
 import ListingsManager from './components/ListingsManager';
-import EnquiriesManager from './components/EnquiriesManager';
 import { formatDate } from './utils/formatDate';
 import { todayPKT } from './utils/dateOnly';
+import { renderSettingsDiff } from './utils/renderSettingsDiff';
 
 function AppContent() {
     const [activeTab, setActiveTab] = useState('dashboard');
@@ -849,7 +849,7 @@ function AppContent() {
                                             case 'ADD_FEED_PURCHASE':
                                                 return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Item: {payload.itemId} · Qty: {payload.quantity} kg · Rate: PKR {payload.rate}/kg · Supplier: {payload.supplier || 'N/A'}</div>;
                                             case 'SAVE_SETTINGS':
-                                                return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Setting Key: {payload.key}</div>;
+                                                return renderSettingsDiff(payload.key, payload.value, snap);
                                             case 'ADD_MEAT_CUT':
                                                 return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Title: {payload.title} · Price: PKR {payload.price}</div>;
                                             case 'UPDATE_MEAT_CUT':

@@ -1,5 +1,6 @@
 import React, { useContext, useState } from 'react';
 import { FarmContext } from '../context/FarmContext';
+import { renderSettingsDiff } from '../utils/renderSettingsDiff';
 
 export default function Settings() {
     const {
@@ -826,6 +827,9 @@ export default function Settings() {
                                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                                     {a.previousSnapshot.quantity} kg to Pen {a.previousSnapshot.pen || 'ALL'}
                                                 </div>
+                                            )}
+                                            {a.action === 'SAVE_SETTINGS' && a.payload && (
+                                                renderSettingsDiff(a.payload.key, a.payload.value, a.previousSnapshot)
                                             )}
                                             {a.action === 'DELETE_ORDER' && a.previousSnapshot && (
                                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
