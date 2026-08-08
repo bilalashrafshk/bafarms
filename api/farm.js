@@ -1971,6 +1971,12 @@ module.exports = async (req, res) => {
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                         ON CONFLICT (id) DO NOTHING
                     `, [changes.id, changes.title, changes.category || 'cuts', changes.price, changes.weight || null, changes.desc || null, changes.ribbon || null, changes.rfid || null, changes.marbling || null, changes.fatRatio || null, JSON.stringify(changes.images || [])]);
+                } else if (approval.action === 'ADD_FEED_STOCK_ISSUE') {
+                    await client.query(`
+                        INSERT INTO ba_feed_stock_issues (id, item_id, date, pen, quantity, lot_id, notes, created_by, created_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                        ON CONFLICT (id) DO UPDATE SET item_id = EXCLUDED.item_id, date = EXCLUDED.date, pen = EXCLUDED.pen, quantity = EXCLUDED.quantity, lot_id = EXCLUDED.lot_id, notes = EXCLUDED.notes
+                    `, [changes.id, changes.itemId, changes.date, changes.pen || 'ALL', changes.quantity || 0, changes.lotId || null, changes.notes || null, approval.requested_by]);
                 } else if (approval.action === 'UPDATE_MEAT_CUT') {
                     await client.query(`
                         UPDATE ba_meat_cuts
@@ -2745,8 +2751,7 @@ module.exports = async (req, res) => {
                     return res.status(400).json({ success: false, error: "Settings value is required" });
                 }
 
-                const sensitiveSettingsKeys = new Set(['feed_ingredients', 'feed_stock_items', 'feed_opening_stock', 'mineral_split_ratio']);
-                if (!isAdmin && sensitiveSettingsKeys.has(key)) {
+                if (!isAdmin) {
                     const existingPending = await client.query(
                         `SELECT id FROM ba_pending_approvals WHERE action = 'SAVE_SETTINGS' AND (payload->>'key') = $1 AND status = 'pending'`,
                         [key]
@@ -2835,9 +2840,24 @@ module.exports = async (req, res) => {
 
             if (action === 'ADD_FEED_STOCK_ISSUE') {
                 const { id, itemId, date, pen, quantity, lotId, notes } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
 
                 if (!id || !itemId || !date) {
                     return res.status(400).json({ success: false, error: "Issue id, item and date are required" });
+                }
+
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'ADD_FEED_STOCK_ISSUE' AND (payload->>'id') = $1 AND status = 'pending'`,
+                        [String(id)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                            VALUES ('ADD_FEED_STOCK_ISSUE', $1, $2, $3)
+                        `, [JSON.stringify({ id, itemId, date, pen, quantity, lotId, notes }), JSON.stringify({}), session.email.toLowerCase().trim()]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
                 }
 
                 await client.query(`

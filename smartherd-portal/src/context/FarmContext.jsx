@@ -937,9 +937,9 @@ export const FarmProvider = ({ children }) => {
         return { success: true };
     };
 
-    const addFeedStockIssue = (issue) => {
+    const addFeedStockIssue = async (issue) => {
         const record = {
-            id: `fi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            id: issue.id || `fi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             itemId: issue.itemId,
             date: issue.date || todayPKT(),
             pen: issue.pen || 'ALL',
@@ -947,6 +947,10 @@ export const FarmProvider = ({ children }) => {
             lotId: issue.lotId || null,
             notes: issue.notes || ''
         };
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('ADD_FEED_STOCK_ISSUE', record);
+        }
         setFeedStockIssues(prev => [...prev, record]);
         persistMutation('ADD_FEED_STOCK_ISSUE', record);
         return record;
@@ -1875,6 +1879,9 @@ export const FarmProvider = ({ children }) => {
             } else if (approval.action === 'ADD_FEED_PURCHASE') {
                 const changes = approval.payload || {};
                 setFeedPurchases(prev => [...prev, changes]);
+            } else if (approval.action === 'ADD_FEED_STOCK_ISSUE') {
+                const changes = approval.payload || {};
+                setFeedStockIssues(prev => [...prev, changes]);
             } else if (approval.action === 'SAVE_SETTINGS') {
                 const changes = approval.payload || {};
                 if (changes.key) setSettings(prev => ({ ...prev, [changes.key]: changes.value }));

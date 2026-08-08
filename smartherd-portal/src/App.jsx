@@ -804,6 +804,7 @@ function AppContent() {
                                                 case 'RECORD_DEATH': return `Record Animal Death — ${item.animalRfid || 'Animal #' + item.animalId}`;
                                                 case 'RECORD_SALE': return `Record Animal Sale — ${item.animalRfid || 'Animal #' + item.animalId}`;
                                                 case 'ADD_FEED_PURCHASE': return `Add Feed Purchase — ID ${item.payload?.id || '—'}`;
+                                                case 'ADD_FEED_STOCK_ISSUE': return `Add Feed Stock Issue — Pen ${item.payload?.pen || 'ALL'}`;
                                                 case 'DELETE_FEED_PURCHASE': return `Delete Feed Purchase — ID ${item.payload?.id || '—'}`;
                                                 case 'DELETE_FEED_STOCK_ISSUE': return `Delete Feed Stock Issue — ID ${item.payload?.id || '—'}`;
                                                 case 'DELETE_WEIGHT_LOG': return `Delete Weight Log — ${item.animalRfid || 'Animal #' + item.animalId}`;
@@ -848,6 +849,8 @@ function AppContent() {
                                                 return <div style={{ fontSize: '0.78rem', color: 'var(--accent-gold)' }}>Buyer: {payload.buyerName || 'N/A'} · Sale Price: PKR {payload.salePrice?.toLocaleString()} · Sale Date: {payload.saleDate || '—'}</div>;
                                             case 'ADD_FEED_PURCHASE':
                                                 return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Item: {payload.itemId} · Qty: {payload.quantity} kg · Rate: PKR {payload.rate}/kg · Supplier: {payload.supplier || 'N/A'}</div>;
+                                            case 'ADD_FEED_STOCK_ISSUE':
+                                                return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Item: {payload.itemId} · Qty: {payload.quantity} kg · Pen: {payload.pen || 'ALL'}{payload.notes ? ` · Notes: ${payload.notes}` : ''}</div>;
                                             case 'SAVE_SETTINGS':
                                                 return renderSettingsDiff(payload.key, payload.value, snap);
                                             case 'ADD_MEAT_CUT':
