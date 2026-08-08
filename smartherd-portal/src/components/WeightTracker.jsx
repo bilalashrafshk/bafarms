@@ -1,8 +1,10 @@
 import React, { useContext, useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
-import { todayPKT } from '../utils/dateOnly';
+import { todayPKT, daysBetween } from '../utils/dateOnly';
 
 export default function WeightTracker() {
     const { animals, weightLogs, logWeight, deleteWeightLog, updateWeightLog, systemParams } = useContext(FarmContext);
@@ -136,6 +138,92 @@ export default function WeightTracker() {
     const animalHistory = selectedAnimal
         ? [...weightLogs.filter(w => w.animalId === parseInt(selectedAnimal))].sort((a, b) => new Date(a.date) - new Date(b.date))
         : [];
+
+    // ─── WEIGHT & GAIN REPORT ───
+    // Animal-wise before/after weight differential over an (optional) date range,
+    // plus each animal's most recent single-weighing differential. Only animals
+    // with at least 2 REAL logged weigh-ins qualify for a row — an animal that's
+    // only ever had its registration entry weight (no actual re-weigh logged here)
+    // has nothing to diff against, so it's excluded rather than faked against
+    // entryWeight/currentWeight (which are equal until the first log anyway).
+    const [reportPen, setReportPen] = useState('all');
+    const [reportFrom, setReportFrom] = useState('');
+    const [reportTo, setReportTo] = useState('');
+
+    const weightReportRows = (() => {
+        const pool = reportPen === 'all' ? animals : animals.filter(a => a.pen === reportPen);
+        return pool.map(animal => {
+            const logs = weightLogs
+                .filter(w => w.animalId === animal.id)
+                .sort((a, b) => new Date(a.date) - new Date(b.date));
+            if (logs.length < 2) return null;
+
+            // "Before" = latest log on/before the From cutoff (defaults to the
+            // animal's first-ever log if From is left blank). "After" = latest log
+            // on/before the To cutoff (defaults to its most recent log).
+            const beforeLog = reportFrom ? [...logs].reverse().find(l => l.date <= reportFrom) : logs[0];
+            const afterLog = reportTo ? [...logs].reverse().find(l => l.date <= reportTo) : logs[logs.length - 1];
+            if (!beforeLog || !afterLog || beforeLog.id === afterLog.id) return null;
+
+            const days = Math.max(1, daysBetween(afterLog.date, beforeLog.date));
+            const totalGain = parseFloat((afterLog.weight - beforeLog.weight).toFixed(1));
+            const periodAdg = parseFloat((totalGain / days).toFixed(2));
+
+            return { animal, beforeLog, afterLog, days, totalGain, periodAdg, latestDiff: logs[logs.length - 1].adg };
+        }).filter(Boolean).sort((a, b) => a.animal.rfid.localeCompare(b.animal.rfid, undefined, { numeric: true }));
+    })();
+
+    const reportTotals = weightReportRows.reduce((acc, r) => ({
+        before: acc.before + r.beforeLog.weight,
+        after: acc.after + r.afterLog.weight,
+        gain: acc.gain + r.totalGain
+    }), { before: 0, after: 0, gain: 0 });
+
+    const exportReportCSV = () => {
+        const headers = ['RFID,Breed,Pen,Before Date,Before Wt (kg),After Date,After Wt (kg),Total Gain (kg),Period ADG (kg/day),Latest Differential (kg/day)'];
+        const rows = weightReportRows.map(r =>
+            [r.animal.rfid, r.animal.breed, r.animal.pen || '', formatDate(r.beforeLog.date), r.beforeLog.weight,
+             formatDate(r.afterLog.date), r.afterLog.weight, r.totalGain, r.periodAdg, r.latestDiff].join(',')
+        );
+        rows.push(['TOTAL', '', '', '', reportTotals.before.toFixed(1), '', reportTotals.after.toFixed(1), reportTotals.gain.toFixed(1), '', ''].join(','));
+        const csv = [...headers, ...rows].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `BA_Farms_Weight_Gain_Report_${todayPKT()}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const exportReportPDF = () => {
+        const doc = new jsPDF({ orientation: 'landscape' });
+        doc.setFontSize(16);
+        doc.text('BA Farms — Weight & Gain Report', 14, 15);
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        const periodLabel = reportFrom || reportTo
+            ? `${reportFrom ? formatDate(reportFrom) : 'Earliest'} → ${reportTo ? formatDate(reportTo) : 'Latest'}`
+            : 'Full history (first → latest weigh-in)';
+        doc.text(`Generated ${formatDate(todayPKT())} · Period: ${periodLabel} · ${weightReportRows.length} animal${weightReportRows.length === 1 ? '' : 's'}`, 14, 21);
+
+        autoTable(doc, {
+            startY: 27,
+            head: [['Tag', 'Breed', 'Pen', 'Before Date', 'Before Wt', 'After Date', 'After Wt', 'Total Gain', 'Period ADG', 'Latest Diff']],
+            body: weightReportRows.map(r => [
+                r.animal.rfid, r.animal.breed, r.animal.pen || '—',
+                formatDate(r.beforeLog.date), `${r.beforeLog.weight} kg`,
+                formatDate(r.afterLog.date), `${r.afterLog.weight} kg`,
+                `${r.totalGain} kg`, `${r.periodAdg} kg/d`, `${r.latestDiff} kg/d`
+            ]),
+            foot: [['', '', '', '', `${reportTotals.before.toFixed(1)} kg`, '', `${reportTotals.after.toFixed(1)} kg`, `${reportTotals.gain.toFixed(1)} kg`, '', 'TOTAL']],
+            styles: { fontSize: 8 },
+            headStyles: { fillColor: [25, 90, 60] },
+            footStyles: { fillColor: [230, 230, 230], textColor: 20, fontStyle: 'bold' }
+        });
+
+        doc.save(`BA_Farms_Weight_Gain_Report_${todayPKT()}.pdf`);
+    };
 
     // Helper to find RFID code for table rows
     const getRfid = (animalId) => {
@@ -530,6 +618,124 @@ export default function WeightTracker() {
                     </div>
                 </div>
             )}
+
+            {/* Weight & Gain Report */}
+            <div class="glass-panel" style={{ borderTop: '3px solid var(--accent-gold)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', gap: '1rem', flexWrap: 'wrap' }}>
+                    <h3 class="panel-title" style={{ margin: 0 }}>
+                        <i class="fa-solid fa-file-invoice" style={{ color: 'var(--accent-gold)' }}></i> Weight &amp; Gain Report
+                    </h3>
+                    <div style={{ display: 'flex', gap: '0.6rem' }}>
+                        <button class="btn btn-secondary" style={{ minHeight: '32px', padding: '0.3rem 0.8rem', fontSize: '0.8rem', height: '32px' }} onClick={exportReportCSV} disabled={weightReportRows.length === 0}>
+                            <i class="fa-solid fa-file-csv"></i> Export CSV
+                        </button>
+                        <button class="btn btn-secondary" style={{ minHeight: '32px', padding: '0.3rem 0.8rem', fontSize: '0.8rem', height: '32px' }} onClick={exportReportPDF} disabled={weightReportRows.length === 0}>
+                            <i class="fa-solid fa-file-pdf"></i> Export PDF
+                        </button>
+                    </div>
+                </div>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginBottom: '1.2rem' }}>
+                    Animal-wise before/after weight differential. Only animals with at least two real logged weigh-ins are included — a registration-only weight has nothing to diff against.
+                </p>
+
+                {/* Filters */}
+                <div style={{ display: 'flex', gap: '1.2rem', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '1.4rem' }}>
+                    <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>Pen</div>
+                        <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                            <button type="button" class={`filter-btn ${reportPen === 'all' ? 'active' : ''}`}
+                                style={{ fontSize: '0.72rem', minHeight: '28px', padding: '0.2rem 0.6rem' }}
+                                onClick={() => setReportPen('all')}>All</button>
+                            {activePens.map(p => (
+                                <button key={p} type="button" class={`filter-btn ${reportPen === p ? 'active' : ''}`}
+                                    style={{ fontSize: '0.72rem', minHeight: '28px', padding: '0.2rem 0.6rem' }}
+                                    onClick={() => setReportPen(p)}>Pen {p}</button>
+                            ))}
+                        </div>
+                    </div>
+                    <div class="form-group" style={{ marginBottom: 0 }}>
+                        <label style={{ fontSize: '0.75rem' }}>From (Before)</label>
+                        <input type="date" class="form-control" style={{ minHeight: '28px', padding: '0.2rem 0.6rem', fontSize: '0.8rem' }} value={reportFrom} onChange={e => setReportFrom(e.target.value)} />
+                    </div>
+                    <div class="form-group" style={{ marginBottom: 0 }}>
+                        <label style={{ fontSize: '0.75rem' }}>To (After)</label>
+                        <input type="date" class="form-control" style={{ minHeight: '28px', padding: '0.2rem 0.6rem', fontSize: '0.8rem' }} value={reportTo} onChange={e => setReportTo(e.target.value)} />
+                    </div>
+                    {(reportFrom || reportTo) && (
+                        <button type="button" class="btn btn-secondary" style={{ minHeight: '28px', padding: '0.2rem 0.7rem', fontSize: '0.75rem' }} onClick={() => { setReportFrom(''); setReportTo(''); }}>
+                            Clear Dates
+                        </button>
+                    )}
+                </div>
+
+                {weightReportRows.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-muted)' }}>
+                        <i class="fa-solid fa-scale-unbalanced" style={{ fontSize: '2rem', marginBottom: '0.8rem', display: 'block', opacity: '0.8' }}></i>
+                        No animals with at least two logged weigh-ins in this range yet.
+                    </div>
+                ) : (
+                    <div class="table-wrapper">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>TAG</th>
+                                    <th>BREED</th>
+                                    <th>PEN</th>
+                                    <th>BEFORE DATE</th>
+                                    <th>BEFORE WT (KG)</th>
+                                    <th>AFTER DATE</th>
+                                    <th>AFTER WT (KG)</th>
+                                    <th>TOTAL GAIN (KG)</th>
+                                    <th>PERIOD ADG (KG/DAY)</th>
+                                    <th>LATEST DIFFERENTIAL (KG/DAY)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {weightReportRows.map(r => (
+                                    <tr key={r.animal.id}>
+                                        <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '600', color: 'var(--text-pure)' }}>{r.animal.rfid}</td>
+                                        <td>{r.animal.breed}</td>
+                                        <td>{r.animal.pen ? <span style={{ color: 'var(--accent-gold)' }}>{r.animal.pen}</span> : '—'}</td>
+                                        <td>{formatDate(r.beforeLog.date)}</td>
+                                        <td>{r.beforeLog.weight} kg</td>
+                                        <td>{formatDate(r.afterLog.date)}</td>
+                                        <td>{r.afterLog.weight} kg</td>
+                                        <td>
+                                            <span class={r.totalGain >= 0 ? 'adg-text good' : 'adg-text alert'}>
+                                                {r.totalGain > 0 ? '+' : ''}{r.totalGain} kg
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class={r.periodAdg >= (systemParams.adgAlertThreshold ?? 1.0) ? 'adg-text good' : 'adg-text alert'}>
+                                                {r.periodAdg > 0 ? '+' : ''}{r.periodAdg} kg/day
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class={r.latestDiff >= (systemParams.adgAlertThreshold ?? 1.0) ? 'adg-text good' : 'adg-text alert'}>
+                                                {r.latestDiff > 0 ? '+' : ''}{r.latestDiff} kg/day
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot>
+                                <tr style={{ fontWeight: '700', borderTop: '2px solid rgba(255,255,255,0.1)' }}>
+                                    <td colSpan="4">TOTAL ({weightReportRows.length} animal{weightReportRows.length === 1 ? '' : 's'})</td>
+                                    <td>{reportTotals.before.toFixed(1)} kg</td>
+                                    <td></td>
+                                    <td>{reportTotals.after.toFixed(1)} kg</td>
+                                    <td>
+                                        <span class={reportTotals.gain >= 0 ? 'adg-text good' : 'adg-text alert'}>
+                                            {reportTotals.gain > 0 ? '+' : ''}{reportTotals.gain.toFixed(1)} kg
+                                        </span>
+                                    </td>
+                                    <td colSpan="2"></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                )}
+            </div>
 
             {/* Historical list */}
             <div className="glass-panel">
