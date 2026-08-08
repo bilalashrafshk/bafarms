@@ -69,6 +69,33 @@ export default function WeightTracker() {
         setTagOpen(false);
     };
 
+    // The tag suggestion dropdown is portaled to <body> and positioned with fixed
+    // coords from this rect. .glass-panel has overflow:hidden (needed elsewhere to
+    // stop panels overgrowing their flex parent), which was silently clipping the
+    // absolutely-positioned dropdown any time the panel's bottom edge sat close
+    // below the input — i.e. on desktop, where Tag/Date/Weight/Button share one
+    // row. On mobile the fields stack, leaving room below, so it never clipped
+    // there — hence "works on mobile, not on PC".
+    const tagFieldRef = useRef(null);
+    const [tagDropdownRect, setTagDropdownRect] = useState(null);
+
+    useEffect(() => {
+        if (!tagOpen) return;
+        const updateRect = () => {
+            if (tagFieldRef.current) {
+                const r = tagFieldRef.current.getBoundingClientRect();
+                setTagDropdownRect({ top: r.bottom + 2, left: r.left, width: r.width });
+            }
+        };
+        updateRect();
+        window.addEventListener('scroll', updateRect, true);
+        window.addEventListener('resize', updateRect);
+        return () => {
+            window.removeEventListener('scroll', updateRect, true);
+            window.removeEventListener('resize', updateRect);
+        };
+    }, [tagOpen, tagSearch]);
+
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!selectedAnimal || !weight || !date) return;
@@ -334,7 +361,7 @@ export default function WeightTracker() {
 
                         <div class="form-inline-grid-weight">
                             {/* Searchable tag picker */}
-                            <div class="form-group" style={{ position: 'relative' }}>
+                            <div class="form-group" style={{ position: 'relative' }} ref={tagFieldRef}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.2rem' }}>
                                     <label style={{ margin: 0 }}>Tag Number</label>
                                     {activePens.length > 0 && (
@@ -360,8 +387,8 @@ export default function WeightTracker() {
                                     onBlur={() => setTimeout(() => setTagOpen(false), 150)}
                                     autoComplete="off"
                                 />
-                                {tagOpen && tagSuggestions.length > 0 && (
-                                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: 'hsl(210,15%,8%)', border: '1px solid var(--border-subtle)', borderRadius: '8px', marginTop: '2px', maxHeight: '240px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+                                {tagOpen && tagSuggestions.length > 0 && tagDropdownRect && createPortal(
+                                    <div style={{ position: 'fixed', top: tagDropdownRect.top, left: tagDropdownRect.left, width: tagDropdownRect.width, zIndex: 9999, background: 'hsl(210,15%,8%)', border: '1px solid var(--border-subtle)', borderRadius: '8px', maxHeight: '240px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
                                         {tagSuggestions.map(a => (
                                             <button key={a.id} type="button"
                                                 style={{ display: 'flex', width: '100%', padding: '0.65rem 1rem', gap: '0.8rem', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', textAlign: 'left' }}
@@ -372,7 +399,8 @@ export default function WeightTracker() {
                                                 <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', marginLeft: 'auto', fontWeight: '600' }}>{a.currentWeight} kg</span>
                                             </button>
                                         ))}
-                                    </div>
+                                    </div>,
+                                    document.body
                                 )}
                             </div>
 

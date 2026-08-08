@@ -1,4 +1,5 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 import { todayPKT, todayAsDate, parseDateOnly } from '../utils/dateOnly';
@@ -56,6 +57,30 @@ export default function MedicalLog() {
         setTagOpen(false);
     };
 
+    // Portaled to <body> and positioned via this rect — .glass-panel has
+    // overflow:hidden, which clips an absolutely-positioned dropdown whenever the
+    // panel's bottom edge sits close below the input (e.g. desktop, where this
+    // row's fields sit side by side). See WeightTracker.jsx for the same fix.
+    const tagFieldRef = useRef(null);
+    const [tagDropdownRect, setTagDropdownRect] = useState(null);
+
+    useEffect(() => {
+        if (!tagOpen) return;
+        const updateRect = () => {
+            if (tagFieldRef.current) {
+                const r = tagFieldRef.current.getBoundingClientRect();
+                setTagDropdownRect({ top: r.bottom + 2, left: r.left, width: r.width });
+            }
+        };
+        updateRect();
+        window.addEventListener('scroll', updateRect, true);
+        window.addEventListener('resize', updateRect);
+        return () => {
+            window.removeEventListener('scroll', updateRect, true);
+            window.removeEventListener('resize', updateRect);
+        };
+    }, [tagOpen, tagSearch]);
+
     // Sort treatment logs by date descending
     const sortedTreatments = [...treatments].sort((a, b) => new Date(b.date) - new Date(a.date));
 
@@ -98,7 +123,7 @@ export default function MedicalLog() {
 
                         {/* Row 1: Animal, Category, Medicine, Dosage */}
                         <div class="form-inline-grid-med-row1">
-                            <div class="form-group" style={{ position: 'relative' }}>
+                            <div class="form-group" style={{ position: 'relative' }} ref={tagFieldRef}>
                                 <label>Tag Number</label>
                                 <input
                                     type="text"
@@ -110,8 +135,8 @@ export default function MedicalLog() {
                                     onBlur={() => setTimeout(() => setTagOpen(false), 150)}
                                     autoComplete="off"
                                 />
-                                {tagOpen && tagSuggestions.length > 0 && (
-                                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: 'hsl(210,15%,8%)', border: '1px solid var(--border-subtle)', borderRadius: '8px', marginTop: '2px', maxHeight: '240px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+                                {tagOpen && tagSuggestions.length > 0 && tagDropdownRect && createPortal(
+                                    <div style={{ position: 'fixed', top: tagDropdownRect.top, left: tagDropdownRect.left, width: tagDropdownRect.width, zIndex: 9999, background: 'hsl(210,15%,8%)', border: '1px solid var(--border-subtle)', borderRadius: '8px', maxHeight: '240px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
                                         {tagSuggestions.map(a => (
                                             <button key={a.id} type="button"
                                                 style={{ display: 'flex', width: '100%', padding: '0.65rem 1rem', gap: '0.8rem', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', textAlign: 'left' }}
@@ -122,7 +147,8 @@ export default function MedicalLog() {
                                                 <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', marginLeft: 'auto', fontWeight: '600' }}>{a.currentWeight} kg</span>
                                             </button>
                                         ))}
-                                    </div>
+                                    </div>,
+                                    document.body
                                 )}
                             </div>
 
