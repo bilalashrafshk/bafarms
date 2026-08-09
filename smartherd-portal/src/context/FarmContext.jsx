@@ -972,21 +972,10 @@ export const FarmProvider = ({ children }) => {
         };
         setMyRequests(prev => [tempReq, ...prev.filter(r => r.id !== tempReqId)]);
 
-        try {
-            const { res, data } = await sendMutationToServer(action, payload);
-            if (!res.ok || data.success === false) {
-                setMyRequests(prev => prev.filter(r => r.id !== tempReqId));
-                alert(data.error || 'Request could not be submitted.');
-                return { success: false, error: data.error || 'Request could not be submitted.' };
-            }
-            refreshApprovals();
-            return { success: true, pending: true };
-        } catch (err) {
-            console.error(`${action} (pending) failed:`, err);
-            setMyRequests(prev => prev.filter(r => r.id !== tempReqId));
-            alert('Network error — request was not submitted. Please try again.');
-            return { success: false, error: 'Network error — request was not submitted.' };
-        }
+        // Route through durable queue: sends immediately if online, or holds safely in localStorage if offline
+        await persistMutation(action, payload);
+        refreshApprovals();
+        return { success: true, pending: true };
     };
 
     const deleteFeedPurchase = async (id) => {
