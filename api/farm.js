@@ -2833,7 +2833,7 @@ module.exports = async (req, res) => {
                         await client.query(`
                             INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
                             VALUES ('ADD_FEED_PURCHASE', $1, $2, $3)
-                        `, [JSON.stringify({ id, itemId, date, quantity, rate, supplier, notes }), JSON.stringify({}), session.email.toLowerCase().trim()]);
+                        `, [JSON.stringify(payload), JSON.stringify({}), session.email.toLowerCase().trim()]);
                     }
                     return res.status(200).json({ success: true, pending: true });
                 }
@@ -2893,7 +2893,7 @@ module.exports = async (req, res) => {
                         await client.query(`
                             INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
                             VALUES ('ADD_FEED_STOCK_ISSUE', $1, $2, $3)
-                        `, [JSON.stringify({ id, itemId, date, pen, quantity, lotId, notes }), JSON.stringify({}), session.email.toLowerCase().trim()]);
+                        `, [JSON.stringify(payload), JSON.stringify({}), session.email.toLowerCase().trim()]);
                     }
                     return res.status(200).json({ success: true, pending: true });
                 }

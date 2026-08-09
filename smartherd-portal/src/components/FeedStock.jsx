@@ -312,6 +312,9 @@ export default function FeedStock() {
                 const pendingItem = req.payload.value.find(i => i.id === id);
                 if (pendingItem?.name) return pendingItem.name;
             }
+            if (req.payload?.newItem?.id === id && req.payload.newItem.name) {
+                return req.payload.newItem.name;
+            }
             if (req.payload?.itemId === id && req.payload?.itemName && !req.payload.itemName.startsWith('item_')) {
                 return req.payload.itemName;
             }
@@ -328,6 +331,9 @@ export default function FeedStock() {
             if (req.action === 'SAVE_SETTINGS' && req.payload?.key === 'feed_stock_items' && Array.isArray(req.payload?.value)) {
                 const pendingItem = req.payload.value.find(i => i.id === id);
                 if (pendingItem?.unit) return pendingItem.unit;
+            }
+            if (req.payload?.newItem?.id === id && req.payload.newItem.unit) {
+                return req.payload.newItem.unit;
             }
             if (req.payload?.itemId === id && req.payload?.itemUnit) {
                 return req.payload.itemUnit;

@@ -948,6 +948,22 @@ export const FarmProvider = ({ children }) => {
             newItem: itemObj || { id: purchase.itemId, name: itemName, unit: itemUnit, category: 'feed', derivedFromIngredientId: purchase.itemId },
             createdBy: purchase.createdBy || staffUserRef.current?.email || 'System'
         };
+
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            setMyRequests(prev => [
+                {
+                    id: `temp_${record.id}`,
+                    action: 'ADD_FEED_PURCHASE',
+                    payload: record,
+                    status: 'pending',
+                    requestedBy: staffUserRef.current?.email || 'me',
+                    requestedAt: new Date().toISOString()
+                },
+                ...prev.filter(r => r.payload?.id !== record.id)
+            ]);
+        }
+
         setFeedPurchases(prev => [...prev.filter(p => p.id !== record.id), record]);
         persistMutation('ADD_FEED_PURCHASE', record);
         setTimeout(refreshApprovals, 250);
@@ -1000,6 +1016,22 @@ export const FarmProvider = ({ children }) => {
             newItem: itemObj || { id: issue.itemId, name: itemName, unit: itemUnit, category: 'feed', derivedFromIngredientId: issue.itemId },
             createdBy: issue.createdBy || staffUserRef.current?.email || 'System'
         };
+
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            setMyRequests(prev => [
+                {
+                    id: `temp_${record.id}`,
+                    action: 'ADD_FEED_STOCK_ISSUE',
+                    payload: record,
+                    status: 'pending',
+                    requestedBy: staffUserRef.current?.email || 'me',
+                    requestedAt: new Date().toISOString()
+                },
+                ...prev.filter(r => r.payload?.id !== record.id)
+            ]);
+        }
+
         setFeedStockIssues(prev => [...prev.filter(i => i.id !== record.id), record]);
         persistMutation('ADD_FEED_STOCK_ISSUE', record);
         setTimeout(refreshApprovals, 250);
