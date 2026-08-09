@@ -387,6 +387,7 @@ async function ensureColumns(client) {
         ALTER TABLE ba_feed_logs ADD COLUMN IF NOT EXISTS feeding_index INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE ba_feed_logs ADD COLUMN IF NOT EXISTS num_feedings INTEGER NOT NULL DEFAULT 1;
         ALTER TABLE ba_feed_logs ADD COLUMN IF NOT EXISTS feeding_pct NUMERIC NOT NULL DEFAULT 100;
+        ALTER TABLE ba_feed_logs ADD COLUMN IF NOT EXISTS feeding_time TEXT;
     `);
     // Backfill pre-existing rows from the "FEEDING N OF M (P%)" marker TMR already wrote
     // into `notes` for split feedings — one-time (guarded by num_feedings = 1, the column
@@ -1402,6 +1403,7 @@ module.exports = async (req, res) => {
                 feedingIndex: parseInt(row.feeding_index || 0),
                 numFeedings: parseInt(row.num_feedings || 1),
                 feedingPct: parseFloat(row.feeding_pct || 100),
+                feedingTime: row.feeding_time || (row.created_at ? new Date(row.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : null),
                 createdBy: row.created_by || null,
                 createdAt: row.created_at || null
             }));
@@ -2305,7 +2307,7 @@ module.exports = async (req, res) => {
             if (action === 'LOG_FEED') {
                 const {
                     date, pen, animalCount, ingredients,
-                    totalDmKg, totalBatchKg, totalCost, costPerAnimal, notes, dietDiffered
+                    totalDmKg, totalBatchKg, totalCost, costPerAnimal, notes, dietDiffered, feedingTime
                 } = payload;
                 let { feedingIndex, numFeedings, feedingPct } = payload;
 
@@ -2313,9 +2315,6 @@ module.exports = async (req, res) => {
                     return res.status(400).json({ success: false, error: "Date is required" });
                 }
 
-                // Older callers (or callers that only set the human-readable note) don't pass
-                // structured split-feeding fields — fall back to parsing the same "FEEDING N
-                // OF M (P%)" marker TMR already writes into notes for a split feeding.
                 if (feedingIndex === undefined || numFeedings === undefined || feedingPct === undefined) {
                     const match = notes && notes.match(/FEEDING (\d+) OF (\d+) \((\d+)%\)/i);
                     feedingIndex = match ? parseInt(match[1]) : 0;
@@ -2327,7 +2326,6 @@ module.exports = async (req, res) => {
                 const targetPen = pen || 'ALL';
                 const targetIdx = feedingIndex || 0;
 
-                // Check if a feed log ALREADY exists for (date, pen, feeding_index)
                 const existingRes = await client.query(
                     'SELECT * FROM ba_feed_logs WHERE date = $1 AND pen = $2 AND feeding_index = $3',
                     [date, targetPen, targetIdx]
@@ -2357,8 +2355,8 @@ module.exports = async (req, res) => {
                 }
 
                 await client.query(`
-                    INSERT INTO ba_feed_logs (date, pen, animal_count, ingredients, total_dm_kg, total_batch_kg, total_cost, cost_per_animal, notes, diet_differed, feeding_index, num_feedings, feeding_pct, created_by, created_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+                    INSERT INTO ba_feed_logs (date, pen, animal_count, ingredients, total_dm_kg, total_batch_kg, total_cost, cost_per_animal, notes, diet_differed, feeding_index, num_feedings, feeding_pct, feeding_time, created_by, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
                     ON CONFLICT (date, pen, feeding_index) DO UPDATE SET
                         animal_count = EXCLUDED.animal_count,
                         ingredients = EXCLUDED.ingredients,
@@ -2370,13 +2368,14 @@ module.exports = async (req, res) => {
                         diet_differed = EXCLUDED.diet_differed,
                         num_feedings = EXCLUDED.num_feedings,
                         feeding_pct = EXCLUDED.feeding_pct,
+                        feeding_time = EXCLUDED.feeding_time,
                         created_by = EXCLUDED.created_by,
                         created_at = NOW()
                 `, [
                     date, targetPen, animalCount || 0, JSON.stringify(ingredients || []),
                     totalDmKg || 0, totalBatchKg || 0, totalCost || 0, costPerAnimal || 0,
                     notes || null, !!dietDiffered, targetIdx, numFeedings || 1, feedingPct || 100,
-                    session ? session.email : null
+                    feedingTime || null, session ? session.email : null
                 ]);
 
                 return res.status(200).json({ success: true });

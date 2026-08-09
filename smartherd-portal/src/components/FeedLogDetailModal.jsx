@@ -97,6 +97,13 @@ export default function FeedLogDetailModal({ feedLog, onClose }) {
                         <strong style={{ fontSize: '0.98rem', color: 'var(--accent-gold)' }}>{parseFeedingSession(feedLog)}</strong>
                     </div>
                     <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Administered At</span>
+                        <strong style={{ fontSize: '0.98rem', color: 'var(--primary-green-light)' }}>
+                            <i className="fa-solid fa-clock" style={{ fontSize: '0.8rem', marginRight: '0.3rem' }}></i>
+                            {feedLog.feedingTime || (feedLog.createdAt ? new Date(feedLog.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : 'N/A')}
+                        </strong>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
                         <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Head Count</span>
                         <strong style={{ fontSize: '0.98rem', color: 'var(--text-pure)' }}>{feedLog.animalCount} animals</strong>
                     </div>
