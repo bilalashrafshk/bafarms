@@ -90,24 +90,32 @@ export default function TMRCalculator() {
     const [selectedFeedLogDetails, setSelectedFeedLogDetails] = useState(null);
 
     const parseFeedingSession = (log) => {
-        if (!log) return 'Feed (100%)';
-        // Prefer the structured feedingIndex/feedingPct columns (backed by the DB, and
-        // always in sync — a log fetched fresh from the server always has these). Notes
-        // parsing is only a fallback for anything still going through the old code path.
-        if (log.feedingIndex) {
-            return `Feed ${log.feedingIndex} (${Math.round(log.feedingPct)}%)`;
+        if (!log) return 'Full Day (100%)';
+        const total = log.numFeedings || 1;
+        const pct = log.feedingPct !== undefined && log.feedingPct !== null ? Math.round(log.feedingPct) : (total > 1 ? Math.round(100 / total) : 100);
+
+        let rawIdx = log.feedingIndex;
+        if (rawIdx === undefined || rawIdx === null || rawIdx === 0) {
+            if (total <= 1) return `Full Day (${pct}%)`;
+            return `Morning (${pct}%)`;
         }
-        if (log.notes) {
-            const match = log.notes.match(/FEEDING (\d+) OF (\d+) \((\d+%)\)/i);
-            if (match) {
-                return `Feed ${match[1]} (${match[3]})`;
-            }
-            const matchAlt = log.notes.match(/FEEDING (\d+)/i);
-            if (matchAlt) {
-                return `Feed ${matchAlt[1]}`;
-            }
+
+        let idx = rawIdx;
+        if (rawIdx >= 1) {
+            idx = rawIdx - 1;
         }
-        return 'Feed (100%)';
+
+        if (total <= 1) return `Full Day (${pct}%)`;
+
+        let name = '';
+        if (total === 2) {
+            name = idx === 0 ? 'Morning' : 'Evening';
+        } else if (total === 3) {
+            name = idx === 0 ? 'Morning' : idx === 1 ? 'Afternoon' : 'Evening';
+        } else {
+            name = `Feeding ${idx + 1} of ${total}`;
+        }
+        return `${name} (${pct}%)`;
     };
     const [peekExpandedPens, setPeekExpandedPens] = useState(new Set());
     const togglePeekPen = (penId) => setPeekExpandedPens(prev => {
@@ -1457,7 +1465,9 @@ export default function TMRCalculator() {
                                         <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: '600' }}>Custom Split (%):</span>
                                         {activeSplitList.map((pct, idx) => (
                                             <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-pure)' }}>Feed {idx + 1}:</span>
+                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-pure)' }}>
+                                                    {numFeedings === 2 ? (idx === 0 ? 'Morning' : 'Evening') : numFeedings === 3 ? (idx === 0 ? 'Morning' : idx === 1 ? 'Afternoon' : 'Evening') : `Feed ${idx + 1}`}:
+                                                </span>
                                                 <input
                                                     type="number"
                                                     min="1"
@@ -1847,7 +1857,9 @@ export default function TMRCalculator() {
                                         <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: '600' }}>Custom Split (%):</span>
                                         {activeSplitList.map((pct, idx) => (
                                             <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-pure)' }}>Feed {idx + 1}:</span>
+                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-pure)' }}>
+                                                    {numFeedings === 2 ? (idx === 0 ? 'Morning' : 'Evening') : numFeedings === 3 ? (idx === 0 ? 'Morning' : idx === 1 ? 'Afternoon' : 'Evening') : `Feed ${idx + 1}`}:
+                                                </span>
                                                 <input
                                                     type="number"
                                                     min="1"
