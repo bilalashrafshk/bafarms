@@ -79,7 +79,7 @@ export default function ActivityFeed() {
         })),
         ...(feedPurchases || []).map(p => {
             const itemObj = (feedStockItems || []).find(i => i.id === p.itemId);
-            const itemName = itemObj ? itemObj.name : p.itemId;
+            const itemName = p.itemName || (itemObj ? itemObj.name : p.itemId);
             return {
                 key: `fp-${p.id}`,
                 animalId: null,
@@ -93,7 +93,7 @@ export default function ActivityFeed() {
         }),
         ...(feedStockIssues || []).map(s => {
             const itemObj = (feedStockItems || []).find(i => i.id === s.itemId);
-            const itemName = itemObj ? itemObj.name : s.itemId;
+            const itemName = s.itemName || (itemObj ? itemObj.name : s.itemId);
             return {
                 key: `fi-${s.id}`,
                 animalId: null,

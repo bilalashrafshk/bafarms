@@ -837,8 +837,8 @@ function AppContent() {
                                             {pendingApprovals.map(item => {
                                                 const snap = item.previousSnapshot || {};
                                                 const payload = item.payload || {};
-                                                const getStockItemName = (id) => (feedStockItems || []).find(i => i.id === id)?.name || id || '—';
-                                                const getStockItemUnit = (id) => (feedStockItems || []).find(i => i.id === id)?.unit || 'kg';
+                                                const getStockItemName = (id) => payload.itemName || snap.itemName || (feedStockItems || []).find(i => i.id === id)?.name || id || '—';
+                                                const getStockItemUnit = (id) => payload.itemUnit || snap.itemUnit || (feedStockItems || []).find(i => i.id === id)?.unit || 'kg';
 
                                                 const actionBadge = (() => {
                                                     switch (item.action) {

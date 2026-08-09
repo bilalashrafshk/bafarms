@@ -908,9 +908,12 @@ export const FarmProvider = ({ children }) => {
     };
 
     const addFeedPurchase = async (purchase) => {
+        const itemObj = (feedStockItems || []).find(i => i.id === purchase.itemId);
         const record = {
             id: purchase.id || `fp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             itemId: purchase.itemId,
+            itemName: purchase.itemName || itemObj?.name || purchase.itemId,
+            itemUnit: purchase.itemUnit || itemObj?.unit || 'kg',
             date: purchase.date || todayPKT(),
             quantity: parseFloat(purchase.quantity) || 0,
             rate: parseFloat(purchase.rate) || 0,
@@ -934,10 +937,6 @@ export const FarmProvider = ({ children }) => {
     // again automatically if a Super Admin rejects it (myRequests flips to 'rejected'
     // and the row's approval match goes away next refresh).
     const handleNonAdminDelete = async (action, payload, optimisticUpdate) => {
-        const verb = action.startsWith('DELETE_') ? 'Deletion'
-            : action.startsWith('ADD_') ? 'Addition'
-            : action.startsWith('RECORD_') ? 'Record'
-            : 'Change';
         try {
             const { res, data } = await sendMutationToServer(action, payload);
             if (!res.ok || data.success === false) {
@@ -946,7 +945,6 @@ export const FarmProvider = ({ children }) => {
             }
             if (optimisticUpdate) optimisticUpdate();
             refreshApprovals();
-            alert(`${verb} request submitted for Super Admin approval. It now shows in the list as Pending.`);
             return { success: true, pending: true };
         } catch (err) {
             console.error(`${action} (pending) failed:`, err);
@@ -993,9 +991,12 @@ export const FarmProvider = ({ children }) => {
     };
 
     const addFeedStockIssue = async (issue) => {
+        const itemObj = (feedStockItems || []).find(i => i.id === issue.itemId);
         const record = {
             id: issue.id || `fi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             itemId: issue.itemId,
+            itemName: issue.itemName || itemObj?.name || issue.itemId,
+            itemUnit: issue.itemUnit || itemObj?.unit || 'kg',
             date: issue.date || todayPKT(),
             pen: issue.pen || 'ALL',
             quantity: parseFloat(issue.quantity) || 0,
@@ -2064,7 +2065,6 @@ export const FarmProvider = ({ children }) => {
                     return { success: false, error: data.error || 'Sale request could not be submitted.' };
                 }
                 refreshApprovals();
-                alert('Sale record request submitted for Super Admin approval.');
                 return { success: true, pending: true };
             } catch (err) {
                 console.error('RECORD_SALE (pending) failed:', err);

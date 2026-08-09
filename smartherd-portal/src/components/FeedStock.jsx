@@ -114,12 +114,19 @@ export default function FeedStock() {
         e.preventDefault();
         if (!isAdmin || !pQty || !pRate) return;
         let itemId = pItemId;
+        let itemNameVal = '';
+        let itemUnitVal = pNewItemUnit.trim() || 'kg';
         if (itemId === '__new__') {
             if (!pNewItemName.trim()) return;
+            itemNameVal = pNewItemName.trim();
             itemId = addStockTrackedIngredient(pNewItemName.trim(), pNewItemCategory, pNewItemUnit.trim() || 'kg');
+        } else {
+            const found = feedStockItems.find(i => i.id === itemId);
+            itemNameVal = found?.name || itemId;
+            itemUnitVal = found?.unit || 'kg';
         }
         if (!itemId) return;
-        addFeedPurchase({ date: pDate, itemId, quantity: pQty, rate: pRate, supplier: pSupplier, notes: pNotes });
+        addFeedPurchase({ date: pDate, itemId, itemName: itemNameVal, itemUnit: itemUnitVal, quantity: pQty, rate: pRate, supplier: pSupplier, notes: pNotes });
         setPItemId('');
         setPNewItemName('');
         setPNewItemCategory('feed');
@@ -167,7 +174,10 @@ export default function FeedStock() {
     const handleAddIssue = (e) => {
         e.preventDefault();
         if (!isAdmin || !iItemId || !iPen || !iQty) return;
-        addFeedStockIssue({ date: iDate, itemId: iItemId, pen: iPen, quantity: iQty, lotId: iLotId || null, notes: iNotes });
+        const found = feedStockItems.find(i => i.id === iItemId);
+        const itemNameVal = found?.name || iItemId;
+        const itemUnitVal = found?.unit || 'kg';
+        addFeedStockIssue({ date: iDate, itemId: iItemId, itemName: itemNameVal, itemUnit: itemUnitVal, pen: iPen, quantity: iQty, lotId: iLotId || null, notes: iNotes });
         setIQty('');
         setILotId('');
         setINotes('');
@@ -292,8 +302,8 @@ export default function FeedStock() {
     const totalStockValue = ledger.reduce((sum, l) => sum + l.closingValue, 0);
     const totalConsumptionValue = filteredIssues.reduce((sum, iss) => sum + (issueCosts[iss.id]?.cost ?? 0), 0);
 
-    const itemName = (id) => feedStockItems.find(i => i.id === id)?.name || id;
-    const itemUnit = (id) => feedStockItems.find(i => i.id === id)?.unit || 'kg';
+    const itemName = (id, rec) => rec?.itemName || feedStockItems.find(i => i.id === id)?.name || id;
+    const itemUnit = (id, rec) => rec?.itemUnit || feedStockItems.find(i => i.id === id)?.unit || 'kg';
     const itemCategory = (id) => feedStockItems.find(i => i.id === id)?.category || 'feed';
     const penLabel = (pen) => pen === 'ALL' ? 'All Pens' : pen === 'PRODUCTION' ? 'Premix Production' : `Pen ${pen}`;
 
@@ -746,12 +756,12 @@ export default function FeedStock() {
                                         const lot = lotsByItemId[p.itemId]?.find(l => l.id === p.id);
                                         const remaining = lot ? lot.remaining : p.quantity;
                                         const touched = remaining < p.quantity - 0.005;
-                                        const unit = itemUnit(p.itemId);
+                                        const unit = itemUnit(p.itemId, p);
                                         const pending = pendingPurchasesById[p.id];
                                         return (
                                             <tr key={p.id} style={pending ? { opacity: 0.65 } : undefined}>
                                                 <td>{formatDate(p.date)}</td>
-                                                <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(p.itemId)}</td>
+                                                <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(p.itemId, p)}</td>
                                                 <td>{p.quantity.toFixed(2)} {unit}</td>
                                                 <td>{p.rate.toFixed(2)} PKR/{unit}</td>
                                                 <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(p.quantity * p.rate).toLocaleString()} PKR</strong></td>
@@ -932,9 +942,9 @@ export default function FeedStock() {
                                         return (
                                         <tr key={iss.id} style={pending ? { opacity: 0.65 } : undefined}>
                                             <td>{formatDate(iss.date)}</td>
-                                            <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(iss.itemId)}</td>
+                                            <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(iss.itemId, iss)}</td>
                                             <td>{penLabel(iss.pen)}</td>
-                                            <td>{iss.quantity.toFixed(2)} {itemUnit(iss.itemId)}</td>
+                                            <td>{iss.quantity.toFixed(2)} {itemUnit(iss.itemId, iss)}</td>
                                             <td>
                                                 {iss.source === 'auto' ? (
                                                     <span style={{ fontSize: '0.72rem', color: 'var(--primary-green-light)' }}><i class="fa-solid fa-arrows-rotate"></i> TMR log</span>
