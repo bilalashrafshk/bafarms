@@ -1569,17 +1569,42 @@ export const FarmProvider = ({ children }) => {
                             if (s.med_categories) setMedCategories(s.med_categories);
                             if (s.system_params) setSystemParams(s.system_params);
                             if (s.quarantine_protocols) setQuarantineProtocols(s.quarantine_protocols);
-                            if (s.feed_ingredients) setFeedIngredients(s.feed_ingredients);
-                            if (s.feed_stock_items) setFeedStockItems(s.feed_stock_items);
+                            if (s.feed_ingredients) {
+                                setFeedIngredients(prev => {
+                                    const localOnly = prev.filter(p => !s.feed_ingredients.some(dbP => dbP.id === p.id));
+                                    return [...s.feed_ingredients, ...localOnly];
+                                });
+                            }
+                            if (s.feed_stock_items) {
+                                setFeedStockItems(prev => {
+                                    const localOnly = prev.filter(p => !s.feed_stock_items.some(dbP => dbP.id === p.id));
+                                    return [...s.feed_stock_items, ...localOnly];
+                                });
+                            }
                             if (s.feed_opening_stock) setFeedOpeningStock(s.feed_opening_stock);
                             if (s.mineral_split_ratio !== undefined) setMineralSplitRatioState(s.mineral_split_ratio);
                             if (s.premix_types) setPremixTypes(s.premix_types);
                             if (s.premix_formulas) setPremixFormulas(s.premix_formulas);
                             if (s.premix_batches) setPremixBatches(s.premix_batches);
                         }
-                        if (data.feedPurchases) setFeedPurchases(data.feedPurchases);
-                        if (data.feedStockIssues) setFeedStockIssues(data.feedStockIssues);
-                        if (data.overheadExpenses) setOverheadExpenses(data.overheadExpenses);
+                        if (data.feedPurchases) {
+                            setFeedPurchases(prev => {
+                                const localOnly = prev.filter(p => !data.feedPurchases.some(dbP => dbP.id === p.id));
+                                return [...data.feedPurchases, ...localOnly];
+                            });
+                        }
+                        if (data.feedStockIssues) {
+                            setFeedStockIssues(prev => {
+                                const localOnly = prev.filter(i => !data.feedStockIssues.some(dbI => dbI.id === i.id));
+                                return [...data.feedStockIssues, ...localOnly];
+                            });
+                        }
+                        if (data.overheadExpenses) {
+                            setOverheadExpenses(prev => {
+                                const localOnly = prev.filter(e => !data.overheadExpenses.some(dbE => dbE.id === e.id));
+                                return [...data.overheadExpenses, ...localOnly];
+                            });
+                        }
                     }
 
                     const hasSalesAccess = !!(data.session && data.session.accessSales);
