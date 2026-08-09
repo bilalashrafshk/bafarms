@@ -1,6 +1,7 @@
 import React, { useContext, useState } from 'react';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
+import FeedLogDetailModal from './FeedLogDetailModal';
 
 const EVENT_META = {
     registered:    { icon: 'fa-plus-circle',        color: 'var(--accent-gold)' },
@@ -21,29 +22,51 @@ export default function ActivityFeed() {
     const { animals, events, treatments, weightLogs, feedLogs, feedPurchases, feedStockIssues, feedStockItems, premixBatches, allApprovals, staffUser, undoActivity } = useContext(FarmContext);
     const [filter, setFilter] = useState('all');
     const [tagSearch, setTagSearch] = useState('');
+    const [selectedFeedLog, setSelectedFeedLog] = useState(null);
 
     const isAdmin = staffUser?.isAdmin === true;
 
     const getRfid = (animalId) => {
-        // Pen-level events (e.g. 'feed_missed') aren't tied to a single animal.
         if (animalId === null || animalId === undefined) return null;
         const a = animals.find(a => a.id === animalId);
         return a ? a.rfid : `#${animalId}`;
     };
 
-    const getSortTimestamp = (item) => {
-        if (typeof item.sortId === 'number' && !isNaN(item.sortId)) return item.sortId;
+    const getLogTimestamp = (item) => {
+        if (item.createdAt) {
+            const parsed = Date.parse(item.createdAt);
+            if (!isNaN(parsed) && parsed > 0) return parsed;
+        }
+        if (typeof item.sortId === 'number' && !isNaN(item.sortId) && item.sortId > 1000000000000) {
+            return item.sortId;
+        }
+        if (typeof item.key === 'string') {
+            const match = item.key.match(/(\d{13})/);
+            if (match) return parseInt(match[1], 10);
+        }
         const d = item.date ? Date.parse(item.date) : 0;
         return !isNaN(d) ? d : 0;
     };
 
-    // Merge all event sources into one timeline with user attribution and undo payload
+    const formatActivityTime = (item) => {
+        const ts = getLogTimestamp(item);
+        if (!ts || ts === 0 || ts < 1000000000000) return formatDate(item.date);
+        const d = new Date(ts);
+        const today = new Date();
+        const isToday = d.toDateString() === today.toDateString();
+        const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        if (isToday) return `Today at ${timeStr}`;
+        return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${timeStr}`;
+    };
+
+    // Merge all event sources into one timeline sorted strictly by WHEN the activity occurred / was logged
     const allActivity = [
         ...events.map(e => ({
             key: `ev-${e.id}`,
             animalId: e.animalId,
             pen: e.toPen || e.fromPen || null,
             date: e.date,
+            createdAt: e.createdAt || e.date,
             category: (e.eventType === 'registered' || e.eventType === 'status_change' || e.eventType === 'pen_transfer') ? 'status' : e.eventType,
             eventType: e.eventType,
             note: e.note,
@@ -59,6 +82,7 @@ export default function ActivityFeed() {
             animalId: t.animalId,
             pen: null,
             date: t.date,
+            createdAt: t.createdAt || t.date,
             category: 'treatment',
             eventType: 'treatment',
             note: `${t.type}: ${t.medicine} ${t.dosage}${t.withholding > 0 ? ` — ${t.withholding}d withholding` : ''}`,
@@ -70,6 +94,7 @@ export default function ActivityFeed() {
             animalId: w.animalId,
             pen: null,
             date: w.date,
+            createdAt: w.createdAt || w.date,
             category: 'weight',
             eventType: 'weight',
             note: `Weighed ${w.weight} kg${w.adg !== 0 ? ` (${w.adg > 0 ? '+' : ''}${w.adg} kg/d ADG)` : ''}`,
@@ -81,10 +106,12 @@ export default function ActivityFeed() {
             animalId: null,
             pen: f.pen,
             date: f.date,
+            createdAt: f.createdAt || f.date,
             category: 'feeds',
             eventType: 'feed_log',
             note: `Fed Pen ${f.pen || 'ALL'} — ${(f.totalBatchKg || 0).toLocaleString()} kg TMR (${f.animalCount || 0} head${f.feedingIndex !== undefined ? `, Feeding #${(f.feedingIndex || 0) + 1}` : ''})`,
             createdBy: f.createdBy || null,
+            originalLog: f,
             sortId: Date.parse(f.date) || 0
         })),
         ...(feedPurchases || []).map(p => {
@@ -95,6 +122,7 @@ export default function ActivityFeed() {
                 animalId: null,
                 pen: null,
                 date: p.date,
+                createdAt: p.createdAt || p.date,
                 category: 'feeds',
                 eventType: 'feed_purchase',
                 note: `Purchased ${p.quantity?.toLocaleString() || 0} kg ${itemName} @ PKR ${p.rate || 0}/kg${p.supplier ? ` (${p.supplier})` : ''}`,
@@ -110,6 +138,7 @@ export default function ActivityFeed() {
                 animalId: null,
                 pen: s.pen,
                 date: s.date,
+                createdAt: s.createdAt || s.date,
                 category: 'feeds',
                 eventType: 'feed_issue',
                 note: `Feed Issue: ${s.quantity?.toLocaleString() || 0} kg ${itemName} to Pen ${s.pen || 'ALL'}${s.notes ? ` (${s.notes})` : ''}`,
@@ -127,6 +156,7 @@ export default function ActivityFeed() {
                 animalId: app.animal_id || app.animalId || null,
                 pen: null,
                 date: dateStr,
+                createdAt: app.reviewedAt || app.requestedAt || dateStr,
                 category: 'status',
                 eventType: 'approval_decision',
                 note: `Staff Approval [${statusTag}]: ${actionText}${targetName ? ` (${targetName})` : ''} by ${app.requestedBy || 'Staff'}${app.reviewedBy ? ` — Reviewed by ${app.reviewedBy}` : ''}`,
@@ -139,17 +169,14 @@ export default function ActivityFeed() {
             animalId: null,
             pen: null,
             date: b.date,
+            createdAt: b.createdAt || b.date,
             category: 'feeds',
             eventType: 'feed_issue',
             note: `Premix Mixed: ${b.producedQtyKg?.toLocaleString() || 0} kg ${b.premixName || 'Premix'}`,
             createdBy: b.createdBy || null,
             sortId: Date.parse(b.date) || 0
         }))
-    ].sort((a, b) => {
-        const dateDiff = new Date(b.date) - new Date(a.date);
-        if (dateDiff !== 0) return dateDiff;
-        return getSortTimestamp(b) - getSortTimestamp(a);
-    });
+    ].sort((a, b) => getLogTimestamp(b) - getLogTimestamp(a));
 
     const filtered = allActivity
         .filter(item => {
@@ -197,8 +224,27 @@ export default function ActivityFeed() {
                 {filtered.map(item => {
                     const meta = EVENT_META[item.eventType] || { icon: 'fa-circle-dot', color: 'var(--text-muted)' };
                     const rfid = getRfid(item.animalId);
+                    const isFeedLog = item.eventType === 'feed_log';
+                    const opDate = formatDate(item.date);
+                    const actionTimeStr = formatActivityTime(item);
+                    const isRetro = item.date && actionTimeStr.indexOf(opDate) === -1;
+
                     return (
-                        <div key={item.key} style={{ display: 'flex', gap: '0.7rem', alignItems: 'center', padding: '0.55rem 0.35rem', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                        <div
+                            key={item.key}
+                            onClick={() => {
+                                if (isFeedLog && item.originalLog) {
+                                    setSelectedFeedLog(item.originalLog);
+                                }
+                            }}
+                            style={{
+                                display: 'flex', gap: '0.7rem', alignItems: 'center', padding: '0.65rem 0.5rem',
+                                borderBottom: '1px solid rgba(255,255,255,0.04)',
+                                cursor: isFeedLog ? 'pointer' : 'default',
+                                transition: 'background 0.15s ease'
+                            }}
+                            className={isFeedLog ? 'activity-feed-row-clickable' : ''}
+                        >
                             <i className={`fa-solid ${meta.icon}`} style={{ color: meta.color, fontSize: '0.85rem', flexShrink: 0, width: '16px', textAlign: 'center' }}></i>
                             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.45rem' }}>
                                 {rfid && <span style={{ fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)', fontSize: '0.88rem' }}>{rfid}</span>}
@@ -208,16 +254,29 @@ export default function ActivityFeed() {
                                         by {item.createdBy}
                                     </span>
                                 )}
+                                {isFeedLog && (
+                                    <span style={{ fontSize: '0.68rem', color: 'var(--primary-green-light)', background: 'rgba(74, 222, 128, 0.1)', padding: '0.08rem 0.4rem', borderRadius: '4px', border: '1px solid rgba(74, 222, 128, 0.2)' }}>
+                                        <i className="fa-solid fa-up-right-from-square" style={{ fontSize: '0.6rem', marginRight: '3px' }}></i> View Breakdown
+                                    </span>
+                                )}
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexShrink: 0 }}>
-                                <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontFamily: 'var(--font-heading)', whiteSpace: 'nowrap' }}>{formatDate(item.date)}</span>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.15rem', flexShrink: 0 }}>
+                                <span style={{ color: 'var(--text-pure)', fontSize: '0.78rem', fontFamily: 'var(--font-heading)', whiteSpace: 'nowrap', fontWeight: '600' }}>
+                                    {actionTimeStr}
+                                </span>
+                                {isRetro && (
+                                    <span style={{ color: 'var(--text-muted)', fontSize: '0.68rem', opacity: 0.85 }}>
+                                        For: {opDate}
+                                    </span>
+                                )}
                                 {isAdmin && item.eventType !== 'feed_missed' && (
                                     <button
                                         type="button"
                                         className="btn btn-secondary btn-sm"
-                                        style={{ padding: '0.15rem 0.45rem', minHeight: '26px', fontSize: '0.72rem', borderColor: 'rgba(220,53,69,0.3)', color: 'hsl(0,75%,70%)' }}
-                                        onClick={() => {
-                                            if (window.confirm(`Undo activity for ${rfid} (${item.note})?`)) {
+                                        style={{ padding: '0.1rem 0.4rem', minHeight: '22px', fontSize: '0.68rem', borderColor: 'rgba(220,53,69,0.3)', color: 'hsl(0,75%,70%)', marginTop: '2px' }}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (window.confirm(`Undo activity for ${rfid || item.note}?`)) {
                                                 undoActivity(item);
                                             }
                                         }}
@@ -237,6 +296,14 @@ export default function ActivityFeed() {
                     </div>
                 )}
             </div>
+
+            {/* Modal for detailed TMR feed log breakdown */}
+            {selectedFeedLog && (
+                <FeedLogDetailModal
+                    feedLog={selectedFeedLog}
+                    onClose={() => setSelectedFeedLog(null)}
+                />
+            )}
         </div>
     );
 }

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 import { todayPKT, daysBetween, parseDateOnly } from '../utils/dateOnly';
+import FeedLogDetailModal from './FeedLogDetailModal';
 
 // Offsets a 'YYYY-MM-DD' date-only string by `delta` calendar days, staying in the
 // same PKT-anchored day-space as every other date helper in the app (see dateOnly.js)
@@ -2063,148 +2064,11 @@ export default function TMRCalculator() {
             )}
 
             {/* Complete Feed Breakdown Modal */}
-            {selectedFeedLogDetails && createPortal(
-                <div
-                    className="portal-modal-overlay"
-                    onClick={() => setSelectedFeedLogDetails(null)}
-                    style={{
-                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                        background: 'rgba(0, 0, 0, 0.78)', backdropFilter: 'blur(5px)',
-                        zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
-                    }}
-                >
-                    <div
-                        className="glass-panel animate-scale-up"
-                        onClick={e => e.stopPropagation()}
-                        style={{
-                            width: '100%', maxWidth: '820px', maxHeight: '92vh', overflowY: 'auto',
-                            border: '1px solid rgba(255, 255, 255, 0.15)', boxShadow: '0 25px 60px rgba(0,0,0,0.6)',
-                            background: 'var(--panel-bg, #121824)', borderRadius: '14px', padding: '1.8rem'
-                        }}
-                    >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.2rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '1rem' }}>
-                            <div>
-                                <h3 className="panel-title" style={{ fontSize: '1.35rem', marginBottom: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                                    <i className="fa-solid fa-wheat-awn" style={{ color: 'var(--accent-gold)' }}></i>
-                                    Feed Log Breakdown — {selectedFeedLogDetails.pen === 'ALL' ? 'All Pens' : `Pen ${selectedFeedLogDetails.pen}`}
-                                </h3>
-                                <p style={{ color: 'var(--text-muted)', fontSize: '0.83rem', margin: 0 }}>
-                                    Logged on <strong>{formatDate(selectedFeedLogDetails.date)}</strong>
-                                    {selectedFeedLogDetails.createdBy && (
-                                        <span> by <strong style={{ color: 'var(--accent-gold)' }}>{selectedFeedLogDetails.createdBy}</strong></span>
-                                    )}
-                                </p>
-                            </div>
-                            <button
-                                type="button"
-                                className="btn btn-secondary btn-sm"
-                                onClick={() => setSelectedFeedLogDetails(null)}
-                                style={{ fontSize: '1.1rem', padding: '0.15rem 0.6rem', lineHeight: 1 }}
-                            >
-                                ✕
-                            </button>
-                        </div>
-
-                        {/* Summary Metrics Grid */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.8rem', marginBottom: '1.5rem' }}>
-                            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Feeding Session</span>
-                                <strong style={{ fontSize: '0.98rem', color: 'var(--accent-gold)' }}>{parseFeedingSession(selectedFeedLogDetails)}</strong>
-                            </div>
-                            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Head Count</span>
-                                <strong style={{ fontSize: '0.98rem', color: 'var(--text-pure)' }}>{selectedFeedLogDetails.animalCount} animals</strong>
-                            </div>
-                            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Batch Weight</span>
-                                <strong style={{ fontSize: '0.98rem', color: 'var(--primary-green-light)' }}>{(selectedFeedLogDetails.totalBatchKg || 0).toFixed(2)} kg</strong>
-                            </div>
-                            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Avg Feed / Head</span>
-                                <strong style={{ fontSize: '0.98rem', color: 'var(--text-pure)' }}>{((selectedFeedLogDetails.totalBatchKg || 0) / (selectedFeedLogDetails.animalCount || 1)).toFixed(2)} kg/head</strong>
-                            </div>
-                            {isSuperAdmin && (
-                                <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Cost</span>
-                                    <strong style={{ fontSize: '0.98rem', color: 'var(--accent-gold)' }}>{Math.round(selectedFeedLogDetails.totalCost || 0).toLocaleString()} PKR</strong>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Complete Ingredient Breakdown Table */}
-                        <h4 style={{ fontSize: '0.95rem', color: 'var(--text-pure)', marginBottom: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <i className="fa-solid fa-list-check" style={{ color: 'var(--accent-gold)' }}></i> Complete Ingredient Breakdown
-                        </h4>
-                        <div className="table-wrapper" style={{ marginBottom: '1.4rem' }}>
-                            <table className="data-table" style={{ fontSize: '0.85rem' }}>
-                                <thead>
-                                    <tr>
-                                        <th>INGREDIENT</th>
-                                        <th style={{ textAlign: 'right' }}>BATCH TOTAL (KG)</th>
-                                        <th style={{ textAlign: 'right' }}>FED / HEAD (KG)</th>
-                                        <th style={{ textAlign: 'right' }}>PLANNED / HEAD</th>
-                                        {isSuperAdmin && <th style={{ textAlign: 'right' }}>PRICE / KG</th>}
-                                        {isSuperAdmin && <th style={{ textAlign: 'right' }}>TOTAL COST</th>}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(selectedFeedLogDetails.ingredients || []).map((ing, idx) => {
-                                        const fedHead = ing.wetSingle || (ing.wetBatch / (selectedFeedLogDetails.animalCount || 1)) || 0;
-                                        const isDiff = ing.plannedQtyKg != null && Math.abs(fedHead - ing.plannedQtyKg) > 0.001;
-                                        return (
-                                            <tr key={ing.id || idx}>
-                                                <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>
-                                                    {ing.name}
-                                                    {isDiff && (
-                                                        <span style={{ marginLeft: '0.45rem', fontSize: '0.7rem', color: 'var(--accent-gold)' }}>
-                                                            <i className="fa-solid fa-pen-clip"></i> modified
-                                                        </span>
-                                                    )}
-                                                </td>
-                                                <td style={{ textAlign: 'right', fontWeight: '700', color: 'var(--primary-green-light)' }}>
-                                                    {(ing.wetBatch || 0).toFixed(2)} kg
-                                                </td>
-                                                <td style={{ textAlign: 'right', fontWeight: '600' }}>
-                                                    {fedHead.toFixed(2)} kg
-                                                </td>
-                                                <td style={{ textAlign: 'right', color: isDiff ? 'var(--accent-gold)' : 'var(--text-muted)' }}>
-                                                    {ing.plannedQtyKg != null ? `${ing.plannedQtyKg.toFixed(2)} kg` : '—'}
-                                                </td>
-                                                {isSuperAdmin && (
-                                                    <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>
-                                                        {ing.price ? `${ing.price.toFixed(2)} PKR` : '—'}
-                                                    </td>
-                                                )}
-                                                {isSuperAdmin && (
-                                                    <td style={{ textAlign: 'right', fontWeight: '600', color: 'var(--accent-gold)' }}>
-                                                        {ing.costSingle ? `${Math.round(ing.costSingle * selectedFeedLogDetails.animalCount).toLocaleString()} PKR` : '—'}
-                                                    </td>
-                                                )}
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        {/* Plan Notes & Audit Provenance */}
-                        {selectedFeedLogDetails.notes && (
-                            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', padding: '1rem 1.2rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
-                                <strong style={{ fontSize: '0.76rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', marginBottom: '0.4rem', letterSpacing: '0.5px' }}>
-                                    <i className="fa-solid fa-note-sticky" style={{ color: 'var(--accent-gold)', marginRight: '4px' }}></i> Log Rationale & Diet Plan Notes:
-                                </strong>
-                                <span style={{ fontSize: '0.85rem', color: 'var(--text-main)', lineHeight: 1.55 }}>
-                                    {selectedFeedLogDetails.notes}
-                                </span>
-                            </div>
-                        )}
-
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.8rem' }}>
-                            <button type="button" className="btn btn-secondary" onClick={() => setSelectedFeedLogDetails(null)}>Close</button>
-                        </div>
-                    </div>
-                </div>,
-                document.body
+            {selectedFeedLogDetails && (
+                <FeedLogDetailModal
+                    feedLog={selectedFeedLogDetails}
+                    onClose={() => setSelectedFeedLogDetails(null)}
+                />
             )}
 
         </div>
