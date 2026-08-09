@@ -127,10 +127,32 @@ export default function FeedGrowthReport() {
     }, [filteredFeedLogs]);
 
     const sessionLabel = (log) => {
-        if (!log.feedingIndex) return 'Full Day (100%)';
-        const labels = SESSION_LABELS[log.numFeedings] || [];
-        const name = labels[log.feedingIndex - 1] || `Feeding ${log.feedingIndex}`;
-        return `${name} (${Math.round(log.feedingPct)}%)`;
+        if (!log) return 'Full Day (100%)';
+        const total = log.numFeedings || 1;
+        const pct = log.feedingPct !== undefined && log.feedingPct !== null ? Math.round(log.feedingPct) : (total > 1 ? Math.round(100 / total) : 100);
+
+        let rawIdx = log.feedingIndex;
+        if (rawIdx === undefined || rawIdx === null || rawIdx === 0) {
+            if (total <= 1) return `Full Day (${pct}%)`;
+            return `Morning (${pct}%)`;
+        }
+
+        let idx = rawIdx;
+        if (rawIdx >= 1) {
+            idx = rawIdx - 1;
+        }
+
+        if (total <= 1) return `Full Day (${pct}%)`;
+
+        let name = '';
+        if (total === 2) {
+            name = idx === 0 ? 'Morning' : 'Evening';
+        } else if (total === 3) {
+            name = idx === 0 ? 'Morning' : idx === 1 ? 'Afternoon' : 'Evening';
+        } else {
+            name = `Feeding ${idx + 1} of ${total}`;
+        }
+        return `${name} (${pct}%)`;
     };
 
     const coverageBadge = (log) => {

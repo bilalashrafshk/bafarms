@@ -59,6 +59,35 @@ export default function ActivityFeed() {
         return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${timeStr}`;
     };
 
+    const parseFeedingSession = (log) => {
+        if (!log) return 'Full Day (100%)';
+        const total = log.numFeedings || 1;
+        const pct = log.feedingPct !== undefined && log.feedingPct !== null ? Math.round(log.feedingPct) : (total > 1 ? Math.round(100 / total) : 100);
+
+        let rawIdx = log.feedingIndex;
+        if (rawIdx === undefined || rawIdx === null || rawIdx === 0) {
+            if (total <= 1) return `Full Day (${pct}%)`;
+            return `Morning (${pct}%)`;
+        }
+
+        let idx = rawIdx;
+        if (rawIdx >= 1) {
+            idx = rawIdx - 1;
+        }
+
+        if (total <= 1) return `Full Day (${pct}%)`;
+
+        let name = '';
+        if (total === 2) {
+            name = idx === 0 ? 'Morning' : 'Evening';
+        } else if (total === 3) {
+            name = idx === 0 ? 'Morning' : idx === 1 ? 'Afternoon' : 'Evening';
+        } else {
+            name = `Feeding ${idx + 1} of ${total}`;
+        }
+        return `${name} (${pct}%)`;
+    };
+
     // Merge all event sources into one timeline sorted strictly by WHEN the activity occurred / was logged
     const allActivity = [
         ...events.map(e => ({
@@ -109,7 +138,7 @@ export default function ActivityFeed() {
             createdAt: f.createdAt || f.date,
             category: 'feeds',
             eventType: 'feed_log',
-            note: `Fed Pen ${f.pen || 'ALL'} — ${(f.totalBatchKg || 0).toLocaleString()} kg TMR (${f.animalCount || 0} head${f.feedingIndex !== undefined ? `, Feeding #${(f.feedingIndex || 0) + 1}` : ''})`,
+            note: `Fed Pen ${f.pen || 'ALL'} — ${(f.totalBatchKg || 0).toLocaleString()} kg TMR (${f.animalCount || 0} head, ${parseFeedingSession(f)})`,
             createdBy: f.createdBy || null,
             originalLog: f,
             sortId: Date.parse(f.date) || 0

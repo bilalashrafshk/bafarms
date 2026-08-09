@@ -10,20 +10,32 @@ export default function FeedLogDetailModal({ feedLog, onClose }) {
     const isSuperAdmin = staffUser?.isAdmin === true;
 
     const parseFeedingSession = (log) => {
-        const idx = log.feedingIndex;
+        if (!log) return 'Full Day (100%)';
         const total = log.numFeedings || 1;
-        const pct = log.feedingPct !== undefined ? log.feedingPct : 100;
+        const pct = log.feedingPct !== undefined && log.feedingPct !== null ? Math.round(log.feedingPct) : (total > 1 ? Math.round(100 / total) : 100);
 
-        if (total <= 1 || idx === undefined || idx === null) {
-            return 'Full Day (100%)';
+        let rawIdx = log.feedingIndex;
+        if (rawIdx === undefined || rawIdx === null || rawIdx === 0) {
+            if (total <= 1) return `Full Day (${pct}%)`;
+            return `Morning (${pct}%)`;
         }
-        const labels = total === 2
-            ? ['Morning (1 of 2)', 'Evening (2 of 2)']
-            : total === 3
-                ? ['Morning (1 of 3)', 'Afternoon (2 of 3)', 'Evening (3 of 3)']
-                : [`Feeding ${idx + 1} of ${total}`];
-        const label = labels[idx] || `Feeding ${idx + 1} of ${total}`;
-        return `${label} — ${pct}%`;
+
+        let idx = rawIdx;
+        if (rawIdx >= 1) {
+            idx = rawIdx - 1;
+        }
+
+        if (total <= 1) return `Full Day (${pct}%)`;
+
+        let name = '';
+        if (total === 2) {
+            name = idx === 0 ? 'Morning' : 'Evening';
+        } else if (total === 3) {
+            name = idx === 0 ? 'Morning' : idx === 1 ? 'Afternoon' : 'Evening';
+        } else {
+            name = `Feeding ${idx + 1} of ${total}`;
+        }
+        return `${name} (${pct}%)`;
     };
 
     const getItemName = (ingId) => {
@@ -107,7 +119,7 @@ export default function FeedLogDetailModal({ feedLog, onClose }) {
                 {feedLog.notes && (
                     <div style={{ background: 'rgba(255, 193, 7, 0.05)', border: '1px solid rgba(255, 193, 7, 0.2)', padding: '0.75rem 1rem', borderRadius: '8px', marginBottom: '1.2rem', color: 'hsl(43,90%,70%)', fontSize: '0.85rem' }}>
                         <i className="fa-solid fa-note-sticky" style={{ marginRight: '0.5rem' }}></i>
-                        <strong>Notes:</strong> {feedLog.notes}
+                        <strong>Notes:</strong> {feedLog.notes.replace(/\s*—\s*FEEDING\s*\d+\s*OF\s*\d+\s*\(\d+%\)/gi, '').trim()}
                     </div>
                 )}
 
