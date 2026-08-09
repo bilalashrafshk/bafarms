@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useState, useEffect, useRef, useMemo } from 'react';
 import { resolveRation, getWeightDivergence, NoMatchingRationError } from '../lib/rationResolver';
 import { todayPKT, todayAsDate, parseDateOnly, daysBetween } from '../utils/dateOnly';
 import { buildLots, allocateFifo } from '../utils/fifoStock';
