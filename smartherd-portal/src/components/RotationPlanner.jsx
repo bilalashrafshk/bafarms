@@ -37,6 +37,7 @@ export default function RotationPlanner() {
     const [bulkNewMedName, setBulkNewMedName] = useState('');
     const [bulkNewMedUnit, setBulkNewMedUnit] = useState('unit');
     const [bulkNewMedRate, setBulkNewMedRate] = useState('');
+    const [bulkTaskDate, setBulkTaskDate] = useState(todayPKT());
     const [bulkTaskSubmitting, setBulkTaskSubmitting] = useState(false);
 
     const toggleSelect = (id) => {
