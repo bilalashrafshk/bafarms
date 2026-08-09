@@ -216,6 +216,12 @@ export default function RotationPlanner() {
                 alert('Select a medicine from stock, or switch to "New medicine".');
                 return;
             } else {
+                const available = stockQtyOf(itemId);
+                const needed = qtyPerAnimal * eligible.length;
+                if (available < needed) {
+                    alert(`Insufficient stock. Available: ${available}, needed: ${needed} (${qtyPerAnimal} × ${eligible.length} animals). Purchase more first or switch to "New medicine".`);
+                    return;
+                }
                 const stockObj = medicineItems.find(i => i.id === itemId);
                 if (stockObj) {
                     actualMedicine = `${stockObj.name} (${qtyPerAnimal} ${stockObj.unit || 'unit'})`;
