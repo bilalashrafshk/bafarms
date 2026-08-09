@@ -1545,12 +1545,7 @@ export const FarmProvider = ({ children }) => {
                         setWeightLogs(data.weightLogs);
                         setTreatments(data.treatments);
                         if (data.events) setEvents(data.events);
-                        if (data.feedLogs) {
-                            setFeedLogs(prev => {
-                                const localOnly = prev.filter(f => !data.feedLogs.some(dbF => (dbF.date === f.date && dbF.pen === f.pen && (dbF.feedingIndex || 0) === (f.feedingIndex || 0))));
-                                return [...data.feedLogs, ...localOnly];
-                            });
-                        }
+                        if (data.feedLogs) setFeedLogs(data.feedLogs);
                         if (data.rationPlans) setRationPlans(data.rationPlans);
                         if (data.pens) setPens(data.pens);
                         if (data.rationPlansV2) setRationPlansV2(data.rationPlansV2);
@@ -1574,40 +1569,31 @@ export const FarmProvider = ({ children }) => {
                             if (s.med_categories) setMedCategories(s.med_categories);
                             if (s.system_params) setSystemParams(s.system_params);
                             if (s.quarantine_protocols) setQuarantineProtocols(s.quarantine_protocols);
-                            if (s.feed_ingredients) {
-                                setFeedIngredients(prev => {
-                                    const localOnly = prev.filter(p => !s.feed_ingredients.some(dbP => dbP.id === p.id));
-                                    return [...s.feed_ingredients, ...localOnly];
-                                });
-                            }
-                            if (s.feed_stock_items) {
-                                setFeedStockItems(prev => {
-                                    const localOnly = prev.filter(p => !s.feed_stock_items.some(dbP => dbP.id === p.id));
-                                    return [...s.feed_stock_items, ...localOnly];
-                                });
-                            }
+                            if (s.feed_ingredients) setFeedIngredients(s.feed_ingredients);
+                            if (s.feed_stock_items) setFeedStockItems(s.feed_stock_items);
                             if (s.feed_opening_stock) setFeedOpeningStock(s.feed_opening_stock);
                             if (s.mineral_split_ratio !== undefined) setMineralSplitRatioState(s.mineral_split_ratio);
                             if (s.premix_types) setPremixTypes(s.premix_types);
                             if (s.premix_formulas) setPremixFormulas(s.premix_formulas);
                             if (s.premix_batches) setPremixBatches(s.premix_batches);
                         }
+                        const currentMyRequests = data.myRequests || [];
                         if (data.feedPurchases) {
                             setFeedPurchases(prev => {
-                                const localOnly = prev.filter(p => !data.feedPurchases.some(dbP => dbP.id === p.id));
-                                return [...data.feedPurchases, ...localOnly];
+                                const pendingLocal = prev.filter(p => !data.feedPurchases.some(dbP => dbP.id === p.id) && currentMyRequests.some(r => r.status === 'pending' && r.payload?.id === p.id));
+                                return [...data.feedPurchases, ...pendingLocal];
                             });
                         }
                         if (data.feedStockIssues) {
                             setFeedStockIssues(prev => {
-                                const localOnly = prev.filter(i => !data.feedStockIssues.some(dbI => dbI.id === i.id));
-                                return [...data.feedStockIssues, ...localOnly];
+                                const pendingLocal = prev.filter(i => !data.feedStockIssues.some(dbI => dbI.id === i.id) && currentMyRequests.some(r => r.status === 'pending' && r.payload?.id === i.id));
+                                return [...data.feedStockIssues, ...pendingLocal];
                             });
                         }
                         if (data.overheadExpenses) {
                             setOverheadExpenses(prev => {
-                                const localOnly = prev.filter(e => !data.overheadExpenses.some(dbE => dbE.id === e.id));
-                                return [...data.overheadExpenses, ...localOnly];
+                                const pendingLocal = prev.filter(e => !data.overheadExpenses.some(dbE => dbE.id === e.id) && currentMyRequests.some(r => r.status === 'pending' && r.payload?.id === e.id));
+                                return [...data.overheadExpenses, ...pendingLocal];
                             });
                         }
                     }
