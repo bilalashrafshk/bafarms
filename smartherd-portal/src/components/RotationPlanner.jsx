@@ -118,11 +118,11 @@ export default function RotationPlanner() {
     };
 
     const isTaskDone = (animal, task) =>
-        treatments.some(t => t.animalId === animal.id && (t.protocolTaskId === task.id || (task.type === 'Deworming' && t.type === 'Deworming') || t.type === task.type));
+        treatments.some(t => t.animalId === animal.id && String(t.protocolTaskId) === String(task.id));
 
     const logProtocolTask = (animal, task) => {
         setSelectedIds([animal.id]);
-        setBulkTaskId(task.id);
+        setBulkTaskId(String(task.id));
         setBulkTaskDate(todayPKT());
         setBulkDrawFromStock(false);
         setBulkStockMode('existing');
@@ -138,7 +138,7 @@ export default function RotationPlanner() {
     // mistakenly-logged checklist step can be undone. Picks the most recent match if
     // more than one somehow qualifies.
     const findTaskTreatment = (animal, task) => {
-        const exact = treatments.filter(t => t.animalId === animal.id && t.protocolTaskId === task.id);
+        const exact = treatments.filter(t => t.animalId === animal.id && String(t.protocolTaskId) === String(task.id));
         if (exact.length > 0) {
             return exact.reduce((latest, t) => parseDateOnly(t.date) > parseDateOnly(latest.date) ? t : latest);
         }
@@ -172,7 +172,7 @@ export default function RotationPlanner() {
     // (skips anyone it's already logged for — see isTaskDone — so re-running this on an
     // overlapping selection never double-doses/double-costs an animal).
     const bulkTaskEligible = (() => {
-        const task = quarantineProtocols.find(t => t.id === bulkTaskId);
+        const task = quarantineProtocols.find(t => String(t.id) === String(bulkTaskId));
         if (!task) return [];
         return selectedIds
             .map(id => animals.find(a => a.id === id))
@@ -180,7 +180,7 @@ export default function RotationPlanner() {
     })();
 
     const handleBulkLogTask = async () => {
-        const task = quarantineProtocols.find(t => t.id === bulkTaskId);
+        const task = quarantineProtocols.find(t => String(t.id) === String(bulkTaskId));
         const eligible = bulkTaskEligible;
         if (!task || eligible.length === 0) { setBulkTaskModalOpen(false); return; }
 
@@ -690,12 +690,12 @@ export default function RotationPlanner() {
             )}
 
             {/* Bulk Log Task Modal */}
-            {bulkTaskModalOpen && quarantineProtocols.find(t => t.id === bulkTaskId) && createPortal(
+            {bulkTaskModalOpen && quarantineProtocols.find(t => String(t.id) === String(bulkTaskId)) && createPortal(
                 <div class="modal-overlay">
                     <div class="glass-panel modal-container" style={{ maxWidth: '480px' }}>
                         <button class="modal-close-btn" onClick={() => setBulkTaskModalOpen(false)}><i class="fa-solid fa-xmark"></i></button>
                         <h2 class="panel-title" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.6rem', marginBottom: '1rem', color: 'var(--accent-gold)' }}>
-                            <i class="fa-solid fa-syringe"></i> Log Protocol Task — {quarantineProtocols.find(t => t.id === bulkTaskId)?.label}
+                            <i class="fa-solid fa-syringe"></i> Log Protocol Task — {quarantineProtocols.find(t => String(t.id) === String(bulkTaskId))?.label}
                         </h2>
                         <div style={{ background: 'rgba(255,193,7,0.04)', border: '1px solid rgba(255,193,7,0.15)', borderRadius: '8px', padding: '0.7rem 1rem', marginBottom: '1rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
                             {bulkTaskEligible.length} of {selectedIds.length} selected animal{selectedIds.length === 1 ? '' : 's'} eligible
