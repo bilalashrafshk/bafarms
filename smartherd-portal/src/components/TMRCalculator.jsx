@@ -75,9 +75,15 @@ export default function TMRCalculator() {
     // Selected pen for TMR batch sizing
     const [selectedTMRPen, setSelectedTMRPen] = useState('all');
 
+    const getCurrentTimeHHMM = () => {
+        const d = new Date();
+        return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    };
+
     // Daily feed-log state (snapshotting what was actually fed — separate from the
     // Ration Plan schedule itself, so schedule edits never rewrite past days)
     const [logDate, setLogDate] = useState(todayPKT());
+    const [logTime, setLogTime] = useState(getCurrentTimeHHMM);
 
     // Diet Preview — a read-only "peek" at what a pen was/will be fed on any date,
     // deliberately decoupled from `logDate` (which drives the actual batch + feed log
@@ -613,6 +619,7 @@ export default function TMRCalculator() {
             feedingIndex: activeFeedingIndex,
             numFeedings: activeFeedingIndex === 0 ? 1 : numFeedings,
             feedingPct: activeFeedingIndex === 0 ? 100 : activeFeedingPct,
+            feedingTime: logTime || getCurrentTimeHHMM(),
             notes
         });
         setLogSaved(true);
@@ -685,6 +692,7 @@ export default function TMRCalculator() {
             date, pen: penId, animalCount: headCount, dietDiffered: false,
             ingredients: rows, totalDmKg, totalBatchKg,
             totalCost: totalCostSingleRow * headCount, costPerAnimal: totalCostSingleRow,
+            feedingTime: logTime || getCurrentTimeHHMM(),
             createdBy: staffUser?.email || staffUser?.name || null, notes
         });
     };
@@ -1658,10 +1666,18 @@ export default function TMRCalculator() {
                                         <input
                                             type="date"
                                             class="form-control"
-                                            style={{ width: '150px', minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.82rem' }}
+                                            style={{ width: '135px', minHeight: '34px', height: '34px', padding: '0.2rem 0.5rem', fontSize: '0.82rem' }}
                                             value={logDate}
                                             max={todayPKT()}
                                             onChange={(e) => setLogDate(e.target.value)}
+                                        />
+                                        <input
+                                            type="time"
+                                            class="form-control"
+                                            style={{ width: '110px', minHeight: '34px', height: '34px', padding: '0.2rem 0.5rem', fontSize: '0.82rem' }}
+                                            value={logTime}
+                                            onChange={(e) => setLogTime(e.target.value)}
+                                            title="Exact Feeding Administration Time"
                                         />
                                         <button type="button" class="btn btn-primary btn-sm" onClick={handleLogFeed}>
                                             <i class="fa-solid fa-clipboard-check"></i> Log This Feeding (Pen {selectedTMRPen})
@@ -1753,10 +1769,18 @@ export default function TMRCalculator() {
                                                     <input
                                                         type="date"
                                                         class="form-control"
-                                                        style={{ width: '150px', minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.82rem' }}
+                                                        style={{ width: '135px', minHeight: '34px', height: '34px', padding: '0.2rem 0.5rem', fontSize: '0.82rem' }}
                                                         value={logDate}
                                                         max={todayPKT()}
                                                         onChange={(e) => setLogDate(e.target.value)}
+                                                    />
+                                                    <input
+                                                        type="time"
+                                                        class="form-control"
+                                                        style={{ width: '110px', minHeight: '34px', height: '34px', padding: '0.2rem 0.5rem', fontSize: '0.82rem' }}
+                                                        value={logTime}
+                                                        onChange={(e) => setLogTime(e.target.value)}
+                                                        title="Exact Feeding Administration Time"
                                                     />
                                                     <button type="button" class="btn btn-primary btn-sm" onClick={handleLogAllPensFromAllView}>
                                                         <i class="fa-solid fa-clipboard-check"></i> Log This Feeding — {allPensResolutions.length} Pen{allPensResolutions.length === 1 ? '' : 's'}
@@ -1791,14 +1815,22 @@ export default function TMRCalculator() {
                             <h2>Tractor Mixing Screen</h2>
 
                             <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '0.8rem' }}>
-                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Feeding Date:</span>
+                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Feeding Date & Time:</span>
                                 <input
                                     type="date"
                                     class="form-control"
-                                    style={{ width: '150px', minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.82rem' }}
+                                    style={{ width: '135px', minHeight: '34px', height: '34px', padding: '0.2rem 0.5rem', fontSize: '0.82rem' }}
                                     value={logDate}
                                     max={todayPKT()}
                                     onChange={(e) => setLogDate(e.target.value)}
+                                />
+                                <input
+                                    type="time"
+                                    class="form-control"
+                                    style={{ width: '110px', minHeight: '34px', height: '34px', padding: '0.2rem 0.5rem', fontSize: '0.82rem' }}
+                                    value={logTime}
+                                    onChange={(e) => setLogTime(e.target.value)}
+                                    title="Exact Feeding Administration Time"
                                 />
                                 <button type="button" class="btn btn-secondary btn-sm" onClick={() => setTractorSelectedPens(tractorEligiblePens)} disabled={tractorSelectedPens.length === tractorEligiblePens.length}>
                                     <i class="fa-solid fa-check-double"></i> Select All ({tractorEligiblePens.length})
