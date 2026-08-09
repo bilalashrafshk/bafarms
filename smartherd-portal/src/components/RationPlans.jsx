@@ -43,10 +43,10 @@ export default function RationPlans() {
             const ing = feedIngredients.find(i => i.id === id || i.name?.toLowerCase() === id?.toLowerCase());
             const defaultFallbackPrice = ing?.price && ing.price > 0 ? ing.price
                 : (id === 'wanda' || id.toLowerCase().includes('wanda') ? 72.47
-                : id === 'silage' || id.toLowerCase().includes('silage') ? 12.5
-                : id === 'straw' || id.toLowerCase().includes('straw') || id.toLowerCase().includes('toori') ? 16.0
-                : id === 'chari' || id.toLowerCase().includes('chari') ? 8.0
-                : 0);
+                    : id === 'silage' || id.toLowerCase().includes('silage') ? 12.5
+                        : id === 'straw' || id.toLowerCase().includes('straw') || id.toLowerCase().includes('toori') ? 16.0
+                            : id === 'chari' || id.toLowerCase().includes('chari') ? 8.0
+                                : 0);
             const price = (stockPrice !== null && stockPrice > 0)
                 ? stockPrice
                 : (planPrice !== undefined && planPrice !== null && parseFloat(planPrice) > 0)
@@ -836,31 +836,31 @@ export default function RationPlans() {
                                         const minCost = weekCosts.length ? Math.min(...weekCosts) : null;
                                         const maxCost = weekCosts.length ? Math.max(...weekCosts) : null;
                                         return (
-                                        <tr key={plan.id}>
-                                            <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
-                                                {plan.name}
-                                                {plan.isDefault && <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--accent-gold)' }}>DEFAULT</span>}
-                                                <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--text-muted)' }}>(legacy)</span>
-                                                {plan.description && <div style={{ fontWeight: '400', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{plan.description}</div>}
-                                            </td>
-                                            <td>{(plan.weeks || []).length}</td>
-                                            <td>{plan.adgFloor} kg/day</td>
-                                            <td>{minCost !== null ? (minCost === maxCost ? `${Math.round(minCost)} PKR` : `${Math.round(minCost)}–${Math.round(maxCost)} PKR`) : '—'}</td>
-                                            <td>{pens.filter(p => p.rationPlanId === plan.id).length}</td>
-                                            {isAdmin && (
-                                                <td style={{ textAlign: 'center', display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
-                                                    <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => openEditPlan(plan)} title="Edit">
-                                                        <i class="fa-solid fa-pen"></i>
-                                                    </button>
-                                                    <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => duplicateRationPlan(plan)} title="Duplicate as scenario variant">
-                                                        <i class="fa-solid fa-copy"></i>
-                                                    </button>
-                                                    <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => handleDeletePlan(plan)} title="Delete">
-                                                        <i class="fa-solid fa-trash-can"></i>
-                                                    </button>
+                                            <tr key={plan.id}>
+                                                <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
+                                                    {plan.name}
+                                                    {plan.isDefault && <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--accent-gold)' }}>DEFAULT</span>}
+                                                    <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--text-muted)' }}>(legacy)</span>
+                                                    {plan.description && <div style={{ fontWeight: '400', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{plan.description}</div>}
                                                 </td>
-                                            )}
-                                        </tr>
+                                                <td>{(plan.weeks || []).length}</td>
+                                                <td>{plan.adgFloor} kg/day</td>
+                                                <td>{minCost !== null ? (minCost === maxCost ? `${Math.round(minCost)} PKR` : `${Math.round(minCost)}–${Math.round(maxCost)} PKR`) : '—'}</td>
+                                                <td>{pens.filter(p => p.rationPlanId === plan.id).length}</td>
+                                                {isAdmin && (
+                                                    <td style={{ textAlign: 'center', display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
+                                                        <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => openEditPlan(plan)} title="Edit">
+                                                            <i class="fa-solid fa-pen"></i>
+                                                        </button>
+                                                        <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => duplicateRationPlan(plan)} title="Duplicate as scenario variant">
+                                                            <i class="fa-solid fa-copy"></i>
+                                                        </button>
+                                                        <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => handleDeletePlan(plan)} title="Delete">
+                                                            <i class="fa-solid fa-trash-can"></i>
+                                                        </button>
+                                                    </td>
+                                                )}
+                                            </tr>
                                         );
                                     })}
                                     {rationPlans.length === 0 && (
@@ -943,88 +943,88 @@ export default function RationPlans() {
                                     <tbody>
                                         {rationPlansV2.map(plan => (
                                             <React.Fragment key={plan.id}>
-                                            {editingV2Id === plan.id ? (
-                                                <tr>
-                                                    <td>
-                                                        <input type="text" class="form-control" style={{ minWidth: '140px' }} value={v2EditName} onChange={e => setV2EditName(e.target.value)} />
-                                                    </td>
-                                                    <td>v{plan.version}</td>
-                                                    <td>
-                                                        <input type="number" class="form-control" style={{ width: '80px' }} value={v2EditAdaptationDays} onChange={e => setV2EditAdaptationDays(e.target.value)} />
-                                                    </td>
-                                                    <td>
-                                                        <input type="number" step="0.01" class="form-control" style={{ width: '90px' }} value={v2EditAdgFloor} onChange={e => setV2EditAdgFloor(e.target.value)} />
-                                                    </td>
-                                                    <td>{rationRows.filter(r => r.planId === plan.id).length}</td>
-                                                    <td>{pens.filter(p => p.planId === plan.id).length}</td>
-                                                    <td>
-                                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', marginBottom: '0.4rem' }}>
-                                                            <input type="checkbox" checked={v2EditIsDefault} onChange={e => setV2EditIsDefault(e.target.checked)} /> Default
-                                                        </label>
-                                                        <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                                            <button type="button" class="btn btn-primary btn-sm" onClick={() => handleSaveV2Plan(plan.id)} disabled={v2SavingId === plan.id}>
-                                                                {v2SavingId === plan.id ? 'Saving…' : 'Save'}
-                                                            </button>
-                                                            <button type="button" class="btn btn-ghost btn-sm" onClick={() => setEditingV2Id(null)}>Cancel</button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ) : (
-                                                <tr>
-                                                    <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
-                                                        {plan.name}
-                                                        {plan.isDefault && <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--accent-gold)' }}>DEFAULT</span>}
-                                                    </td>
-                                                    <td>v{plan.version}</td>
-                                                    <td>{plan.adaptationDays}</td>
-                                                    <td>{plan.adgFloor} kg/day</td>
-                                                    <td>{rationRows.filter(r => r.planId === plan.id).length}</td>
-                                                    <td>{pens.filter(p => p.planId === plan.id).length}</td>
-                                                    <td>
-                                                        <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                                            <button type="button" class={`btn btn-sm ${expandedV2PlanId === plan.id ? 'btn-primary' : 'btn-ghost'}`} title="View / edit brackets" onClick={() => toggleV2PlanExpanded(plan.id)}>
-                                                                <i class={`fa-solid ${expandedV2PlanId === plan.id ? 'fa-chevron-up' : 'fa-table-list'}`}></i>
-                                                            </button>
-                                                            {isAdmin && (
-                                                                <button type="button" class="btn btn-ghost btn-sm" title="Edit name/settings" onClick={() => openEditV2Plan(plan)}>
-                                                                    <i class="fa-solid fa-pen-to-square"></i>
+                                                {editingV2Id === plan.id ? (
+                                                    <tr>
+                                                        <td>
+                                                            <input type="text" class="form-control" style={{ minWidth: '140px' }} value={v2EditName} onChange={e => setV2EditName(e.target.value)} />
+                                                        </td>
+                                                        <td>v{plan.version}</td>
+                                                        <td>
+                                                            <input type="number" class="form-control" style={{ width: '80px' }} value={v2EditAdaptationDays} onChange={e => setV2EditAdaptationDays(e.target.value)} />
+                                                        </td>
+                                                        <td>
+                                                            <input type="number" step="0.01" class="form-control" style={{ width: '90px' }} value={v2EditAdgFloor} onChange={e => setV2EditAdgFloor(e.target.value)} />
+                                                        </td>
+                                                        <td>{rationRows.filter(r => r.planId === plan.id).length}</td>
+                                                        <td>{pens.filter(p => p.planId === plan.id).length}</td>
+                                                        <td>
+                                                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', marginBottom: '0.4rem' }}>
+                                                                <input type="checkbox" checked={v2EditIsDefault} onChange={e => setV2EditIsDefault(e.target.checked)} /> Default
+                                                            </label>
+                                                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                                                <button type="button" class="btn btn-primary btn-sm" onClick={() => handleSaveV2Plan(plan.id)} disabled={v2SavingId === plan.id}>
+                                                                    {v2SavingId === plan.id ? 'Saving…' : 'Save'}
                                                                 </button>
-                                                            )}
-                                                            <button type="button" class="btn btn-ghost btn-sm" title="Export as CSV" onClick={() => handleExportV2Plan(plan)}>
-                                                                <i class="fa-solid fa-file-csv"></i>
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            )}
-                                            {expandedV2PlanId === plan.id && (
-                                                <tr>
-                                                    <td colSpan={7} style={{ padding: 0, background: 'rgba(255,255,255,0.02)' }}>
-                                                        <BracketDetailPanel
-                                                            plan={plan}
-                                                            rationRows={rationRows}
-                                                            rationRowItems={rationRowItems}
-                                                            feedIngredients={feedIngredients}
-                                                            isAdmin={isAdmin}
-                                                            bracketFilterForage={bracketFilterForage}
-                                                            setBracketFilterForage={setBracketFilterForage}
-                                                            bracketFilterPhase={bracketFilterPhase}
-                                                            setBracketFilterPhase={setBracketFilterPhase}
-                                                            editingRowId={editingRowId}
-                                                            openEditRow={openEditRow}
-                                                            cancelEditRow={() => { setEditingRowId(null); setRowSaveErrors([]); }}
-                                                            rowEditWtMin={rowEditWtMin} setRowEditWtMin={setRowEditWtMin}
-                                                            rowEditWtMax={rowEditWtMax} setRowEditWtMax={setRowEditWtMax}
-                                                            rowEditTargetAdg={rowEditTargetAdg} setRowEditTargetAdg={setRowEditTargetAdg}
-                                                            rowEditEstCost={rowEditEstCost} setRowEditEstCost={setRowEditEstCost}
-                                                            rowEditItems={rowEditItems} setRowEditItems={setRowEditItems}
-                                                            rowSavingId={rowSavingId}
-                                                            rowSaveErrors={rowSaveErrors}
-                                                            handleSaveRow={handleSaveRow}
-                                                        />
-                                                    </td>
-                                                </tr>
-                                            )}
+                                                                <button type="button" class="btn btn-ghost btn-sm" onClick={() => setEditingV2Id(null)}>Cancel</button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    <tr>
+                                                        <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
+                                                            {plan.name}
+                                                            {plan.isDefault && <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--accent-gold)' }}>DEFAULT</span>}
+                                                        </td>
+                                                        <td>v{plan.version}</td>
+                                                        <td>{plan.adaptationDays}</td>
+                                                        <td>{plan.adgFloor} kg/day</td>
+                                                        <td>{rationRows.filter(r => r.planId === plan.id).length}</td>
+                                                        <td>{pens.filter(p => p.planId === plan.id).length}</td>
+                                                        <td>
+                                                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                                                <button type="button" class={`btn btn-sm ${expandedV2PlanId === plan.id ? 'btn-primary' : 'btn-ghost'}`} title="View / edit brackets" onClick={() => toggleV2PlanExpanded(plan.id)}>
+                                                                    <i class={`fa-solid ${expandedV2PlanId === plan.id ? 'fa-chevron-up' : 'fa-table-list'}`}></i>
+                                                                </button>
+                                                                {isAdmin && (
+                                                                    <button type="button" class="btn btn-ghost btn-sm" title="Edit name/settings" onClick={() => openEditV2Plan(plan)}>
+                                                                        <i class="fa-solid fa-pen-to-square"></i>
+                                                                    </button>
+                                                                )}
+                                                                <button type="button" class="btn btn-ghost btn-sm" title="Export as CSV" onClick={() => handleExportV2Plan(plan)}>
+                                                                    <i class="fa-solid fa-file-csv"></i>
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                                {expandedV2PlanId === plan.id && (
+                                                    <tr>
+                                                        <td colSpan={7} style={{ padding: 0, background: 'rgba(255,255,255,0.02)' }}>
+                                                            <BracketDetailPanel
+                                                                plan={plan}
+                                                                rationRows={rationRows}
+                                                                rationRowItems={rationRowItems}
+                                                                feedIngredients={feedIngredients}
+                                                                isAdmin={isAdmin}
+                                                                bracketFilterForage={bracketFilterForage}
+                                                                setBracketFilterForage={setBracketFilterForage}
+                                                                bracketFilterPhase={bracketFilterPhase}
+                                                                setBracketFilterPhase={setBracketFilterPhase}
+                                                                editingRowId={editingRowId}
+                                                                openEditRow={openEditRow}
+                                                                cancelEditRow={() => { setEditingRowId(null); setRowSaveErrors([]); }}
+                                                                rowEditWtMin={rowEditWtMin} setRowEditWtMin={setRowEditWtMin}
+                                                                rowEditWtMax={rowEditWtMax} setRowEditWtMax={setRowEditWtMax}
+                                                                rowEditTargetAdg={rowEditTargetAdg} setRowEditTargetAdg={setRowEditTargetAdg}
+                                                                rowEditEstCost={rowEditEstCost} setRowEditEstCost={setRowEditEstCost}
+                                                                rowEditItems={rowEditItems} setRowEditItems={setRowEditItems}
+                                                                rowSavingId={rowSavingId}
+                                                                rowSaveErrors={rowSaveErrors}
+                                                                handleSaveRow={handleSaveRow}
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                )}
                                             </React.Fragment>
                                         ))}
                                     </tbody>
@@ -1225,105 +1225,105 @@ export default function RationPlans() {
                                             {formWeeks.map((w, idx) => {
                                                 const isDayMode = w.scheduleMode === 'day';
                                                 return (
-                                                <React.Fragment key={idx}>
-                                                <tr>
-                                                    <td>
-                                                        <input type="number" class="form-control" style={{ width: '55px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.week} onChange={e => handleWeekFieldChange(idx, 'week', e.target.value)} />
-                                                    </td>
-                                                    <td>
-                                                        <select class="form-control" style={{ minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.forageType || 'silage'} onChange={e => handleWeekFieldChange(idx, 'forageType', e.target.value)}>
-                                                            {FORAGE_TYPES.map(ft => <option key={ft.id} value={ft.id}>{ft.label}</option>)}
-                                                        </select>
-                                                    </td>
-                                                    <td>
-                                                        <input type="number" class="form-control" style={{ width: '80px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.liveWeightMin} onChange={e => handleWeekFieldChange(idx, 'liveWeightMin', e.target.value)} />
-                                                    </td>
-                                                    <td>
-                                                        <input type="number" class="form-control" style={{ width: '80px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.liveWeightMax} onChange={e => handleWeekFieldChange(idx, 'liveWeightMax', e.target.value)} />
-                                                    </td>
-                                                    <td>
-                                                        <input type="number" step="0.01" class="form-control" style={{ width: '75px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.targetAdg} onChange={e => handleWeekFieldChange(idx, 'targetAdg', e.target.value)} />
-                                                    </td>
-                                                    {formAdaptation.length === 0 && (
-                                                    <td>
-                                                        <button
-                                                            type="button"
-                                                            class="btn btn-secondary"
-                                                            style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', fontSize: '0.72rem', whiteSpace: 'nowrap' }}
-                                                            onClick={() => handleToggleWeekMode(idx)}
-                                                            title={isDayMode ? 'Same ration every day of this week' : 'Set a different ration for each of the 7 days'}
-                                                        >
-                                                            <i class={`fa-solid ${isDayMode ? 'fa-calendar-days' : 'fa-calendar-week'}`}></i> {isDayMode ? 'Per Day' : 'Per Week'}
-                                                        </button>
-                                                    </td>
-                                                    )}
-                                                    {formIngredientIds.map(id => (
-                                                        <td key={id}>
-                                                            {isDayMode ? (
-                                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Set below ↓</span>
-                                                            ) : (
-                                                                <input type="number" step="0.001" class="form-control" style={{ width: '75px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.ingredients[id] ?? 0} onChange={e => handleWeekIngredientChange(idx, id, e.target.value)} />
+                                                    <React.Fragment key={idx}>
+                                                        <tr>
+                                                            <td>
+                                                                <input type="number" class="form-control" style={{ width: '55px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.week} onChange={e => handleWeekFieldChange(idx, 'week', e.target.value)} />
+                                                            </td>
+                                                            <td>
+                                                                <select class="form-control" style={{ minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.forageType || 'silage'} onChange={e => handleWeekFieldChange(idx, 'forageType', e.target.value)}>
+                                                                    {FORAGE_TYPES.map(ft => <option key={ft.id} value={ft.id}>{ft.label}</option>)}
+                                                                </select>
+                                                            </td>
+                                                            <td>
+                                                                <input type="number" class="form-control" style={{ width: '80px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.liveWeightMin} onChange={e => handleWeekFieldChange(idx, 'liveWeightMin', e.target.value)} />
+                                                            </td>
+                                                            <td>
+                                                                <input type="number" class="form-control" style={{ width: '80px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.liveWeightMax} onChange={e => handleWeekFieldChange(idx, 'liveWeightMax', e.target.value)} />
+                                                            </td>
+                                                            <td>
+                                                                <input type="number" step="0.01" class="form-control" style={{ width: '75px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.targetAdg} onChange={e => handleWeekFieldChange(idx, 'targetAdg', e.target.value)} />
+                                                            </td>
+                                                            {formAdaptation.length === 0 && (
+                                                                <td>
+                                                                    <button
+                                                                        type="button"
+                                                                        class="btn btn-secondary"
+                                                                        style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+                                                                        onClick={() => handleToggleWeekMode(idx)}
+                                                                        title={isDayMode ? 'Same ration every day of this week' : 'Set a different ration for each of the 7 days'}
+                                                                    >
+                                                                        <i class={`fa-solid ${isDayMode ? 'fa-calendar-days' : 'fa-calendar-week'}`}></i> {isDayMode ? 'Per Day' : 'Per Week'}
+                                                                    </button>
+                                                                </td>
                                                             )}
-                                                        </td>
-                                                    ))}
-                                                    <td>
-                                                        <input type="text" class="form-control" style={{ minWidth: '160px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.note} onChange={e => handleWeekFieldChange(idx, 'note', e.target.value)} placeholder="e.g. adaptation week" />
-                                                    </td>
-                                                    <td style={{ whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
-                                                        {Math.round(estimateWeekAvgCost(w))} PKR{isDayMode && <span style={{ fontSize: '0.68rem' }}> avg</span>}
-                                                    </td>
-                                                    <td style={{ textAlign: 'center' }}>
-                                                        <button type="button" onClick={() => handleRemoveWeek(idx)} style={{ background: 'none', border: 'none', color: 'hsl(0,75%,60%)', cursor: 'pointer' }} title="Remove week">
-                                                            <i class="fa-solid fa-trash-can"></i>
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                                {isDayMode && formAdaptation.length === 0 && (
-                                                    <tr>
-                                                        <td colSpan={9 + formIngredientIds.length} style={{ background: 'rgba(0,0,0,0.15)', padding: '0.7rem' }}>
-                                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-                                                                <i class="fa-solid fa-calendar-days"></i> Daily diet for Week {w.week || idx + 1} — Day 1 is the pen's first day in this bracket (from its cycle start date).
-                                                            </div>
-                                                            <div class="table-wrapper">
-                                                                <table class="data-table" style={{ fontSize: '0.78rem' }}>
-                                                                    <thead>
-                                                                        <tr>
-                                                                            <th style={{ width: '60px' }}>DAY</th>
-                                                                            {formIngredientIds.map(id => {
-                                                                                const ing = feedIngredients.find(i => i.id === id);
-                                                                                return <th key={id} style={{ whiteSpace: 'nowrap' }}>{ing?.name || id}</th>;
-                                                                            })}
-                                                                            <th style={{ whiteSpace: 'nowrap' }}>EST. COST/DAY</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        {DAYS_OF_WEEK.map(day => (
-                                                                            <tr key={day}>
-                                                                                <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>Day {day}</td>
-                                                                                {formIngredientIds.map(id => (
-                                                                                    <td key={id}>
-                                                                                        <input
-                                                                                            type="number"
-                                                                                            step="0.001"
-                                                                                            class="form-control"
-                                                                                            style={{ width: '75px', minHeight: '30px', height: '30px', padding: '0.15rem 0.4rem' }}
-                                                                                            value={w.dailyIngredients?.[day]?.[id] ?? 0}
-                                                                                            onChange={e => handleDailyIngredientChange(idx, day, id, e.target.value)}
-                                                                                        />
-                                                                                    </td>
+                                                            {formIngredientIds.map(id => (
+                                                                <td key={id}>
+                                                                    {isDayMode ? (
+                                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Set below ↓</span>
+                                                                    ) : (
+                                                                        <input type="number" step="0.001" class="form-control" style={{ width: '75px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.ingredients[id] ?? 0} onChange={e => handleWeekIngredientChange(idx, id, e.target.value)} />
+                                                                    )}
+                                                                </td>
+                                                            ))}
+                                                            <td>
+                                                                <input type="text" class="form-control" style={{ minWidth: '160px', minHeight: '32px', height: '32px', padding: '0.2rem 0.4rem' }} value={w.note} onChange={e => handleWeekFieldChange(idx, 'note', e.target.value)} placeholder="e.g. adaptation week" />
+                                                            </td>
+                                                            <td style={{ whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                                                                {Math.round(estimateWeekAvgCost(w))} PKR{isDayMode && <span style={{ fontSize: '0.68rem' }}> avg</span>}
+                                                            </td>
+                                                            <td style={{ textAlign: 'center' }}>
+                                                                <button type="button" onClick={() => handleRemoveWeek(idx)} style={{ background: 'none', border: 'none', color: 'hsl(0,75%,60%)', cursor: 'pointer' }} title="Remove week">
+                                                                    <i class="fa-solid fa-trash-can"></i>
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                        {isDayMode && formAdaptation.length === 0 && (
+                                                            <tr>
+                                                                <td colSpan={9 + formIngredientIds.length} style={{ background: 'rgba(0,0,0,0.15)', padding: '0.7rem' }}>
+                                                                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                                                                        <i class="fa-solid fa-calendar-days"></i> Daily diet for Week {w.week || idx + 1} — Day 1 is the pen's first day in this bracket (from its cycle start date).
+                                                                    </div>
+                                                                    <div class="table-wrapper">
+                                                                        <table class="data-table" style={{ fontSize: '0.78rem' }}>
+                                                                            <thead>
+                                                                                <tr>
+                                                                                    <th style={{ width: '60px' }}>DAY</th>
+                                                                                    {formIngredientIds.map(id => {
+                                                                                        const ing = feedIngredients.find(i => i.id === id);
+                                                                                        return <th key={id} style={{ whiteSpace: 'nowrap' }}>{ing?.name || id}</th>;
+                                                                                    })}
+                                                                                    <th style={{ whiteSpace: 'nowrap' }}>EST. COST/DAY</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody>
+                                                                                {DAYS_OF_WEEK.map(day => (
+                                                                                    <tr key={day}>
+                                                                                        <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>Day {day}</td>
+                                                                                        {formIngredientIds.map(id => (
+                                                                                            <td key={id}>
+                                                                                                <input
+                                                                                                    type="number"
+                                                                                                    step="0.001"
+                                                                                                    class="form-control"
+                                                                                                    style={{ width: '75px', minHeight: '30px', height: '30px', padding: '0.15rem 0.4rem' }}
+                                                                                                    value={w.dailyIngredients?.[day]?.[id] ?? 0}
+                                                                                                    onChange={e => handleDailyIngredientChange(idx, day, id, e.target.value)}
+                                                                                                />
+                                                                                            </td>
+                                                                                        ))}
+                                                                                        <td style={{ whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                                                                                            {Math.round(estimateWeekCost(w.dailyIngredients?.[day]))} PKR
+                                                                                        </td>
+                                                                                    </tr>
                                                                                 ))}
-                                                                                <td style={{ whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
-                                                                                    {Math.round(estimateWeekCost(w.dailyIngredients?.[day]))} PKR
-                                                                                </td>
-                                                                            </tr>
-                                                                        ))}
-                                                                    </tbody>
-                                                                </table>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                )}
-                                                </React.Fragment>
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                    </React.Fragment>
                                                 );
                                             })}
                                         </tbody>
