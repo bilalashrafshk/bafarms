@@ -302,8 +302,39 @@ export default function FeedStock() {
     const totalStockValue = ledger.reduce((sum, l) => sum + l.closingValue, 0);
     const totalConsumptionValue = filteredIssues.reduce((sum, iss) => sum + (issueCosts[iss.id]?.cost ?? 0), 0);
 
-    const itemName = (id, rec) => rec?.itemName || feedStockItems.find(i => i.id === id)?.name || id;
-    const itemUnit = (id, rec) => rec?.itemUnit || feedStockItems.find(i => i.id === id)?.unit || 'kg';
+    const itemName = (id, rec) => {
+        if (rec?.itemName && !rec.itemName.startsWith('item_')) return rec.itemName;
+        const found = feedStockItems.find(i => i.id === id);
+        if (found?.name) return found.name;
+
+        for (const req of [...(myRequests || []), ...(pendingApprovals || [])]) {
+            if (req.action === 'SAVE_SETTINGS' && req.payload?.key === 'feed_stock_items' && Array.isArray(req.payload?.value)) {
+                const pendingItem = req.payload.value.find(i => i.id === id);
+                if (pendingItem?.name) return pendingItem.name;
+            }
+            if (req.payload?.itemId === id && req.payload?.itemName && !req.payload.itemName.startsWith('item_')) {
+                return req.payload.itemName;
+            }
+        }
+        return (rec?.itemName && !rec.itemName.startsWith('item_')) ? rec.itemName : id;
+    };
+
+    const itemUnit = (id, rec) => {
+        if (rec?.itemUnit) return rec.itemUnit;
+        const found = feedStockItems.find(i => i.id === id);
+        if (found?.unit) return found.unit;
+
+        for (const req of [...(myRequests || []), ...(pendingApprovals || [])]) {
+            if (req.action === 'SAVE_SETTINGS' && req.payload?.key === 'feed_stock_items' && Array.isArray(req.payload?.value)) {
+                const pendingItem = req.payload.value.find(i => i.id === id);
+                if (pendingItem?.unit) return pendingItem.unit;
+            }
+            if (req.payload?.itemId === id && req.payload?.itemUnit) {
+                return req.payload.itemUnit;
+            }
+        }
+        return 'kg';
+    };
     const itemCategory = (id) => feedStockItems.find(i => i.id === id)?.category || 'feed';
     const penLabel = (pen) => pen === 'ALL' ? 'All Pens' : pen === 'PRODUCTION' ? 'Premix Production' : `Pen ${pen}`;
 

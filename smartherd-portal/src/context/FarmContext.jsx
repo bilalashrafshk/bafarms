@@ -873,6 +873,22 @@ export const FarmProvider = ({ children }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // Merges pending feed_stock_items from unapproved staff requests with saved feedStockItems
+    // so new items created by non-admins resolve instantly across all ledgers & forms
+    const effectiveFeedStockItems = useMemo(() => {
+        let list = [...feedStockItems];
+        [...(myRequests || []), ...(pendingApprovals || [])].forEach(r => {
+            if (r.status === 'pending' && r.action === 'SAVE_SETTINGS' && r.payload?.key === 'feed_stock_items' && Array.isArray(r.payload?.value)) {
+                r.payload.value.forEach(item => {
+                    if (item && item.id && !list.some(i => i.id === item.id)) {
+                        list.push(item);
+                    }
+                });
+            }
+        });
+        return list;
+    }, [feedStockItems, myRequests, pendingApprovals]);
+
     // Any feed stock item that's its own canonical ingredient (i.e. not a split component
     // like limestone/mineralPack, which both share the combined "minerals" ingredient id)
     // but has no matching feedIngredients entry gets one auto-created here. This covers
@@ -881,7 +897,7 @@ export const FarmProvider = ({ children }) => {
     // purchasable stock but silently invisible in the Ration Plans "Add Ingredient" list,
     // since that list is only ever built from feedIngredients.
     useEffect(() => {
-        const missing = feedStockItems
+        const missing = effectiveFeedStockItems
             .filter(item => item.derivedFromIngredientId && item.derivedFromIngredientId === item.id)
             .filter(item => !feedIngredients.some(i => i.id === item.id));
         if (missing.length === 0) return;
@@ -892,7 +908,7 @@ export const FarmProvider = ({ children }) => {
             persistMutation('SAVE_SETTINGS', { key: 'feed_ingredients', value: next });
             return next;
         });
-    }, [feedStockItems, feedIngredients]);
+    }, [effectiveFeedStockItems, feedIngredients]);
 
     const updateFeedStockItems = (newItems) => {
         setFeedStockItems(newItems);
@@ -908,7 +924,7 @@ export const FarmProvider = ({ children }) => {
     };
 
     const addFeedPurchase = async (purchase) => {
-        const itemObj = (feedStockItems || []).find(i => i.id === purchase.itemId);
+        const itemObj = (effectiveFeedStockItems || []).find(i => i.id === purchase.itemId);
         const record = {
             id: purchase.id || `fp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             itemId: purchase.itemId,
@@ -991,7 +1007,7 @@ export const FarmProvider = ({ children }) => {
     };
 
     const addFeedStockIssue = async (issue) => {
-        const itemObj = (feedStockItems || []).find(i => i.id === issue.itemId);
+        const itemObj = (effectiveFeedStockItems || []).find(i => i.id === issue.itemId);
         const record = {
             id: issue.id || `fi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             itemId: issue.itemId,
@@ -1030,7 +1046,7 @@ export const FarmProvider = ({ children }) => {
         const autoIssues = [];
         feedLogs.forEach(log => {
             (log.ingredients || []).forEach(ing => {
-                feedStockItems.forEach(item => {
+                effectiveFeedStockItems.forEach(item => {
                     if (!item.derivedFromIngredientId || item.derivedFromIngredientId !== ing.id) return;
                     const share = item.id === 'limestone' ? mineralSplitRatio
                         : item.id === 'mineralPack' ? (1 - mineralSplitRatio)
@@ -1084,7 +1100,7 @@ export const FarmProvider = ({ children }) => {
 
         const issueCosts = {};
         const byItem = {};
-        feedStockItems.forEach(item => {
+        effectiveFeedStockItems.forEach(item => {
             const opening = feedOpeningStock[item.id] || { qty: 0, value: 0 };
             const lots = buildLots(item.id, opening, feedPurchases);
             const issues = (issuesByItem[item.id] || [])
@@ -1119,7 +1135,7 @@ export const FarmProvider = ({ children }) => {
     // a stale all-time blend that never forgets stock that's long gone.
     const getFeedStockLedger = () => {
         const { byItem } = getFeedStockValuationMap();
-        return feedStockItems.map(item => {
+        return effectiveFeedStockItems.map(item => {
             const v = byItem[item.id];
             const purchases = feedPurchases.filter(p => p.itemId === item.id);
             const purchasedQty = purchases.reduce((sum, p) => sum + p.quantity, 0);
@@ -1127,15 +1143,15 @@ export const FarmProvider = ({ children }) => {
 
             return {
                 item,
-                openingQty: v.openingQty,
-                openingValue: v.openingValue,
+                openingQty: v?.openingQty || 0,
+                openingValue: v?.openingValue || 0,
                 purchasedQty,
                 purchasedValue,
-                issuedQty: v.issuedQty,
-                avgRate: v.avgRate,
-                consumptionValue: v.consumptionValue,
-                closingQty: v.closingQty,
-                closingValue: v.closingValue
+                issuedQty: v?.issuedQty || 0,
+                avgRate: v?.avgRate || 0,
+                consumptionValue: v?.consumptionValue || 0,
+                closingQty: v?.closingQty || 0,
+                closingValue: v?.closingValue || 0
             };
         });
     };
@@ -1157,7 +1173,7 @@ export const FarmProvider = ({ children }) => {
     // Returns null when the ingredient has no matching stock item at all (not stock-tracked).
     const getIngredientStockPrice = (ingredientId) => {
         const ledger = getFeedStockLedger();
-        const linked = feedStockItems.filter(item => item.id === ingredientId || item.derivedFromIngredientId === ingredientId);
+        const linked = effectiveFeedStockItems.filter(item => item.id === ingredientId || item.derivedFromIngredientId === ingredientId);
         const fallbackPrice = feedIngredients.find(i => i.id === ingredientId)?.price || 0;
         if (linked.length === 0) return fallbackPrice > 0 ? fallbackPrice : null;
         let rate = 0;
@@ -1177,7 +1193,7 @@ export const FarmProvider = ({ children }) => {
     // Sourced straight from the stock ledger. Returns null if not stock-tracked.
     const getIngredientStockQty = (ingredientId) => {
         const ledger = getFeedStockLedger();
-        const linked = feedStockItems.filter(item => item.id === ingredientId || item.derivedFromIngredientId === ingredientId);
+        const linked = effectiveFeedStockItems.filter(item => item.id === ingredientId || item.derivedFromIngredientId === ingredientId);
         if (linked.length === 0) return null;
         return linked.reduce((sum, item) => {
             const closing = ledger.find(l => l.item.id === item.id)?.closingQty || 0;
@@ -1194,13 +1210,18 @@ export const FarmProvider = ({ children }) => {
     const addStockTrackedIngredient = (name, category = 'feed', unit = 'kg') => {
         const trimmed = (name || '').trim();
         if (!trimmed) return null;
+
+        // Check if an item with this exact name (case-insensitive) already exists in effectiveFeedStockItems
+        const existing = effectiveFeedStockItems.find(i => (i.name || '').toLowerCase() === trimmed.toLowerCase());
+        if (existing) return existing.id;
+
         const id = 'item_' + Date.now();
         const item = { id, name: trimmed, unit: unit || 'kg', category, isDefault: false };
         if (category === 'feed') {
             item.derivedFromIngredientId = id;
             updateFeedIngredients([...feedIngredients, { id, name: trimmed, dmTarget: 0, price: 0, isDefault: false }]);
         }
-        updateFeedStockItems([...feedStockItems, item]);
+        updateFeedStockItems([...effectiveFeedStockItems, item]);
         return id;
     };
 
@@ -3111,7 +3132,7 @@ export const FarmProvider = ({ children }) => {
             feedLogs,
             logFeed,
             deleteFeedLog,
-            feedStockItems,
+            feedStockItems: effectiveFeedStockItems,
             updateFeedStockItems,
             feedOpeningStock,
             setItemOpeningStock,
