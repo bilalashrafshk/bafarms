@@ -117,27 +117,21 @@ export default function RotationPlanner() {
         return max;
     };
 
-    // Prefer an exact link (protocolTaskId, set when the task was logged via the
-    // checklist below) over the old heuristic. The heuristic alone can't tell apart
-    // two checklist steps that share the same type + medicine (e.g. "FMD" on day 1 vs
-    // "FMD Boost" on day 7) — it's kept only so treatments logged before this field
-    // existed still show as complete, narrowed to a window around that task's own due
-    // day so it no longer bleeds into a neighboring step's window.
     const isTaskDone = (animal, task) =>
-        treatments.some(t => t.animalId === animal.id && t.protocolTaskId === task.id) ||
-        treatments.some(t =>
-            t.animalId === animal.id &&
-            !t.protocolTaskId &&
-            t.type === task.type &&
-            (t.medicine || '').toLowerCase().includes((task.medicine || '').split(' ')[0].toLowerCase()) &&
-            (() => { const d = daysBetween(t.date, animal.entryDate); return d >= (task.dueDay - 2) && d <= (task.dueDay + 3); })()
-        );
+        treatments.some(t => t.animalId === animal.id && (t.protocolTaskId === task.id || (task.type === 'Deworming' && t.type === 'Deworming') || t.type === task.type));
 
-    const logProtocolTask = async (animal, task) => {
-        const key = `${animal.id}-${task.id}`;
-        setLoggingTask(key);
-        await addTreatment(animal.id, todayPKT(), task.type, task.medicine, task.dosage, task.withholding, task.id);
-        setLoggingTask(null);
+    const logProtocolTask = (animal, task) => {
+        setSelectedIds([animal.id]);
+        setBulkTaskId(task.id);
+        setBulkTaskDate(todayPKT());
+        setBulkDrawFromStock(false);
+        setBulkStockMode('existing');
+        setBulkStockItemId('');
+        setBulkStockQtyPerAnimal('1');
+        setBulkNewMedName('');
+        setBulkNewMedUnit('unit');
+        setBulkNewMedRate('');
+        setBulkTaskModalOpen(true);
     };
 
     // Same matching logic as isTaskDone, but returns the actual treatment record so a
@@ -145,15 +139,14 @@ export default function RotationPlanner() {
     // more than one somehow qualifies.
     const findTaskTreatment = (animal, task) => {
         const exact = treatments.filter(t => t.animalId === animal.id && t.protocolTaskId === task.id);
-        const matches = exact.length > 0 ? exact : treatments.filter(t =>
-            t.animalId === animal.id &&
-            !t.protocolTaskId &&
-            t.type === task.type &&
-            (t.medicine || '').toLowerCase().includes((task.medicine || '').split(' ')[0].toLowerCase()) &&
-            (() => { const d = daysBetween(t.date, animal.entryDate); return d >= (task.dueDay - 2) && d <= (task.dueDay + 3); })()
-        );
-        if (matches.length === 0) return null;
-        return matches.reduce((latest, t) => parseDateOnly(t.date) > parseDateOnly(latest.date) ? t : latest);
+        if (exact.length > 0) {
+            return exact.reduce((latest, t) => parseDateOnly(t.date) > parseDateOnly(latest.date) ? t : latest);
+        }
+        const byType = treatments.filter(t => t.animalId === animal.id && (t.type === task.type || (task.type === 'Deworming' && t.type === 'Deworming')));
+        if (byType.length > 0) {
+            return byType.reduce((latest, t) => parseDateOnly(t.date) > parseDateOnly(latest.date) ? t : latest);
+        }
+        return null;
     };
 
     const undoProtocolTask = (animal, task) => {
@@ -166,6 +159,7 @@ export default function RotationPlanner() {
 
     const openBulkTaskModal = () => {
         if (!bulkTaskId) return;
+        setBulkTaskDate(todayPKT());
         setBulkDrawFromStock(false);
         setBulkStockMode('existing');
         setBulkStockItemId('');
@@ -192,7 +186,11 @@ export default function RotationPlanner() {
         const eligible = bulkTaskEligible;
         if (!task || eligible.length === 0) { setBulkTaskModalOpen(false); return; }
 
+        const logDate = bulkTaskDate || todayPKT();
         let itemId = bulkStockItemId;
+        let actualMedicine = task.medicine;
+        let actualDosage = task.dosage;
+
         if (bulkDrawFromStock) {
             const qtyPerAnimal = parseFloat(bulkStockQtyPerAnimal) || 0;
             if (qtyPerAnimal <= 0) {
@@ -206,18 +204,24 @@ export default function RotationPlanner() {
                     alert('Enter a name and a price/unit for the new medicine.');
                     return;
                 }
-                // Purchase-first: one lot sized for the whole batch, created before any of
-                // it is drawn against — same rule as Medical Log's single-animal version.
                 itemId = addStockTrackedIngredient(name, 'medicine', bulkNewMedUnit.trim() || 'unit');
                 setBulkTaskSubmitting(true);
                 await addFeedPurchase({
-                    itemId, date: todayPKT(), quantity: qtyPerAnimal * eligible.length, rate,
+                    itemId, date: logDate, quantity: qtyPerAnimal * eligible.length, rate,
                     supplier: 'Direct purchase (bulk treatment)',
-                    notes: `Backfilled for bulk "${task.label}" — ${eligible.length} animal${eligible.length === 1 ? '' : 's'}`
+                    notes: `Backfilled for "${task.label}" — ${eligible.length} animal${eligible.length === 1 ? '' : 's'}`
                 });
+                actualMedicine = `${name} (${qtyPerAnimal} ${bulkNewMedUnit.trim() || 'unit'})`;
+                actualDosage = `${qtyPerAnimal} ${bulkNewMedUnit.trim() || 'unit'}`;
             } else if (!itemId) {
                 alert('Select a medicine from stock, or switch to "New medicine".');
                 return;
+            } else {
+                const stockObj = medicineItems.find(i => i.id === itemId);
+                if (stockObj) {
+                    actualMedicine = `${stockObj.name} (${qtyPerAnimal} ${stockObj.unit || 'unit'})`;
+                    actualDosage = `${qtyPerAnimal} ${stockObj.unit || 'unit'}`;
+                }
             }
         }
 
@@ -227,20 +231,17 @@ export default function RotationPlanner() {
             const animal = eligible[i];
             let stockIssueId = null;
             if (bulkDrawFromStock) {
-                // One issue per animal (not one pooled issue) so each treatment's cost is
-                // its own share, not the whole batch's — summing treatment costs later
-                // (Medical Log) stays additive instead of double-counting.
                 stockIssueId = `fi-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`;
                 await addFeedStockIssue({
                     id: stockIssueId,
                     itemId,
-                    date: todayPKT(),
+                    date: logDate,
                     pen: animal.pen || 'ALL',
                     quantity: qtyPerAnimal,
-                    notes: `Bulk "${task.label}" stock draw — ${animal.rfid}`
+                    notes: `"${task.label}" stock draw — ${animal.rfid}`
                 });
             }
-            await addTreatment(animal.id, todayPKT(), task.type, task.medicine, task.dosage, task.withholding, task.id, stockIssueId);
+            await addTreatment(animal.id, logDate, task.type, actualMedicine, actualDosage, task.withholding, task.id, stockIssueId);
         }
         setBulkTaskSubmitting(false);
         setBulkTaskModalOpen(false);
@@ -696,11 +697,15 @@ export default function RotationPlanner() {
                     <div class="glass-panel modal-container" style={{ maxWidth: '480px' }}>
                         <button class="modal-close-btn" onClick={() => setBulkTaskModalOpen(false)}><i class="fa-solid fa-xmark"></i></button>
                         <h2 class="panel-title" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.6rem', marginBottom: '1rem', color: 'var(--accent-gold)' }}>
-                            <i class="fa-solid fa-syringe"></i> Bulk Log — {quarantineProtocols.find(t => t.id === bulkTaskId)?.label}
+                            <i class="fa-solid fa-syringe"></i> Log Protocol Task — {quarantineProtocols.find(t => t.id === bulkTaskId)?.label}
                         </h2>
                         <div style={{ background: 'rgba(255,193,7,0.04)', border: '1px solid rgba(255,193,7,0.15)', borderRadius: '8px', padding: '0.7rem 1rem', marginBottom: '1rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
                             {bulkTaskEligible.length} of {selectedIds.length} selected animal{selectedIds.length === 1 ? '' : 's'} eligible
                             {bulkTaskEligible.length < selectedIds.length && <> — {selectedIds.length - bulkTaskEligible.length} already logged for this task and will be skipped</>}.
+                        </div>
+                        <div class="form-group" style={{ marginBottom: '0.75rem' }}>
+                            <label style={{ fontSize: '0.82rem', color: 'var(--text-pure)', fontWeight: '600' }}>Date Logged *</label>
+                            <input type="date" class="form-control" value={bulkTaskDate} onChange={e => setBulkTaskDate(e.target.value)} />
                         </div>
                         <div class="form-group" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <input type="checkbox" id="bulkDrawFromStock" checked={bulkDrawFromStock} onChange={e => setBulkDrawFromStock(e.target.checked)} />
