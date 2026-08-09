@@ -417,6 +417,22 @@ async function ensureColumns(client) {
     await client.query(`
         ALTER TABLE ba_feed_stock_issues ADD COLUMN IF NOT EXISTS lot_id VARCHAR(50);
     `);
+
+    // Operating overhead ledger (salaries, electricity, rent, misc) — separate from the
+    // feed/medicine stock system since these are pure dated expenses with no quantity/FIFO
+    // costing. Feeds the unified Cost of Gain report as a per-day-in-herd shared cost, same
+    // spirit as head-days feed cost allocation.
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS ba_overhead_expenses (
+            id VARCHAR(50) PRIMARY KEY,
+            date DATE NOT NULL,
+            category VARCHAR(50) NOT NULL,
+            description TEXT,
+            amount NUMERIC NOT NULL DEFAULT 0,
+            created_by VARCHAR(150),
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    `);
 }
 
 // Self-healing database provision: creates tables and inserts baseline seeds on first boot
@@ -857,7 +873,8 @@ const HERD_ACTIONS = new Set([
     'SAVE_RATION_PLAN', 'DELETE_RATION_PLAN', 'SAVE_PEN', 'DELETE_PEN',
     'SAVE_SETTINGS', 'ADD_FEED_PURCHASE', 'DELETE_FEED_PURCHASE',
     'ADD_FEED_STOCK_ISSUE', 'DELETE_FEED_STOCK_ISSUE', 'IMPORT_RATION_PLAN',
-    'UPDATE_RATION_PLAN_V2', 'UPDATE_RATION_ROW'
+    'UPDATE_RATION_PLAN_V2', 'UPDATE_RATION_ROW',
+    'ADD_OVERHEAD_EXPENSE', 'DELETE_OVERHEAD_EXPENSE'
 ]);
 
 // Normalizes a feed ingredient / CSV column name for matching: lowercase, drop any
@@ -1274,7 +1291,7 @@ module.exports = async (req, res) => {
                 rationPlansRes, rationPlansV2Res, rationRowsRes, rationRowItemsRes,
                 pensRes, settingsRes, feedPurchasesRes, feedStockIssuesRes, ordersRes,
                 meatCutsRes, enquiriesRes, quotationsRes, specSheetsRes, staffPermsRes,
-                pendingApprovalsRes, myRequestsRes, allApprovalsRes
+                pendingApprovalsRes, myRequestsRes, allApprovalsRes, overheadExpensesRes
             ] = await Promise.all([
                 client.query('SELECT * FROM ba_animals ORDER BY id ASC'),
                 canHerd ? client.query('SELECT * FROM ba_weights ORDER BY date ASC, id ASC') : EMPTY,
@@ -1311,7 +1328,8 @@ module.exports = async (req, res) => {
                 // Super-admin's all-time approval history (any status) — backs the
                 // searchable "Approvals" audit tab in Settings, separate from the live
                 // pendingApprovals queue above which only ever shows open requests.
-                (isStaff && perms && perms.isAdmin) ? client.query(`SELECT * FROM ba_pending_approvals ORDER BY requested_at DESC LIMIT 500`) : EMPTY
+                (isStaff && perms && perms.isAdmin) ? client.query(`SELECT * FROM ba_pending_approvals ORDER BY requested_at DESC LIMIT 500`) : EMPTY,
+                canHerd ? client.query('SELECT * FROM ba_overhead_expenses ORDER BY date DESC, created_at DESC') : EMPTY
             ]);
 
             const animals = animalsRes.rows.map(row => ({
@@ -1468,6 +1486,14 @@ module.exports = async (req, res) => {
                 notes: row.notes || ''
             }));
 
+            const overheadExpenses = overheadExpensesRes.rows.map(row => ({
+                id: row.id,
+                date: formatDate(row.date),
+                category: row.category,
+                description: row.description || '',
+                amount: parseFloat(row.amount || 0)
+            }));
+
             const orders = ordersRes.rows.map(row => ({
                 id: row.id,
                 customerName: row.customer_name,
@@ -1596,7 +1622,7 @@ module.exports = async (req, res) => {
                 accessHerd: canHerd
             } : null;
 
-            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, feedLogs, rationPlans, rationPlansV2, rationRows, rationRowItems, pens, settings, feedPurchases, feedStockIssues, orders, meatCuts, enquiries, quotations, specSheets, session: sessionOut, staffPermissions, pendingApprovals, myRequests, allApprovals });
+            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, feedLogs, rationPlans, rationPlansV2, rationRows, rationRowItems, pens, settings, feedPurchases, feedStockIssues, overheadExpenses, orders, meatCuts, enquiries, quotations, specSheets, session: sessionOut, staffPermissions, pendingApprovals, myRequests, allApprovals });
         }
 
         // ─── POST ENDPOINT: LOG TRANSACTION DATA ───
@@ -1917,6 +1943,8 @@ module.exports = async (req, res) => {
                     await client.query('DELETE FROM ba_feed_purchases WHERE id = $1', [changes.id]);
                 } else if (approval.action === 'DELETE_FEED_STOCK_ISSUE') {
                     await client.query('DELETE FROM ba_feed_stock_issues WHERE id = $1', [changes.id]);
+                } else if (approval.action === 'DELETE_OVERHEAD_EXPENSE') {
+                    await client.query('DELETE FROM ba_overhead_expenses WHERE id = $1', [changes.id]);
                 } else if (approval.action === 'DELETE_WEIGHT_LOG') {
                     await client.query('DELETE FROM ba_weights WHERE id = $1', [changes.logId]);
                 } else if (approval.action === 'DELETE_TREATMENT') {
@@ -1979,6 +2007,12 @@ module.exports = async (req, res) => {
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
                         ON CONFLICT (id) DO UPDATE SET item_id = EXCLUDED.item_id, date = EXCLUDED.date, pen = EXCLUDED.pen, quantity = EXCLUDED.quantity, lot_id = EXCLUDED.lot_id, notes = EXCLUDED.notes
                     `, [changes.id, changes.itemId, changes.date, changes.pen || 'ALL', changes.quantity || 0, changes.lotId || null, changes.notes || null, approval.requested_by]);
+                } else if (approval.action === 'ADD_OVERHEAD_EXPENSE') {
+                    await client.query(`
+                        INSERT INTO ba_overhead_expenses (id, date, category, description, amount, created_by, created_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, NOW())
+                        ON CONFLICT (id) DO UPDATE SET date = EXCLUDED.date, category = EXCLUDED.category, description = EXCLUDED.description, amount = EXCLUDED.amount
+                    `, [changes.id, changes.date, changes.category, changes.description || null, changes.amount || 0, approval.requested_by]);
                 } else if (approval.action === 'UPDATE_MEAT_CUT') {
                     await client.query(`
                         UPDATE ba_meat_cuts
@@ -2899,6 +2933,64 @@ module.exports = async (req, res) => {
                     return res.status(200).json({ success: true, pending: true });
                 }
                 await client.query('DELETE FROM ba_feed_stock_issues WHERE id = $1', [id]);
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'ADD_OVERHEAD_EXPENSE') {
+                const { id, date, category, description, amount } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+
+                if (!id || !date || !category) {
+                    return res.status(400).json({ success: false, error: "Expense id, date and category are required" });
+                }
+
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'ADD_OVERHEAD_EXPENSE' AND (payload->>'id') = $1 AND status = 'pending'`,
+                        [String(id)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                            VALUES ('ADD_OVERHEAD_EXPENSE', $1, $2, $3)
+                        `, [JSON.stringify({ id, date, category, description, amount }), JSON.stringify({}), session.email.toLowerCase().trim()]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
+
+                await client.query(`
+                    INSERT INTO ba_overhead_expenses (id, date, category, description, amount, created_by, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, NOW())
+                    ON CONFLICT (id) DO UPDATE SET
+                        date = EXCLUDED.date,
+                        category = EXCLUDED.category,
+                        description = EXCLUDED.description,
+                        amount = EXCLUDED.amount
+                `, [id, date, category, description || null, amount || 0, session ? session.email : null]);
+
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'DELETE_OVERHEAD_EXPENSE') {
+                const { id } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'DELETE_OVERHEAD_EXPENSE' AND (payload->>'id') = $1 AND status = 'pending'`,
+                        [String(id)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const currentRes = await client.query('SELECT * FROM ba_overhead_expenses WHERE id = $1', [id]);
+                        if (currentRes.rows.length > 0) {
+                            await client.query(`
+                                INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                                VALUES ('DELETE_OVERHEAD_EXPENSE', $1, $2, $3)
+                            `, [JSON.stringify({ id }), JSON.stringify(currentRes.rows[0]), session.email.toLowerCase().trim()]);
+                        }
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
+                await client.query('DELETE FROM ba_overhead_expenses WHERE id = $1', [id]);
                 return res.status(200).json({ success: true });
             }
 

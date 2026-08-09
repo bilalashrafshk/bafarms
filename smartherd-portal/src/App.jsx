@@ -9,6 +9,8 @@ import TMRCalculator from './components/TMRCalculator';
 import RationPlans from './components/RationPlans';
 import FeedStock from './components/FeedStock';
 import FeedGrowthReport from './components/FeedGrowthReport';
+import OverheadExpenses from './components/OverheadExpenses';
+import CostOfGainReport from './components/CostOfGainReport';
 import RotationPlanner from './components/RotationPlanner';
 import ActivityFeed from './components/ActivityFeed';
 import Login from './components/Login';
@@ -34,7 +36,7 @@ function AppContent() {
     const isPermissionsAdmin = isSuperAdmin;
 
     useEffect(() => {
-        const herdTabs = ['rotation', 'herd', 'weights', 'vet', 'tmr', 'rationPlans', 'feedStock', 'feedReport', 'activity'];
+        const herdTabs = ['rotation', 'herd', 'weights', 'vet', 'tmr', 'rationPlans', 'feedStock', 'feedReport', 'overhead', 'costOfGain', 'activity'];
         if (herdTabs.includes(activeTab) && !canAccessHerd) {
             setActiveTab('dashboard');
         }
@@ -215,6 +217,10 @@ function AppContent() {
                 return <FeedStock />;
             case 'feedReport':
                 return <FeedGrowthReport />;
+            case 'overhead':
+                return <OverheadExpenses />;
+            case 'costOfGain':
+                return <CostOfGainReport />;
             case 'rotation':
                 return <RotationPlanner />;
             case 'activity':
@@ -239,6 +245,8 @@ function AppContent() {
             case 'rationPlans': return "Ration Plans & Pen Assignment";
             case 'feedStock': return "Feed Stock & Store Ledger";
             case 'feedReport': return "Feed Cost & Growth Report";
+            case 'overhead': return "Operating Expenses";
+            case 'costOfGain': return "Cost of Gain Report";
             case 'rotation': return "Rotation & Batch Flow";
             case 'activity': return "Activity Log";
             case 'settings': return "System Configuration Panel";
@@ -326,6 +334,12 @@ function AppContent() {
                             </button>
                             <button class={`menu-item ${activeTab === 'feedReport' ? 'active' : ''}`} onClick={() => setActiveTab('feedReport')}>
                                 <i class="fa-solid fa-calendar-days"></i> Feed &amp; Growth Report
+                            </button>
+                            <button class={`menu-item ${activeTab === 'overhead' ? 'active' : ''}`} onClick={() => setActiveTab('overhead')}>
+                                <i class="fa-solid fa-receipt"></i> Operating Expenses
+                            </button>
+                            <button class={`menu-item ${activeTab === 'costOfGain' ? 'active' : ''}`} onClick={() => setActiveTab('costOfGain')}>
+                                <i class="fa-solid fa-scale-unbalanced"></i> Cost of Gain Report
                             </button>
                             <button class={`menu-item ${activeTab === 'activity' ? 'active' : ''}`} onClick={() => setActiveTab('activity')}>
                                 <i class="fa-solid fa-timeline"></i> Activity Log
@@ -517,6 +531,12 @@ function AppContent() {
                                     </button>
                                     <button className="menu-item" onClick={() => { setActiveTab('feedReport'); setShowMobileMore(false); }}>
                                         <i className="fa-solid fa-calendar-days"></i> Feed &amp; Growth Report
+                                    </button>
+                                    <button className="menu-item" onClick={() => { setActiveTab('overhead'); setShowMobileMore(false); }}>
+                                        <i className="fa-solid fa-receipt"></i> Operating Expenses
+                                    </button>
+                                    <button className="menu-item" onClick={() => { setActiveTab('costOfGain'); setShowMobileMore(false); }}>
+                                        <i className="fa-solid fa-scale-unbalanced"></i> Cost of Gain Report
                                     </button>
                                     <button className="menu-item" onClick={() => { setActiveTab('activity'); setShowMobileMore(false); }}>
                                         <i className="fa-solid fa-timeline"></i> Activity Log

@@ -841,6 +841,9 @@ export const FarmProvider = ({ children }) => {
     // Manual/exception issues only (spoilage, samples, sales) — routine pen feeding is
     // auto-derived from feedLogs in getCombinedFeedIssues() below.
     const [feedStockIssues, setFeedStockIssues] = useState(() => loadStoredData('ba_feed_stock_issues', []));
+    // Operating overhead ledger (salaries, electricity, rent, misc) — dated expenses with
+    // no quantity/FIFO costing, feeding the unified Cost of Gain report.
+    const [overheadExpenses, setOverheadExpenses] = useState(() => loadStoredData('ba_overhead_expenses', []));
     // Share of the combined TMR "minerals" line attributed to Limestone vs Mineral Pack
     // (must sum to 1) — adjustable since the actual product mix varies by farm.
     const [mineralSplitRatio, setMineralSplitRatioState] = useState(() => loadStoredData('ba_mineral_split_ratio', 0.7));
@@ -947,6 +950,33 @@ export const FarmProvider = ({ children }) => {
         }
         setFeedPurchases(prev => prev.filter(p => p.id !== id));
         persistMutation('DELETE_FEED_PURCHASE', { id });
+        return { success: true };
+    };
+
+    const addOverheadExpense = async (expense) => {
+        const record = {
+            id: expense.id || `oh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            date: expense.date || todayPKT(),
+            category: expense.category || 'other',
+            description: expense.description || '',
+            amount: parseFloat(expense.amount) || 0
+        };
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('ADD_OVERHEAD_EXPENSE', record);
+        }
+        setOverheadExpenses(prev => [...prev, record]);
+        persistMutation('ADD_OVERHEAD_EXPENSE', record);
+        return record;
+    };
+
+    const deleteOverheadExpense = async (id) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('DELETE_OVERHEAD_EXPENSE', { id });
+        }
+        setOverheadExpenses(prev => prev.filter(e => e.id !== id));
+        persistMutation('DELETE_OVERHEAD_EXPENSE', { id });
         return { success: true };
     };
 
@@ -1369,6 +1399,10 @@ export const FarmProvider = ({ children }) => {
     }, [feedStockIssues]);
 
     useEffect(() => {
+        debouncedCacheWrite('ba_overhead_expenses', overheadExpenses);
+    }, [overheadExpenses]);
+
+    useEffect(() => {
         debouncedCacheWrite('ba_premix_types', premixTypes);
     }, [premixTypes]);
 
@@ -1493,6 +1527,7 @@ export const FarmProvider = ({ children }) => {
                         }
                         if (data.feedPurchases) setFeedPurchases(data.feedPurchases);
                         if (data.feedStockIssues) setFeedStockIssues(data.feedStockIssues);
+                        if (data.overheadExpenses) setOverheadExpenses(data.overheadExpenses);
                     }
 
                     const hasSalesAccess = !!(data.session && data.session.accessSales);
@@ -3069,6 +3104,9 @@ export const FarmProvider = ({ children }) => {
             feedStockIssues,
             addFeedStockIssue,
             deleteFeedStockIssue,
+            overheadExpenses,
+            addOverheadExpense,
+            deleteOverheadExpense,
             getFeedStockLedger,
             getFeedStockLots,
             getFeedStockIssueCosts,
