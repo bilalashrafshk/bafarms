@@ -23,7 +23,7 @@ export default function FeedStock() {
         premixTypes, addPremixType, deletePremixType,
         premixFormulas, updatePremixFormula,
         premixBatches, addPremixBatch, deletePremixBatch,
-        myRequests
+        myRequests, pendingApprovals
     } = useContext(FarmContext);
 
     // Editing (purchases, issues, opening stock, premix) follows the same Herd Access
