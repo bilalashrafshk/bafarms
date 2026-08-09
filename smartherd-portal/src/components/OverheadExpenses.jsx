@@ -11,10 +11,24 @@ import { todayPKT, daysBetween } from '../utils/dateOnly';
 const CATEGORIES = ['Salary', 'Electricity', 'Rent', 'Fuel', 'Maintenance', 'Water', 'Transport', 'Other'];
 
 export default function OverheadExpenses() {
-    const { staffUser, overheadExpenses, addOverheadExpense, deleteOverheadExpense } = useContext(FarmContext);
+    const { staffUser, overheadExpenses, addOverheadExpense, deleteOverheadExpense, myRequests } = useContext(FarmContext);
 
     // Same Herd Access gate as Feed Stock/other cost-bearing herd records.
     const isAdmin = staffUser?.accessHerd === true || staffUser?.isAdmin === true;
+    const isSuperAdmin = staffUser?.isAdmin === true;
+
+    // Maps expense id -> its still-open approval request, so a non-admin who just
+    // added/deleted an expense sees it reflected in the ledger right away instead of
+    // it silently disappearing into a queue — the row shows "Pending Approval"
+    // instead of vanishing until a Super Admin signs off.
+    const pendingById = useMemo(() => {
+        const map = {};
+        (myRequests || []).filter(r => r.status === 'pending' && (r.action === 'ADD_OVERHEAD_EXPENSE' || r.action === 'DELETE_OVERHEAD_EXPENSE')).forEach(r => {
+            const id = r.payload?.id;
+            if (id) map[id] = r.action === 'DELETE_OVERHEAD_EXPENSE' ? 'delete' : 'add';
+        });
+        return map;
+    }, [myRequests]);
 
     const todayStr = todayPKT();
     const defaultFrom = (() => {
@@ -43,9 +57,21 @@ export default function OverheadExpenses() {
         setEAmount('');
     };
 
+    const effectiveOverheadExpenses = useMemo(() => {
+        const list = [...overheadExpenses];
+        (myRequests || []).forEach(r => {
+            if (r.status === 'pending' && r.action === 'ADD_OVERHEAD_EXPENSE' && r.payload?.id) {
+                if (!list.some(e => e.id === r.payload.id)) {
+                    list.push(r.payload);
+                }
+            }
+        });
+        return list;
+    }, [overheadExpenses, myRequests]);
+
     const sorted = useMemo(() =>
-        [...overheadExpenses].sort((a, b) => daysBetween(b.date, a.date)),
-        [overheadExpenses]
+        [...effectiveOverheadExpenses].sort((a, b) => daysBetween(b.date, a.date)),
+        [effectiveOverheadExpenses]
     );
 
     const filtered = useMemo(() => sorted.filter(exp => {
@@ -166,25 +192,38 @@ export default function OverheadExpenses() {
                                 <th>CATEGORY</th>
                                 <th>DESCRIPTION</th>
                                 <th>AMOUNT</th>
+                                {isAdmin && <th>STATUS</th>}
                                 {isAdmin && <th style={{ textAlign: 'center', width: '60px' }}>REMOVE</th>}
                             </tr>
                         </thead>
                         <tbody>
-                            {filtered.map(exp => (
-                                <tr key={exp.id}>
+                            {filtered.map(exp => {
+                                const pending = pendingById[exp.id];
+                                return (
+                                <tr key={exp.id} style={pending ? { opacity: 0.6 } : undefined}>
                                     <td>{formatDate(exp.date)}</td>
                                     <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{exp.category}</td>
                                     <td>{exp.description || '—'}</td>
                                     <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(exp.amount).toLocaleString()} PKR</strong></td>
                                     {isAdmin && (
+                                        <td>
+                                            {pending === 'add' && <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.5rem', borderRadius: '4px', background: 'rgba(255,193,7,0.12)', color: 'hsl(43,90%,53%)' }}><i class="fa-solid fa-hourglass-half"></i> Pending Approval</span>}
+                                            {pending === 'delete' && <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.5rem', borderRadius: '4px', background: 'rgba(220,53,69,0.12)', color: 'hsl(0,75%,65%)' }}><i class="fa-solid fa-hourglass-half"></i> Pending Removal</span>}
+                                            {!pending && isSuperAdmin && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Confirmed</span>}
+                                        </td>
+                                    )}
+                                    {isAdmin && (
                                         <td style={{ textAlign: 'center' }}>
-                                            <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => deleteOverheadExpense(exp.id)}>
-                                                <i class="fa-solid fa-trash-can"></i>
-                                            </button>
+                                            {!pending && (
+                                                <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => deleteOverheadExpense(exp.id)}>
+                                                    <i class="fa-solid fa-trash-can"></i>
+                                                </button>
+                                            )}
                                         </td>
                                     )}
                                 </tr>
-                            ))}
+                                );
+                            })}
                             {filtered.length === 0 && (
                                 <tr><td colSpan={isAdmin ? 5 : 4} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No expenses recorded in this range.</td></tr>
                             )}

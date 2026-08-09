@@ -22,7 +22,8 @@ export default function FeedStock() {
         mineralSplitRatio, setMineralSplitRatio,
         premixTypes, addPremixType, deletePremixType,
         premixFormulas, updatePremixFormula,
-        premixBatches, addPremixBatch, deletePremixBatch
+        premixBatches, addPremixBatch, deletePremixBatch,
+        myRequests
     } = useContext(FarmContext);
 
     // Editing (purchases, issues, opening stock, premix) follows the same Herd Access
@@ -129,9 +130,30 @@ export default function FeedStock() {
         setPNotes('');
     };
 
+    const pendingPurchasesById = useMemo(() => {
+        const map = {};
+        (myRequests || []).filter(r => r.status === 'pending' && (r.action === 'ADD_FEED_PURCHASE' || r.action === 'DELETE_FEED_PURCHASE')).forEach(r => {
+            const id = r.payload?.id;
+            if (id) map[id] = r.action === 'DELETE_FEED_PURCHASE' ? 'delete' : 'add';
+        });
+        return map;
+    }, [myRequests]);
+
+    const effectiveFeedPurchases = useMemo(() => {
+        const list = [...feedPurchases];
+        (myRequests || []).forEach(r => {
+            if (r.status === 'pending' && r.action === 'ADD_FEED_PURCHASE' && r.payload?.id) {
+                if (!list.some(p => p.id === r.payload.id)) {
+                    list.push(r.payload);
+                }
+            }
+        });
+        return list;
+    }, [feedPurchases, myRequests]);
+
     const filteredPurchases = useMemo(() =>
-        feedPurchases.filter(p => inRange(p.date)).sort((a, b) => daysBetween(b.date, a.date)),
-        [feedPurchases, dateFrom, dateTo]
+        effectiveFeedPurchases.filter(p => inRange(p.date)).sort((a, b) => daysBetween(b.date, a.date)),
+        [effectiveFeedPurchases, dateFrom, dateTo]
     );
 
     // ─── ISSUES ───
@@ -151,11 +173,65 @@ export default function FeedStock() {
         setINotes('');
     };
 
+    const pendingIssuesById = useMemo(() => {
+        const map = {};
+        (myRequests || []).filter(r => r.status === 'pending' && (r.action === 'ADD_FEED_STOCK_ISSUE' || r.action === 'DELETE_FEED_STOCK_ISSUE')).forEach(r => {
+            const id = r.payload?.id;
+            if (id) map[id] = r.action === 'DELETE_FEED_STOCK_ISSUE' ? 'delete' : 'add';
+        });
+        return map;
+    }, [myRequests]);
+
+    const effectiveFeedStockIssues = useMemo(() => {
+        const list = [...feedStockIssues];
+        (myRequests || []).forEach(r => {
+            if (r.status === 'pending' && r.action === 'ADD_FEED_STOCK_ISSUE' && r.payload?.id) {
+                if (!list.some(i => i.id === r.payload.id)) {
+                    list.push(r.payload);
+                }
+            }
+        });
+        return list;
+    }, [feedStockIssues, myRequests]);
+
     // Auto-derived (from TMR "Log This Feeding" records) + manual exception issues,
     // merged and tagged by source — so routine pen feeding never has to be typed twice.
-    const combinedIssues = useMemo(() => getCombinedFeedIssues(),
-        [feedLogs, feedStockItems, feedStockIssues, mineralSplitRatio]
-    );
+    const combinedIssues = useMemo(() => {
+        const autoIssues = [];
+        feedLogs.forEach(log => {
+            (log.ingredients || []).forEach(ing => {
+                feedStockItems.forEach(item => {
+                    if (!item.derivedFromIngredientId || item.derivedFromIngredientId !== ing.id) return;
+                    const share = item.id === 'limestone' ? mineralSplitRatio
+                        : item.id === 'mineralPack' ? (1 - mineralSplitRatio)
+                        : 1;
+                    const quantity = (ing.wetBatch || 0) * share;
+                    if (quantity > 0) {
+                        const planned = ing.plannedQtyKg;
+                        const actual = ing.dmTarget;
+                        const differed = planned !== undefined && Math.abs((actual || 0) - planned) > 0.0005;
+                        const itemNote = !differed ? 'Auto-synced from TMR feed log'
+                            : planned === 0
+                                ? 'Auto-synced from TMR feed log — added, not in Ration Plan'
+                                : `Auto-synced from TMR feed log — diet differed from plan (planned ${planned.toFixed(2)}kg/head, fed ${(actual || 0).toFixed(2)}kg/head)`;
+                        autoIssues.push({
+                            id: `auto__${log.date}__${log.pen}__${item.id}`,
+                            itemId: item.id,
+                            date: log.date,
+                            pen: log.pen,
+                            quantity,
+                            notes: itemNote,
+                            dietDiffered: differed,
+                            source: 'auto'
+                        });
+                    }
+                });
+            });
+        });
+        const manualIssues = effectiveFeedStockIssues.map(i => ({ ...i, source: 'manual' }));
+        return [...autoIssues, ...manualIssues];
+    }, [feedLogs, feedStockItems, effectiveFeedStockIssues, mineralSplitRatio]);
+
     const filteredIssues = useMemo(() =>
         combinedIssues.filter(i => inRange(i.date)).sort((a, b) => daysBetween(b.date, a.date)),
         [combinedIssues, dateFrom, dateTo]
@@ -661,6 +737,7 @@ export default function FeedStock() {
                                         <th>TOTAL</th>
                                         <th>SUPPLIER</th>
                                         <th>REMAINING</th>
+                                        {isAdmin && <th>STATUS</th>}
                                         {isAdmin && <th style={{ textAlign: 'center', width: '60px' }}>REMOVE</th>}
                                     </tr>
                                 </thead>
@@ -668,14 +745,11 @@ export default function FeedStock() {
                                     {filteredPurchases.map(p => {
                                         const lot = lotsByItemId[p.itemId]?.find(l => l.id === p.id);
                                         const remaining = lot ? lot.remaining : p.quantity;
-                                        // Floating-point tolerant: a lot is "touched" once anything has
-                                        // been drawn from it, not just once it's fully depleted — removing
-                                        // it at that point would silently reprice history it was already
-                                        // used to cost (a premix batch, a pen's actual feed cost, etc).
                                         const touched = remaining < p.quantity - 0.005;
                                         const unit = itemUnit(p.itemId);
+                                        const pending = pendingPurchasesById[p.id];
                                         return (
-                                            <tr key={p.id}>
+                                            <tr key={p.id} style={pending ? { opacity: 0.65 } : undefined}>
                                                 <td>{formatDate(p.date)}</td>
                                                 <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(p.itemId)}</td>
                                                 <td>{p.quantity.toFixed(2)} {unit}</td>
@@ -684,15 +758,24 @@ export default function FeedStock() {
                                                 <td>{p.supplier || '—'}</td>
                                                 <td style={{ color: remaining <= 0.005 ? 'var(--text-muted)' : 'var(--primary-green-light)' }}>{Math.max(0, remaining).toFixed(2)} {unit}</td>
                                                 {isAdmin && (
+                                                    <td>
+                                                        {pending === 'add' && <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.5rem', borderRadius: '4px', background: 'rgba(255,193,7,0.12)', color: 'hsl(43,90%,53%)' }}><i class="fa-solid fa-hourglass-half"></i> Pending Approval</span>}
+                                                        {pending === 'delete' && <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.5rem', borderRadius: '4px', background: 'rgba(220,53,69,0.12)', color: 'hsl(0,75%,65%)' }}><i class="fa-solid fa-hourglass-half"></i> Pending Removal</span>}
+                                                        {!pending && isSuperAdmin && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Confirmed</span>}
+                                                    </td>
+                                                )}
+                                                {isAdmin && (
                                                     <td style={{ textAlign: 'center' }}>
-                                                        {p.supplier === 'In-house production' ? (
-                                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Credited by a premix batch — undo it from the Premix Production tab instead"><i class="fa-solid fa-lock"></i></span>
-                                                        ) : touched ? (
-                                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="This lot has already been (partly or fully) drawn from — removing it would reprice whatever was costed against it. Undo those issues/batches first."><i class="fa-solid fa-lock"></i></span>
-                                                        ) : (
-                                                            <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => deleteFeedPurchase(p.id)}>
-                                                                <i class="fa-solid fa-trash-can"></i>
-                                                            </button>
+                                                        {!pending && (
+                                                            p.supplier === 'In-house production' ? (
+                                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Credited by a premix batch — undo it from the Premix Production tab instead"><i class="fa-solid fa-lock"></i></span>
+                                                            ) : touched ? (
+                                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="This lot has already been (partly or fully) drawn from — removing it would reprice whatever was costed against it. Undo those issues/batches first."><i class="fa-solid fa-lock"></i></span>
+                                                            ) : (
+                                                                <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => deleteFeedPurchase(p.id)}>
+                                                                    <i class="fa-solid fa-trash-can"></i>
+                                                                </button>
+                                                            )
                                                         )}
                                                     </td>
                                                 )}
@@ -701,7 +784,7 @@ export default function FeedStock() {
                                     })}
                                     {filteredPurchases.length === 0 && (
                                         <tr>
-                                            <td colSpan={isAdmin ? 8 : 7} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                            <td colSpan={isAdmin ? 9 : 7} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No purchases logged in this date range.
                                             </td>
                                         </tr>
@@ -839,12 +922,15 @@ export default function FeedStock() {
                                         <th>QTY</th>
                                         <th>SOURCE</th>
                                         <th>NOTES</th>
+                                        {isAdmin && <th>STATUS</th>}
                                         {isAdmin && <th style={{ textAlign: 'center', width: '60px' }}>REMOVE</th>}
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredIssues.map(iss => (
-                                        <tr key={iss.id}>
+                                    {filteredIssues.map(iss => {
+                                        const pending = pendingIssuesById[iss.id];
+                                        return (
+                                        <tr key={iss.id} style={pending ? { opacity: 0.65 } : undefined}>
                                             <td>{formatDate(iss.date)}</td>
                                             <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(iss.itemId)}</td>
                                             <td>{penLabel(iss.pen)}</td>
@@ -863,33 +949,43 @@ export default function FeedStock() {
                                                 {iss.notes || '—'}
                                             </td>
                                             {isAdmin && (
+                                                <td>
+                                                    {pending === 'add' && <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.5rem', borderRadius: '4px', background: 'rgba(255,193,7,0.12)', color: 'hsl(43,90%,53%)' }}><i class="fa-solid fa-hourglass-half"></i> Pending Approval</span>}
+                                                    {pending === 'delete' && <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.5rem', borderRadius: '4px', background: 'rgba(220,53,69,0.12)', color: 'hsl(0,75%,65%)' }}><i class="fa-solid fa-hourglass-half"></i> Pending Removal</span>}
+                                                    {!pending && isSuperAdmin && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Confirmed</span>}
+                                                </td>
+                                            )}
+                                            {isAdmin && (
                                                 <td style={{ textAlign: 'center' }}>
-                                                    {iss.source === 'auto' ? (
-                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Auto-synced from a TMR feed log — edit or delete it from the TMR Calculator's Recent Feed History instead"><i class="fa-solid fa-lock"></i></span>
-                                                    ) : iss.pen === 'PRODUCTION' ? (
-                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Consumed by a premix batch — undo it from the Premix Production tab instead"><i class="fa-solid fa-lock"></i></span>
-                                                    ) : (
-                                                        <button
-                                                            type="button"
-                                                            class="btn btn-secondary"
-                                                            style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
-                                                            onClick={() => {
-                                                                if (window.confirm(`Undo this issue?\n\n${formatDate(iss.date)} · ${itemName(iss.itemId)} · ${iss.quantity.toFixed(2)} ${itemUnit(iss.itemId)}\n\nThis cannot be undone.`)) {
-                                                                    deleteFeedStockIssue(iss.id);
-                                                                }
-                                                            }}
-                                                            title="Undo this issue"
-                                                        >
-                                                            <i class="fa-solid fa-trash-can"></i>
-                                                        </button>
+                                                    {!pending && (
+                                                        iss.source === 'auto' ? (
+                                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Auto-synced from a TMR feed log — edit or delete it from the TMR Calculator's Recent Feed History instead"><i class="fa-solid fa-lock"></i></span>
+                                                        ) : iss.pen === 'PRODUCTION' ? (
+                                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Consumed by a premix batch — undo it from the Premix Production tab instead"><i class="fa-solid fa-lock"></i></span>
+                                                        ) : (
+                                                            <button
+                                                                type="button"
+                                                                class="btn btn-secondary"
+                                                                style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
+                                                                onClick={() => {
+                                                                    if (window.confirm(`Undo this issue?\n\n${formatDate(iss.date)} · ${itemName(iss.itemId)} · ${iss.quantity.toFixed(2)} ${itemUnit(iss.itemId)}\n\nThis cannot be undone.`)) {
+                                                                        deleteFeedStockIssue(iss.id);
+                                                                    }
+                                                                }}
+                                                                title="Undo this issue"
+                                                            >
+                                                                <i class="fa-solid fa-trash-can"></i>
+                                                            </button>
+                                                        )
                                                     )}
                                                 </td>
                                             )}
                                         </tr>
-                                    ))}
-                    {filteredIssues.length === 0 && (
+                                        );
+                                    })}
+                                    {filteredIssues.length === 0 && (
                                         <tr>
-                                            <td colSpan={isAdmin ? 7 : 6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                            <td colSpan={isAdmin ? 8 : 6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No issues logged in this date range.
                                             </td>
                                         </tr>

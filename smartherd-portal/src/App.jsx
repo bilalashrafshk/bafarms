@@ -27,7 +27,7 @@ function AppContent() {
         animals, logWeight, addTreatment, addAnimal, transitionAnimalStatus, fetchLoading, dbUnconfigured,
         isLoggedIn, staffUser, handleLoginSuccess, handleLogout, breedsConfig, medCategories, systemParams, quarantineProtocols,
         enquiries, pendingMutations, failedMutations, isSyncing, retryFailedMutation, dismissFailedMutation, sessionExpired,
-        pendingApprovals, approvePendingChange, rejectPendingChange
+        pendingApprovals, approvePendingChange, rejectPendingChange, feedStockItems
     } = useContext(FarmContext);
 
     const isSuperAdmin = staffUser?.isAdmin === true;
@@ -804,136 +804,212 @@ function AppContent() {
                 badge above at any time. */}
             {showApprovalsModal && (
                 <div class="rfid-hud-overlay" onClick={() => { setShowApprovalsModal(false); setRejectingId(null); setRejectNote(''); }}>
-                    <div class="rfid-hud-card glass-panel" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
-                        <div class="rfid-hud-header">
-                            <span class="hud-status-title">🛡️ Staff Requests Awaiting Approval</span>
+                    <div class="rfid-hud-card glass-panel" style={{ maxWidth: '1100px', width: '95vw', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+                        <div class="rfid-hud-header" style={{ marginBottom: '1.2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                <span class="hud-status-title" style={{ fontSize: '1.15rem', fontWeight: '700', color: 'var(--text-pure)' }}>
+                                    🛡️ Staff Requests Awaiting Approval
+                                </span>
+                                <span style={{ background: 'rgba(255,193,7,0.15)', color: 'hsl(43,90%,53%)', padding: '0.15rem 0.6rem', borderRadius: '12px', fontSize: '0.75rem', fontWeight: '600' }}>
+                                    {pendingApprovals.length} Pending
+                                </span>
+                            </div>
                             <button class="hud-close" onClick={() => { setShowApprovalsModal(false); setRejectingId(null); setRejectNote(''); }}>
                                 <i class="fa-solid fa-xmark"></i>
                             </button>
                         </div>
-                        <div class="rfid-hud-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                        <div class="rfid-hud-body">
                             {pendingApprovals.length === 0 ? (
                                 <p class="unregistered-help-text">Nothing awaiting approval.</p>
-                            ) : pendingApprovals.map(item => (
-                                <div key={item.id} class="hud-detail-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.6rem' }}>
-                                    <strong class="hud-value">
-                                        {(() => {
-                                            switch (item.action) {
-                                                case 'DELETE_ANIMAL': return `Delete Animal — ${item.animalRfid || 'Animal #' + item.animalId} (${item.animalBreed || '—'})`;
-                                                case 'UPDATE_ANIMAL': return `Edit Animal — ${item.animalRfid || 'Animal #' + item.animalId} (${item.animalBreed || '—'})`;
-                                                case 'RECORD_DEATH': return `Record Animal Death — ${item.animalRfid || 'Animal #' + item.animalId}`;
-                                                case 'RECORD_SALE': return `Record Animal Sale — ${item.animalRfid || 'Animal #' + item.animalId}`;
-                                                case 'ADD_FEED_PURCHASE': return `Add Feed Purchase — ID ${item.payload?.id || '—'}`;
-                                                case 'ADD_FEED_STOCK_ISSUE': return `Add Feed Stock Issue — Pen ${item.payload?.pen || 'ALL'}`;
-                                                case 'DELETE_FEED_PURCHASE': return `Delete Feed Purchase — ID ${item.payload?.id || '—'}`;
-                                                case 'DELETE_FEED_STOCK_ISSUE': return `Delete Feed Stock Issue — ID ${item.payload?.id || '—'}`;
-                                                case 'DELETE_WEIGHT_LOG': return `Delete Weight Log — ${item.animalRfid || 'Animal #' + item.animalId}`;
-                                                case 'UPDATE_WEIGHT_LOGS_BATCH': return `Update Weight History — ${item.animalRfid || 'Animal #' + item.animalId}`;
-                                                case 'DELETE_TREATMENT': return `Delete Treatment — ${item.animalRfid || 'Animal #' + item.animalId}`;
-                                                case 'DELETE_FEED_LOG': return `Delete Feed Log — Pen ${item.payload?.pen || 'ALL'} (${item.payload?.date || '—'})`;
-                                                case 'DELETE_RATION_PLAN': return `Delete Ration Plan — ${item.previousSnapshot?.name || item.payload?.id}`;
-                                                case 'DELETE_PEN': return `Delete Pen — ${item.payload?.id}`;
-                                                case 'SAVE_SETTINGS': return `Master Setting Change — ${item.payload?.key || 'Setting'}`;
-                                                case 'DELETE_ORDER': return `Delete Order — #${item.payload?.orderId}`;
-                                                case 'DELETE_ENQUIRY': return `Delete Export Enquiry — #${item.payload?.enquiryId}`;
-                                                case 'DELETE_QUOTATION': return `Delete Quotation — #${item.payload?.quoteId}`;
-                                                case 'DELETE_SPEC_SHEET': return `Delete Spec Sheet — ${item.payload?.refId}`;
-                                                case 'ADD_MEAT_CUT': return `Add Meat Cut — ${item.payload?.title || item.payload?.id}`;
-                                                case 'UPDATE_MEAT_CUT': return `Edit Meat Cut — ${item.payload?.title || item.payload?.id}`;
-                                                case 'DELETE_MEAT_CUT': return `Delete Meat Cut — ${item.previousSnapshot?.title || item.payload?.cutId}`;
-                                                default: return `${item.action}`;
-                                            }
-                                        })()}
-                                    </strong>
-                                    <span class="hud-label">Requested by {item.requestedBy} · {formatDate(item.requestedAt)}</span>
+                            ) : (
+                                <div class="table-wrapper">
+                                    <table class="data-table" style={{ fontSize: '0.85rem', width: '100%' }}>
+                                        <thead>
+                                            <tr>
+                                                <th style={{ width: '170px' }}>ACTION / TYPE</th>
+                                                <th style={{ width: '200px' }}>REQUESTED BY & DATE</th>
+                                                <th style={{ width: '160px' }}>TARGET / ITEM</th>
+                                                <th>DETAILS & IMPACT</th>
+                                                <th style={{ textAlign: 'center', width: '180px' }}>DECISION</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {pendingApprovals.map(item => {
+                                                const snap = item.previousSnapshot || {};
+                                                const payload = item.payload || {};
+                                                const getStockItemName = (id) => (feedStockItems || []).find(i => i.id === id)?.name || id || '—';
+                                                const getStockItemUnit = (id) => (feedStockItems || []).find(i => i.id === id)?.unit || 'kg';
 
-                                    {(() => {
-                                        const snap = item.previousSnapshot || {};
-                                        const payload = item.payload || {};
-                                        switch (item.action) {
-                                            case 'UPDATE_ANIMAL':
-                                                if (!item.payload) return null;
+                                                const actionBadge = (() => {
+                                                    switch (item.action) {
+                                                        case 'ADD_FEED_PURCHASE':
+                                                            return <span class="badge" style={{ background: 'rgba(40,167,69,0.15)', color: 'var(--primary-green-light)', border: '1px solid rgba(40,167,69,0.3)' }}><i class="fa-solid fa-plus-circle"></i> Add Feed Purchase</span>;
+                                                        case 'ADD_FEED_STOCK_ISSUE':
+                                                            return <span class="badge" style={{ background: 'rgba(74,144,217,0.15)', color: '#4a90d9', border: '1px solid rgba(74,144,217,0.3)' }}><i class="fa-solid fa-dolly"></i> Add Stock Issue</span>;
+                                                        case 'ADD_OVERHEAD_EXPENSE':
+                                                            return <span class="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i class="fa-solid fa-receipt"></i> Add Expense</span>;
+                                                        case 'SAVE_SETTINGS':
+                                                            return <span class="badge" style={{ background: 'rgba(111,66,193,0.15)', color: '#a370f7', border: '1px solid rgba(111,66,193,0.3)' }}><i class="fa-solid fa-sliders"></i> Master Setting Change</span>;
+                                                        case 'UPDATE_ANIMAL':
+                                                            return <span class="badge" style={{ background: 'rgba(23,162,184,0.15)', color: '#17a2b8', border: '1px solid rgba(23,162,184,0.3)' }}><i class="fa-solid fa-pen-to-square"></i> Edit Animal</span>;
+                                                        case 'RECORD_DEATH':
+                                                            return <span class="badge" style={{ background: 'rgba(108,117,125,0.15)', color: '#adb5bd', border: '1px solid rgba(108,117,125,0.3)' }}><i class="fa-solid fa-skull"></i> Record Death</span>;
+                                                        case 'RECORD_SALE':
+                                                            return <span class="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i class="fa-solid fa-handshake"></i> Record Sale</span>;
+                                                        default:
+                                                            if (item.action.startsWith('DELETE_')) {
+                                                                return <span class="badge" style={{ background: 'rgba(220,53,69,0.15)', color: 'hsl(0,75%,65%)', border: '1px solid rgba(220,53,69,0.3)' }}><i class="fa-solid fa-trash-can"></i> {item.action.replace('DELETE_', 'Delete ')}</span>;
+                                                            }
+                                                            return <span class="badge" style={{ background: 'rgba(255,255,255,0.1)', color: 'var(--text-pure)' }}>{item.action}</span>;
+                                                    }
+                                                })();
+
+                                                const targetName = (() => {
+                                                    switch (item.action) {
+                                                        case 'ADD_FEED_PURCHASE':
+                                                        case 'DELETE_FEED_PURCHASE':
+                                                            return getStockItemName(payload.itemId || snap.itemId);
+                                                        case 'ADD_FEED_STOCK_ISSUE':
+                                                        case 'DELETE_FEED_STOCK_ISSUE':
+                                                            return getStockItemName(payload.itemId || snap.itemId);
+                                                        case 'ADD_OVERHEAD_EXPENSE':
+                                                        case 'DELETE_OVERHEAD_EXPENSE':
+                                                            return payload.category || snap.category || 'Overhead Expense';
+                                                        case 'SAVE_SETTINGS':
+                                                            return payload.key || 'Setting';
+                                                        case 'DELETE_ANIMAL':
+                                                        case 'UPDATE_ANIMAL':
+                                                        case 'RECORD_DEATH':
+                                                        case 'RECORD_SALE':
+                                                        case 'DELETE_WEIGHT_LOG':
+                                                        case 'UPDATE_WEIGHT_LOGS_BATCH':
+                                                        case 'DELETE_TREATMENT':
+                                                            return `${item.animalRfid || 'Animal #' + item.animalId}${item.animalBreed ? ' (' + item.animalBreed + ')' : ''}`;
+                                                        default:
+                                                            return snap.title || snap.name || payload.title || payload.id || 'Record';
+                                                    }
+                                                })();
+
                                                 return (
-                                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                                                        {item.payload.entryWeight !== undefined && (
-                                                            <div>Entry Weight: <strong style={{ color: 'var(--text-pure)' }}>{snap.entryWeight}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{item.payload.entryWeight}</strong> kg</div>
-                                                        )}
-                                                        {item.payload.purchasePrice !== undefined && (
-                                                            <div>Purchase Price: <strong style={{ color: 'var(--text-pure)' }}>{snap.purchasePrice?.toLocaleString()}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{item.payload.purchasePrice?.toLocaleString()}</strong> PKR</div>
-                                                        )}
-                                                    </div>
+                                                    <tr key={item.id}>
+                                                        <td>{actionBadge}</td>
+                                                        <td>
+                                                            <div style={{ fontWeight: '600', color: 'var(--text-pure)', fontSize: '0.8rem' }}>{item.requestedBy}</div>
+                                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>{formatDate(item.requestedAt)}</div>
+                                                        </td>
+                                                        <td style={{ fontWeight: '600', color: 'var(--accent-gold)' }}>
+                                                            {targetName}
+                                                        </td>
+                                                        <td>
+                                                            {(() => {
+                                                                switch (item.action) {
+                                                                    case 'ADD_FEED_PURCHASE': {
+                                                                        const unit = getStockItemUnit(payload.itemId);
+                                                                        const qty = payload.quantity || 0;
+                                                                        const rate = payload.rate || 0;
+                                                                        const total = Math.round(qty * rate);
+                                                                        return (
+                                                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-pure)' }}>
+                                                                                <strong>{qty} {unit}</strong> @ <strong>PKR {parseFloat(rate).toLocaleString()}/{unit}</strong> = <strong style={{ color: 'var(--accent-gold)' }}>PKR {total.toLocaleString()}</strong>
+                                                                                {payload.supplier && <span> · Supplier: <em>{payload.supplier}</em></span>}
+                                                                                {payload.notes && <span> · Notes: {payload.notes}</span>}
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    case 'ADD_FEED_STOCK_ISSUE': {
+                                                                        const unit = getStockItemUnit(payload.itemId);
+                                                                        const qty = payload.quantity || 0;
+                                                                        return (
+                                                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-pure)' }}>
+                                                                                Issued <strong>{qty} {unit}</strong> to <strong>Pen {payload.pen || 'ALL'}</strong>
+                                                                                {payload.notes && <span> · Notes: {payload.notes}</span>}
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    case 'ADD_OVERHEAD_EXPENSE': {
+                                                                        const amt = payload.amount || 0;
+                                                                        return (
+                                                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-pure)' }}>
+                                                                                Category: <strong>{payload.category}</strong> · Amount: <strong style={{ color: 'var(--accent-gold)' }}>PKR {Math.round(amt).toLocaleString()}</strong>
+                                                                                {payload.description && <span> · {payload.description}</span>}
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    case 'SAVE_SETTINGS':
+                                                                        return renderSettingsDiff(payload.key, payload.value, snap);
+                                                                    case 'UPDATE_ANIMAL':
+                                                                        return (
+                                                                            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                                                                {payload.entryWeight !== undefined && (
+                                                                                    <div>Entry Weight: <strong style={{ color: 'var(--text-pure)' }}>{snap.entryWeight}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{payload.entryWeight}</strong> kg</div>
+                                                                                )}
+                                                                                {payload.purchasePrice !== undefined && (
+                                                                                    <div>Purchase Price: <strong style={{ color: 'var(--text-pure)' }}>{snap.purchasePrice?.toLocaleString()}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{payload.purchasePrice?.toLocaleString()}</strong> PKR</div>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    case 'RECORD_DEATH':
+                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Deceased Date: {payload.deceasedDate || '—'} · Cause: {payload.deceasedCause || 'N/A'}</div>;
+                                                                    case 'RECORD_SALE':
+                                                                        return <div style={{ fontSize: '0.78rem', color: 'var(--accent-gold)' }}>Buyer: {payload.buyerName || 'N/A'} · Sale Price: PKR {payload.salePrice?.toLocaleString()} · Sale Date: {payload.saleDate || '—'}</div>;
+                                                                    case 'DELETE_ANIMAL':
+                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Permanently remove animal and all logs/history.</div>;
+                                                                    case 'DELETE_FEED_PURCHASE':
+                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Date: {snap.date || '—'} · Qty: {snap.quantity || 0} kg · Supplier: {snap.supplier || 'N/A'} · Rate: PKR {snap.rate || 0}</div>;
+                                                                    case 'DELETE_FEED_STOCK_ISSUE':
+                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Date: {snap.date || '—'} · Qty: {snap.quantity || 0} kg · Pen: {snap.pen || 'ALL'}</div>;
+                                                                    case 'DELETE_OVERHEAD_EXPENSE':
+                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Amount: PKR {snap.amount?.toLocaleString() || 0} · Category: {snap.category || '—'} · Date: {snap.date || '—'}</div>;
+                                                                    case 'DELETE_WEIGHT_LOG':
+                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Weight log on {snap.date}: {snap.weight} kg (ADG: {snap.adg || 0} kg/day)</div>;
+                                                                    case 'DELETE_TREATMENT':
+                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Treatment on {snap.date}: {snap.medicine || snap.type} (Dosage: {snap.dosage || '—'})</div>;
+                                                                    case 'DELETE_FEED_LOG':
+                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Feed log for {snap.date || payload?.date} (Pen {snap.pen || payload?.pen})</div>;
+                                                                    case 'DELETE_RATION_PLAN':
+                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Plan name: {snap.name || payload?.id}</div>;
+                                                                    case 'DELETE_PEN':
+                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Pen ID: {snap.id || payload?.id}</div>;
+                                                                    default:
+                                                                        return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Action: {item.action}</div>;
+                                                                }
+                                                            })()}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {rejectingId === item.id ? (
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', width: '100%' }}>
+                                                                    <input
+                                                                        type="text"
+                                                                        class="form-control"
+                                                                        placeholder="Reason for rejecting (optional)"
+                                                                        value={rejectNote}
+                                                                        onChange={(e) => setRejectNote(e.target.value)}
+                                                                        autoFocus
+                                                                        style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                                                                    />
+                                                                    <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
+                                                                        <button class="btn btn-secondary btn-sm" style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem' }} onClick={() => { setRejectingId(null); setRejectNote(''); }}>Cancel</button>
+                                                                        <button class="btn btn-secondary btn-sm" style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', borderColor: 'rgba(220, 53, 69, 0.4)', color: 'hsl(0, 75%, 65%)' }} onClick={() => handleReject(item.id)}>Confirm</button>
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
+                                                                    <button class="btn btn-primary btn-sm" style={{ padding: '0.25rem 0.65rem', fontSize: '0.78rem' }} onClick={() => handleApprove(item)}>
+                                                                        <i className="fa-solid fa-check"></i> Approve
+                                                                    </button>
+                                                                    <button class="btn btn-secondary btn-sm" style={{ padding: '0.25rem 0.65rem', fontSize: '0.78rem', color: 'hsl(0, 75%, 65%)', borderColor: 'rgba(220, 53, 69, 0.3)' }} onClick={() => setRejectingId(item.id)}>
+                                                                        <i className="fa-solid fa-xmark"></i> Reject
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                    </tr>
                                                 );
-                                            case 'RECORD_DEATH':
-                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Deceased Date: {payload.deceasedDate || '—'} · Cause: {payload.deceasedCause || 'N/A'}</div>;
-                                            case 'RECORD_SALE':
-                                                return <div style={{ fontSize: '0.78rem', color: 'var(--accent-gold)' }}>Buyer: {payload.buyerName || 'N/A'} · Sale Price: PKR {payload.salePrice?.toLocaleString()} · Sale Date: {payload.saleDate || '—'}</div>;
-                                            case 'ADD_FEED_PURCHASE':
-                                                return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Item: {payload.itemId} · Qty: {payload.quantity} kg · Rate: PKR {payload.rate}/kg · Supplier: {payload.supplier || 'N/A'}</div>;
-                                            case 'ADD_FEED_STOCK_ISSUE':
-                                                return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Item: {payload.itemId} · Qty: {payload.quantity} kg · Pen: {payload.pen || 'ALL'}{payload.notes ? ` · Notes: ${payload.notes}` : ''}</div>;
-                                            case 'SAVE_SETTINGS':
-                                                return renderSettingsDiff(payload.key, payload.value, snap);
-                                            case 'ADD_MEAT_CUT':
-                                                return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Title: {payload.title} · Price: PKR {payload.price}</div>;
-                                            case 'UPDATE_MEAT_CUT':
-                                                return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Title: {payload.title} · New Price: PKR {payload.price}</div>;
-                                            case 'DELETE_ANIMAL':
-                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>This will permanently remove the animal and its history.</div>;
-                                            case 'DELETE_FEED_PURCHASE':
-                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Date: {snap.date || '—'} · Quantity: {snap.quantity || 0} kg · Supplier: {snap.supplier || 'N/A'} · Rate: PKR {snap.rate || 0}</div>;
-                                            case 'DELETE_FEED_STOCK_ISSUE':
-                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Date: {snap.date || '—'} · Quantity: {snap.quantity || 0} kg · Pen: {snap.pen || 'ALL'}</div>;
-                                            case 'DELETE_WEIGHT_LOG':
-                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Weight log on {snap.date}: {snap.weight} kg (ADG: {snap.adg || 0} kg/day)</div>;
-                                            case 'DELETE_TREATMENT':
-                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Treatment on {snap.date}: {snap.medicine || snap.type} (Dosage: {snap.dosage || '—'})</div>;
-                                            case 'DELETE_FEED_LOG':
-                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Feed log for {snap.date || item.payload?.date} (Pen {snap.pen || item.payload?.pen})</div>;
-                                            case 'DELETE_RATION_PLAN':
-                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Plan name: {snap.name || item.payload?.id}</div>;
-                                            case 'DELETE_PEN':
-                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Pen ID: {snap.id || item.payload?.id}</div>;
-                                            case 'DELETE_ORDER':
-                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Customer: {snap.customer_name || 'N/A'} · Total: PKR {snap.net_total || 0} · Date: {snap.date || '—'}</div>;
-                                            case 'DELETE_ENQUIRY':
-                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Customer: {snap.customer_name || snap.email || 'N/A'}</div>;
-                                            case 'DELETE_QUOTATION':
-                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Client: {snap.client_name || 'N/A'}</div>;
-                                            case 'DELETE_SPEC_SHEET':
-                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Doc Ref: {snap.doc_ref || item.payload?.refId}</div>;
-                                            case 'DELETE_MEAT_CUT':
-                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Cut: {snap.title || item.payload?.cutId}</div>;
-                                            default: return null;
-                                        }
-                                    })()}
-
-                                    {rejectingId === item.id ? (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', width: '100%', marginTop: '0.3rem' }}>
-                                            <input
-                                                type="text"
-                                                class="form-control"
-                                                placeholder="Reason for rejecting (optional)"
-                                                value={rejectNote}
-                                                onChange={(e) => setRejectNote(e.target.value)}
-                                                autoFocus
-                                            />
-                                            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                                                <button class="btn btn-secondary" style={{ minHeight: '32px', padding: '0.35rem 0.8rem', fontSize: '0.75rem' }} onClick={() => { setRejectingId(null); setRejectNote(''); }}>Cancel</button>
-                                                <button class="btn btn-secondary" style={{ minHeight: '32px', padding: '0.35rem 0.8rem', fontSize: '0.75rem', borderColor: 'rgba(220, 53, 69, 0.4)', color: 'hsl(0, 75%, 65%)' }} onClick={() => handleReject(item.id)}>Confirm Reject</button>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.3rem' }}>
-                                            <button class="btn btn-primary" style={{ minHeight: '32px', padding: '0.35rem 0.8rem', fontSize: '0.75rem' }} onClick={() => handleApprove(item)}>
-                                                <i className="fa-solid fa-check"></i> Approve
-                                            </button>
-                                            <button class="btn btn-secondary" style={{ minHeight: '32px', padding: '0.35rem 0.8rem', fontSize: '0.75rem' }} onClick={() => setRejectingId(item.id)}>
-                                                <i className="fa-solid fa-xmark"></i> Reject
-                                            </button>
-                                        </div>
-                                    )}
+                                            })}
+                                        </tbody>
+                                    </table>
                                 </div>
-                            ))}
+                            )}
                         </div>
                     </div>
                 </div>

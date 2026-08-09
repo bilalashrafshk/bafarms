@@ -919,26 +919,38 @@ export const FarmProvider = ({ children }) => {
         };
         const isAdmin = staffUserRef.current?.isAdmin === true;
         if (!isAdmin) {
-            return await handleNonAdminDelete('ADD_FEED_PURCHASE', record);
+            return await handleNonAdminDelete('ADD_FEED_PURCHASE', record, () => setFeedPurchases(prev => [...prev, record]));
         }
         setFeedPurchases(prev => [...prev, record]);
         persistMutation('ADD_FEED_PURCHASE', record);
         return record;
     };
 
-    const handleNonAdminDelete = async (action, payload) => {
+    // Routes a non-admin's mutation into the approval queue instead of writing it
+    // directly. `optimisticUpdate`, when given, is called after a successful submit
+    // to drop the record into local state right away (tagged as pending via
+    // myRequests, matched by id in the UI) so the submitter sees it land in the
+    // registry immediately instead of appearing to have done nothing — it disappears
+    // again automatically if a Super Admin rejects it (myRequests flips to 'rejected'
+    // and the row's approval match goes away next refresh).
+    const handleNonAdminDelete = async (action, payload, optimisticUpdate) => {
+        const verb = action.startsWith('DELETE_') ? 'Deletion'
+            : action.startsWith('ADD_') ? 'Addition'
+            : action.startsWith('RECORD_') ? 'Record'
+            : 'Change';
         try {
             const { res, data } = await sendMutationToServer(action, payload);
             if (!res.ok || data.success === false) {
-                alert(data.error || 'Delete request could not be submitted.');
-                return { success: false, error: data.error || 'Delete request could not be submitted.' };
+                alert(data.error || 'Request could not be submitted.');
+                return { success: false, error: data.error || 'Request could not be submitted.' };
             }
+            if (optimisticUpdate) optimisticUpdate();
             refreshApprovals();
-            alert('Deletion request submitted for Super Admin approval.');
+            alert(`${verb} request submitted for Super Admin approval. It now shows in the list as Pending.`);
             return { success: true, pending: true };
         } catch (err) {
             console.error(`${action} (pending) failed:`, err);
-            alert('Network error — deletion request was not submitted. Please try again.');
+            alert('Network error — request was not submitted. Please try again.');
             return { success: false, error: 'Network error — request was not submitted.' };
         }
     };
@@ -963,7 +975,7 @@ export const FarmProvider = ({ children }) => {
         };
         const isAdmin = staffUserRef.current?.isAdmin === true;
         if (!isAdmin) {
-            return await handleNonAdminDelete('ADD_OVERHEAD_EXPENSE', record);
+            return await handleNonAdminDelete('ADD_OVERHEAD_EXPENSE', record, () => setOverheadExpenses(prev => [...prev, record]));
         }
         setOverheadExpenses(prev => [...prev, record]);
         persistMutation('ADD_OVERHEAD_EXPENSE', record);
@@ -992,7 +1004,7 @@ export const FarmProvider = ({ children }) => {
         };
         const isAdmin = staffUserRef.current?.isAdmin === true;
         if (!isAdmin) {
-            return await handleNonAdminDelete('ADD_FEED_STOCK_ISSUE', record);
+            return await handleNonAdminDelete('ADD_FEED_STOCK_ISSUE', record, () => setFeedStockIssues(prev => [...prev, record]));
         }
         setFeedStockIssues(prev => [...prev, record]);
         persistMutation('ADD_FEED_STOCK_ISSUE', record);
@@ -1943,10 +1955,15 @@ export const FarmProvider = ({ children }) => {
                 setAnimals(prev => prev.map(a => a.id === approval.animal_id || a.id === approval.animalId ? { ...a, status: 'Sold', salePrice: parseFloat(changes.salePrice), buyerName: changes.buyerName, saleDate: changes.saleDate } : a));
             } else if (approval.action === 'ADD_FEED_PURCHASE') {
                 const changes = approval.payload || {};
-                setFeedPurchases(prev => [...prev, changes]);
+                setFeedPurchases(prev => [...prev.filter(p => p.id !== changes.id), changes]);
             } else if (approval.action === 'ADD_FEED_STOCK_ISSUE') {
                 const changes = approval.payload || {};
-                setFeedStockIssues(prev => [...prev, changes]);
+                setFeedStockIssues(prev => [...prev.filter(i => i.id !== changes.id), changes]);
+            } else if (approval.action === 'ADD_OVERHEAD_EXPENSE') {
+                const changes = approval.payload || {};
+                setOverheadExpenses(prev => [...prev.filter(e => e.id !== changes.id), changes]);
+            } else if (approval.action === 'DELETE_OVERHEAD_EXPENSE') {
+                setOverheadExpenses(prev => prev.filter(e => e.id !== (approval.payload?.id)));
             } else if (approval.action === 'SAVE_SETTINGS') {
                 const changes = approval.payload || {};
                 if (changes.key) setSettings(prev => ({ ...prev, [changes.key]: changes.value }));
