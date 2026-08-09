@@ -538,7 +538,7 @@ export default function TMRCalculator() {
     // schedule itself, so later schedule edits never alter this day's history. Shared
     // by the single selected-pen "Log This Feeding" button and each pen's own button
     // when "All" is selected.
-    const logBatchForPen = (penId, batch, headCount) => {
+    const logBatchForPen = (penId, batch, headCount, skipConfirm = false) => {
         if (!batch.isPlanDriven) return;
         const resolvedPlanRow = batch.resolvedPlanRow;
         const isV2 = resolvedPlanRow.system === 'v2';
@@ -570,6 +570,17 @@ export default function TMRCalculator() {
             notes += ` — FEEDING ${activeFeedingIndex} OF ${numFeedings} (${activeFeedingPct}%)`;
         }
 
+        const targetFeedingIdx = activeFeedingIndex === 0 ? 0 : activeFeedingIndex;
+        const existingLog = (feedLogs || []).find(f => f.date === logDate && String(f.pen) === String(penId) && (f.feedingIndex || 0) === targetFeedingIdx);
+        if (existingLog && !skipConfirm) {
+            const sessionText = targetFeedingIdx === 0 ? 'Full Day (100%)' : targetFeedingIdx === 1 ? 'Morning' : 'Evening';
+            const byText = existingLog.createdBy ? ` by ${existingLog.createdBy}` : '';
+            const confirmMessage = `⚠️ Pen ${penId} has ALREADY been logged for ${sessionText} on ${logDate}${byText}.\n\nDo you want to update/overwrite the existing ${sessionText} log?`;
+            if (!window.confirm(confirmMessage)) {
+                return;
+            }
+        }
+
         logFeed({
             date: logDate,
             pen: penId,
@@ -590,9 +601,6 @@ export default function TMRCalculator() {
             totalCost: batch.totalCostSingle * headCount * activeFeedingScale,
             costPerAnimal: batch.totalCostSingle * activeFeedingScale,
             createdBy: staffUser?.email || staffUser?.name || null,
-            // A "Full Day" log (index 0) is complete on its own — no other session is
-            // expected that day — so it's always recorded as 1 feeding at 100%, regardless
-            // of whatever split ratio happens to be selected in the UI at the time.
             feedingIndex: activeFeedingIndex,
             numFeedings: activeFeedingIndex === 0 ? 1 : numFeedings,
             feedingPct: activeFeedingIndex === 0 ? 100 : activeFeedingPct,
@@ -604,21 +612,12 @@ export default function TMRCalculator() {
 
     const handleLogFeed = () => logBatchForPen(selectedTMRPen, selectedBatch, animalsCount);
 
-    // Shared with the "Feed All Pens" bulk log below — same provenance text as the
-    // single-pen path, just parameterized on whichever pen/resolution is being logged
-    // instead of closing over selectedTMRPen/resolvedPlanRow.
     const stageNoteFor = (resolved) => resolved.system === 'v2'
         ? `${resolved.plan.name} v${resolved.plan.version}, bracket ${resolved.bracketMin}-${resolved.bracketMax}kg${resolved.phase === 'ADAPTATION' ? `, Adaptation Day ${resolved.dayNo}` : ', Steady State'}`
         : (resolved.usesAdaptationTable
             ? `Adaptation Day ${resolved.adaptationDay}`
             : `Week ${resolved.week.week}${resolved.usesDailyDiet && resolved.dayInWeek ? `, Day ${resolved.dayInWeek}` : ''}`);
 
-    // Logs one pen's already-resolved ration as its own feed-log record (own pen id,
-    // own head count, own ingredients) — used by "Feed All Pens" so every pen in a
-    // multi-pen batch still gets correct, per-pen history downstream (Feed & Growth
-    // Report, Feed Stock's Issues by Pen both key strictly off a real pen id). No
-    // per-ingredient overrides here — Tractor Mode is a mixing/logging view, not an
-    // editing one, so there's nothing to diff against the plan.
     const logPenBatch = (penId, resolved, date) => {
         const headCount = resolved.headCount || 0;
         const rows = Object.entries(resolved.week.ingredients || {}).map(([id, qty]) => {
@@ -647,18 +646,28 @@ export default function TMRCalculator() {
         });
     };
 
-    // "Feed all pens together" — logs every resolved pen in the current Tractor Mode
-    // selection in one action, each as its own record via logPenBatch above. Gated the
-    // same way the aggregate mixing view is: a forage/phase mismatch across pens must
-    // be explicitly confirmed first, since that mismatch is a real signal something's
-    // off (e.g. a pen still mid-adaptation lumped in with steady-state pens).
     const handleLogAllPens = () => {
         if (tractorPenResolutions.length === 0) return;
         if (tractorMismatch && !tractorConfirmedMismatch) return;
+
+        const targetFeedingIdx = activeFeedingIndex === 0 ? 0 : activeFeedingIndex;
+        const sessionText = targetFeedingIdx === 0 ? 'Full Day (100%)' : targetFeedingIdx === 1 ? 'Morning' : 'Evening';
+        const duplicatePens = tractorSelectedPens.filter(penId =>
+            (feedLogs || []).some(f => f.date === logDate && String(f.pen) === String(penId) && (f.feedingIndex || 0) === targetFeedingIdx)
+        );
+
+        if (duplicatePens.length > 0) {
+            const penList = duplicatePens.map(p => `Pen ${p}`).join(', ');
+            const confirmMessage = `⚠️ ${duplicatePens.length} pen(s) (${penList}) have ALREADY been logged for ${sessionText} on ${logDate}.\n\nDo you want to update/overwrite their existing feeding logs?`;
+            if (!window.confirm(confirmMessage)) {
+                return;
+            }
+        }
+
         tractorSelectedPens.forEach(penId => {
             const batch = computePenBatch(penId);
             if (batch.isPlanDriven) {
-                logBatchForPen(penId, batch, batch.headCount);
+                logBatchForPen(penId, batch, batch.headCount, true);
             }
         });
         setLogSaved(true);
