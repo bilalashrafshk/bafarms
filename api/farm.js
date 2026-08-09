@@ -211,6 +211,15 @@ async function ensureColumns(client) {
             ADD COLUMN IF NOT EXISTS protocol_task_id VARCHAR(50) DEFAULT NULL
     `);
 
+    // Links a logged treatment back to the feed-stock issue (ba_feed_stock_issues, same
+    // category-agnostic FIFO stock system used for feed) that recorded its cost — a draw
+    // from existing medicine stock, or a backfilled same-transaction purchase+issue for a
+    // medicine not yet in stock. NULL for treatments logged with no costed stock draw.
+    await client.query(`
+        ALTER TABLE ba_treatments
+            ADD COLUMN IF NOT EXISTS stock_issue_id VARCHAR(50) DEFAULT NULL
+    `);
+
     // Per-plan ingredient price overrides (PKR/kg) — procurement cost is set per Ration
     // Plan, not globally, since different plans/scenarios can assume different sourcing
     // costs. Missing/unset ingredient ids in this map fall back to the global feed
@@ -1345,6 +1354,7 @@ module.exports = async (req, res) => {
                 dosage: row.dosage,
                 withholding: parseInt(row.withholding || 0),
                 protocolTaskId: row.protocol_task_id || null,
+                stockIssueId: row.stock_issue_id || null,
                 createdBy: row.created_by || null
             }));
 
@@ -1698,12 +1708,12 @@ module.exports = async (req, res) => {
             }
 
             if (action === 'LOG_TREATMENT') {
-                const { animalId, date, type, medicine, dosage, withholding, protocolTaskId } = payload;
+                const { animalId, date, type, medicine, dosage, withholding, protocolTaskId, stockIssueId } = payload;
 
                 await client.query(`
-                    INSERT INTO ba_treatments (animal_id, date, type, medicine, dosage, withholding, protocol_task_id, created_by)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                `, [animalId, date, type, medicine, dosage, withholding, protocolTaskId || null, userEmail]);
+                    INSERT INTO ba_treatments (animal_id, date, type, medicine, dosage, withholding, protocol_task_id, stock_issue_id, created_by)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                `, [animalId, date, type, medicine, dosage, withholding, protocolTaskId || null, stockIssueId || null, userEmail]);
 
                 return res.status(200).json({ success: true });
             }

@@ -193,11 +193,24 @@ export default function FeedStock() {
             if ((item?.category || 'feed') !== 'feed') return;
             const cost = issueCosts[iss.id]?.cost ?? 0;
             const pen = iss.pen || 'ALL';
-            if (!totals[pen]) totals[pen] = { pen, qty: 0, cost: 0 };
+            if (!totals[pen]) totals[pen] = { pen, qty: 0, cost: 0, items: {} };
             totals[pen].qty += iss.quantity;
             totals[pen].cost += cost;
+            // Item-level breakdown so a lump total (e.g. "All Pens · 30kg · 2,200 PKR") is
+            // never left to speak for itself — a glance at the row says what it actually
+            // was (a single manual "Chokar" issue, vs. a real multi-ingredient TMR day).
+            const name = item?.name || iss.itemId;
+            totals[pen].items[name] = (totals[pen].items[name] || 0) + iss.quantity;
         });
-        return Object.values(totals).sort((a, b) => b.cost - a.cost);
+        return Object.values(totals)
+            .map(row => ({
+                ...row,
+                itemBreakdown: Object.entries(row.items)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([name, qty]) => `${name} (${qty.toFixed(2)} kg)`)
+                    .join(', ')
+            }))
+            .sort((a, b) => b.cost - a.cost);
     }, [filteredIssues, issueCosts, feedStockItems]);
 
     const totalStockValue = ledger.reduce((sum, l) => sum + l.closingValue, 0);
@@ -794,7 +807,10 @@ export default function FeedStock() {
                                 <tbody>
                                     {perPenCost.map(row => (
                                         <tr key={row.pen}>
-                                            <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>{penLabel(row.pen)}</td>
+                                            <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
+                                                {penLabel(row.pen)}
+                                                <div style={{ fontWeight: '400', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>{row.itemBreakdown}</div>
+                                            </td>
                                             <td>{row.qty.toFixed(2)} kg</td>
                                             {isSuperAdmin && <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(row.cost).toLocaleString()} PKR</strong></td>}
                                         </tr>

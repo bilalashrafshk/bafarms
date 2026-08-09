@@ -1655,7 +1655,14 @@ export const FarmProvider = ({ children }) => {
         });
     };
 
-    const addTreatment = async (animalId, date, type, medicine, dosage, withholding, protocolTaskId = null) => {
+    // stockIssueId (optional) links this treatment to a ba_feed_stock_issues row — a draw
+    // from tracked medicine stock, priced at FIFO actual just like feed (see
+    // getFeedStockIssueCosts). The issue itself is created separately via
+    // addFeedStockIssue/addFeedPurchase/addStockTrackedIngredient (same functions the Feed
+    // Stock & Store Ledger uses, category:'medicine') — this only stores the pointer, so
+    // treatment logging stays as fast/ungated as it's always been even when the linked
+    // stock draw is still pending Super Admin approval (non-admin) or hasn't synced yet.
+    const addTreatment = async (animalId, date, type, medicine, dosage, withholding, protocolTaskId = null, stockIssueId = null) => {
         const id = treatments.length > 0 ? Math.max(...treatments.map(t => t.id)) + 1 : 1;
         const currentUser = staffUserRef.current?.email || staffUserRef.current?.name || null;
         const newTreatment = {
@@ -1667,6 +1674,7 @@ export const FarmProvider = ({ children }) => {
             dosage,
             withholding: parseInt(withholding) || 0,
             protocolTaskId: protocolTaskId || null,
+            stockIssueId: stockIssueId || null,
             createdBy: currentUser
         };
 
@@ -1674,7 +1682,7 @@ export const FarmProvider = ({ children }) => {
         setTreatments(prev => [...prev, newTreatment]);
 
         // 2. Queue database transaction durably
-        persistMutation('LOG_TREATMENT', { animalId: parseInt(animalId), date, type, medicine, dosage, withholding: parseInt(withholding) || 0, protocolTaskId: protocolTaskId || null, createdBy: currentUser });
+        persistMutation('LOG_TREATMENT', { animalId: parseInt(animalId), date, type, medicine, dosage, withholding: parseInt(withholding) || 0, protocolTaskId: protocolTaskId || null, stockIssueId: stockIssueId || null, createdBy: currentUser });
     };
 
     const transitionAnimalStatus = async (animalId, nextStatus) => {

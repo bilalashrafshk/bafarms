@@ -5,7 +5,20 @@ import { formatDate } from '../utils/formatDate';
 import { todayPKT, todayAsDate, parseDateOnly } from '../utils/dateOnly';
 
 export default function MedicalLog() {
-    const { animals, treatments, addTreatment, deleteTreatment, medCategories } = useContext(FarmContext);
+    const {
+        animals, treatments, addTreatment, deleteTreatment, medCategories,
+        feedStockItems, addStockTrackedIngredient, addFeedPurchase, addFeedStockIssue,
+        getFeedStockLedger, getFeedStockIssueCosts
+    } = useContext(FarmContext);
+
+    // Medicine is just another category on the same category-agnostic FIFO stock system
+    // feed already uses (feedStockItems/feedPurchases/feedStockIssues) — see Feed Stock &
+    // Store Ledger. A treatment can optionally draw from it, so vet costs stop being
+    // invisible the way manual feed issues used to be (see Feed Cost & Growth Report).
+    const medicineItems = feedStockItems.filter(i => (i.category || 'feed') === 'medicine');
+    const stockLedger = getFeedStockLedger();
+    const stockQtyOf = (itemId) => stockLedger.find(r => r.item.id === itemId)?.closingQty ?? 0;
+    const issueCosts = getFeedStockIssueCosts();
 
     // Form states
     const [selectedAnimal, setSelectedAnimal] = useState('');
@@ -18,9 +31,70 @@ export default function MedicalLog() {
     const [withholding, setWithholding] = useState('0');
     const [isSuccess, setIsSuccess] = useState(false);
 
-    const handleSubmit = (e) => {
+    // Optional stock draw — see medicineItems/stockLedger above.
+    const [drawFromStock, setDrawFromStock] = useState(false);
+    const [stockMode, setStockMode] = useState('existing'); // 'existing' | 'new'
+    const [stockItemId, setStockItemId] = useState('');
+    const [stockQty, setStockQty] = useState('1');
+    const [newMedName, setNewMedName] = useState('');
+    const [newMedUnit, setNewMedUnit] = useState('unit');
+    const [newMedRate, setNewMedRate] = useState('');
+
+    const resetStockFields = () => {
+        setDrawFromStock(false);
+        setStockMode('existing');
+        setStockItemId('');
+        setStockQty('1');
+        setNewMedName('');
+        setNewMedUnit('unit');
+        setNewMedRate('');
+    };
+
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (!selectedAnimal || !medicine || !dosage) return;
+
+        let stockIssueId = null;
+        if (drawFromStock) {
+            const qty = parseFloat(stockQty) || 0;
+            if (qty <= 0) {
+                alert('Enter a quantity used for the stock draw, or turn off "Draw from medicine stock".');
+                return;
+            }
+
+            let itemId = stockItemId;
+            if (stockMode === 'new') {
+                const name = newMedName.trim();
+                const rate = parseFloat(newMedRate);
+                if (!name || isNaN(rate) || rate < 0) {
+                    alert('Enter a name and a price/unit for the new medicine.');
+                    return;
+                }
+                // Purchase-first: the lot is created before it's drawn against, in this
+                // same action, so FIFO cost is always backed by a real recorded price —
+                // never a stock draw invented after the fact with no purchase behind it.
+                itemId = addStockTrackedIngredient(name, 'medicine', newMedUnit.trim() || 'unit');
+                await addFeedPurchase({
+                    itemId, date, quantity: qty, rate,
+                    supplier: 'Direct purchase (treatment)',
+                    notes: `Backfilled for treatment — ${medicine} (${dosage})`
+                });
+            } else if (!itemId) {
+                alert('Select a medicine from stock, or switch to "New medicine".');
+                return;
+            }
+
+            stockIssueId = `fi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            const animalObj = animals.find(a => a.id === parseInt(selectedAnimal));
+            await addFeedStockIssue({
+                id: stockIssueId,
+                itemId,
+                date,
+                pen: animalObj?.pen || 'ALL',
+                quantity: qty,
+                notes: `Treatment stock draw — ${animalObj?.rfid || selectedAnimal}, ${medicine} (${dosage})`
+            });
+        }
 
         addTreatment(
             selectedAnimal,
@@ -28,7 +102,9 @@ export default function MedicalLog() {
             type || (medCategories[0] || 'Vaccination'),
             medicine,
             dosage,
-            parseInt(withholding)
+            parseInt(withholding),
+            null,
+            stockIssueId
         );
 
         setSelectedAnimal('');
@@ -36,6 +112,7 @@ export default function MedicalLog() {
         setMedicine('');
         setDosage('');
         setWithholding('0');
+        resetStockFields();
         setIsSuccess(true);
         setTimeout(() => setIsSuccess(false), 3000);
     };
@@ -219,6 +296,76 @@ export default function MedicalLog() {
                             </div>
                         </div>
 
+                        {/* Optional: cost this treatment against tracked medicine stock —
+                            same FIFO stock system Feed Stock & Store Ledger uses, just a
+                            'medicine' category item instead of 'feed'. */}
+                        <div style={{ marginTop: '1rem', padding: '0.85rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '8px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer', marginBottom: drawFromStock ? '0.85rem' : 0 }}>
+                                <input type="checkbox" checked={drawFromStock} onChange={(e) => setDrawFromStock(e.target.checked)} />
+                                Draw from medicine stock (tracks cost)
+                            </label>
+
+                            {drawFromStock && (
+                                <>
+                                    <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.85rem', fontSize: '0.8rem' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
+                                            <input type="radio" name="stockMode" checked={stockMode === 'existing'} onChange={() => setStockMode('existing')} />
+                                            Existing stock item
+                                        </label>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
+                                            <input type="radio" name="stockMode" checked={stockMode === 'new'} onChange={() => setStockMode('new')} />
+                                            New medicine (not in stock)
+                                        </label>
+                                    </div>
+
+                                    {stockMode === 'existing' ? (
+                                        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                                            <div class="form-group" style={{ flex: '1 1 220px', marginBottom: 0 }}>
+                                                <label>Medicine</label>
+                                                <select class="form-control" value={stockItemId} onChange={(e) => setStockItemId(e.target.value)}>
+                                                    <option value="">Select…</option>
+                                                    {medicineItems.map(item => (
+                                                        <option key={item.id} value={item.id}>
+                                                            {item.name} — {stockQtyOf(item.id).toFixed(2)} {item.unit} in stock
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                {medicineItems.length === 0 && (
+                                                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>No medicine stock items yet — use "New medicine" or add one in Feed Stock & Store Ledger.</span>
+                                                )}
+                                            </div>
+                                            <div class="form-group" style={{ flex: '0 1 140px', marginBottom: 0 }}>
+                                                <label>Quantity Used</label>
+                                                <input type="number" min="0" step="0.01" class="form-control" value={stockQty} onChange={(e) => setStockQty(e.target.value)} />
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                                            <div class="form-group" style={{ flex: '1 1 180px', marginBottom: 0 }}>
+                                                <label>Medicine Name</label>
+                                                <input type="text" class="form-control" placeholder="e.g. Oxytetracycline" value={newMedName} onChange={(e) => setNewMedName(e.target.value)} />
+                                            </div>
+                                            <div class="form-group" style={{ flex: '0 1 100px', marginBottom: 0 }}>
+                                                <label>Unit</label>
+                                                <input type="text" class="form-control" placeholder="ml, dose…" value={newMedUnit} onChange={(e) => setNewMedUnit(e.target.value)} />
+                                            </div>
+                                            <div class="form-group" style={{ flex: '0 1 120px', marginBottom: 0 }}>
+                                                <label>Quantity Used</label>
+                                                <input type="number" min="0" step="0.01" class="form-control" value={stockQty} onChange={(e) => setStockQty(e.target.value)} />
+                                            </div>
+                                            <div class="form-group" style={{ flex: '0 1 130px', marginBottom: 0 }}>
+                                                <label>Price / Unit (PKR)</label>
+                                                <input type="number" min="0" step="0.01" class="form-control" value={newMedRate} onChange={(e) => setNewMedRate(e.target.value)} />
+                                            </div>
+                                        </div>
+                                    )}
+                                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.5rem' }}>
+                                        Priced at actual FIFO stock cost, same as feed. If you're not a Super Admin, this stock draw is queued for Super Admin approval — the treatment itself still saves immediately.
+                                    </span>
+                                </>
+                            )}
+                        </div>
+
                         {isSuccess && (
                             <div style={{ marginTop: '1.2rem', padding: '0.8rem', background: 'rgba(25,135,84,0.1)', border: '1px solid var(--primary-green-light)', borderRadius: '8px', color: 'var(--primary-green-light)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.88rem' }}>
                                 <i class="fa-solid fa-circle-check"></i>
@@ -245,6 +392,7 @@ export default function MedicalLog() {
                                 <th>DATE</th>
                                 <th>CATEGORY</th>
                                 <th>MEDICINE</th>
+                                <th title="FIFO actual cost of the linked stock draw, if any">COST</th>
                                 <th>WTHLD</th>
                                 <th>STATUS</th>
                                 <th style={{ textAlign: 'center' }}>ACTIONS</th>
@@ -262,6 +410,11 @@ export default function MedicalLog() {
                                         <td>{formatDate(t.date)}</td>
                                         <td>{t.type}</td>
                                         <td><strong>{t.medicine}</strong> ({t.dosage})</td>
+                                        <td style={{ fontSize: '0.8rem' }}>
+                                            {!t.stockIssueId ? <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                                : issueCosts[t.stockIssueId] ? `${Math.round(issueCosts[t.stockIssueId].cost).toLocaleString()} PKR`
+                                                : <span style={{ color: 'var(--accent-gold)' }} title="Stock draw not yet approved/synced">Pending</span>}
+                                        </td>
                                         <td>{t.withholding} Days</td>
                                         <td>
                                             {daysRemaining > 0 ? (
@@ -292,7 +445,7 @@ export default function MedicalLog() {
                             })}
                             {sortedTreatments.length === 0 && (
                                 <tr>
-                                    <td colSpan="8" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                                    <td colSpan="9" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                                         <i className="fa-solid fa-prescription-bottle-medical" style={{ fontSize: '2rem', marginBottom: '0.8rem', display: 'block', color: 'var(--text-muted)', opacity: '0.8' }}></i>
                                         No veterinary treatment records logged in the database yet.
                                     </td>

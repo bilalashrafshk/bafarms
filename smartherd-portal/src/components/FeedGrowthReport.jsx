@@ -9,7 +9,11 @@ import { todayPKT, daysBetween, parseDateOnly, todayAsDate } from '../utils/date
 // how much weight did the herd actually gain? Both source ledgers are append-only/dated,
 // so this view is always a historical report — never affected by later recipe edits.
 export default function FeedGrowthReport() {
-    const { animals, weightLogs, feedLogs, getPenRationRow, getPenRosterAsOf, systemParams } = useContext(FarmContext);
+    const {
+        animals, weightLogs, feedLogs, getPenRationRow, getPenRosterAsOf, systemParams,
+        feedStockIssues, feedStockItems, feedOpeningStock, feedPurchases, mineralSplitRatio,
+        getFeedStockIssueCosts
+    } = useContext(FarmContext);
     const adgFloor = systemParams?.adgAlertThreshold ?? 1.0;
 
     // Every pen that could plausibly have history to report on — not just pens with
@@ -47,6 +51,31 @@ export default function FeedGrowthReport() {
             .filter(f => penFilter === 'ALL' ? true : f.pen === penFilter)
             .sort((a, b) => daysBetween(b.date, a.date));
     }, [feedLogs, dateFrom, dateTo, penFilter]);
+
+    // Manually-issued stock (Feed Stock & Store Ledger → Issues) never creates a feedLogs
+    // row — e.g. a bag of Chokar handed out loose isn't run through the TMR calculator —
+    // so without this it's invisible here even though it's real feed cost. Only
+    // category==='feed' issues count (medicine/other stock is out of scope for a feed
+    // report); each is priced at its actual FIFO cost (issueCosts below), since a manual
+    // issue has no "reference/recipe price" the way a TMR log does.
+    const manualFeedIssuesInRange = useMemo(() => {
+        return feedStockIssues.filter(i => {
+            const item = feedStockItems.find(it => it.id === i.itemId);
+            if ((item?.category || 'feed') !== 'feed') return false;
+            return inRange(i.date);
+        });
+    }, [feedStockIssues, feedStockItems, dateFrom, dateTo]);
+
+    const manualFeedIssues = useMemo(
+        () => manualFeedIssuesInRange.filter(i => penFilter === 'ALL' ? true : i.pen === penFilter),
+        [manualFeedIssuesInRange, penFilter]
+    );
+
+    const issueCosts = useMemo(() => getFeedStockIssueCosts(),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [feedStockItems, feedOpeningStock, feedPurchases, feedLogs, feedStockIssues, mineralSplitRatio]);
+
+    const costOfIssue = (iss) => issueCosts[iss.id]?.cost ?? 0;
 
     // Days within the selected range where a pen had animals actually on feed — per the
     // HISTORICAL roster on that exact day (getPenRosterAsOf, replaying each animal's
@@ -127,26 +156,44 @@ export default function FeedGrowthReport() {
         );
     };
 
-    const totalFeedCost = filteredFeedLogs.reduce((sum, f) => sum + (f.totalCost || 0), 0);
-    const daysLogged = new Set(filteredFeedLogs.map(f => f.date)).size;
+    const manualIssueCost = manualFeedIssues.reduce((sum, iss) => sum + costOfIssue(iss), 0);
+    const totalFeedCost = filteredFeedLogs.reduce((sum, f) => sum + (f.totalCost || 0), 0) + manualIssueCost;
+    const daysLogged = new Set([...filteredFeedLogs.map(f => f.date), ...manualFeedIssues.map(i => i.date)]).size;
 
-    // Feedlot-standard "head-days": for every day actually logged, how many animals were
-    // actually on feed that day — taken from animalCount captured on the feed log itself
-    // at logging time (see logFeed/TMRCalculator, which sources it from the historical
-    // pen roster on that date), not from who happens to be in the pen today. Cost/animal/day
-    // is then just total cost ÷ total head-days — a single division, and one that stays
-    // correct no matter how many animals were later sold, moved to another pen, or had
-    // their pen's config row deleted. (Collapsed to one entry per date+pen first so a
-    // split-fed day's Morning/Evening rows don't double-count the same headcount.)
-    const headDaysOf = (logs) => {
-        const perDay = new Map();
+    // Feedlot-standard "head-days": for every day cost was actually incurred (a TMR feed
+    // log OR a manual stock issue), how many animals were actually on feed that day —
+    // taken from animalCount captured on the feed log itself at logging time where one
+    // exists (see logFeed/TMRCalculator, sourced from the historical pen roster on that
+    // date); a manual issue with no matching feed log the same day+pen imputes the same
+    // way, via getPenRosterAsOf (summed across all pens for a pen==='ALL' issue, exactly
+    // how an 'ALL'-pen feed log's animalCount is already computed). Cost/animal/day is
+    // then just total cost ÷ total head-days — one division, correct no matter how many
+    // animals were later sold, moved to another pen, or had their pen's config row deleted.
+    // (Collapsed to one entry per date+pen so a split-fed day's Morning/Evening rows, or a
+    // feed log plus a same-day manual issue for the same pen, don't double-count headcount.)
+    const buildHeadDaysMap = (logs, issues) => {
+        const map = new Map();
         logs.forEach(f => {
             const key = `${f.date}__${f.pen}`;
-            if (!perDay.has(key)) perDay.set(key, f.animalCount || 0);
+            if (!map.has(key)) map.set(key, f.animalCount || 0);
         });
-        return Array.from(perDay.values()).reduce((sum, c) => sum + c, 0);
+        issues.forEach(iss => {
+            const key = `${iss.date}__${iss.pen}`;
+            if (!map.has(key)) {
+                const headCount = iss.pen === 'ALL'
+                    ? activePens.reduce((sum, p) => sum + getPenRosterAsOf(p, parseDateOnly(iss.date)).length, 0)
+                    : getPenRosterAsOf(iss.pen, parseDateOnly(iss.date)).length;
+                map.set(key, headCount);
+            }
+        });
+        return map;
     };
-    const headDays = headDaysOf(filteredFeedLogs);
+    const sumHeadDays = (map) => Array.from(map.values()).reduce((sum, c) => sum + c, 0);
+
+    const headDaysMap = useMemo(() => buildHeadDaysMap(filteredFeedLogs, manualFeedIssues),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [filteredFeedLogs, manualFeedIssues, activePens, getPenRosterAsOf]);
+    const headDays = sumHeadDays(headDaysMap);
     const avgHeadPerDay = daysLogged > 0 ? headDays / daysLogged : null;
     const costPerAnimalPerDay = headDays > 0 ? totalFeedCost / headDays : null;
 
@@ -195,9 +242,14 @@ export default function FeedGrowthReport() {
         if (penFilter !== 'ALL') return [];
         return activePens.map(pen => {
             const penLogs = feedLogs.filter(f => inRange(f.date) && f.pen === pen);
-            const penCost = penLogs.reduce((sum, f) => sum + (f.totalCost || 0), 0);
-            const penDays = new Set(penLogs.map(f => f.date)).size;
-            const penHeadDays = headDaysOf(penLogs);
+            // Manual issues booked to a specific pen only — same treatment as an
+            // 'ALL'-pen feed log, which is likewise excluded from every named pen's row
+            // and only counted in the whole-herd totals above.
+            const penIssues = manualFeedIssuesInRange.filter(i => i.pen === pen);
+            const penCost = penLogs.reduce((sum, f) => sum + (f.totalCost || 0), 0)
+                + penIssues.reduce((sum, iss) => sum + costOfIssue(iss), 0);
+            const penDays = new Set([...penLogs.map(f => f.date), ...penIssues.map(i => i.date)]).size;
+            const penHeadDays = sumHeadDays(buildHeadDaysMap(penLogs, penIssues));
             const penCostPerAnimalPerDay = penHeadDays > 0 ? penCost / penHeadDays : null;
             const penWeightLogs = weightLogs.filter(w => w.adg !== 0 && inRange(w.date) && rosterIdsOnDate(pen, w.date).has(w.animalId));
             const penAdg = penWeightLogs.length > 0
@@ -217,7 +269,7 @@ export default function FeedGrowthReport() {
             };
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activePens, feedLogs, weightLogs, dateFrom, dateTo, penFilter, getPenRationRow, adgFloor, rosterCache]);
+    }, [activePens, feedLogs, weightLogs, dateFrom, dateTo, penFilter, getPenRationRow, adgFloor, rosterCache, manualFeedIssuesInRange, issueCosts]);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
@@ -278,8 +330,8 @@ export default function FeedGrowthReport() {
                     </div>
                     <div class="stat-val">{Math.round(totalFeedCost).toLocaleString()} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR</small></div>
                     <span class="stat-lbl"><i class="fa-solid fa-calendar-check"></i> {daysLogged} day{daysLogged === 1 ? '' : 's'} logged in range</span>
-                    <span class="stat-lbl" style={{ display: 'block', marginTop: '0.2rem' }} title="Priced at each ingredient's ration/stock-average rate on the day it was logged. For the real cost of the specific lot(s) each pen's feed was physically drawn from, see Feed Stock & Store Ledger → Actual Feed Cost by Pen.">
-                        Reference cost as logged — not FIFO actual (see Store Ledger)
+                    <span class="stat-lbl" style={{ display: 'block', marginTop: '0.2rem' }} title="TMR feed logs are priced at each ingredient's ration/stock-average rate on the day they were logged. Manual stock issues (loose feed handed out outside the TMR calculator, e.g. a bag of Chokar) are priced at their actual FIFO cost, since they have no recipe reference price. For the real cost of every specific lot a pen's feed was physically drawn from, see Feed Stock & Store Ledger → Actual Feed Cost by Pen.">
+                        Feed logs at reference rate + manual issues at FIFO actual{manualIssueCost > 0 ? ` (incl. ${Math.round(manualIssueCost).toLocaleString()} PKR manual)` : ''}
                     </span>
                 </div>
 
@@ -365,12 +417,15 @@ export default function FeedGrowthReport() {
                 </div>
             )}
 
-            {/* Day-by-day feed log within range — logged rows plus, merged in and sorted
-                alongside them, synthetic 0% rows for pen-days that had active animals on
-                feed but no feed log at all (missedDayRows above). */}
+            {/* Day-by-day feed log within range — TMR feed logs, merged in and sorted
+                alongside manual stock issues (e.g. a bag of Chokar handed out loose,
+                outside the TMR calculator — manualFeedIssues above) and synthetic 0% rows
+                for pen-days that had active animals on feed but no feed log at all
+                (missedDayRows above). Every PKR counted in the stat cards above shows up
+                as a row here — nothing is folded into the totals invisibly. */}
             <div class="glass-panel">
                 <h3 class="panel-title"><i class="fa-solid fa-calendar-days"></i> Daily Feed Log</h3>
-                {filteredFeedLogs.length === 0 && missedDayRows.length === 0 ? (
+                {filteredFeedLogs.length === 0 && missedDayRows.length === 0 && manualFeedIssues.length === 0 ? (
                     <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No feed has been logged in this date range yet. Use "Log This Feeding" on the TMR Calculator to start building history.</p>
                 ) : (
                     <div class="table-wrapper">
@@ -389,6 +444,7 @@ export default function FeedGrowthReport() {
                             <tbody>
                                 {[
                                     ...filteredFeedLogs.map(log => ({ type: 'logged', date: log.date, pen: log.pen, log })),
+                                    ...manualFeedIssues.map(iss => ({ type: 'issue', date: iss.date, pen: iss.pen, issue: iss })),
                                     ...missedDayRows.map(m => ({ type: 'missed', date: m.date, pen: m.pen, missed: m }))
                                 ]
                                     .sort((a, b) => daysBetween(b.date, a.date))
@@ -402,7 +458,25 @@ export default function FeedGrowthReport() {
                                             <td>{Math.round(row.log.costPerAnimal)} PKR</td>
                                             <td>{coverageBadge(row.log)}</td>
                                         </tr>
-                                    ) : (
+                                    ) : row.type === 'issue' ? (() => {
+                                        const iss = row.issue;
+                                        const item = feedStockItems.find(it => it.id === iss.itemId);
+                                        const cost = costOfIssue(iss);
+                                        const headCount = headDaysMap.get(`${iss.date}__${iss.pen}`) || 0;
+                                        return (
+                                            <tr key={`issue__${iss.id}`}>
+                                                <td>{formatDate(iss.date)}</td>
+                                                <td>{iss.pen === 'ALL' ? 'All Pens' : `Pen ${iss.pen}`}</td>
+                                                <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }} title="Manually issued from Feed Stock & Store Ledger — priced at FIFO actual cost, not a TMR log">
+                                                    {item?.name || iss.itemId} · {iss.quantity.toFixed(2)} kg (stock issue)
+                                                </td>
+                                                <td>{headCount}</td>
+                                                <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(cost).toLocaleString()} PKR</strong></td>
+                                                <td>{headCount > 0 ? Math.round(cost / headCount) : '—'} PKR</td>
+                                                <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Stock issue</td>
+                                            </tr>
+                                        );
+                                    })() : (
                                         <tr key={`missed__${row.missed.date}__${row.missed.pen}`}>
                                             <td>{formatDate(row.missed.date)}</td>
                                             <td>{`Pen ${row.missed.pen}`}</td>
