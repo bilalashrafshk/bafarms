@@ -958,17 +958,32 @@ export const FarmProvider = ({ children }) => {
     // again automatically if a Super Admin rejects it (myRequests flips to 'rejected'
     // and the row's approval match goes away next refresh).
     const handleNonAdminDelete = async (action, payload, optimisticUpdate) => {
+        // Optimistic local update fires IMMEDIATELY so UI responds with 0ms latency
+        if (optimisticUpdate) optimisticUpdate();
+
+        const tempReqId = payload?.id || `temp_${Date.now()}`;
+        const tempReq = {
+            id: tempReqId,
+            action,
+            payload,
+            status: 'pending',
+            requestedBy: staffUserRef.current?.email || 'me',
+            requestedAt: new Date().toISOString()
+        };
+        setMyRequests(prev => [tempReq, ...prev.filter(r => r.id !== tempReqId)]);
+
         try {
             const { res, data } = await sendMutationToServer(action, payload);
             if (!res.ok || data.success === false) {
+                setMyRequests(prev => prev.filter(r => r.id !== tempReqId));
                 alert(data.error || 'Request could not be submitted.');
                 return { success: false, error: data.error || 'Request could not be submitted.' };
             }
-            if (optimisticUpdate) optimisticUpdate();
             refreshApprovals();
             return { success: true, pending: true };
         } catch (err) {
             console.error(`${action} (pending) failed:`, err);
+            setMyRequests(prev => prev.filter(r => r.id !== tempReqId));
             alert('Network error — request was not submitted. Please try again.');
             return { success: false, error: 'Network error — request was not submitted.' };
         }
