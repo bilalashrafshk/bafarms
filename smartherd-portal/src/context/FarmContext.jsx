@@ -941,50 +941,16 @@ export const FarmProvider = ({ children }) => {
             notes: purchase.notes || '',
             newItem: itemObj || { id: purchase.itemId, name: itemName, unit: itemUnit, category: 'feed', derivedFromIngredientId: purchase.itemId }
         };
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('ADD_FEED_PURCHASE', record, () => setFeedPurchases(prev => [...prev, record]));
-        }
-        setFeedPurchases(prev => [...prev, record]);
+        setFeedPurchases(prev => [...prev.filter(p => p.id !== record.id), record]);
         persistMutation('ADD_FEED_PURCHASE', record);
+        setTimeout(refreshApprovals, 250);
         return record;
     };
 
-    // Routes a non-admin's mutation into the approval queue instead of writing it
-    // directly. `optimisticUpdate`, when given, is called after a successful submit
-    // to drop the record into local state right away (tagged as pending via
-    // myRequests, matched by id in the UI) so the submitter sees it land in the
-    // registry immediately instead of appearing to have done nothing — it disappears
-    // again automatically if a Super Admin rejects it (myRequests flips to 'rejected'
-    // and the row's approval match goes away next refresh).
-    const handleNonAdminDelete = async (action, payload, optimisticUpdate) => {
-        // Optimistic local update fires IMMEDIATELY so UI responds with 0ms latency
-        if (optimisticUpdate) optimisticUpdate();
-
-        const tempReqId = payload?.id || `temp_${Date.now()}`;
-        const tempReq = {
-            id: tempReqId,
-            action,
-            payload,
-            status: 'pending',
-            requestedBy: staffUserRef.current?.email || 'me',
-            requestedAt: new Date().toISOString()
-        };
-        setMyRequests(prev => [tempReq, ...prev.filter(r => r.id !== tempReqId)]);
-
-        // Route through durable queue: sends immediately if online, or holds safely in localStorage if offline
-        await persistMutation(action, payload);
-        refreshApprovals();
-        return { success: true, pending: true };
-    };
-
     const deleteFeedPurchase = async (id) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('DELETE_FEED_PURCHASE', { id });
-        }
         setFeedPurchases(prev => prev.filter(p => p.id !== id));
         persistMutation('DELETE_FEED_PURCHASE', { id });
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
@@ -996,22 +962,16 @@ export const FarmProvider = ({ children }) => {
             description: expense.description || '',
             amount: parseFloat(expense.amount) || 0
         };
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('ADD_OVERHEAD_EXPENSE', record, () => setOverheadExpenses(prev => [...prev, record]));
-        }
-        setOverheadExpenses(prev => [...prev, record]);
+        setOverheadExpenses(prev => [...prev.filter(e => e.id !== record.id), record]);
         persistMutation('ADD_OVERHEAD_EXPENSE', record);
+        setTimeout(refreshApprovals, 250);
         return record;
     };
 
     const deleteOverheadExpense = async (id) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('DELETE_OVERHEAD_EXPENSE', { id });
-        }
         setOverheadExpenses(prev => prev.filter(e => e.id !== id));
         persistMutation('DELETE_OVERHEAD_EXPENSE', { id });
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
@@ -1031,22 +991,16 @@ export const FarmProvider = ({ children }) => {
             notes: issue.notes || '',
             newItem: itemObj || { id: issue.itemId, name: itemName, unit: itemUnit, category: 'feed', derivedFromIngredientId: issue.itemId }
         };
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('ADD_FEED_STOCK_ISSUE', record, () => setFeedStockIssues(prev => [...prev, record]));
-        }
-        setFeedStockIssues(prev => [...prev, record]);
+        setFeedStockIssues(prev => [...prev.filter(i => i.id !== record.id), record]);
         persistMutation('ADD_FEED_STOCK_ISSUE', record);
+        setTimeout(refreshApprovals, 250);
         return record;
     };
 
     const deleteFeedStockIssue = async (id) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('DELETE_FEED_STOCK_ISSUE', { id });
-        }
         setFeedStockIssues(prev => prev.filter(i => i.id !== id));
         persistMutation('DELETE_FEED_STOCK_ISSUE', { id });
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
@@ -2103,22 +2057,16 @@ export const FarmProvider = ({ children }) => {
     };
 
     const deleteWeightLog = async (logId) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('DELETE_WEIGHT_LOG', { logId });
-        }
         setWeightLogs(prev => prev.filter(w => w.id !== logId));
         persistMutation('DELETE_WEIGHT_LOG', { logId });
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
     const deleteTreatment = async (treatmentId) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('DELETE_TREATMENT', { treatmentId });
-        }
         setTreatments(prev => prev.filter(t => t.id !== treatmentId));
         persistMutation('DELETE_TREATMENT', { treatmentId });
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
@@ -2173,16 +2121,13 @@ export const FarmProvider = ({ children }) => {
     };
 
     const recordDeath = async (animalId, deceasedDate, deceasedCause) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('RECORD_DEATH', { animalId: parseInt(animalId), deceasedDate, deceasedCause });
-        }
         setAnimals(prev => prev.map(a => a.id === parseInt(animalId)
             ? { ...a, status: 'Deceased', deceasedDate, deceasedCause }
             : a
         ));
         setEvents(prev => [...prev, { id: Date.now(), animalId: parseInt(animalId), date: deceasedDate, eventType: 'deceased', note: `Deceased — ${deceasedCause}` }]);
         persistMutation('RECORD_DEATH', { animalId: parseInt(animalId), deceasedDate, deceasedCause });
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
@@ -2305,36 +2250,23 @@ export const FarmProvider = ({ children }) => {
             name: `${plan.name} (Copy)`,
             isDefault: false
         };
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return handleNonAdminDelete('SAVE_RATION_PLAN', duplicated);
-        }
         setRationPlans(prev => [...prev, duplicated]);
         persistMutation('SAVE_RATION_PLAN', duplicated);
+        setTimeout(refreshApprovals, 250);
         return duplicated;
     };
 
     const deleteRationPlan = async (id) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('DELETE_RATION_PLAN', { id });
-        }
         setRationPlans(prev => prev.filter(p => p.id !== id));
         // Unassign any pen that was pointed at this plan, mirroring the server's
         // ON DELETE SET NULL / explicit unassign in the DELETE_RATION_PLAN handler.
         setPens(prev => prev.map(p => (p.rationPlanId === id ? { ...p, rationPlanId: null } : p)));
         persistMutation('DELETE_RATION_PLAN', { id });
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
     const savePen = async (pen) => {
-        // A pen config row is just settings (ration plan/cycle/forage) — the actual
-        // membership lives on each animal's own `pen` field, and feed logs/stock issues
-        // key their history to this same id string forever, independent of whether a
-        // pen row currently exists (see deletePen below). So a *new* pen id that already
-        // has feed history from a pen that was since deleted (and never recreated) would
-        // silently inherit that old cost/coverage history the moment it's created — block
-        // that specific collision rather than let two unrelated pens merge under one id.
         const isNewPen = !pens.some(p => String(p.id) === String(pen.id));
         if (isNewPen) {
             const hasHistory = feedLogs.some(f => String(f.pen) === String(pen.id))
@@ -2355,27 +2287,20 @@ export const FarmProvider = ({ children }) => {
             notes: pen.notes || ''
         };
 
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('SAVE_PEN', record);
-        }
-
         setPens(prev => {
             const exists = prev.some(p => String(p.id) === String(record.id));
             return exists ? prev.map(p => (String(p.id) === String(record.id) ? { ...p, ...record } : p)) : [...prev, record];
         });
 
         persistMutation('SAVE_PEN', record);
+        setTimeout(refreshApprovals, 250);
         return record;
     };
 
     const deletePen = async (id) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('DELETE_PEN', { id });
-        }
         setPens(prev => prev.filter(p => p.id !== id));
         persistMutation('DELETE_PEN', { id });
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
@@ -2394,8 +2319,6 @@ export const FarmProvider = ({ children }) => {
             return { success: false, errors: data.errors || [data.error || `HTTP ${res.status}`] };
         }
 
-        // Optimistically add the newly created plan/rows/items to local state instead
-        // of waiting for a full page refetch — same pattern as saveRationPlan/savePen.
         setRationPlansV2(prev => [...prev, data.plan]);
         setRationRows(prev => [...prev, ...data.rows]);
         setRationRowItems(prev => [...prev, ...data.items]);
@@ -2403,46 +2326,19 @@ export const FarmProvider = ({ children }) => {
         return { success: true, planId: data.planId, planKey: data.planKey, version: data.version, rowCount: data.rowCount };
     };
 
-    // Metadata-only edit for an imported (v2) plan — name, adaptation window, ADG floor,
-    // default flag. Never touches the imported bracket/ingredient rows themselves; fixing
-    // those still means uploading a new CSV version (see importRationPlanCSV).
     const updateRationPlanV2 = async ({ id, name, adaptationDays, adgFloor, isDefault }) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('UPDATE_RATION_PLAN_V2', { id, name, adaptationDays, adgFloor, isDefault });
-        }
-        const { res, data } = await sendMutationToServer('UPDATE_RATION_PLAN_V2', {
-            id, name, adaptationDays, adgFloor, isDefault
-        });
-
-        if (!res.ok || data.success === false) {
-            return { success: false, error: data.error || `HTTP ${res.status}` };
-        }
-
+        const payload = { id, name, adaptationDays, adgFloor, isDefault };
         setRationPlansV2(prev => prev.map(p => (p.id === id ? { ...p, name, adaptationDays: adaptationDays || 7, adgFloor: adgFloor || 1.0, isDefault: !!isDefault } : p)));
+        persistMutation('UPDATE_RATION_PLAN_V2', payload);
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
-    // Corrects a single imported bracket row in place (weight range, target ADG, ingredient
-    // quantities) — e.g. a typo caught after import — without re-uploading a whole new CSV
-    // version. Server re-validates bounds + bracket contiguity against sibling rows before
-    // writing, since live pens may already be resolving against this exact version.
     const updateRationRow = async ({ rowId, wtMin, wtMax, targetAdg, estCostPerHeadPerDay, items }) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('UPDATE_RATION_ROW', { rowId, wtMin, wtMax, targetAdg, estCostPerHeadPerDay, items });
-        }
-        const { res, data } = await sendMutationToServer('UPDATE_RATION_ROW', {
-            rowId, wtMin, wtMax, targetAdg, estCostPerHeadPerDay, items
-        });
-
-        if (!res.ok || data.success === false) {
-            return { success: false, errors: data.errors || [data.error || `HTTP ${res.status}`] };
-        }
-
-        setRationRows(prev => prev.map(r => (r.id === data.row.id ? data.row : r)));
-        setRationRowItems(prev => [...prev.filter(i => i.rowId !== data.row.id), ...data.items]);
-
+        const payload = { rowId, wtMin, wtMax, targetAdg, estCostPerHeadPerDay, items };
+        setRationRows(prev => prev.map(r => (r.id === rowId ? { ...r, wtMin, wtMax, targetAdg, estCostPerHeadPerDay } : r)));
+        persistMutation('UPDATE_RATION_ROW', payload);
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
@@ -3008,32 +2904,23 @@ export const FarmProvider = ({ children }) => {
     const addMeatCut = async (newCut) => {
         const id = newCut.id || newCut.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
         const cut = { id, ...newCut };
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('ADD_MEAT_CUT', cut);
-        }
         setMeatCuts(prev => [...prev, cut]);
         persistMutation('ADD_MEAT_CUT', cut);
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
     const updateMeatCut = async (updatedCut) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('UPDATE_MEAT_CUT', updatedCut);
-        }
         setMeatCuts(prev => prev.map(c => c.id === updatedCut.id ? updatedCut : c));
         persistMutation('UPDATE_MEAT_CUT', updatedCut);
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
     const deleteMeatCut = async (cutId) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('DELETE_MEAT_CUT', { cutId });
-        }
         setMeatCuts(prev => prev.filter(c => c.id !== cutId));
         persistMutation('DELETE_MEAT_CUT', { cutId });
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
@@ -3065,12 +2952,9 @@ export const FarmProvider = ({ children }) => {
     };
 
     const deleteEnquiry = async (enquiryId) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('DELETE_ENQUIRY', { enquiryId });
-        }
         setEnquiries(prev => prev.filter(e => e.id !== enquiryId));
         persistMutation('DELETE_ENQUIRY', { enquiryId });
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
@@ -3080,12 +2964,9 @@ export const FarmProvider = ({ children }) => {
     };
 
     const deleteQuotation = async (quoteId) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('DELETE_QUOTATION', { quoteId });
-        }
         setQuotations(prev => prev.filter(q => q.id !== quoteId));
         persistMutation('DELETE_QUOTATION', { quoteId });
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
@@ -3106,12 +2987,9 @@ export const FarmProvider = ({ children }) => {
     };
 
     const deleteSpecSheet = async (refId) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('DELETE_SPEC_SHEET', { refId });
-        }
         setSpecSheets(prev => prev.filter(s => s.docRef !== refId));
         persistMutation('DELETE_SPEC_SHEET', { refId });
+        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 
