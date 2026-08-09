@@ -31,11 +31,18 @@ export default function ActivityFeed() {
         return a ? a.rfid : `#${animalId}`;
     };
 
+    const getSortTimestamp = (item) => {
+        if (typeof item.sortId === 'number' && !isNaN(item.sortId)) return item.sortId;
+        const d = item.date ? Date.parse(item.date) : 0;
+        return !isNaN(d) ? d : 0;
+    };
+
     // Merge all event sources into one timeline with user attribution and undo payload
     const allActivity = [
         ...events.map(e => ({
             key: `ev-${e.id}`,
             animalId: e.animalId,
+            pen: e.toPen || e.fromPen || null,
             date: e.date,
             category: (e.eventType === 'registered' || e.eventType === 'status_change' || e.eventType === 'pen_transfer') ? 'status' : e.eventType,
             eventType: e.eventType,
@@ -45,37 +52,40 @@ export default function ActivityFeed() {
             prevStatus: e.prevStatus,
             nextStatus: e.nextStatus,
             createdBy: e.createdBy || null,
-            sortId: e.id
+            sortId: typeof e.id === 'number' ? e.id : (Date.parse(e.date) || 0)
         })),
         ...treatments.map(t => ({
             key: `tx-${t.id}`,
             animalId: t.animalId,
+            pen: null,
             date: t.date,
             category: 'treatment',
             eventType: 'treatment',
             note: `${t.type}: ${t.medicine} ${t.dosage}${t.withholding > 0 ? ` — ${t.withholding}d withholding` : ''}`,
             createdBy: t.createdBy || null,
-            sortId: t.id
+            sortId: typeof t.id === 'number' ? t.id : (Date.parse(t.date) || 0)
         })),
         ...weightLogs.map(w => ({
             key: `wt-${w.id}`,
             animalId: w.animalId,
+            pen: null,
             date: w.date,
             category: 'weight',
             eventType: 'weight',
             note: `Weighed ${w.weight} kg${w.adg !== 0 ? ` (${w.adg > 0 ? '+' : ''}${w.adg} kg/d ADG)` : ''}`,
             createdBy: w.createdBy || null,
-            sortId: w.id
+            sortId: typeof w.id === 'number' ? w.id : (Date.parse(w.date) || 0)
         })),
         ...(feedLogs || []).map(f => ({
             key: `fl-${f.id || (f.date + '-' + f.pen + '-' + (f.feedingIndex || 0))}`,
             animalId: null,
+            pen: f.pen,
             date: f.date,
             category: 'feeds',
             eventType: 'feed_log',
-            note: `Fed Pen ${f.pen || 'ALL'} — ${f.totalBatchKg || 0} kg TMR (${f.animalCount || 0} head${f.feedingIndex !== undefined ? `, Feeding #${f.feedingIndex + 1}` : ''})`,
+            note: `Fed Pen ${f.pen || 'ALL'} — ${(f.totalBatchKg || 0).toLocaleString()} kg TMR (${f.animalCount || 0} head${f.feedingIndex !== undefined ? `, Feeding #${(f.feedingIndex || 0) + 1}` : ''})`,
             createdBy: f.createdBy || null,
-            sortId: f.id || Date.parse(f.date) || 0
+            sortId: Date.parse(f.date) || 0
         })),
         ...(feedPurchases || []).map(p => {
             const itemObj = (feedStockItems || []).find(i => i.id === p.itemId);
@@ -83,12 +93,13 @@ export default function ActivityFeed() {
             return {
                 key: `fp-${p.id}`,
                 animalId: null,
+                pen: null,
                 date: p.date,
                 category: 'feeds',
                 eventType: 'feed_purchase',
                 note: `Purchased ${p.quantity?.toLocaleString() || 0} kg ${itemName} @ PKR ${p.rate || 0}/kg${p.supplier ? ` (${p.supplier})` : ''}`,
                 createdBy: p.createdBy || null,
-                sortId: p.id || Date.parse(p.date) || 0
+                sortId: Date.parse(p.date) || 0
             };
         }),
         ...(feedStockIssues || []).map(s => {
@@ -97,17 +108,19 @@ export default function ActivityFeed() {
             return {
                 key: `fi-${s.id}`,
                 animalId: null,
+                pen: s.pen,
                 date: s.date,
                 category: 'feeds',
                 eventType: 'feed_issue',
                 note: `Feed Issue: ${s.quantity?.toLocaleString() || 0} kg ${itemName} to Pen ${s.pen || 'ALL'}${s.notes ? ` (${s.notes})` : ''}`,
                 createdBy: s.createdBy || null,
-                sortId: s.id || Date.parse(s.date) || 0
+                sortId: Date.parse(s.date) || 0
             };
         }),
     ].sort((a, b) => {
         const dateDiff = new Date(b.date) - new Date(a.date);
-        return dateDiff !== 0 ? dateDiff : b.sortId - a.sortId;
+        if (dateDiff !== 0) return dateDiff;
+        return getSortTimestamp(b) - getSortTimestamp(a);
     });
 
     const filtered = allActivity
@@ -120,7 +133,11 @@ export default function ActivityFeed() {
         })
         .filter(item => {
             if (!tagSearch.trim()) return true;
-            return (getRfid(item.animalId) || '').toLowerCase().includes(tagSearch.trim().toLowerCase());
+            const query = tagSearch.trim().toLowerCase();
+            const rfid = (getRfid(item.animalId) || '').toLowerCase();
+            const note = (item.note || '').toLowerCase();
+            const pen = (item.pen || '').toLowerCase();
+            return rfid.includes(query) || note.includes(query) || pen.includes(query);
         })
         .slice(0, 150);
 
