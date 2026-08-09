@@ -905,7 +905,9 @@ export const FarmProvider = ({ children }) => {
             const stillMissing = missing.filter(item => !prev.some(i => i.id === item.id));
             if (stillMissing.length === 0) return prev;
             const next = [...prev, ...stillMissing.map(item => ({ id: item.id, name: item.name, dmTarget: 0, price: 0, isDefault: false }))];
-            persistMutation('SAVE_SETTINGS', { key: 'feed_ingredients', value: next });
+            if (staffUserRef.current?.isAdmin === true) {
+                persistMutation('SAVE_SETTINGS', { key: 'feed_ingredients', value: next });
+            }
             return next;
         });
     }, [effectiveFeedStockItems, feedIngredients]);
@@ -925,16 +927,19 @@ export const FarmProvider = ({ children }) => {
 
     const addFeedPurchase = async (purchase) => {
         const itemObj = (effectiveFeedStockItems || []).find(i => i.id === purchase.itemId);
+        const itemName = purchase.itemName || itemObj?.name || purchase.itemId;
+        const itemUnit = purchase.itemUnit || itemObj?.unit || 'kg';
         const record = {
             id: purchase.id || `fp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             itemId: purchase.itemId,
-            itemName: purchase.itemName || itemObj?.name || purchase.itemId,
-            itemUnit: purchase.itemUnit || itemObj?.unit || 'kg',
+            itemName,
+            itemUnit,
             date: purchase.date || todayPKT(),
             quantity: parseFloat(purchase.quantity) || 0,
             rate: parseFloat(purchase.rate) || 0,
             supplier: purchase.supplier || '',
-            notes: purchase.notes || ''
+            notes: purchase.notes || '',
+            newItem: itemObj || { id: purchase.itemId, name: itemName, unit: itemUnit, category: 'feed', derivedFromIngredientId: purchase.itemId }
         };
         const isAdmin = staffUserRef.current?.isAdmin === true;
         if (!isAdmin) {
@@ -1008,16 +1013,19 @@ export const FarmProvider = ({ children }) => {
 
     const addFeedStockIssue = async (issue) => {
         const itemObj = (effectiveFeedStockItems || []).find(i => i.id === issue.itemId);
+        const itemName = issue.itemName || itemObj?.name || issue.itemId;
+        const itemUnit = issue.itemUnit || itemObj?.unit || 'kg';
         const record = {
             id: issue.id || `fi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             itemId: issue.itemId,
-            itemName: issue.itemName || itemObj?.name || issue.itemId,
-            itemUnit: issue.itemUnit || itemObj?.unit || 'kg',
+            itemName,
+            itemUnit,
             date: issue.date || todayPKT(),
             pen: issue.pen || 'ALL',
             quantity: parseFloat(issue.quantity) || 0,
             lotId: issue.lotId || null,
-            notes: issue.notes || ''
+            notes: issue.notes || '',
+            newItem: itemObj || { id: issue.itemId, name: itemName, unit: itemUnit, category: 'feed', derivedFromIngredientId: issue.itemId }
         };
         const isAdmin = staffUserRef.current?.isAdmin === true;
         if (!isAdmin) {
@@ -1216,12 +1224,23 @@ export const FarmProvider = ({ children }) => {
         if (existing) return existing.id;
 
         const id = 'item_' + Date.now();
-        const item = { id, name: trimmed, unit: unit || 'kg', category, isDefault: false };
-        if (category === 'feed') {
-            item.derivedFromIngredientId = id;
-            updateFeedIngredients([...feedIngredients, { id, name: trimmed, dmTarget: 0, price: 0, isDefault: false }]);
+        const item = { id, name: trimmed, unit: unit || 'kg', category, isDefault: false, derivedFromIngredientId: id };
+
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (isAdmin) {
+            if (category === 'feed') {
+                updateFeedIngredients([...feedIngredients, { id, name: trimmed, dmTarget: 0, price: 0, isDefault: false }]);
+            }
+            updateFeedStockItems([...effectiveFeedStockItems, item]);
+        } else {
+            // For non-admin, update local React state so forms resolve it immediately,
+            // but DO NOT trigger separate SAVE_SETTINGS pending approvals — the new item
+            // metadata will be bundled inside the ADD_FEED_PURCHASE or ADD_FEED_STOCK_ISSUE request!
+            setFeedStockItems(prev => [...prev, item]);
+            if (category === 'feed') {
+                setFeedIngredients(prev => [...prev.filter(i => i.id !== id), { id, name: trimmed, dmTarget: 0, price: 0, isDefault: false }]);
+            }
         }
-        updateFeedStockItems([...effectiveFeedStockItems, item]);
         return id;
     };
 
@@ -1977,9 +1996,35 @@ export const FarmProvider = ({ children }) => {
                 setAnimals(prev => prev.map(a => a.id === approval.animal_id || a.id === approval.animalId ? { ...a, status: 'Sold', salePrice: parseFloat(changes.salePrice), buyerName: changes.buyerName, saleDate: changes.saleDate } : a));
             } else if (approval.action === 'ADD_FEED_PURCHASE') {
                 const changes = approval.payload || {};
+                if (changes.itemId && !feedStockItems.some(i => i.id === changes.itemId)) {
+                    const newItem = changes.newItem || { id: changes.itemId, name: changes.itemName || changes.itemId, unit: changes.itemUnit || 'kg', category: 'feed', derivedFromIngredientId: changes.itemId };
+                    const nextStockItems = [...feedStockItems.filter(i => i.id !== newItem.id), newItem];
+                    setFeedStockItems(nextStockItems);
+                    persistMutation('SAVE_SETTINGS', { key: 'feed_stock_items', value: nextStockItems });
+                    if (newItem.category === 'feed') {
+                        setFeedIngredients(prev => {
+                            const nextIngs = [...prev.filter(i => i.id !== newItem.id), { id: newItem.id, name: newItem.name, dmTarget: 0, price: 0, isDefault: false }];
+                            persistMutation('SAVE_SETTINGS', { key: 'feed_ingredients', value: nextIngs });
+                            return nextIngs;
+                        });
+                    }
+                }
                 setFeedPurchases(prev => [...prev.filter(p => p.id !== changes.id), changes]);
             } else if (approval.action === 'ADD_FEED_STOCK_ISSUE') {
                 const changes = approval.payload || {};
+                if (changes.itemId && !feedStockItems.some(i => i.id === changes.itemId)) {
+                    const newItem = changes.newItem || { id: changes.itemId, name: changes.itemName || changes.itemId, unit: changes.itemUnit || 'kg', category: 'feed', derivedFromIngredientId: changes.itemId };
+                    const nextStockItems = [...feedStockItems.filter(i => i.id !== newItem.id), newItem];
+                    setFeedStockItems(nextStockItems);
+                    persistMutation('SAVE_SETTINGS', { key: 'feed_stock_items', value: nextStockItems });
+                    if (newItem.category === 'feed') {
+                        setFeedIngredients(prev => {
+                            const nextIngs = [...prev.filter(i => i.id !== newItem.id), { id: newItem.id, name: newItem.name, dmTarget: 0, price: 0, isDefault: false }];
+                            persistMutation('SAVE_SETTINGS', { key: 'feed_ingredients', value: nextIngs });
+                            return nextIngs;
+                        });
+                    }
+                }
                 setFeedStockIssues(prev => [...prev.filter(i => i.id !== changes.id), changes]);
             } else if (approval.action === 'ADD_OVERHEAD_EXPENSE') {
                 const changes = approval.payload || {};
