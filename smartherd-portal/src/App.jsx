@@ -17,6 +17,7 @@ import Login from './components/Login';
 import Settings from './components/Settings';
 import SalesManager from './components/SalesManager';
 import ListingsManager from './components/ListingsManager';
+import AdminApprovals from './components/AdminApprovals';
 import { formatDate } from './utils/formatDate';
 import { todayPKT } from './utils/dateOnly';
 import { renderSettingsDiff } from './utils/renderSettingsDiff';
@@ -44,32 +45,6 @@ function AppContent() {
 
     const [showSyncPanel, setShowSyncPanel] = useState(false);
     const [showMobileMore, setShowMobileMore] = useState(false);
-    const [showApprovalsModal, setShowApprovalsModal] = useState(false);
-    const [rejectingId, setRejectingId] = useState(null);
-    const [rejectNote, setRejectNote] = useState('');
-    // Auto-open the approval queue once per session the moment a super admin logs
-    // in (or reloads) with at least one open request — this is the "popup on login"
-    // the review workflow is built around. Only fires once so re-rendering or the
-    // list shrinking as items are resolved doesn't keep forcing it back open.
-    const autoOpenedApprovalsRef = useRef(false);
-    useEffect(() => {
-        if (isSuperAdmin && pendingApprovals.length > 0 && !autoOpenedApprovalsRef.current) {
-            autoOpenedApprovalsRef.current = true;
-            setShowApprovalsModal(true);
-        }
-    }, [isSuperAdmin, pendingApprovals.length]);
-
-    const handleApprove = async (approval) => {
-        const result = await approvePendingChange(approval);
-        if (!result.success) alert(result.error || 'Could not approve request.');
-    };
-
-    const handleReject = async (approvalId) => {
-        const result = await rejectPendingChange(approvalId, rejectNote.trim() || null);
-        if (!result.success) alert(result.error || 'Could not reject request.');
-        setRejectingId(null);
-        setRejectNote('');
-    };
 
     // Global HUD Scanner States
     const [scannedTag, setScannedTag] = useState(null);
@@ -225,6 +200,8 @@ function AppContent() {
                 return <RotationPlanner />;
             case 'activity':
                 return <ActivityFeed />;
+            case 'approvals':
+                return <AdminApprovals />;
             case 'settings':
                 return <Settings />;
             default:
@@ -249,6 +226,7 @@ function AppContent() {
             case 'costOfGain': return "Cost of Gain Report";
             case 'rotation': return "Rotation & Batch Flow";
             case 'activity': return "Activity Log";
+            case 'approvals': return "Staff Requests & Pending Approvals";
             case 'settings': return "System Configuration Panel";
             default: return "Dashboard";
         }
@@ -348,6 +326,16 @@ function AppContent() {
                     )}
 
                     <div class="sidebar-group-label">System</div>
+                    {isSuperAdmin && (
+                        <button class={`menu-item ${activeTab === 'approvals' ? 'active' : ''}`} onClick={() => setActiveTab('approvals')}>
+                            <i class="fa-solid fa-user-shield"></i> Staff Approvals
+                            {pendingApprovals.length > 0 && (
+                                <span style={{ marginLeft: 'auto', background: 'rgba(255,193,7,0.2)', color: 'hsl(43,90%,53%)', padding: '0.1rem 0.5rem', borderRadius: '10px', fontSize: '0.7rem', fontWeight: '700' }}>
+                                    {pendingApprovals.length}
+                                </span>
+                            )}
+                        </button>
+                    )}
                     <button class={`menu-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
                         <i class="fa-solid fa-gears"></i> System Settings
                     </button>
@@ -406,9 +394,9 @@ function AppContent() {
                         {isSuperAdmin && pendingApprovals.length > 0 && (
                             <div
                                 className="farm-badge"
-                                style={{ borderColor: 'rgba(13, 110, 253, 0.4)', color: 'hsl(211, 90%, 68%)', cursor: 'pointer' }}
+                                style={{ borderColor: 'rgba(255, 193, 7, 0.4)', color: 'hsl(43, 90%, 53%)', cursor: 'pointer', background: activeTab === 'approvals' ? 'rgba(255, 193, 7, 0.15)' : undefined }}
                                 title="Staff have staged edits/deletes awaiting your approval — click to review."
-                                onClick={() => setShowApprovalsModal(true)}
+                                onClick={() => setActiveTab('approvals')}
                             >
                                 <i className="fa-solid fa-user-shield"></i>
                                 <span>Approvals ({pendingApprovals.length})</span>
@@ -788,228 +776,10 @@ function AppContent() {
                                     <strong class="hud-value">{item.action}</strong>
                                     <span class="hud-label" style={{ color: 'hsl(0, 75%, 70%)' }}>{item.error}</span>
                                     <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.3rem' }}>
-                                        <button class="btn btn-secondary" style={{ minHeight: '32px', padding: '0.35rem 0.8rem', fontSize: '0.75rem' }} onClick={() => retryFailedMutation(item.id)}>Retry</button>
                                         <button class="btn btn-secondary" style={{ minHeight: '32px', padding: '0.35rem 0.8rem', fontSize: '0.75rem' }} onClick={() => dismissFailedMutation(item.id)}>Dismiss</button>
                                     </div>
                                 </div>
                             ))}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Super-admin approval queue — staged sensitive-field edits (purchase price,
-                entry weight) and delete requests from non-admin staff. Auto-opens on
-                login when there's something to review; also reopenable via the header
-                badge above at any time. */}
-            {showApprovalsModal && (
-                <div class="rfid-hud-overlay" onClick={() => { setShowApprovalsModal(false); setRejectingId(null); setRejectNote(''); }}>
-                    <div class="rfid-hud-card glass-panel" style={{ maxWidth: '1100px', width: '95vw', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
-                        <div class="rfid-hud-header" style={{ marginBottom: '1.2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                                <span class="hud-status-title" style={{ fontSize: '1.15rem', fontWeight: '700', color: 'var(--text-pure)' }}>
-                                    🛡️ Staff Requests Awaiting Approval
-                                </span>
-                                <span style={{ background: 'rgba(255,193,7,0.15)', color: 'hsl(43,90%,53%)', padding: '0.15rem 0.6rem', borderRadius: '12px', fontSize: '0.75rem', fontWeight: '600' }}>
-                                    {pendingApprovals.length} Pending
-                                </span>
-                            </div>
-                            <button class="hud-close" onClick={() => { setShowApprovalsModal(false); setRejectingId(null); setRejectNote(''); }}>
-                                <i class="fa-solid fa-xmark"></i>
-                            </button>
-                        </div>
-                        <div class="rfid-hud-body">
-                            {pendingApprovals.length === 0 ? (
-                                <p class="unregistered-help-text">Nothing awaiting approval.</p>
-                            ) : (
-                                <div class="table-wrapper">
-                                    <table class="data-table" style={{ fontSize: '0.85rem', width: '100%' }}>
-                                        <thead>
-                                            <tr>
-                                                <th style={{ width: '170px' }}>ACTION / TYPE</th>
-                                                <th style={{ width: '200px' }}>REQUESTED BY & DATE</th>
-                                                <th style={{ width: '160px' }}>TARGET / ITEM</th>
-                                                <th>DETAILS & IMPACT</th>
-                                                <th style={{ textAlign: 'center', width: '180px' }}>DECISION</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {pendingApprovals.map(item => {
-                                                const snap = item.previousSnapshot || {};
-                                                const payload = item.payload || {};
-                                                const getStockItemName = (id) => payload.itemName || snap.itemName || (feedStockItems || []).find(i => i.id === id)?.name || id || '—';
-                                                const getStockItemUnit = (id) => payload.itemUnit || snap.itemUnit || (feedStockItems || []).find(i => i.id === id)?.unit || 'kg';
-
-                                                const actionBadge = (() => {
-                                                    switch (item.action) {
-                                                        case 'ADD_FEED_PURCHASE':
-                                                            return <span class="badge" style={{ background: 'rgba(40,167,69,0.15)', color: 'var(--primary-green-light)', border: '1px solid rgba(40,167,69,0.3)' }}><i class="fa-solid fa-plus-circle"></i> Add Feed Purchase</span>;
-                                                        case 'ADD_FEED_STOCK_ISSUE':
-                                                            return <span class="badge" style={{ background: 'rgba(74,144,217,0.15)', color: '#4a90d9', border: '1px solid rgba(74,144,217,0.3)' }}><i class="fa-solid fa-dolly"></i> Add Stock Issue</span>;
-                                                        case 'ADD_OVERHEAD_EXPENSE':
-                                                            return <span class="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i class="fa-solid fa-receipt"></i> Add Expense</span>;
-                                                        case 'SAVE_SETTINGS':
-                                                            return <span class="badge" style={{ background: 'rgba(111,66,193,0.15)', color: '#a370f7', border: '1px solid rgba(111,66,193,0.3)' }}><i class="fa-solid fa-sliders"></i> Master Setting Change</span>;
-                                                        case 'UPDATE_ANIMAL':
-                                                            return <span class="badge" style={{ background: 'rgba(23,162,184,0.15)', color: '#17a2b8', border: '1px solid rgba(23,162,184,0.3)' }}><i class="fa-solid fa-pen-to-square"></i> Edit Animal</span>;
-                                                        case 'RECORD_DEATH':
-                                                            return <span class="badge" style={{ background: 'rgba(108,117,125,0.15)', color: '#adb5bd', border: '1px solid rgba(108,117,125,0.3)' }}><i class="fa-solid fa-skull"></i> Record Death</span>;
-                                                        case 'RECORD_SALE':
-                                                            return <span class="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i class="fa-solid fa-handshake"></i> Record Sale</span>;
-                                                        default:
-                                                            if (item.action.startsWith('DELETE_')) {
-                                                                return <span class="badge" style={{ background: 'rgba(220,53,69,0.15)', color: 'hsl(0,75%,65%)', border: '1px solid rgba(220,53,69,0.3)' }}><i class="fa-solid fa-trash-can"></i> {item.action.replace('DELETE_', 'Delete ')}</span>;
-                                                            }
-                                                            return <span class="badge" style={{ background: 'rgba(255,255,255,0.1)', color: 'var(--text-pure)' }}>{item.action}</span>;
-                                                    }
-                                                })();
-
-                                                const targetName = (() => {
-                                                    switch (item.action) {
-                                                        case 'ADD_FEED_PURCHASE':
-                                                        case 'DELETE_FEED_PURCHASE':
-                                                            return getStockItemName(payload.itemId || snap.itemId);
-                                                        case 'ADD_FEED_STOCK_ISSUE':
-                                                        case 'DELETE_FEED_STOCK_ISSUE':
-                                                            return getStockItemName(payload.itemId || snap.itemId);
-                                                        case 'ADD_OVERHEAD_EXPENSE':
-                                                        case 'DELETE_OVERHEAD_EXPENSE':
-                                                            return payload.category || snap.category || 'Overhead Expense';
-                                                        case 'SAVE_SETTINGS':
-                                                            return payload.key || 'Setting';
-                                                        case 'DELETE_ANIMAL':
-                                                        case 'UPDATE_ANIMAL':
-                                                        case 'RECORD_DEATH':
-                                                        case 'RECORD_SALE':
-                                                        case 'DELETE_WEIGHT_LOG':
-                                                        case 'UPDATE_WEIGHT_LOGS_BATCH':
-                                                        case 'DELETE_TREATMENT':
-                                                            return `${item.animalRfid || 'Animal #' + item.animalId}${item.animalBreed ? ' (' + item.animalBreed + ')' : ''}`;
-                                                        default:
-                                                            return snap.title || snap.name || payload.title || payload.id || 'Record';
-                                                    }
-                                                })();
-
-                                                return (
-                                                    <tr key={item.id}>
-                                                        <td>{actionBadge}</td>
-                                                        <td>
-                                                            <div style={{ fontWeight: '600', color: 'var(--text-pure)', fontSize: '0.8rem' }}>{item.requestedBy}</div>
-                                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>{formatDate(item.requestedAt)}</div>
-                                                        </td>
-                                                        <td style={{ fontWeight: '600', color: 'var(--accent-gold)' }}>
-                                                            {targetName}
-                                                        </td>
-                                                        <td>
-                                                            {(() => {
-                                                                switch (item.action) {
-                                                                    case 'ADD_FEED_PURCHASE': {
-                                                                        const unit = getStockItemUnit(payload.itemId);
-                                                                        const qty = payload.quantity || 0;
-                                                                        const rate = payload.rate || 0;
-                                                                        const total = Math.round(qty * rate);
-                                                                        return (
-                                                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-pure)' }}>
-                                                                                <strong>{qty} {unit}</strong> @ <strong>PKR {parseFloat(rate).toLocaleString()}/{unit}</strong> = <strong style={{ color: 'var(--accent-gold)' }}>PKR {total.toLocaleString()}</strong>
-                                                                                {payload.supplier && <span> · Supplier: <em>{payload.supplier}</em></span>}
-                                                                                {payload.notes && <span> · Notes: {payload.notes}</span>}
-                                                                            </div>
-                                                                        );
-                                                                    }
-                                                                    case 'ADD_FEED_STOCK_ISSUE': {
-                                                                        const unit = getStockItemUnit(payload.itemId);
-                                                                        const qty = payload.quantity || 0;
-                                                                        return (
-                                                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-pure)' }}>
-                                                                                Issued <strong>{qty} {unit}</strong> to <strong>Pen {payload.pen || 'ALL'}</strong>
-                                                                                {payload.notes && <span> · Notes: {payload.notes}</span>}
-                                                                            </div>
-                                                                        );
-                                                                    }
-                                                                    case 'ADD_OVERHEAD_EXPENSE': {
-                                                                        const amt = payload.amount || 0;
-                                                                        return (
-                                                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-pure)' }}>
-                                                                                Category: <strong>{payload.category}</strong> · Amount: <strong style={{ color: 'var(--accent-gold)' }}>PKR {Math.round(amt).toLocaleString()}</strong>
-                                                                                {payload.description && <span> · {payload.description}</span>}
-                                                                            </div>
-                                                                        );
-                                                                    }
-                                                                    case 'SAVE_SETTINGS':
-                                                                        return renderSettingsDiff(payload.key, payload.value, snap);
-                                                                    case 'UPDATE_ANIMAL':
-                                                                        return (
-                                                                            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                                                                                {payload.entryWeight !== undefined && (
-                                                                                    <div>Entry Weight: <strong style={{ color: 'var(--text-pure)' }}>{snap.entryWeight}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{payload.entryWeight}</strong> kg</div>
-                                                                                )}
-                                                                                {payload.purchasePrice !== undefined && (
-                                                                                    <div>Purchase Price: <strong style={{ color: 'var(--text-pure)' }}>{snap.purchasePrice?.toLocaleString()}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{payload.purchasePrice?.toLocaleString()}</strong> PKR</div>
-                                                                                )}
-                                                                            </div>
-                                                                        );
-                                                                    case 'RECORD_DEATH':
-                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Deceased Date: {payload.deceasedDate || '—'} · Cause: {payload.deceasedCause || 'N/A'}</div>;
-                                                                    case 'RECORD_SALE':
-                                                                        return <div style={{ fontSize: '0.78rem', color: 'var(--accent-gold)' }}>Buyer: {payload.buyerName || 'N/A'} · Sale Price: PKR {payload.salePrice?.toLocaleString()} · Sale Date: {payload.saleDate || '—'}</div>;
-                                                                    case 'DELETE_ANIMAL':
-                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Permanently remove animal and all logs/history.</div>;
-                                                                    case 'DELETE_FEED_PURCHASE':
-                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Date: {snap.date || '—'} · Qty: {snap.quantity || 0} kg · Supplier: {snap.supplier || 'N/A'} · Rate: PKR {snap.rate || 0}</div>;
-                                                                    case 'DELETE_FEED_STOCK_ISSUE':
-                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Date: {snap.date || '—'} · Qty: {snap.quantity || 0} kg · Pen: {snap.pen || 'ALL'}</div>;
-                                                                    case 'DELETE_OVERHEAD_EXPENSE':
-                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Amount: PKR {snap.amount?.toLocaleString() || 0} · Category: {snap.category || '—'} · Date: {snap.date || '—'}</div>;
-                                                                    case 'DELETE_WEIGHT_LOG':
-                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Weight log on {snap.date}: {snap.weight} kg (ADG: {snap.adg || 0} kg/day)</div>;
-                                                                    case 'DELETE_TREATMENT':
-                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Treatment on {snap.date}: {snap.medicine || snap.type} (Dosage: {snap.dosage || '—'})</div>;
-                                                                    case 'DELETE_FEED_LOG':
-                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Feed log for {snap.date || payload?.date} (Pen {snap.pen || payload?.pen})</div>;
-                                                                    case 'DELETE_RATION_PLAN':
-                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Plan name: {snap.name || payload?.id}</div>;
-                                                                    case 'DELETE_PEN':
-                                                                        return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Pen ID: {snap.id || payload?.id}</div>;
-                                                                    default:
-                                                                        return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Action: {item.action}</div>;
-                                                                }
-                                                            })()}
-                                                        </td>
-                                                        <td style={{ textAlign: 'center' }}>
-                                                            {rejectingId === item.id ? (
-                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', width: '100%' }}>
-                                                                    <input
-                                                                        type="text"
-                                                                        class="form-control"
-                                                                        placeholder="Reason for rejecting (optional)"
-                                                                        value={rejectNote}
-                                                                        onChange={(e) => setRejectNote(e.target.value)}
-                                                                        autoFocus
-                                                                        style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
-                                                                    />
-                                                                    <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
-                                                                        <button class="btn btn-secondary btn-sm" style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem' }} onClick={() => { setRejectingId(null); setRejectNote(''); }}>Cancel</button>
-                                                                        <button class="btn btn-secondary btn-sm" style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', borderColor: 'rgba(220, 53, 69, 0.4)', color: 'hsl(0, 75%, 65%)' }} onClick={() => handleReject(item.id)}>Confirm</button>
-                                                                    </div>
-                                                                </div>
-                                                            ) : (
-                                                                <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
-                                                                    <button class="btn btn-primary btn-sm" style={{ padding: '0.25rem 0.65rem', fontSize: '0.78rem' }} onClick={() => handleApprove(item)}>
-                                                                        <i className="fa-solid fa-check"></i> Approve
-                                                                    </button>
-                                                                    <button class="btn btn-secondary btn-sm" style={{ padding: '0.25rem 0.65rem', fontSize: '0.78rem', color: 'hsl(0, 75%, 65%)', borderColor: 'rgba(220, 53, 69, 0.3)' }} onClick={() => setRejectingId(item.id)}>
-                                                                        <i className="fa-solid fa-xmark"></i> Reject
-                                                                    </button>
-                                                                </div>
-                                                            )}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            )}
                         </div>
                     </div>
                 </div>
