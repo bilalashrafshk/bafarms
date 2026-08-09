@@ -1531,79 +1531,75 @@ export const FarmProvider = ({ children }) => {
                 const data = await res.json();
 
                 if (data.success) {
-                    setAnimals(data.animals);
-                    if (data.meatCuts) setMeatCuts(data.meatCuts);
+                    const setIfChanged = (setter, newValue) => {
+                        if (newValue === undefined || newValue === null) return;
+                        setter(prev => (JSON.stringify(prev) === JSON.stringify(newValue)) ? prev : newValue);
+                    };
 
-                    // Weights/treatments/events/feed logs/ration plans/pens are herd-access
-                    // gated on the server: an expired or invalid session doesn't get a 401
-                    // here, it just gets back `[]` for all of these while `success` stays
-                    // true. Only trust this response as the authoritative full dataset when
-                    // the session actually still has herd access — otherwise a stale/expired
-                    // token would silently wipe out unsynced local ration plans, pens, etc.
+                    setIfChanged(setAnimals, data.animals);
+                    if (data.meatCuts) setIfChanged(setMeatCuts, data.meatCuts);
+
                     const hasHerdAccess = !!(data.session && data.session.accessHerd);
                     if (hasHerdAccess) {
-                        setWeightLogs(data.weightLogs);
-                        setTreatments(data.treatments);
-                        if (data.events) setEvents(data.events);
-                        if (data.feedLogs) setFeedLogs(data.feedLogs);
-                        if (data.rationPlans) setRationPlans(data.rationPlans);
-                        if (data.pens) setPens(data.pens);
-                        if (data.rationPlansV2) setRationPlansV2(data.rationPlansV2);
-                        if (data.rationRows) setRationRows(data.rationRows);
-                        if (data.rationRowItems) setRationRowItems(data.rationRowItems);
-                        // First-ever load with no Ration Plans defined yet: seed the Master
-                        // Ration Model's Baseline schedule so admins have something to assign
-                        // to a pen immediately instead of starting from a blank slate.
+                        setIfChanged(setWeightLogs, data.weightLogs);
+                        setIfChanged(setTreatments, data.treatments);
+                        if (data.events) setIfChanged(setEvents, data.events);
+                        if (data.feedLogs) setIfChanged(setFeedLogs, data.feedLogs);
+                        if (data.rationPlans) setIfChanged(setRationPlans, data.rationPlans);
+                        if (data.pens) setIfChanged(setPens, data.pens);
+                        if (data.rationPlansV2) setIfChanged(setRationPlansV2, data.rationPlansV2);
+                        if (data.rationRows) setIfChanged(setRationRows, data.rationRows);
+                        if (data.rationRowItems) setIfChanged(setRationRowItems, data.rationRowItems);
+
                         if (data.rationPlans && data.rationPlans.length === 0) {
                             setRationPlans([defaultBaselineRationPlan]);
                             persistMutation('SAVE_RATION_PLAN', defaultBaselineRationPlan);
                         }
 
-                        // Server-persisted admin settings (breed roster, med categories, system
-                        // params, quarantine protocols, TMR recipe/prices, Feed Stock config) —
-                        // only trust these once the server has at least one saved, so a
-                        // brand-new/never-configured DB doesn't stomp the local defaults.
                         if (data.settings) {
                             const s = data.settings;
-                            if (s.breeds_config) setBreedsConfig(s.breeds_config);
-                            if (s.med_categories) setMedCategories(s.med_categories);
-                            if (s.system_params) setSystemParams(s.system_params);
-                            if (s.quarantine_protocols) setQuarantineProtocols(s.quarantine_protocols);
-                            if (s.feed_ingredients) setFeedIngredients(s.feed_ingredients);
-                            if (s.feed_stock_items) setFeedStockItems(s.feed_stock_items);
-                            if (s.feed_opening_stock) setFeedOpeningStock(s.feed_opening_stock);
-                            if (s.mineral_split_ratio !== undefined) setMineralSplitRatioState(s.mineral_split_ratio);
-                            if (s.premix_types) setPremixTypes(s.premix_types);
-                            if (s.premix_formulas) setPremixFormulas(s.premix_formulas);
-                            if (s.premix_batches) setPremixBatches(s.premix_batches);
+                            if (s.breeds_config) setIfChanged(setBreedsConfig, s.breeds_config);
+                            if (s.med_categories) setIfChanged(setMedCategories, s.med_categories);
+                            if (s.system_params) setIfChanged(setSystemParams, s.system_params);
+                            if (s.quarantine_protocols) setIfChanged(setQuarantineProtocols, s.quarantine_protocols);
+                            if (s.feed_ingredients) setIfChanged(setFeedIngredients, s.feed_ingredients);
+                            if (s.feed_stock_items) setIfChanged(setFeedStockItems, s.feed_stock_items);
+                            if (s.feed_opening_stock) setIfChanged(setFeedOpeningStock, s.feed_opening_stock);
+                            if (s.mineral_split_ratio !== undefined) setIfChanged(setMineralSplitRatioState, s.mineral_split_ratio);
+                            if (s.premix_types) setIfChanged(setPremixTypes, s.premix_types);
+                            if (s.premix_formulas) setIfChanged(setPremixFormulas, s.premix_formulas);
+                            if (s.premix_batches) setIfChanged(setPremixBatches, s.premix_batches);
                         }
                         const currentMyRequests = data.myRequests || [];
                         if (data.feedPurchases) {
                             setFeedPurchases(prev => {
                                 const pendingLocal = prev.filter(p => !data.feedPurchases.some(dbP => dbP.id === p.id) && currentMyRequests.some(r => r.status === 'pending' && r.payload?.id === p.id));
-                                return [...data.feedPurchases, ...pendingLocal];
+                                const merged = [...data.feedPurchases, ...pendingLocal];
+                                return JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged;
                             });
                         }
                         if (data.feedStockIssues) {
                             setFeedStockIssues(prev => {
                                 const pendingLocal = prev.filter(i => !data.feedStockIssues.some(dbI => dbI.id === i.id) && currentMyRequests.some(r => r.status === 'pending' && r.payload?.id === i.id));
-                                return [...data.feedStockIssues, ...pendingLocal];
+                                const merged = [...data.feedStockIssues, ...pendingLocal];
+                                return JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged;
                             });
                         }
                         if (data.overheadExpenses) {
                             setOverheadExpenses(prev => {
                                 const pendingLocal = prev.filter(e => !data.overheadExpenses.some(dbE => dbE.id === e.id) && currentMyRequests.some(r => r.status === 'pending' && r.payload?.id === e.id));
-                                return [...data.overheadExpenses, ...pendingLocal];
+                                const merged = [...data.overheadExpenses, ...pendingLocal];
+                                return JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged;
                             });
                         }
                     }
 
                     const hasSalesAccess = !!(data.session && data.session.accessSales);
                     if (hasSalesAccess) {
-                        if (data.orders) setOrders(data.orders);
-                        if (data.enquiries) setEnquiries(data.enquiries);
-                        if (data.quotations) setQuotations(data.quotations);
-                        if (data.specSheets) setSpecSheets(data.specSheets);
+                        if (data.orders) setIfChanged(setOrders, data.orders);
+                        if (data.enquiries) setIfChanged(setEnquiries, data.enquiries);
+                        if (data.quotations) setIfChanged(setQuotations, data.quotations);
+                        if (data.specSheets) setIfChanged(setSpecSheets, data.specSheets);
                     }
 
                     if (data.session) {
@@ -1614,10 +1610,10 @@ export const FarmProvider = ({ children }) => {
                             return merged;
                         });
                     }
-                    setStaffPermissions(data.staffPermissions || []);
-                    setPendingApprovals(data.pendingApprovals || []);
-                    setMyRequests(data.myRequests || []);
-                    setAllApprovals(data.allApprovals || []);
+                    setIfChanged(setStaffPermissions, data.staffPermissions || []);
+                    setIfChanged(setPendingApprovals, data.pendingApprovals || []);
+                    setIfChanged(setMyRequests, data.myRequests || []);
+                    setIfChanged(setAllApprovals, data.allApprovals || []);
                 } else if (data.unconfigured) {
                     setDbUnconfigured(true);
                     console.warn("Neon Database connection string unconfigured. Utilizing offline localStorage backup.");

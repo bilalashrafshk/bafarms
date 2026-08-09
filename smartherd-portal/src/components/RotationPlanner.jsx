@@ -125,7 +125,7 @@ export default function RotationPlanner() {
         setSelectedIds([animal.id]);
         setBulkTaskId(String(task.id));
         setBulkTaskDate(todayPKT());
-        setBulkDrawFromStock(false);
+        setBulkDrawFromStock(true);
         setBulkStockMode('existing');
         setBulkStockItemId('');
         setBulkStockQtyPerAnimal('1');
@@ -159,13 +159,15 @@ export default function RotationPlanner() {
     const openBulkTaskModal = () => {
         if (!bulkTaskId) return;
         setBulkTaskDate(todayPKT());
-        setBulkDrawFromStock(false);
+        setBulkDrawFromStock(true);
         setBulkStockMode('existing');
         setBulkStockItemId('');
         setBulkStockQtyPerAnimal('1');
         setBulkNewMedName('');
         setBulkNewMedUnit('unit');
         setBulkNewMedRate('');
+        setBulkCustomType('Treatment');
+        setBulkCustomWithholding('0');
         setBulkTaskModalOpen(true);
     };
 
@@ -173,6 +175,9 @@ export default function RotationPlanner() {
     // (skips anyone it's already logged for — see isTaskDone — so re-running this on an
     // overlapping selection never double-doses/double-costs an animal).
     const bulkTaskEligible = (() => {
+        if (bulkTaskId === 'other') {
+            return selectedIds.map(id => animals.find(a => a.id === id)).filter(Boolean);
+        }
         const task = quarantineProtocols.find(t => String(t.id) === String(bulkTaskId));
         if (!task) return [];
         return selectedIds
@@ -181,72 +186,71 @@ export default function RotationPlanner() {
     })();
 
     const handleBulkLogTask = async () => {
-        const task = quarantineProtocols.find(t => String(t.id) === String(bulkTaskId));
+        const isCustom = bulkTaskId === 'other';
+        const task = isCustom ? null : quarantineProtocols.find(t => String(t.id) === String(bulkTaskId));
         const eligible = bulkTaskEligible;
-        if (!task || eligible.length === 0) { setBulkTaskModalOpen(false); return; }
+        if ((!isCustom && !task) || eligible.length === 0) { setBulkTaskModalOpen(false); return; }
 
         const logDate = bulkTaskDate || todayPKT();
         let itemId = bulkStockItemId;
-        let actualMedicine = task.medicine;
-        let actualDosage = task.dosage;
+        let actualMedicine = isCustom ? 'Custom Treatment' : task.medicine;
+        let actualDosage = isCustom ? '1 unit' : task.dosage;
+        let taskType = isCustom ? bulkCustomType : task.type;
+        let withholding = isCustom ? (parseInt(bulkCustomWithholding) || 0) : task.withholding;
+        let taskId = isCustom ? null : task.id;
+        let taskLabel = isCustom ? (bulkStockMode === 'existing' ? (medicineItems.find(i => i.id === itemId)?.name || 'Custom Treatment') : (bulkNewMedName || 'Custom Treatment')) : task.label;
 
-        if (bulkDrawFromStock) {
-            const qtyPerAnimal = parseFloat(bulkStockQtyPerAnimal) || 0;
-            if (qtyPerAnimal <= 0) {
-                alert('Enter a quantity per animal for the stock draw, or turn off "Draw from medicine stock".');
+        const qtyPerAnimal = parseFloat(bulkStockQtyPerAnimal) || 0;
+        if (qtyPerAnimal <= 0) {
+            alert('Enter a valid quantity/dosage per animal for the stock draw.');
+            return;
+        }
+        if (bulkStockMode === 'new') {
+            const name = bulkNewMedName.trim();
+            const rate = parseFloat(bulkNewMedRate);
+            if (!name || isNaN(rate) || rate < 0) {
+                alert('Enter a name and price per unit for the new medicine.');
                 return;
             }
-            if (bulkStockMode === 'new') {
-                const name = bulkNewMedName.trim();
-                const rate = parseFloat(bulkNewMedRate);
-                if (!name || isNaN(rate) || rate < 0) {
-                    alert('Enter a name and a price/unit for the new medicine.');
-                    return;
-                }
-                itemId = addStockTrackedIngredient(name, 'medicine', bulkNewMedUnit.trim() || 'unit');
-                setBulkTaskSubmitting(true);
-                await addFeedPurchase({
-                    itemId, date: logDate, quantity: qtyPerAnimal * eligible.length, rate,
-                    supplier: 'Direct purchase (bulk treatment)',
-                    notes: `Backfilled for "${task.label}" — ${eligible.length} animal${eligible.length === 1 ? '' : 's'}`
-                });
-                actualMedicine = `${name} (${qtyPerAnimal} ${bulkNewMedUnit.trim() || 'unit'})`;
-                actualDosage = `${qtyPerAnimal} ${bulkNewMedUnit.trim() || 'unit'}`;
-            } else if (!itemId) {
-                alert('Select a medicine from stock, or switch to "New medicine".');
+            itemId = addStockTrackedIngredient(name, 'medicine', bulkNewMedUnit.trim() || 'unit');
+            setBulkTaskSubmitting(true);
+            await addFeedPurchase({
+                itemId, date: logDate, quantity: qtyPerAnimal * eligible.length, rate,
+                supplier: 'Direct purchase (bulk treatment)',
+                notes: `Backfilled for "${taskLabel}" — ${eligible.length} animal${eligible.length === 1 ? '' : 's'}`
+            });
+            actualMedicine = `${name} (${qtyPerAnimal} ${bulkNewMedUnit.trim() || 'unit'})`;
+            actualDosage = `${qtyPerAnimal} ${bulkNewMedUnit.trim() || 'unit'}`;
+        } else if (!itemId) {
+            alert('Select a medicine from stock, or switch to "New medicine".');
+            return;
+        } else {
+            const available = stockQtyOf(itemId);
+            const needed = qtyPerAnimal * eligible.length;
+            if (available < needed) {
+                alert(`Insufficient stock. Available: ${available}, needed: ${needed} (${qtyPerAnimal} × ${eligible.length} animals). Purchase more first or switch to "New medicine".`);
                 return;
-            } else {
-                const available = stockQtyOf(itemId);
-                const needed = qtyPerAnimal * eligible.length;
-                if (available < needed) {
-                    alert(`Insufficient stock. Available: ${available}, needed: ${needed} (${qtyPerAnimal} × ${eligible.length} animals). Purchase more first or switch to "New medicine".`);
-                    return;
-                }
-                const stockObj = medicineItems.find(i => i.id === itemId);
-                if (stockObj) {
-                    actualMedicine = `${stockObj.name} (${qtyPerAnimal} ${stockObj.unit || 'unit'})`;
-                    actualDosage = `${qtyPerAnimal} ${stockObj.unit || 'unit'}`;
-                }
+            }
+            const stockObj = medicineItems.find(i => i.id === itemId);
+            if (stockObj) {
+                actualMedicine = `${stockObj.name} (${qtyPerAnimal} ${stockObj.unit || 'unit'})`;
+                actualDosage = `${qtyPerAnimal} ${stockObj.unit || 'unit'}`;
             }
         }
 
         setBulkTaskSubmitting(true);
-        const qtyPerAnimal = parseFloat(bulkStockQtyPerAnimal) || 0;
         for (let i = 0; i < eligible.length; i++) {
             const animal = eligible[i];
-            let stockIssueId = null;
-            if (bulkDrawFromStock) {
-                stockIssueId = `fi-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`;
-                await addFeedStockIssue({
-                    id: stockIssueId,
-                    itemId,
-                    date: logDate,
-                    pen: animal.pen || 'ALL',
-                    quantity: qtyPerAnimal,
-                    notes: `"${task.label}" stock draw — ${animal.rfid}`
-                });
-            }
-            await addTreatment(animal.id, logDate, task.type, actualMedicine, actualDosage, task.withholding, task.id, stockIssueId);
+            const stockIssueId = `fi-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`;
+            await addFeedStockIssue({
+                id: stockIssueId,
+                itemId,
+                date: logDate,
+                pen: animal.pen || 'ALL',
+                quantity: qtyPerAnimal,
+                notes: `"${taskLabel}" stock draw — ${animal.rfid}`
+            });
+            await addTreatment(animal.id, logDate, taskType, actualMedicine, actualDosage, withholding, taskId, stockIssueId);
         }
         setBulkTaskSubmitting(false);
         setBulkTaskModalOpen(false);
@@ -374,9 +378,10 @@ export default function RotationPlanner() {
                         {activeTab === 'quarantine' && (
                             <>
                                 <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '600', marginLeft: '0.4rem' }}>Or Log Task:</span>
-                                <select className="form-control" style={{ width: '150px', minHeight: '34px', padding: '0.2rem 0.6rem', fontSize: '0.82rem' }} value={bulkTaskId} onChange={e => setBulkTaskId(e.target.value)}>
+                                <select className="form-control" style={{ width: '180px', minHeight: '34px', padding: '0.2rem 0.6rem', fontSize: '0.82rem' }} value={bulkTaskId} onChange={e => setBulkTaskId(e.target.value)}>
                                     <option value="">Select Task...</option>
                                     {quarantineProtocols.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                                    <option value="other">💉 Other Medicine / Custom...</option>
                                 </select>
                                 <button type="button" className="btn btn-secondary btn-sm" style={{ minHeight: '34px' }} disabled={!bulkTaskId} onClick={openBulkTaskModal}>
                                     Bulk Log Task
@@ -697,25 +702,42 @@ export default function RotationPlanner() {
             )}
 
             {/* Bulk Log Task Modal */}
-            {bulkTaskModalOpen && quarantineProtocols.find(t => String(t.id) === String(bulkTaskId)) && createPortal(
+            {bulkTaskModalOpen && (quarantineProtocols.find(t => String(t.id) === String(bulkTaskId)) || bulkTaskId === 'other') && createPortal(
                 <div class="modal-overlay">
                     <div class="glass-panel modal-container" style={{ maxWidth: '480px' }}>
                         <button class="modal-close-btn" onClick={() => setBulkTaskModalOpen(false)}><i class="fa-solid fa-xmark"></i></button>
                         <h2 class="panel-title" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.6rem', marginBottom: '1rem', color: 'var(--accent-gold)' }}>
-                            <i class="fa-solid fa-syringe"></i> Log Protocol Task — {quarantineProtocols.find(t => String(t.id) === String(bulkTaskId))?.label}
+                            <i class="fa-solid fa-syringe"></i> {bulkTaskId === 'other' ? 'Log Custom Treatment / Medicine' : `Log Protocol Task — ${quarantineProtocols.find(t => String(t.id) === String(bulkTaskId))?.label}`}
                         </h2>
                         <div style={{ background: 'rgba(255,193,7,0.04)', border: '1px solid rgba(255,193,7,0.15)', borderRadius: '8px', padding: '0.7rem 1rem', marginBottom: '1rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
                             {bulkTaskEligible.length} of {selectedIds.length} selected animal{selectedIds.length === 1 ? '' : 's'} eligible
                             {bulkTaskEligible.length < selectedIds.length && <> — {selectedIds.length - bulkTaskEligible.length} already logged for this task and will be skipped</>}.
                         </div>
+                        <div style={{ background: 'rgba(25,135,84,0.08)', border: '1px solid rgba(25,135,84,0.25)', borderRadius: '8px', padding: '0.6rem 0.8rem', marginBottom: '0.75rem', fontSize: '0.8rem', color: 'var(--primary-green-light)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <i class="fa-solid fa-shield-halved"></i>
+                            <span><strong>Mandatory Compliance:</strong> Draws from medicine stock & records vet treatment logs</span>
+                        </div>
                         <div class="form-group" style={{ marginBottom: '0.75rem' }}>
                             <label style={{ fontSize: '0.82rem', color: 'var(--text-pure)', fontWeight: '600' }}>Date Logged *</label>
                             <input type="date" class="form-control" value={bulkTaskDate} onChange={e => setBulkTaskDate(e.target.value)} />
                         </div>
-                        <div class="form-group" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <input type="checkbox" id="bulkDrawFromStock" checked={bulkDrawFromStock} onChange={e => setBulkDrawFromStock(e.target.checked)} />
-                            <label htmlFor="bulkDrawFromStock" style={{ marginBottom: 0, cursor: 'pointer' }}>Draw from medicine stock (tracks cost)</label>
-                        </div>
+                        {bulkTaskId === 'other' && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                                <div class="form-group" style={{ marginBottom: 0 }}>
+                                    <label>Treatment Type *</label>
+                                    <select class="form-control" value={bulkCustomType} onChange={e => setBulkCustomType(e.target.value)}>
+                                        <option value="Deworming">Deworming</option>
+                                        <option value="Vaccination">Vaccination</option>
+                                        <option value="Treatment">Vet Treatment</option>
+                                        <option value="Injury">Injury Care</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" style={{ marginBottom: 0 }}>
+                                    <label>Withholding (Days)</label>
+                                    <input type="number" class="form-control" placeholder="0" min="0" value={bulkCustomWithholding} onChange={e => setBulkCustomWithholding(e.target.value)} />
+                                </div>
+                            </div>
+                        )}
                         {bulkDrawFromStock && (
                             <>
                                 <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
