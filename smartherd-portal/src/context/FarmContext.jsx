@@ -2225,7 +2225,7 @@ export const FarmProvider = ({ children }) => {
     // and cost — as an immutable dated record, separate from editing the live recipe.
     // One record per (date, pen); re-logging the same day/pen overwrites that day only,
     // never earlier days. This is what makes the recipe non-retroactive.
-    const logFeed = (entry) => {
+    const logFeed = async (entry) => {
         const date = entry.date || todayPKT();
         const pen = entry.pen || 'ALL';
         // feedingIndex 0 = a single Full Day (100%) log; 1-3 = which feeding of a
@@ -2252,16 +2252,24 @@ export const FarmProvider = ({ children }) => {
             createdAt: entry.createdAt || new Date().toISOString()
         };
 
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        const exists = feedLogs.some(f => f.date === date && String(f.pen) === String(pen) && (f.feedingIndex || 0) === feedingIndex);
+
+        if (!isAdmin && exists) {
+            return await handleNonAdminDelete('OVERWRITE_FEED_LOG', record);
+        }
+
         // 1. Sync UI locally immediately (upsert by date+pen+feedingIndex)
         setFeedLogs(prev => {
-            const exists = prev.some(f => f.date === date && f.pen === pen && (f.feedingIndex || 0) === feedingIndex);
-            return exists
-                ? prev.map(f => (f.date === date && f.pen === pen && (f.feedingIndex || 0) === feedingIndex) ? { ...f, ...record } : f)
+            const isLocalExists = prev.some(f => f.date === date && String(f.pen) === String(pen) && (f.feedingIndex || 0) === feedingIndex);
+            return isLocalExists
+                ? prev.map(f => (f.date === date && String(f.pen) === String(pen) && (f.feedingIndex || 0) === feedingIndex) ? { ...f, ...record } : f)
                 : [...prev, record];
         });
 
         // 2. Queue DB transaction durably
         persistMutation('LOG_FEED', record);
+        return { success: true };
     };
 
     const deleteFeedLog = async (date, pen, feedingIndex) => {

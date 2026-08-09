@@ -1962,6 +1962,30 @@ module.exports = async (req, res) => {
                     } else {
                         await client.query('DELETE FROM ba_feed_logs WHERE date = $1 AND pen = $2 AND feeding_index = $3', [changes.date, changes.pen || 'ALL', changes.feedingIndex]);
                     }
+                } else if (approval.action === 'OVERWRITE_FEED_LOG') {
+                    const { date, pen, animalCount, ingredients, totalDmKg, totalBatchKg, totalCost, costPerAnimal, notes, dietDiffered, feedingIndex, numFeedings, feedingPct } = changes;
+                    await client.query(`
+                        INSERT INTO ba_feed_logs (date, pen, animal_count, ingredients, total_dm_kg, total_batch_kg, total_cost, cost_per_animal, notes, diet_differed, feeding_index, num_feedings, feeding_pct, created_by, created_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+                        ON CONFLICT (date, pen, feeding_index) DO UPDATE SET
+                            animal_count = EXCLUDED.animal_count,
+                            ingredients = EXCLUDED.ingredients,
+                            total_dm_kg = EXCLUDED.total_dm_kg,
+                            total_batch_kg = EXCLUDED.total_batch_kg,
+                            total_cost = EXCLUDED.total_cost,
+                            cost_per_animal = EXCLUDED.cost_per_animal,
+                            notes = EXCLUDED.notes,
+                            diet_differed = EXCLUDED.diet_differed,
+                            num_feedings = EXCLUDED.num_feedings,
+                            feeding_pct = EXCLUDED.feeding_pct,
+                            created_by = EXCLUDED.created_by,
+                            created_at = NOW()
+                    `, [
+                        date, pen || 'ALL', animalCount || 0, JSON.stringify(ingredients || []),
+                        totalDmKg || 0, totalBatchKg || 0, totalCost || 0, costPerAnimal || 0,
+                        notes || null, !!dietDiffered, feedingIndex || 0, numFeedings || 1, feedingPct || 100,
+                        approval.requested_by
+                    ]);
                 } else if (approval.action === 'DELETE_RATION_PLAN') {
                     await client.query('UPDATE ba_pens SET ration_plan_id = NULL WHERE ration_plan_id = $1', [changes.id]);
                     await client.query('DELETE FROM ba_ration_plans WHERE id = $1', [changes.id]);
@@ -2299,6 +2323,39 @@ module.exports = async (req, res) => {
                     feedingPct = match ? parseInt(match[3]) : 100;
                 }
 
+                const isAdmin = !!(perms && perms.isAdmin);
+                const targetPen = pen || 'ALL';
+                const targetIdx = feedingIndex || 0;
+
+                // Check if a feed log ALREADY exists for (date, pen, feeding_index)
+                const existingRes = await client.query(
+                    'SELECT * FROM ba_feed_logs WHERE date = $1 AND pen = $2 AND feeding_index = $3',
+                    [date, targetPen, targetIdx]
+                );
+
+                if (!isAdmin && existingRes.rows.length > 0) {
+                    const existingPending = await client.query(`
+                        SELECT id FROM ba_pending_approvals 
+                        WHERE action = 'OVERWRITE_FEED_LOG' 
+                        AND (payload->>'date') = $1 
+                        AND (payload->>'pen') = $2 
+                        AND (payload->>'feedingIndex') = $3 
+                        AND status = 'pending'
+                    `, [String(date), String(targetPen), String(targetIdx)]);
+
+                    if (existingPending.rows.length === 0) {
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                            VALUES ('OVERWRITE_FEED_LOG', $1, $2, $3)
+                        `, [
+                            JSON.stringify({ ...payload, pen: targetPen, feedingIndex: targetIdx }),
+                            JSON.stringify(existingRes.rows[0]),
+                            session.email.toLowerCase().trim()
+                        ]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
+
                 await client.query(`
                     INSERT INTO ba_feed_logs (date, pen, animal_count, ingredients, total_dm_kg, total_batch_kg, total_cost, cost_per_animal, notes, diet_differed, feeding_index, num_feedings, feeding_pct, created_by, created_at)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
@@ -2316,9 +2373,9 @@ module.exports = async (req, res) => {
                         created_by = EXCLUDED.created_by,
                         created_at = NOW()
                 `, [
-                    date, pen || 'ALL', animalCount || 0, JSON.stringify(ingredients || []),
+                    date, targetPen, animalCount || 0, JSON.stringify(ingredients || []),
                     totalDmKg || 0, totalBatchKg || 0, totalCost || 0, costPerAnimal || 0,
-                    notes || null, !!dietDiffered, feedingIndex, numFeedings, feedingPct,
+                    notes || null, !!dietDiffered, targetIdx, numFeedings || 1, feedingPct || 100,
                     session ? session.email : null
                 ]);
 

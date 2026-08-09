@@ -197,6 +197,8 @@ export default function AdminApprovals() {
                                                 return <span class="badge" style={{ background: 'rgba(108,117,125,0.15)', color: '#adb5bd', border: '1px solid rgba(108,117,125,0.3)' }}><i class="fa-solid fa-skull"></i> Record Death</span>;
                                             case 'RECORD_SALE':
                                                 return <span class="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i class="fa-solid fa-handshake"></i> Record Sale</span>;
+                                            case 'OVERWRITE_FEED_LOG':
+                                                return <span class="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i class="fa-solid fa-rotate"></i> Overwrite Feed Log</span>;
                                             default:
                                                 if (item.action.startsWith('DELETE_')) {
                                                     return <span class="badge" style={{ background: 'rgba(220,53,69,0.15)', color: 'hsl(0,75%,65%)', border: '1px solid rgba(220,53,69,0.3)' }}><i class="fa-solid fa-trash-can"></i> {item.action.replace('DELETE_', 'Delete ')}</span>;
@@ -307,6 +309,15 @@ export default function AdminApprovals() {
                                                             return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Treatment on {snap.date}: {snap.medicine || snap.type} (Dosage: {snap.dosage || '—'})</div>;
                                                         case 'DELETE_FEED_LOG':
                                                             return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Feed log for {snap.date || payload?.date} (Pen {snap.pen || payload?.pen})</div>;
+                                                        case 'OVERWRITE_FEED_LOG': {
+                                                            const oldKg = snap ? (snap.total_batch_kg || snap.totalBatchKg || 0) : 0;
+                                                            const newKg = payload.totalBatchKg || 0;
+                                                            return (
+                                                                <div style={{ fontSize: '0.78rem', color: 'var(--text-pure)' }}>
+                                                                    Date: {payload.date} · Pen: {payload.pen || 'ALL'} · Total Batch: <strong>{oldKg.toFixed(2)} kg</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{newKg.toFixed(2)} kg</strong>
+                                                                </div>
+                                                            );
+                                                        }
                                                         case 'DELETE_RATION_PLAN':
                                                             return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Plan name: {snap.name || payload?.id}</div>;
                                                         case 'DELETE_PEN':
