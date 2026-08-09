@@ -2121,9 +2121,12 @@ export const FarmProvider = ({ children }) => {
     };
 
     const deleteTreatment = async (treatmentId) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('DELETE_TREATMENT', { treatmentId });
+        }
         setTreatments(prev => prev.filter(t => t.id !== treatmentId));
         persistMutation('DELETE_TREATMENT', { treatmentId });
-        setTimeout(refreshApprovals, 250);
         return { success: true };
     };
 

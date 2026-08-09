@@ -152,9 +152,7 @@ export default function RotationPlanner() {
     const undoProtocolTask = (animal, task) => {
         const record = findTaskTreatment(animal, task);
         if (!record) return;
-        if (window.confirm(`Undo "${task.label}" for ${animal.rfid}? This deletes the logged treatment record.`)) {
-            deleteTreatment(record.id);
-        }
+        deleteTreatment(record.id);
     };
 
     const openBulkTaskModal = () => {
