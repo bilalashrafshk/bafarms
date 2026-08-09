@@ -1545,7 +1545,12 @@ export const FarmProvider = ({ children }) => {
                         setWeightLogs(data.weightLogs);
                         setTreatments(data.treatments);
                         if (data.events) setEvents(data.events);
-                        if (data.feedLogs) setFeedLogs(data.feedLogs);
+                        if (data.feedLogs) {
+                            setFeedLogs(prev => {
+                                const localOnly = prev.filter(f => !data.feedLogs.some(dbF => (dbF.date === f.date && dbF.pen === f.pen && (dbF.feedingIndex || 0) === (f.feedingIndex || 0))));
+                                return [...data.feedLogs, ...localOnly];
+                            });
+                        }
                         if (data.rationPlans) setRationPlans(data.rationPlans);
                         if (data.pens) setPens(data.pens);
                         if (data.rationPlansV2) setRationPlansV2(data.rationPlansV2);
@@ -2257,7 +2262,8 @@ export const FarmProvider = ({ children }) => {
             feedingIndex,
             numFeedings: entry.numFeedings || 1,
             feedingPct: entry.feedingPct !== undefined ? entry.feedingPct : 100,
-            createdBy: entry.createdBy || staffUserRef.current?.email || 'System'
+            createdBy: entry.createdBy || staffUserRef.current?.email || 'System',
+            createdAt: entry.createdAt || new Date().toISOString()
         };
 
         // 1. Sync UI locally immediately (upsert by date+pen+feedingIndex)

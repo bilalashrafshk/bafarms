@@ -1402,7 +1402,8 @@ module.exports = async (req, res) => {
                 feedingIndex: parseInt(row.feeding_index || 0),
                 numFeedings: parseInt(row.num_feedings || 1),
                 feedingPct: parseFloat(row.feeding_pct || 100),
-                createdBy: row.created_by || null
+                createdBy: row.created_by || null,
+                createdAt: row.created_at || null
             }));
 
             const rationPlans = rationPlansRes.rows.map(row => ({
@@ -1473,7 +1474,9 @@ module.exports = async (req, res) => {
                 quantity: parseFloat(row.quantity || 0),
                 rate: parseFloat(row.rate || 0),
                 supplier: row.supplier || '',
-                notes: row.notes || ''
+                notes: row.notes || '',
+                createdBy: row.created_by || null,
+                createdAt: row.created_at || null
             }));
 
             const feedStockIssues = feedStockIssuesRes.rows.map(row => ({
@@ -1483,7 +1486,9 @@ module.exports = async (req, res) => {
                 pen: row.pen,
                 quantity: parseFloat(row.quantity || 0),
                 lotId: row.lot_id || null,
-                notes: row.notes || ''
+                notes: row.notes || '',
+                createdBy: row.created_by || null,
+                createdAt: row.created_at || null
             }));
 
             const overheadExpenses = overheadExpensesRes.rows.map(row => ({
@@ -1491,7 +1496,9 @@ module.exports = async (req, res) => {
                 date: formatDate(row.date),
                 category: row.category,
                 description: row.description || '',
-                amount: parseFloat(row.amount || 0)
+                amount: parseFloat(row.amount || 0),
+                createdBy: row.created_by || null,
+                createdAt: row.created_at || null
             }));
 
             const orders = ordersRes.rows.map(row => ({
