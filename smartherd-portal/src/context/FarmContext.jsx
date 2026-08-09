@@ -873,17 +873,23 @@ export const FarmProvider = ({ children }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Merges pending feed_stock_items from unapproved staff requests with saved feedStockItems
-    // so new items created by non-admins resolve instantly across all ledgers & forms
+    // Merges pending feed_stock_items from unapproved staff requests (and bundled newItem payloads)
+    // with saved feedStockItems so new items created by non-admins resolve instantly across all ledgers & forms
     const effectiveFeedStockItems = useMemo(() => {
         let list = [...feedStockItems];
         [...(myRequests || []), ...(pendingApprovals || [])].forEach(r => {
-            if (r.status === 'pending' && r.action === 'SAVE_SETTINGS' && r.payload?.key === 'feed_stock_items' && Array.isArray(r.payload?.value)) {
-                r.payload.value.forEach(item => {
-                    if (item && item.id && !list.some(i => i.id === item.id)) {
-                        list.push(item);
-                    }
-                });
+            if (r.status === 'pending') {
+                if (r.action === 'SAVE_SETTINGS' && r.payload?.key === 'feed_stock_items' && Array.isArray(r.payload?.value)) {
+                    r.payload.value.forEach(item => {
+                        if (item && item.id && !list.some(i => i.id === item.id)) {
+                            list.push(item);
+                        }
+                    });
+                }
+                const bundled = r.payload?.newItem;
+                if (bundled && bundled.id && !list.some(i => i.id === bundled.id)) {
+                    list.push(bundled);
+                }
             }
         });
         return list;
@@ -939,7 +945,8 @@ export const FarmProvider = ({ children }) => {
             rate: parseFloat(purchase.rate) || 0,
             supplier: purchase.supplier || '',
             notes: purchase.notes || '',
-            newItem: itemObj || { id: purchase.itemId, name: itemName, unit: itemUnit, category: 'feed', derivedFromIngredientId: purchase.itemId }
+            newItem: itemObj || { id: purchase.itemId, name: itemName, unit: itemUnit, category: 'feed', derivedFromIngredientId: purchase.itemId },
+            createdBy: purchase.createdBy || staffUserRef.current?.email || 'System'
         };
         setFeedPurchases(prev => [...prev.filter(p => p.id !== record.id), record]);
         persistMutation('ADD_FEED_PURCHASE', record);
@@ -960,7 +967,8 @@ export const FarmProvider = ({ children }) => {
             date: expense.date || todayPKT(),
             category: expense.category || 'other',
             description: expense.description || '',
-            amount: parseFloat(expense.amount) || 0
+            amount: parseFloat(expense.amount) || 0,
+            createdBy: expense.createdBy || staffUserRef.current?.email || 'System'
         };
         setOverheadExpenses(prev => [...prev.filter(e => e.id !== record.id), record]);
         persistMutation('ADD_OVERHEAD_EXPENSE', record);
@@ -989,7 +997,8 @@ export const FarmProvider = ({ children }) => {
             quantity: parseFloat(issue.quantity) || 0,
             lotId: issue.lotId || null,
             notes: issue.notes || '',
-            newItem: itemObj || { id: issue.itemId, name: itemName, unit: itemUnit, category: 'feed', derivedFromIngredientId: issue.itemId }
+            newItem: itemObj || { id: issue.itemId, name: itemName, unit: itemUnit, category: 'feed', derivedFromIngredientId: issue.itemId },
+            createdBy: issue.createdBy || staffUserRef.current?.email || 'System'
         };
         setFeedStockIssues(prev => [...prev.filter(i => i.id !== record.id), record]);
         persistMutation('ADD_FEED_STOCK_ISSUE', record);
@@ -2190,7 +2199,8 @@ export const FarmProvider = ({ children }) => {
             dietDiffered: !!entry.dietDiffered,
             feedingIndex,
             numFeedings: entry.numFeedings || 1,
-            feedingPct: entry.feedingPct !== undefined ? entry.feedingPct : 100
+            feedingPct: entry.feedingPct !== undefined ? entry.feedingPct : 100,
+            createdBy: entry.createdBy || staffUserRef.current?.email || 'System'
         };
 
         // 1. Sync UI locally immediately (upsert by date+pen+feedingIndex)

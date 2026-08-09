@@ -18,7 +18,7 @@ const EVENT_META = {
 };
 
 export default function ActivityFeed() {
-    const { animals, events, treatments, weightLogs, feedLogs, feedPurchases, feedStockIssues, feedStockItems, staffUser, undoActivity } = useContext(FarmContext);
+    const { animals, events, treatments, weightLogs, feedLogs, feedPurchases, feedStockIssues, feedStockItems, premixBatches, allApprovals, staffUser, undoActivity } = useContext(FarmContext);
     const [filter, setFilter] = useState('all');
     const [tagSearch, setTagSearch] = useState('');
 
@@ -117,6 +117,34 @@ export default function ActivityFeed() {
                 sortId: Date.parse(s.date) || 0
             };
         }),
+        ...(allApprovals || []).map(app => {
+            const dateStr = (app.reviewedAt || app.requestedAt || '').split('T')[0] || new Date().toISOString().split('T')[0];
+            const actionText = (app.action || '').replace(/_/g, ' ');
+            const targetName = app.payload?.itemName || (app.payload?.newItem ? app.payload.newItem.name : null) || app.payload?.id || '';
+            const statusTag = (app.status || 'PENDING').toUpperCase();
+            return {
+                key: `app-${app.id}`,
+                animalId: app.animal_id || app.animalId || null,
+                pen: null,
+                date: dateStr,
+                category: 'status',
+                eventType: 'approval_decision',
+                note: `Staff Approval [${statusTag}]: ${actionText}${targetName ? ` (${targetName})` : ''} by ${app.requestedBy || 'Staff'}${app.reviewedBy ? ` — Reviewed by ${app.reviewedBy}` : ''}`,
+                createdBy: app.reviewedBy || app.requestedBy || null,
+                sortId: Date.parse(dateStr) || 0
+            };
+        }),
+        ...(premixBatches || []).map(b => ({
+            key: `pb-${b.id}`,
+            animalId: null,
+            pen: null,
+            date: b.date,
+            category: 'feeds',
+            eventType: 'feed_issue',
+            note: `Premix Mixed: ${b.producedQtyKg?.toLocaleString() || 0} kg ${b.premixName || 'Premix'}`,
+            createdBy: b.createdBy || null,
+            sortId: Date.parse(b.date) || 0
+        }))
     ].sort((a, b) => {
         const dateDiff = new Date(b.date) - new Date(a.date);
         if (dateDiff !== 0) return dateDiff;

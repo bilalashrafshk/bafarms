@@ -319,22 +319,24 @@ function AppContent() {
                             <button class={`menu-item ${activeTab === 'costOfGain' ? 'active' : ''}`} onClick={() => setActiveTab('costOfGain')}>
                                 <i class="fa-solid fa-scale-unbalanced"></i> Cost of Gain Report
                             </button>
-                            <button class={`menu-item ${activeTab === 'activity' ? 'active' : ''}`} onClick={() => setActiveTab('activity')}>
-                                <i class="fa-solid fa-timeline"></i> Activity Log
-                            </button>
                         </>
                     )}
 
                     <div class="sidebar-group-label">System</div>
                     {isSuperAdmin && (
-                        <button class={`menu-item ${activeTab === 'approvals' ? 'active' : ''}`} onClick={() => setActiveTab('approvals')}>
-                            <i class="fa-solid fa-user-shield"></i> Staff Approvals
-                            {pendingApprovals.length > 0 && (
-                                <span style={{ marginLeft: 'auto', background: 'rgba(255,193,7,0.2)', color: 'hsl(43,90%,53%)', padding: '0.1rem 0.5rem', borderRadius: '10px', fontSize: '0.7rem', fontWeight: '700' }}>
-                                    {pendingApprovals.length}
-                                </span>
-                            )}
-                        </button>
+                        <>
+                            <button class={`menu-item ${activeTab === 'approvals' ? 'active' : ''}`} onClick={() => setActiveTab('approvals')}>
+                                <i class="fa-solid fa-user-shield"></i> Staff Approvals
+                                {pendingApprovals.length > 0 && (
+                                    <span style={{ marginLeft: 'auto', background: 'rgba(255,193,7,0.2)', color: 'hsl(43,90%,53%)', padding: '0.1rem 0.5rem', borderRadius: '10px', fontSize: '0.7rem', fontWeight: '700' }}>
+                                        {pendingApprovals.length}
+                                    </span>
+                                )}
+                            </button>
+                            <button class={`menu-item ${activeTab === 'activity' ? 'active' : ''}`} onClick={() => setActiveTab('activity')}>
+                                <i class="fa-solid fa-timeline"></i> Activity Log
+                            </button>
+                        </>
                     )}
                     <button class={`menu-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
                         <i class="fa-solid fa-gears"></i> System Settings
