@@ -123,8 +123,8 @@ export function renderSettingsDiff(key, newValue, snapValue) {
     }
 
     if (key === 'mineral_split_ratio') {
-        const n = (parseFloat(newValue) * 100).toFixed(0);
-        const o = (parseFloat(oldValue) * 100).toFixed(0);
+        const n = (Number(parseFloat(newValue) * 100) || 0).toFixed(0);
+        const o = (Number(parseFloat(oldValue) * 100) || 0).toFixed(0);
         return (
             <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                 <strong>Mineral Split Ratio:</strong> {o}% Limestone → <strong style={{ color: 'var(--accent-gold)' }}>{n}% Limestone</strong>

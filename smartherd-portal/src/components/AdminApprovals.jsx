@@ -245,85 +245,89 @@ export default function AdminApprovals() {
                                             </td>
                                             <td>
                                                 {(() => {
-                                                    switch (item.action) {
-                                                        case 'ADD_FEED_PURCHASE': {
-                                                            const unit = resolveStockItemUnit(payload.itemId, payload, snap);
-                                                            const qty = payload.quantity || 0;
-                                                            const rate = payload.rate || 0;
-                                                            const total = Math.round(qty * rate);
-                                                            return (
-                                                                <div style={{ fontSize: '0.82rem', color: 'var(--text-pure)' }}>
-                                                                    <strong>{qty} {unit}</strong> @ <strong>PKR {parseFloat(rate).toLocaleString()}/{unit}</strong> = <strong style={{ color: 'var(--accent-gold)' }}>PKR {total.toLocaleString()}</strong>
-                                                                    {payload.supplier && <span> · Supplier: <em>{payload.supplier}</em></span>}
-                                                                    {payload.notes && <span> · Notes: {payload.notes}</span>}
-                                                                </div>
-                                                            );
+                                                    try {
+                                                        switch (item.action) {
+                                                            case 'ADD_FEED_PURCHASE': {
+                                                                const unit = resolveStockItemUnit(payload?.itemId, payload, snap);
+                                                                const qty = Number(payload?.quantity) || 0;
+                                                                const rate = Number(payload?.rate) || 0;
+                                                                const total = Math.round(qty * rate);
+                                                                return (
+                                                                    <div style={{ fontSize: '0.82rem', color: 'var(--text-pure)' }}>
+                                                                        <strong>{qty} {unit}</strong> @ <strong>PKR {rate.toLocaleString()}/{unit}</strong> = <strong style={{ color: 'var(--accent-gold)' }}>PKR {total.toLocaleString()}</strong>
+                                                                        {payload?.supplier && <span> · Supplier: <em>{payload.supplier}</em></span>}
+                                                                        {payload?.notes && <span> · Notes: {payload.notes}</span>}
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            case 'ADD_FEED_STOCK_ISSUE': {
+                                                                const unit = resolveStockItemUnit(payload?.itemId, payload, snap);
+                                                                const qty = Number(payload?.quantity) || 0;
+                                                                return (
+                                                                    <div style={{ fontSize: '0.82rem', color: 'var(--text-pure)' }}>
+                                                                        Issued <strong>{qty} {unit}</strong> to <strong>Pen {payload?.pen || 'ALL'}</strong>
+                                                                        {payload?.notes && <span> · Notes: {payload.notes}</span>}
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            case 'ADD_OVERHEAD_EXPENSE': {
+                                                                const amt = Number(payload?.amount) || 0;
+                                                                return (
+                                                                    <div style={{ fontSize: '0.82rem', color: 'var(--text-pure)' }}>
+                                                                        Category: <strong>{payload?.category || '—'}</strong> · Amount: <strong style={{ color: 'var(--accent-gold)' }}>PKR {Math.round(amt).toLocaleString()}</strong>
+                                                                        {payload?.description && <span> · {payload.description}</span>}
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            case 'SAVE_SETTINGS':
+                                                                return renderSettingsDiff(payload?.key, payload?.value, snap);
+                                                            case 'UPDATE_ANIMAL':
+                                                                return (
+                                                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                                                        {payload?.entryWeight !== undefined && (
+                                                                            <div>Entry Weight: <strong style={{ color: 'var(--text-pure)' }}>{snap?.entryWeight || '—'}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{payload.entryWeight}</strong> kg</div>
+                                                                        )}
+                                                                        {payload?.purchasePrice !== undefined && (
+                                                                            <div>Purchase Price: <strong style={{ color: 'var(--text-pure)' }}>{(Number(snap?.purchasePrice) || 0).toLocaleString()}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{(Number(payload.purchasePrice) || 0).toLocaleString()}</strong> PKR</div>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            case 'RECORD_DEATH':
+                                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Deceased Date: {payload?.deceasedDate || '—'} · Cause: {payload?.deceasedCause || 'N/A'}</div>;
+                                                            case 'RECORD_SALE':
+                                                                return <div style={{ fontSize: '0.78rem', color: 'var(--accent-gold)' }}>Buyer: {payload?.buyerName || 'N/A'} · Sale Price: PKR {(Number(payload?.salePrice) || 0).toLocaleString()} · Sale Date: {payload?.saleDate || '—'}</div>;
+                                                            case 'DELETE_ANIMAL':
+                                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Permanently remove animal and all logs/history.</div>;
+                                                            case 'DELETE_FEED_PURCHASE':
+                                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Date: {snap?.date || payload?.date || '—'} · Qty: {Number(snap?.quantity || payload?.quantity) || 0} kg · Supplier: {snap?.supplier || payload?.supplier || 'N/A'} · Rate: PKR {Number(snap?.rate || payload?.rate) || 0}</div>;
+                                                            case 'DELETE_FEED_STOCK_ISSUE':
+                                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Date: {snap?.date || payload?.date || '—'} · Qty: {Number(snap?.quantity || payload?.quantity) || 0} kg · Pen: {snap?.pen || payload?.pen || 'ALL'}</div>;
+                                                            case 'DELETE_OVERHEAD_EXPENSE':
+                                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Amount: PKR {(Number(snap?.amount || payload?.amount) || 0).toLocaleString()} · Category: {snap?.category || payload?.category || '—'} · Date: {snap?.date || payload?.date || '—'}</div>;
+                                                            case 'DELETE_WEIGHT_LOG':
+                                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Weight log on {snap?.date || payload?.date}: {snap?.weight || payload?.weight} kg (ADG: {(Number(snap?.adg || payload?.adg) || 0).toFixed(2)} kg/day)</div>;
+                                                            case 'DELETE_TREATMENT':
+                                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Treatment on {snap?.date || payload?.date}: {snap?.medicine || snap?.type || payload?.medicine || payload?.type} (Dosage: {snap?.dosage || payload?.dosage || '—'})</div>;
+                                                            case 'DELETE_FEED_LOG':
+                                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Feed log for {snap?.date || payload?.date} (Pen {snap?.pen || payload?.pen || 'ALL'})</div>;
+                                                            case 'OVERWRITE_FEED_LOG': {
+                                                                const oldKg = Number(snap ? (snap.total_batch_kg || snap.totalBatchKg || 0) : 0) || 0;
+                                                                const newKg = Number(payload?.totalBatchKg || payload?.total_batch_kg || 0) || 0;
+                                                                return (
+                                                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-pure)' }}>
+                                                                        Date: {payload?.date || snap?.date} · Pen: {payload?.pen || snap?.pen || 'ALL'} · Total Batch: <strong>{oldKg.toFixed(2)} kg</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{newKg.toFixed(2)} kg</strong>
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            case 'DELETE_RATION_PLAN':
+                                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Plan name: {snap?.name || payload?.name || payload?.id}</div>;
+                                                            case 'DELETE_PEN':
+                                                                return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Pen ID: {snap?.id || payload?.id}</div>;
+                                                            default:
+                                                                return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Action: {item.action}</div>;
                                                         }
-                                                        case 'ADD_FEED_STOCK_ISSUE': {
-                                                            const unit = resolveStockItemUnit(payload.itemId, payload, snap);
-                                                            const qty = payload.quantity || 0;
-                                                            return (
-                                                                <div style={{ fontSize: '0.82rem', color: 'var(--text-pure)' }}>
-                                                                    Issued <strong>{qty} {unit}</strong> to <strong>Pen {payload.pen || 'ALL'}</strong>
-                                                                    {payload.notes && <span> · Notes: {payload.notes}</span>}
-                                                                </div>
-                                                            );
-                                                        }
-                                                        case 'ADD_OVERHEAD_EXPENSE': {
-                                                            const amt = payload.amount || 0;
-                                                            return (
-                                                                <div style={{ fontSize: '0.82rem', color: 'var(--text-pure)' }}>
-                                                                    Category: <strong>{payload.category}</strong> · Amount: <strong style={{ color: 'var(--accent-gold)' }}>PKR {Math.round(amt).toLocaleString()}</strong>
-                                                                    {payload.description && <span> · {payload.description}</span>}
-                                                                </div>
-                                                            );
-                                                        }
-                                                        case 'SAVE_SETTINGS':
-                                                            return renderSettingsDiff(payload.key, payload.value, snap);
-                                                        case 'UPDATE_ANIMAL':
-                                                            return (
-                                                                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                                                                    {payload.entryWeight !== undefined && (
-                                                                        <div>Entry Weight: <strong style={{ color: 'var(--text-pure)' }}>{snap.entryWeight}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{payload.entryWeight}</strong> kg</div>
-                                                                    )}
-                                                                    {payload.purchasePrice !== undefined && (
-                                                                        <div>Purchase Price: <strong style={{ color: 'var(--text-pure)' }}>{snap.purchasePrice?.toLocaleString()}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{payload.purchasePrice?.toLocaleString()}</strong> PKR</div>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        case 'RECORD_DEATH':
-                                                            return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Deceased Date: {payload.deceasedDate || '—'} · Cause: {payload.deceasedCause || 'N/A'}</div>;
-                                                        case 'RECORD_SALE':
-                                                            return <div style={{ fontSize: '0.78rem', color: 'var(--accent-gold)' }}>Buyer: {payload.buyerName || 'N/A'} · Sale Price: PKR {payload.salePrice?.toLocaleString()} · Sale Date: {payload.saleDate || '—'}</div>;
-                                                        case 'DELETE_ANIMAL':
-                                                            return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Permanently remove animal and all logs/history.</div>;
-                                                        case 'DELETE_FEED_PURCHASE':
-                                                            return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Date: {snap.date || '—'} · Qty: {snap.quantity || 0} kg · Supplier: {snap.supplier || 'N/A'} · Rate: PKR {snap.rate || 0}</div>;
-                                                        case 'DELETE_FEED_STOCK_ISSUE':
-                                                            return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Date: {snap.date || '—'} · Qty: {snap.quantity || 0} kg · Pen: {snap.pen || 'ALL'}</div>;
-                                                        case 'DELETE_OVERHEAD_EXPENSE':
-                                                            return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Amount: PKR {snap.amount?.toLocaleString() || 0} · Category: {snap.category || '—'} · Date: {snap.date || '—'}</div>;
-                                                        case 'DELETE_WEIGHT_LOG':
-                                                            return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Weight log on {snap.date}: {snap.weight} kg (ADG: {snap.adg || 0} kg/day)</div>;
-                                                        case 'DELETE_TREATMENT':
-                                                            return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Treatment on {snap.date}: {snap.medicine || snap.type} (Dosage: {snap.dosage || '—'})</div>;
-                                                        case 'DELETE_FEED_LOG':
-                                                            return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Feed log for {snap.date || payload?.date} (Pen {snap.pen || payload?.pen})</div>;
-                                                        case 'OVERWRITE_FEED_LOG': {
-                                                            const oldKg = Number(snap ? (snap.total_batch_kg || snap.totalBatchKg || 0) : 0) || 0;
-                                                            const newKg = Number(payload.totalBatchKg || payload.total_batch_kg || 0) || 0;
-                                                            return (
-                                                                <div style={{ fontSize: '0.78rem', color: 'var(--text-pure)' }}>
-                                                                    Date: {payload.date} · Pen: {payload.pen || 'ALL'} · Total Batch: <strong>{oldKg.toFixed(2)} kg</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{newKg.toFixed(2)} kg</strong>
-                                                                </div>
-                                                            );
-                                                        }
-                                                        case 'DELETE_RATION_PLAN':
-                                                            return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Plan name: {snap.name || payload?.id}</div>;
-                                                        case 'DELETE_PEN':
-                                                            return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Pen ID: {snap.id || payload?.id}</div>;
-                                                        default:
-                                                            return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Action: {item.action}</div>;
+                                                    } catch (err) {
+                                                        return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Action: {item.action}</div>;
                                                     }
                                                 })()}
                                             </td>
