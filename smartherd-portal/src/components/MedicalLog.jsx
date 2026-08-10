@@ -75,7 +75,12 @@ export default function MedicalLog() {
                 // never a stock draw invented after the fact with no purchase behind it.
                 itemId = addStockTrackedIngredient(name, 'medicine', newMedUnit.trim() || 'unit');
                 await addFeedPurchase({
-                    itemId, date, quantity: qty, rate,
+                    itemId,
+                    itemName: name,
+                    itemUnit: newMedUnit.trim() || 'unit',
+                    date,
+                    quantity: qty,
+                    rate,
                     supplier: 'Direct purchase (treatment)',
                     notes: `Backfilled for treatment — ${medicine} (${dosage})`
                 });

@@ -2016,28 +2016,35 @@ module.exports = async (req, res) => {
                         ON CONFLICT (id) DO UPDATE SET item_id = EXCLUDED.item_id, date = EXCLUDED.date, quantity = EXCLUDED.quantity, rate = EXCLUDED.rate, supplier = EXCLUDED.supplier, notes = EXCLUDED.notes
                     `, [changes.id, changes.itemId, changes.date, changes.quantity || 0, changes.rate || 0, changes.supplier || null, changes.notes || null, approval.requested_by]);
 
-                    if (changes.itemName && changes.itemId) {
+                    const nameVal = changes.itemName || changes.name;
+                    const unitVal = changes.itemUnit || changes.unit || 'kg';
+                    const catVal = changes.category;
+                    if (nameVal && changes.itemId && !nameVal.startsWith('item_')) {
                         const settingsRes = await client.query("SELECT value FROM ba_settings WHERE key = 'feed_stock_items'");
+                        let items = [];
                         if (settingsRes.rows.length > 0) {
-                            let items = [];
                             try { items = typeof settingsRes.rows[0].value === 'string' ? JSON.parse(settingsRes.rows[0].value) : settingsRes.rows[0].value; } catch (e) {}
-                            if (Array.isArray(items)) {
-                                let updated = false;
-                                const existing = items.find(i => i.id === changes.itemId);
-                                if (existing) {
-                                    if (existing.name !== changes.itemName || (changes.unit && existing.unit !== changes.unit)) {
-                                        existing.name = changes.itemName;
-                                        if (changes.unit) existing.unit = changes.unit;
-                                        updated = true;
-                                    }
-                                } else {
-                                    items.push({ id: changes.itemId, name: changes.itemName, category: 'medicine', unit: changes.unit || 'kg' });
-                                    updated = true;
-                                }
-                                if (updated) {
-                                    await client.query("UPDATE ba_settings SET value = $1, updated_at = NOW() WHERE key = 'feed_stock_items'", [JSON.stringify(items)]);
-                                }
+                        }
+                        if (!Array.isArray(items)) items = [];
+                        let updated = false;
+                        const existing = items.find(i => i.id === changes.itemId);
+                        if (existing) {
+                            if (existing.name !== nameVal || (unitVal && existing.unit !== unitVal) || (catVal && existing.category !== catVal)) {
+                                existing.name = nameVal;
+                                if (unitVal) existing.unit = unitVal;
+                                if (catVal) existing.category = catVal;
+                                updated = true;
                             }
+                        } else {
+                            items.push({ id: changes.itemId, name: nameVal, category: catVal || 'medicine', unit: unitVal });
+                            updated = true;
+                        }
+                        if (updated) {
+                            await client.query(`
+                                INSERT INTO ba_settings (key, value, updated_by, updated_at)
+                                VALUES ('feed_stock_items', $1, $2, NOW())
+                                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+                            `, [JSON.stringify(items), approval.requested_by || 'System']);
                         }
                     }
                 } else if (approval.action === 'SAVE_SETTINGS') {
@@ -2938,6 +2945,36 @@ module.exports = async (req, res) => {
                         notes = EXCLUDED.notes
                 `, [id, itemId, date, quantity || 0, rate || 0, supplier || null, notes || null, session ? session.email : null]);
 
+                const nameVal = payload.itemName || payload.name;
+                const unitVal = payload.itemUnit || payload.unit || 'kg';
+                if (nameVal && itemId && !nameVal.startsWith('item_')) {
+                    const settingsRes = await client.query("SELECT value FROM ba_settings WHERE key = 'feed_stock_items'");
+                    let items = [];
+                    if (settingsRes.rows.length > 0) {
+                        try { items = typeof settingsRes.rows[0].value === 'string' ? JSON.parse(settingsRes.rows[0].value) : settingsRes.rows[0].value; } catch (e) {}
+                    }
+                    if (!Array.isArray(items)) items = [];
+                    let updated = false;
+                    const existing = items.find(i => i.id === itemId);
+                    if (existing) {
+                        if (existing.name !== nameVal || (unitVal && existing.unit !== unitVal)) {
+                            existing.name = nameVal;
+                            if (unitVal) existing.unit = unitVal;
+                            updated = true;
+                        }
+                    } else {
+                        items.push({ id: itemId, name: nameVal, category: 'medicine', unit: unitVal });
+                        updated = true;
+                    }
+                    if (updated) {
+                        await client.query(`
+                            INSERT INTO ba_settings (key, value, updated_by, updated_at)
+                            VALUES ('feed_stock_items', $1, $2, NOW())
+                            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+                        `, [JSON.stringify(items), session ? session.email : null]);
+                    }
+                }
+
                 return res.status(200).json({ success: true });
             }
 
@@ -2974,6 +3011,7 @@ module.exports = async (req, res) => {
                     WHERE id = $7
                 `, [itemId, date, quantity || 0, rate || 0, supplier || null, notes || null, id]);
 
+                const catVal = payload.category;
                 if (itemName && itemId) {
                     const settingsRes = await client.query("SELECT value FROM ba_settings WHERE key = 'feed_stock_items'");
                     if (settingsRes.rows.length > 0) {
@@ -2983,13 +3021,14 @@ module.exports = async (req, res) => {
                             let updated = false;
                             const existing = items.find(i => i.id === itemId);
                             if (existing) {
-                                if (existing.name !== itemName || (unit && existing.unit !== unit)) {
+                                if (existing.name !== itemName || (unit && existing.unit !== unit) || (catVal && existing.category !== catVal)) {
                                     existing.name = itemName;
                                     if (unit) existing.unit = unit;
+                                    if (catVal) existing.category = catVal;
                                     updated = true;
                                 }
                             } else {
-                                items.push({ id: itemId, name: itemName, category: 'medicine', unit: unit || 'kg' });
+                                items.push({ id: itemId, name: itemName, category: catVal || 'medicine', unit: unit || 'kg' });
                                 updated = true;
                             }
                             if (updated) {

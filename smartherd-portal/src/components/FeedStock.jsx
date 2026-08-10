@@ -140,6 +140,7 @@ export default function FeedStock() {
     // ─── EDIT PURCHASE STATE & MODAL ───
     const [editingPurchase, setEditingPurchase] = useState(null);
     const [editItemName, setEditItemName] = useState('');
+    const [editCategory, setEditCategory] = useState('feed');
     const [editDate, setEditDate] = useState('');
     const [editQuantity, setEditQuantity] = useState('');
     const [editRate, setEditRate] = useState('');
@@ -148,8 +149,10 @@ export default function FeedStock() {
     const [editNotes, setEditNotes] = useState('');
 
     const openEditPurchaseModal = (p) => {
+        const foundItem = (feedStockItems || []).find(i => i.id === p.itemId);
         setEditingPurchase(p);
         setEditItemName(p.itemName || itemName(p.itemId, p));
+        setEditCategory(p.category || foundItem?.category || 'feed');
         setEditDate(p.date || todayPKT());
         setEditQuantity(p.quantity ?? '');
         setEditRate(p.rate ?? '');
@@ -164,6 +167,7 @@ export default function FeedStock() {
         const res = await updateFeedPurchase(editingPurchase.id, {
             itemId: editingPurchase.itemId,
             itemName: editItemName.trim(),
+            category: editCategory,
             date: editDate,
             quantity: parseFloat(editQuantity) || 0,
             rate: parseFloat(editRate) || 0,
@@ -906,11 +910,23 @@ export default function FeedStock() {
                             <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditingPurchase(null)}>✕</button>
                         </div>
                         <form onSubmit={handleSaveEditedPurchase} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                                <label style={{ fontSize: '0.78rem', marginBottom: '0.3rem', display: 'block' }}>Item Name</label>
-                                <input type="text" className="form-control" value={editItemName} onChange={e => setEditItemName(e.target.value)} required placeholder="e.g. Needles 16 Guage" />
-                                <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginTop: '0.25rem', display: 'block' }}>Updates the item name across master stock records.</small>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem' }}>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: '0.78rem', marginBottom: '0.3rem', display: 'block' }}>Item Name</label>
+                                    <input type="text" className="form-control" value={editItemName} onChange={e => setEditItemName(e.target.value)} required placeholder="e.g. Needles 16 Guage" />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: '0.78rem', marginBottom: '0.3rem', display: 'block' }}>Category</label>
+                                    <select className="form-control" value={editCategory} onChange={e => setEditCategory(e.target.value)}>
+                                        <option value="feed">Feed / Grain / Roughage</option>
+                                        <option value="medicine">Medicine / Vaccine / Vet</option>
+                                        <option value="supply">Supplies / Equipment</option>
+                                        <option value="premix">Premix</option>
+                                        <option value="other">Other</option>
+                                    </select>
+                                </div>
                             </div>
+                            <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginTop: '-0.4rem', display: 'block' }}>Updates the item name and category across master stock records.</small>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem' }}>
                                 <div className="form-group" style={{ marginBottom: 0 }}>
                                     <label style={{ fontSize: '0.78rem', marginBottom: '0.3rem', display: 'block' }}>Date</label>

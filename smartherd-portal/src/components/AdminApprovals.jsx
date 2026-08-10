@@ -271,7 +271,7 @@ export default function AdminApprovals() {
                                                                 const newName = payload?.itemName || resolveStockItemName(payload?.itemId, payload, snap);
                                                                 return (
                                                                     <div style={{ fontSize: '0.82rem', color: 'var(--text-pure)' }}>
-                                                                        Item: <strong>{oldName}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{newName}</strong><br/>
+                                                                        Item: <strong>{oldName}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{newName}</strong> {payload?.category ? `(${payload.category})` : ''}<br/>
                                                                         Qty: {oldQty} → <strong style={{ color: 'var(--accent-gold)' }}>{newQty} {payload?.unit || payload?.itemUnit || 'kg'}</strong> ·
                                                                         Rate: PKR {oldRate} → <strong style={{ color: 'var(--accent-gold)' }}>PKR {newRate}</strong>
                                                                         {payload?.supplier && <span> · Supplier: {payload.supplier}</span>}

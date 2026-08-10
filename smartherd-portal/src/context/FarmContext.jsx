@@ -933,19 +933,24 @@ export const FarmProvider = ({ children }) => {
 
     const addFeedPurchase = async (purchase) => {
         const itemObj = (effectiveFeedStockItems || []).find(i => i.id === purchase.itemId);
-        const itemName = purchase.itemName || itemObj?.name || purchase.itemId;
-        const itemUnit = purchase.itemUnit || itemObj?.unit || 'kg';
+        const resolvedName = (purchase.itemName && !purchase.itemName.startsWith('item_'))
+            ? purchase.itemName
+            : (itemObj?.name && !itemObj.name.startsWith('item_'))
+                ? itemObj.name
+                : purchase.itemId;
+        const resolvedUnit = purchase.itemUnit || itemObj?.unit || 'kg';
+
         const record = {
             id: purchase.id || `fp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             itemId: purchase.itemId,
-            itemName,
-            itemUnit,
+            itemName: resolvedName,
+            itemUnit: resolvedUnit,
             date: purchase.date || todayPKT(),
             quantity: parseFloat(purchase.quantity) || 0,
             rate: parseFloat(purchase.rate) || 0,
             supplier: purchase.supplier || '',
             notes: purchase.notes || '',
-            newItem: itemObj || { id: purchase.itemId, name: itemName, unit: itemUnit, category: 'feed', derivedFromIngredientId: purchase.itemId },
+            newItem: itemObj || { id: purchase.itemId, name: resolvedName, unit: resolvedUnit, category: 'feed', derivedFromIngredientId: purchase.itemId },
             createdBy: purchase.createdBy || staffUserRef.current?.email || 'System'
         };
 
@@ -962,6 +967,22 @@ export const FarmProvider = ({ children }) => {
                 },
                 ...prev.filter(r => r.payload?.id !== record.id)
             ]);
+        }
+
+        if (resolvedName && !resolvedName.startsWith('item_')) {
+            setFeedStockItems(prev => {
+                const existing = (prev || []).find(i => i.id === purchase.itemId);
+                if (!existing) {
+                    const next = [...(prev || []), { id: purchase.itemId, name: resolvedName, unit: resolvedUnit, category: 'medicine', derivedFromIngredientId: purchase.itemId }];
+                    if (isAdmin) persistMutation('SAVE_SETTINGS', { key: 'feed_stock_items', value: next });
+                    return next;
+                } else if (existing.name !== resolvedName && !existing.name.startsWith('item_')) {
+                    const next = (prev || []).map(i => i.id === purchase.itemId ? { ...i, name: resolvedName, unit: resolvedUnit } : i);
+                    if (isAdmin) persistMutation('SAVE_SETTINGS', { key: 'feed_stock_items', value: next });
+                    return next;
+                }
+                return prev;
+            });
         }
 
         setFeedPurchases(prev => [...prev.filter(p => p.id !== record.id), record]);
@@ -1013,12 +1034,12 @@ export const FarmProvider = ({ children }) => {
             setFeedStockItems(prev => {
                 const next = (prev || []).map(i => {
                     if (i.id === updatedFields.itemId) {
-                        return { ...i, name: updatedFields.itemName, unit: updatedFields.unit || i.unit };
+                        return { ...i, name: updatedFields.itemName, unit: updatedFields.unit || i.unit, category: updatedFields.category || i.category || 'medicine' };
                     }
                     return i;
                 });
                 if (!next.some(i => i.id === updatedFields.itemId)) {
-                    next.push({ id: updatedFields.itemId, name: updatedFields.itemName, category: 'medicine', unit: updatedFields.unit || 'kg' });
+                    next.push({ id: updatedFields.itemId, name: updatedFields.itemName, category: updatedFields.category || 'medicine', unit: updatedFields.unit || 'kg' });
                 }
                 persistMutation('SAVE_SETTINGS', { key: 'feed_stock_items', value: next });
                 return next;
