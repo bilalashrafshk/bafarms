@@ -185,6 +185,8 @@ export default function AdminApprovals() {
                                         switch (item.action) {
                                             case 'ADD_FEED_PURCHASE':
                                                 return <span class="badge" style={{ background: 'rgba(40,167,69,0.15)', color: 'var(--primary-green-light)', border: '1px solid rgba(40,167,69,0.3)' }}><i class="fa-solid fa-plus-circle"></i> Add Feed Purchase</span>;
+                                            case 'UPDATE_FEED_PURCHASE':
+                                                return <span class="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i class="fa-solid fa-pen-to-square"></i> Edit Feed Purchase</span>;
                                             case 'ADD_FEED_STOCK_ISSUE':
                                                 return <span class="badge" style={{ background: 'rgba(74,144,217,0.15)', color: '#4a90d9', border: '1px solid rgba(74,144,217,0.3)' }}><i class="fa-solid fa-dolly"></i> Add Stock Issue</span>;
                                             case 'ADD_OVERHEAD_EXPENSE':
@@ -257,6 +259,22 @@ export default function AdminApprovals() {
                                                                         <strong>{qty} {unit}</strong> @ <strong>PKR {rate.toLocaleString()}/{unit}</strong> = <strong style={{ color: 'var(--accent-gold)' }}>PKR {total.toLocaleString()}</strong>
                                                                         {payload?.supplier && <span> · Supplier: <em>{payload.supplier}</em></span>}
                                                                         {payload?.notes && <span> · Notes: {payload.notes}</span>}
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            case 'UPDATE_FEED_PURCHASE': {
+                                                                const oldQty = Number(snap?.quantity) || 0;
+                                                                const newQty = Number(payload?.quantity) || 0;
+                                                                const oldRate = Number(snap?.rate) || 0;
+                                                                const newRate = Number(payload?.rate) || 0;
+                                                                const oldName = snap?.itemName || resolveStockItemName(snap?.itemId, payload, snap);
+                                                                const newName = payload?.itemName || resolveStockItemName(payload?.itemId, payload, snap);
+                                                                return (
+                                                                    <div style={{ fontSize: '0.82rem', color: 'var(--text-pure)' }}>
+                                                                        Item: <strong>{oldName}</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{newName}</strong><br/>
+                                                                        Qty: {oldQty} → <strong style={{ color: 'var(--accent-gold)' }}>{newQty} {payload?.unit || payload?.itemUnit || 'kg'}</strong> ·
+                                                                        Rate: PKR {oldRate} → <strong style={{ color: 'var(--accent-gold)' }}>PKR {newRate}</strong>
+                                                                        {payload?.supplier && <span> · Supplier: {payload.supplier}</span>}
                                                                     </div>
                                                                 );
                                                             }

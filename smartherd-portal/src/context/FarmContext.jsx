@@ -977,6 +977,59 @@ export const FarmProvider = ({ children }) => {
         return { success: true };
     };
 
+    const updateFeedPurchase = async (id, updatedFields) => {
+        const existing = feedPurchases.find(p => p.id === id);
+        if (!existing) return { success: false, error: 'Purchase record not found' };
+
+        const record = {
+            ...existing,
+            ...updatedFields,
+            quantity: parseFloat(updatedFields.quantity !== undefined ? updatedFields.quantity : existing.quantity) || 0,
+            rate: parseFloat(updatedFields.rate !== undefined ? updatedFields.rate : existing.rate) || 0
+        };
+
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            setMyRequests(prev => [
+                {
+                    id: `temp_update_${id}_${Date.now()}`,
+                    action: 'UPDATE_FEED_PURCHASE',
+                    payload: record,
+                    previousSnapshot: existing,
+                    status: 'pending',
+                    requestedBy: staffUserRef.current?.email || 'me',
+                    requestedAt: new Date().toISOString()
+                },
+                ...prev.filter(r => !(r.action === 'UPDATE_FEED_PURCHASE' && r.payload?.id === id))
+            ]);
+            persistMutation('UPDATE_FEED_PURCHASE', record);
+            setTimeout(refreshApprovals, 250);
+            return { success: true, pending: true };
+        }
+
+        setFeedPurchases(prev => prev.map(p => p.id === id ? record : p));
+
+        if (updatedFields.itemName && updatedFields.itemId) {
+            setFeedStockItems(prev => {
+                const next = (prev || []).map(i => {
+                    if (i.id === updatedFields.itemId) {
+                        return { ...i, name: updatedFields.itemName, unit: updatedFields.unit || i.unit };
+                    }
+                    return i;
+                });
+                if (!next.some(i => i.id === updatedFields.itemId)) {
+                    next.push({ id: updatedFields.itemId, name: updatedFields.itemName, category: 'medicine', unit: updatedFields.unit || 'kg' });
+                }
+                persistMutation('SAVE_SETTINGS', { key: 'feed_stock_items', value: next });
+                return next;
+            });
+        }
+
+        persistMutation('UPDATE_FEED_PURCHASE', record);
+        setTimeout(refreshApprovals, 250);
+        return { success: true };
+    };
+
     const addOverheadExpense = async (expense) => {
         const record = {
             id: expense.id || `oh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -3131,6 +3184,7 @@ export const FarmProvider = ({ children }) => {
             setItemOpeningStock,
             feedPurchases,
             addFeedPurchase,
+            updateFeedPurchase,
             deleteFeedPurchase,
             feedStockIssues,
             addFeedStockIssue,

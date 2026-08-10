@@ -2009,12 +2009,37 @@ module.exports = async (req, res) => {
                 } else if (approval.action === 'RECORD_SALE') {
                     await client.query(`UPDATE ba_animals SET status = 'Sold', sale_price = $1, buyer_name = $2, sale_date = $3 WHERE id = $4`, [changes.salePrice, changes.buyerName, changes.saleDate, approval.animal_id]);
                     await client.query(`INSERT INTO ba_events (animal_id, date, event_type, note, created_by) VALUES ($1, $2, 'sold', $3, $4)`, [approval.animal_id, changes.saleDate, `Sold to ${changes.buyerName} — PKR ${changes.salePrice?.toLocaleString()}`, userEmail]);
-                } else if (approval.action === 'ADD_FEED_PURCHASE') {
+                } else if (approval.action === 'ADD_FEED_PURCHASE' || approval.action === 'UPDATE_FEED_PURCHASE') {
                     await client.query(`
                         INSERT INTO ba_feed_purchases (id, item_id, date, quantity, rate, supplier, notes, created_by, created_at)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
                         ON CONFLICT (id) DO UPDATE SET item_id = EXCLUDED.item_id, date = EXCLUDED.date, quantity = EXCLUDED.quantity, rate = EXCLUDED.rate, supplier = EXCLUDED.supplier, notes = EXCLUDED.notes
                     `, [changes.id, changes.itemId, changes.date, changes.quantity || 0, changes.rate || 0, changes.supplier || null, changes.notes || null, approval.requested_by]);
+
+                    if (changes.itemName && changes.itemId) {
+                        const settingsRes = await client.query("SELECT value FROM ba_settings WHERE key = 'feed_stock_items'");
+                        if (settingsRes.rows.length > 0) {
+                            let items = [];
+                            try { items = typeof settingsRes.rows[0].value === 'string' ? JSON.parse(settingsRes.rows[0].value) : settingsRes.rows[0].value; } catch (e) {}
+                            if (Array.isArray(items)) {
+                                let updated = false;
+                                const existing = items.find(i => i.id === changes.itemId);
+                                if (existing) {
+                                    if (existing.name !== changes.itemName || (changes.unit && existing.unit !== changes.unit)) {
+                                        existing.name = changes.itemName;
+                                        if (changes.unit) existing.unit = changes.unit;
+                                        updated = true;
+                                    }
+                                } else {
+                                    items.push({ id: changes.itemId, name: changes.itemName, category: 'medicine', unit: changes.unit || 'kg' });
+                                    updated = true;
+                                }
+                                if (updated) {
+                                    await client.query("UPDATE ba_settings SET value = $1, updated_at = NOW() WHERE key = 'feed_stock_items'", [JSON.stringify(items)]);
+                                }
+                            }
+                        }
+                    }
                 } else if (approval.action === 'SAVE_SETTINGS') {
                     await client.query(`
                         INSERT INTO ba_settings (key, value, updated_by, updated_at)
@@ -2912,6 +2937,67 @@ module.exports = async (req, res) => {
                         supplier = EXCLUDED.supplier,
                         notes = EXCLUDED.notes
                 `, [id, itemId, date, quantity || 0, rate || 0, supplier || null, notes || null, session ? session.email : null]);
+
+                return res.status(200).json({ success: true });
+            }
+
+            if (action === 'UPDATE_FEED_PURCHASE') {
+                const { id, itemId, itemName, date, quantity, rate, supplier, notes, unit } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+
+                if (!id || !itemId || !date) {
+                    return res.status(400).json({ success: false, error: "Purchase id, item and date are required" });
+                }
+
+                if (!isAdmin) {
+                    const currentRes = await client.query('SELECT * FROM ba_feed_purchases WHERE id = $1', [id]);
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'UPDATE_FEED_PURCHASE' AND (payload->>'id') = $1 AND status = 'pending'`,
+                        [String(id)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
+                            VALUES ('UPDATE_FEED_PURCHASE', $1, $2, $3)
+                        `, [
+                            JSON.stringify(payload),
+                            JSON.stringify(currentRes.rows[0] || {}),
+                            session.email.toLowerCase().trim()
+                        ]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
+
+                await client.query(`
+                    UPDATE ba_feed_purchases
+                    SET item_id = $1, date = $2, quantity = $3, rate = $4, supplier = $5, notes = $6
+                    WHERE id = $7
+                `, [itemId, date, quantity || 0, rate || 0, supplier || null, notes || null, id]);
+
+                if (itemName && itemId) {
+                    const settingsRes = await client.query("SELECT value FROM ba_settings WHERE key = 'feed_stock_items'");
+                    if (settingsRes.rows.length > 0) {
+                        let items = [];
+                        try { items = typeof settingsRes.rows[0].value === 'string' ? JSON.parse(settingsRes.rows[0].value) : settingsRes.rows[0].value; } catch (e) {}
+                        if (Array.isArray(items)) {
+                            let updated = false;
+                            const existing = items.find(i => i.id === itemId);
+                            if (existing) {
+                                if (existing.name !== itemName || (unit && existing.unit !== unit)) {
+                                    existing.name = itemName;
+                                    if (unit) existing.unit = unit;
+                                    updated = true;
+                                }
+                            } else {
+                                items.push({ id: itemId, name: itemName, category: 'medicine', unit: unit || 'kg' });
+                                updated = true;
+                            }
+                            if (updated) {
+                                await client.query("UPDATE ba_settings SET value = $1, updated_at = NOW() WHERE key = 'feed_stock_items'", [JSON.stringify(items)]);
+                            }
+                        }
+                    }
+                }
 
                 return res.status(200).json({ success: true });
             }

@@ -16,7 +16,7 @@ export default function FeedStock() {
         staffUser, animals, pens, feedLogs,
         feedStockItems, updateFeedStockItems, addStockTrackedIngredient,
         feedOpeningStock, setItemOpeningStock,
-        feedPurchases, addFeedPurchase, deleteFeedPurchase,
+        feedPurchases, addFeedPurchase, updateFeedPurchase, deleteFeedPurchase,
         feedStockIssues, addFeedStockIssue, deleteFeedStockIssue,
         getFeedStockLedger, getFeedStockLots, getFeedStockIssueCosts, getCombinedFeedIssues,
         mineralSplitRatio, setMineralSplitRatio,
@@ -135,6 +135,46 @@ export default function FeedStock() {
         setPRate('');
         setPSupplier('');
         setPNotes('');
+    };
+
+    // ─── EDIT PURCHASE STATE & MODAL ───
+    const [editingPurchase, setEditingPurchase] = useState(null);
+    const [editItemName, setEditItemName] = useState('');
+    const [editDate, setEditDate] = useState('');
+    const [editQuantity, setEditQuantity] = useState('');
+    const [editRate, setEditRate] = useState('');
+    const [editUnit, setEditUnit] = useState('kg');
+    const [editSupplier, setEditSupplier] = useState('');
+    const [editNotes, setEditNotes] = useState('');
+
+    const openEditPurchaseModal = (p) => {
+        setEditingPurchase(p);
+        setEditItemName(p.itemName || itemName(p.itemId, p));
+        setEditDate(p.date || todayPKT());
+        setEditQuantity(p.quantity ?? '');
+        setEditRate(p.rate ?? '');
+        setEditUnit(itemUnit(p.itemId, p) || 'kg');
+        setEditSupplier(p.supplier || '');
+        setEditNotes(p.notes || '');
+    };
+
+    const handleSaveEditedPurchase = async (e) => {
+        e.preventDefault();
+        if (!editingPurchase) return;
+        const res = await updateFeedPurchase(editingPurchase.id, {
+            itemId: editingPurchase.itemId,
+            itemName: editItemName.trim(),
+            date: editDate,
+            quantity: parseFloat(editQuantity) || 0,
+            rate: parseFloat(editRate) || 0,
+            unit: editUnit.trim() || 'kg',
+            supplier: editSupplier.trim(),
+            notes: editNotes.trim()
+        });
+        setEditingPurchase(null);
+        if (res?.pending) {
+            alert('Purchase edit submitted for Super Admin approval.');
+        }
     };
 
     const pendingPurchasesById = useMemo(() => {
@@ -785,7 +825,7 @@ export default function FeedStock() {
                                         <th>SUPPLIER</th>
                                         <th>REMAINING</th>
                                         {isAdmin && <th>STATUS</th>}
-                                        {isAdmin && <th style={{ textAlign: 'center', width: '60px' }}>REMOVE</th>}
+                                        <th style={{ textAlign: 'center', width: '90px' }}>ACTIONS</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -811,27 +851,38 @@ export default function FeedStock() {
                                                         {!pending && isSuperAdmin && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Confirmed</span>}
                                                     </td>
                                                 )}
-                                                {isAdmin && (
-                                                    <td style={{ textAlign: 'center' }}>
+                                                <td style={{ textAlign: 'center' }}>
+                                                    <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'center', alignItems: 'center' }}>
                                                         {!pending && (
+                                                            <button
+                                                                type="button"
+                                                                class="btn btn-secondary"
+                                                                style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }}
+                                                                onClick={() => openEditPurchaseModal(p)}
+                                                                title="Edit purchase details & item name"
+                                                            >
+                                                                <i class="fa-solid fa-pen-to-square"></i>
+                                                            </button>
+                                                        )}
+                                                        {isAdmin && !pending && (
                                                             p.supplier === 'In-house production' ? (
                                                                 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Credited by a premix batch — undo it from the Premix Production tab instead"><i class="fa-solid fa-lock"></i></span>
                                                             ) : touched ? (
                                                                 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="This lot has already been (partly or fully) drawn from — removing it would reprice whatever was costed against it. Undo those issues/batches first."><i class="fa-solid fa-lock"></i></span>
                                                             ) : (
-                                                                <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => deleteFeedPurchase(p.id)}>
+                                                                <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => deleteFeedPurchase(p.id)} title="Delete purchase">
                                                                     <i class="fa-solid fa-trash-can"></i>
                                                                 </button>
                                                             )
                                                         )}
-                                                    </td>
-                                                )}
+                                                    </div>
+                                                </td>
                                             </tr>
                                         );
                                     })}
                                     {filteredPurchases.length === 0 && (
                                         <tr>
-                                            <td colSpan={isAdmin ? 9 : 7} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                            <td colSpan={isAdmin ? 9 : 8} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No purchases logged in this date range.
                                             </td>
                                         </tr>
@@ -839,6 +890,60 @@ export default function FeedStock() {
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Purchase Modal */}
+            {editingPurchase && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: '1rem' }} onClick={() => setEditingPurchase(null)}>
+                    <div className="glass-panel" style={{ maxWidth: '500px', width: '100%', padding: '1.5rem', background: 'hsl(210,15%,10%)', border: '1px solid var(--border-subtle)', borderRadius: '12px', boxShadow: '0 12px 32px rgba(0,0,0,0.6)' }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.8rem' }}>
+                            <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-pure)' }}>
+                                <i className="fa-solid fa-pen-to-square" style={{ color: 'var(--accent-gold)', marginRight: '0.5rem' }}></i>
+                                Edit Purchase Record
+                            </h3>
+                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditingPurchase(null)}>✕</button>
+                        </div>
+                        <form onSubmit={handleSaveEditedPurchase} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label style={{ fontSize: '0.78rem', marginBottom: '0.3rem', display: 'block' }}>Item Name</label>
+                                <input type="text" className="form-control" value={editItemName} onChange={e => setEditItemName(e.target.value)} required placeholder="e.g. Needles 16 Guage" />
+                                <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginTop: '0.25rem', display: 'block' }}>Updates the item name across master stock records.</small>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem' }}>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: '0.78rem', marginBottom: '0.3rem', display: 'block' }}>Date</label>
+                                    <input type="date" className="form-control" value={editDate} onChange={e => setEditDate(e.target.value)} required />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: '0.78rem', marginBottom: '0.3rem', display: 'block' }}>Unit</label>
+                                    <input type="text" className="form-control" value={editUnit} onChange={e => setEditUnit(e.target.value)} required placeholder="e.g. kg, pc, bottle" />
+                                </div>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem' }}>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: '0.78rem', marginBottom: '0.3rem', display: 'block' }}>Quantity</label>
+                                    <input type="number" step="0.01" min="0" className="form-control" value={editQuantity} onChange={e => setEditQuantity(e.target.value)} required />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: '0.78rem', marginBottom: '0.3rem', display: 'block' }}>Unit Rate (PKR)</label>
+                                    <input type="number" step="0.01" min="0" className="form-control" value={editRate} onChange={e => setEditRate(e.target.value)} required />
+                                </div>
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label style={{ fontSize: '0.78rem', marginBottom: '0.3rem', display: 'block' }}>Supplier</label>
+                                <input type="text" className="form-control" value={editSupplier} onChange={e => setEditSupplier(e.target.value)} placeholder="e.g. Vet Med Supplier" />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label style={{ fontSize: '0.78rem', marginBottom: '0.3rem', display: 'block' }}>Notes</label>
+                                <input type="text" className="form-control" value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="e.g. Batch # or details" />
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.8rem', justifyContent: 'flex-end', marginTop: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '1rem' }}>
+                                <button type="button" className="btn btn-secondary" onClick={() => setEditingPurchase(null)}>Cancel</button>
+                                <button type="submit" className="btn btn-primary"><i className="fa-solid fa-check"></i> Save Purchase Changes</button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}
