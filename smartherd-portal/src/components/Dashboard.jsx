@@ -156,28 +156,22 @@ export default function Dashboard({ onNavigate }) {
         }
     });
 
-    // H. Pen Weight Spread — animals sorted into the same pen at very different
-    // weights muddy both the ration bracket match and the batch feed sheet (same
-    // >20%-of-pen-average threshold as the strict warning in Ration Plans → Pens;
-    // kept in sync with that computation intentionally). Surfaced here too since
-    // this is exactly the kind of "needs action today" item the Tasks panel exists
-    // for, not just a Ration Plans page pen-editor concern.
     const widePenSpreads = (pens || []).map(pen => {
         const penAnimals = animals.filter(a => a.pen === pen.id && a.status !== 'Sold' && a.status !== 'Deceased');
         if (penAnimals.length < 2) return null;
-        const weights = penAnimals.map(a => parseFloat(a.currentWeight) || 0);
+        const weights = penAnimals.map(a => parseFloat(a.currentWeight) || 0).filter(w => w > 0);
+        if (weights.length < 2) return null;
         const avg = weights.reduce((s, w) => s + w, 0) / weights.length;
         if (avg <= 0) return null;
         const spreadPct = ((Math.max(...weights) - Math.min(...weights)) / avg) * 100;
         return spreadPct > 20 ? { penId: pen.id, spreadPct } : null;
     }).filter(Boolean);
 
-    // Build unified task list — ordered by urgency
     const taskItems = [
         ...widePenSpreads.map(p => ({
             type: 'weight-spread',
             msg: `Pen ${p.penId} — Weight spread too wide`,
-            desc: `${p.spreadPct.toFixed(0)}% spread — re-sort at intake, bracket match and batch feed sheet won't stay accurate`,
+            desc: `${(Number(p.spreadPct) || 0).toFixed(0)}% spread — re-sort at intake, bracket match and batch feed sheet won't stay accurate`,
             color: 'hsl(0,75%,55%)',
             icon: 'fa-scale-unbalanced',
             action: { label: 'Re-sort Pen', tab: 'rationPlans' }
@@ -213,7 +207,7 @@ export default function Dashboard({ onNavigate }) {
             type: 'adg',
             rfid: c.rfid,
             msg: `${c.rfid} — Low gain`,
-            desc: `ADG ${c.adg} kg/d — below ${(systemParams.adgAlertThreshold ?? 1.0).toFixed(1)} target`,
+            desc: `ADG ${c.adg} kg/d — below ${(Number(systemParams.adgAlertThreshold ?? 1.0) || 0).toFixed(1)} target`,
             color: 'hsl(0,75%,55%)',
             icon: 'fa-arrow-trend-down',
             action: null
@@ -251,7 +245,6 @@ export default function Dashboard({ onNavigate }) {
         })),
     ];
 
-    // 2. ADG TREND CHART — average daily gain across all animals, grouped by weigh date
     const adgByDate = (() => {
         if (!weightLogs || weightLogs.length === 0) return [];
         const groups = {};
@@ -261,7 +254,7 @@ export default function Dashboard({ onNavigate }) {
             groups[w.date].count += 1;
         });
         return Object.keys(groups)
-            .map(date => ({ date, avgAdg: parseFloat((groups[date].sum / groups[date].count).toFixed(2)) }))
+            .map(date => ({ date, avgAdg: parseFloat((Number(groups[date].sum / groups[date].count) || 0).toFixed(2)) }))
             .sort((a, b) => parseDateOnly(a.date) - parseDateOnly(b.date));
     })();
 
@@ -290,13 +283,12 @@ export default function Dashboard({ onNavigate }) {
         pathD = chartPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
 
         for (let i = 0; i <= 3; i++) {
-            const v = parseFloat((adgMin + (i / 3) * (adgMax - adgMin)).toFixed(2));
+            const v = parseFloat((Number(adgMin + (i / 3) * (adgMax - adgMin)) || 0).toFixed(2));
             const y = 170 - (i / 3) * 140;
             yGridLines.push({ val: v, y });
         }
     }
 
-    // Target ADG line position (1.3 kg/day)
     const TARGET_ADG = 1.3;
     const targetY = hasChartData ? 170 - ((TARGET_ADG - adgMin) / (adgMax - adgMin)) * 140 : null;
 
