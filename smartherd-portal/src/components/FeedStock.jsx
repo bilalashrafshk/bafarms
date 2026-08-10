@@ -651,13 +651,13 @@ export default function FeedStock() {
                                                         </button>
                                                     </div>
                                                 ) : (
-                                                    <span>{row.openingQty.toFixed(2)} {unit} ({Math.round(row.openingValue).toLocaleString()} PKR)</span>
+                                                    <span>{(Number(row.openingQty) || 0).toFixed(2)} {unit} ({Math.round(row.openingValue).toLocaleString()} PKR)</span>
                                                 )}
                                             </td>
-                                            <td>{row.purchasedQty.toFixed(2)} {unit}</td>
-                                            <td>{row.issuedQty.toFixed(2)} {unit}</td>
-                                            <td><strong style={{ color: row.closingQty < 0 ? 'hsl(0,75%,60%)' : 'var(--primary-green-light)' }}>{row.closingQty.toFixed(2)} {unit}</strong></td>
-                                            <td>{row.avgRate.toFixed(2)} PKR/{unit}</td>
+                                            <td>{(Number(row.purchasedQty) || 0).toFixed(2)} {unit}</td>
+                                            <td>{(Number(row.issuedQty) || 0).toFixed(2)} {unit}</td>
+                                            <td><strong style={{ color: row.closingQty < 0 ? 'hsl(0,75%,60%)' : 'var(--primary-green-light)' }}>{(Number(row.closingQty) || 0).toFixed(2)} {unit}</strong></td>
+                                            <td>{(Number(row.avgRate) || 0).toFixed(2)} PKR/{unit}</td>
                                             <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(row.closingValue).toLocaleString()} PKR</strong></td>
                                             {isAdmin && (
                                                 <td style={{ textAlign: 'center' }}>
@@ -799,11 +799,11 @@ export default function FeedStock() {
                                             <tr key={p.id} style={pending ? { opacity: 0.65 } : undefined}>
                                                 <td>{formatDate(p.date)}</td>
                                                 <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(p.itemId, p)}</td>
-                                                <td>{p.quantity.toFixed(2)} {unit}</td>
-                                                <td>{p.rate.toFixed(2)} PKR/{unit}</td>
+                                                <td>{(Number(p.quantity) || 0).toFixed(2)} {unit}</td>
+                                                <td>{(Number(p.rate) || 0).toFixed(2)} PKR/{unit}</td>
                                                 <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(p.quantity * p.rate).toLocaleString()} PKR</strong></td>
                                                 <td>{p.supplier || '—'}</td>
-                                                <td style={{ color: remaining <= 0.005 ? 'var(--text-muted)' : 'var(--primary-green-light)' }}>{Math.max(0, remaining).toFixed(2)} {unit}</td>
+                                                <td style={{ color: remaining <= 0.005 ? 'var(--text-muted)' : 'var(--primary-green-light)' }}>{(Number(Math.max(0, remaining)) || 0).toFixed(2)} {unit}</td>
                                                 {isAdmin && (
                                                     <td>
                                                         {pending === 'add' && <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.5rem', borderRadius: '4px', background: 'rgba(255,193,7,0.12)', color: 'hsl(43,90%,53%)' }}><i class="fa-solid fa-hourglass-half"></i> Pending Approval</span>}
@@ -981,7 +981,7 @@ export default function FeedStock() {
                                             <td>{formatDate(iss.date)}</td>
                                             <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(iss.itemId, iss)}</td>
                                             <td>{penLabel(iss.pen)}</td>
-                                            <td>{iss.quantity.toFixed(2)} {itemUnit(iss.itemId, iss)}</td>
+                                            <td>{(Number(iss.quantity) || 0).toFixed(2)} {itemUnit(iss.itemId, iss)}</td>
                                             <td>
                                                 {iss.source === 'auto' ? (
                                                     <span style={{ fontSize: '0.72rem', color: 'var(--primary-green-light)' }}><i class="fa-solid fa-arrows-rotate"></i> TMR log</span>
@@ -1253,11 +1253,11 @@ export default function FeedStock() {
                                         <tr key={b.id}>
                                             <td>{formatDate(b.date)}</td>
                                             <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{b.premixTypeName || itemName(b.premixTypeId)}</td>
-                                            <td>{b.totalKg.toFixed(2)} kg</td>
+                                            <td>{(Number(b.totalKg) || 0).toFixed(2)} kg</td>
                                             <td>{b.bagCount > 0 ? `${b.bagCount} × ${b.bagWeight}kg` : '—'}</td>
-                                            <td>{b.costPerKg.toFixed(2)} PKR</td>
+                                            <td>{(Number(b.costPerKg) || 0).toFixed(2)} PKR</td>
                                             <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-                                                {(b.consumed || []).map(c => `${itemName(c.stockItemId)} ${c.quantity.toFixed(3)}kg`).join(', ') || '—'}
+                                                {(b.consumed || []).map(c => `${itemName(c.stockItemId)} ${(Number(c.quantity) || 0).toFixed(3)}kg`).join(', ') || '—'}
                                             </td>
                                             {isAdmin && (
                                                 <td style={{ textAlign: 'center' }}>

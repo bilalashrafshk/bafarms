@@ -1464,7 +1464,7 @@ export default function RationPlans() {
                         <div style={{ background: 'rgba(220, 53, 69, 0.08)', border: '1px solid rgba(220, 53, 69, 0.3)', borderRadius: '8px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
                             <i class="fa-solid fa-triangle-exclamation" style={{ color: 'hsl(0,75%,60%)', fontSize: '1.1rem', marginTop: '0.15rem' }}></i>
                             <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem', lineHeight: '1.5' }}>
-                                <strong style={{ color: 'hsl(0,75%,65%)' }}>{strictSpreadPens.length} pen{strictSpreadPens.length === 1 ? '' : 's'} mix animals more than 20% apart in body weight</strong> — {strictSpreadPens.map(p => `Pen ${p.penId} (${p.spreadPct.toFixed(0)}% spread)`).join(', ')}. Re-sort at intake — this is too wide for the bracket match and batch feed sheet to stay accurate.
+                                <strong style={{ color: 'hsl(0,75%,65%)' }}>{strictSpreadPens.length} pen{strictSpreadPens.length === 1 ? '' : 's'} mix animals more than 20% apart in body weight</strong> — {strictSpreadPens.map(p => `Pen ${p.penId} (${(Number(p.spreadPct) || 0).toFixed(0)}% spread)`).join(', ')}. Re-sort at intake — this is too wide for the bracket match and batch feed sheet to stay accurate.
                             </span>
                         </div>
                     )}
@@ -1473,7 +1473,7 @@ export default function RationPlans() {
                         <div style={{ background: 'rgba(255, 193, 7, 0.05)', border: '1px solid rgba(255, 193, 7, 0.15)', borderRadius: '8px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.9rem', alignItems: 'flex-start' }}>
                             <i class="fa-solid fa-scale-unbalanced" style={{ color: 'var(--accent-gold)', fontSize: '1.1rem', marginTop: '0.15rem' }}></i>
                             <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem', lineHeight: '1.5' }}>
-                                <strong style={{ color: 'var(--text-pure)' }}>{wideSpreadPens.length} pen{wideSpreadPens.length === 1 ? '' : 's'} mix animals 15–20% apart in body weight</strong> — {wideSpreadPens.map(p => `Pen ${p.penId} (${p.spreadPct.toFixed(0)}% spread)`).join(', ')}. Consider re-sorting at intake.
+                                <strong style={{ color: 'var(--text-pure)' }}>{wideSpreadPens.length} pen{wideSpreadPens.length === 1 ? '' : 's'} mix animals 15–20% apart in body weight</strong> — {wideSpreadPens.map(p => `Pen ${p.penId} (${(Number(p.spreadPct) || 0).toFixed(0)}% spread)`).join(', ')}. Consider re-sorting at intake.
                             </span>
                         </div>
                     )}
@@ -1516,7 +1516,7 @@ export default function RationPlans() {
                                             <tr key={penId}>
                                                 <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>Pen {penId}</td>
                                                 <td>{resolved ? resolved.headCount : animals.filter(a => a.pen === penId && a.status !== 'Sold' && a.status !== 'Deceased').length}</td>
-                                                <td>{resolved?.avgWeight ? `${resolved.avgWeight.toFixed(1)} kg` : '—'}</td>
+                                                <td>{resolved?.avgWeight ? `${(Number(resolved.avgWeight) || 0).toFixed(1)} kg` : '—'}</td>
                                                 <td>
                                                     <select
                                                         class="form-control"
@@ -1586,7 +1586,7 @@ export default function RationPlans() {
                                                                 Bracket {resolved.bracketMin}–{resolved.bracketMax}kg
                                                                 {resolved.phase === 'ADAPTATION' && <span style={{ color: 'var(--accent-gold)' }}> · Day {resolved.dayNo} (adaptation)</span>}
                                                                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                                                                    Projected {resolved.avgProjectedWeight?.toFixed(1)}kg · target {resolved.week.targetAdg} kg/day
+                                                                    Projected {(Number(resolved.avgProjectedWeight) || 0).toFixed(1)}kg · target {resolved.week.targetAdg} kg/day
                                                                 </div>
                                                             </span>
                                                         ) : (

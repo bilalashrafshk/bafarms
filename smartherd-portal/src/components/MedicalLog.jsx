@@ -326,7 +326,7 @@ export default function MedicalLog() {
                                                     <option value="">Select…</option>
                                                     {medicineItems.map(item => (
                                                         <option key={item.id} value={item.id}>
-                                                            {item.name} — {stockQtyOf(item.id).toFixed(2)} {item.unit} in stock
+                                                            {item.name} — {(Number(stockQtyOf(item.id)) || 0).toFixed(2)} {item.unit} in stock
                                                         </option>
                                                     ))}
                                                 </select>

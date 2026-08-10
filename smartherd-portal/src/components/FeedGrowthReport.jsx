@@ -363,7 +363,7 @@ export default function FeedGrowthReport() {
                         <div class="stat-icon"><i class="fa-solid fa-weight-scale"></i></div>
                     </div>
                     <div class="stat-val" style={{ color: avgAdg === null ? 'var(--text-muted)' : (isBelowFloor ? 'hsl(0, 75%, 55%)' : (avgAdg >= 1.2 ? 'var(--primary-green-light)' : 'var(--accent-gold)')) }}>
-                        {avgAdg !== null ? avgAdg.toFixed(2) : '—'} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>kg/day</small>
+                        {avgAdg !== null ? (Number(avgAdg) || 0).toFixed(2) : '—'} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>kg/day</small>
                     </div>
                     <span class="stat-lbl">From {relevantWeightLogs.length} weigh-in{relevantWeightLogs.length === 1 ? '' : 's'} in range</span>
                     {isBelowFloor && (
@@ -385,7 +385,7 @@ export default function FeedGrowthReport() {
                     </div>
                     <div class="stat-val">{costPerAnimalPerDay !== null ? Math.round(costPerAnimalPerDay) : '—'} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR</small></div>
                     <span class="stat-lbl" title="Total cost ÷ head-days (animals actually on feed, summed across each logged day) — not today's live pen headcount, so this stays correct even after animals are sold, re-sorted into another pen, or a pen is closed out.">
-                        {avgHeadPerDay !== null ? avgHeadPerDay.toFixed(1) : '—'} avg head/day · {headDays} head-days
+                        {avgHeadPerDay !== null ? (Number(avgHeadPerDay) || 0).toFixed(1) : '—'} avg head/day · {headDays} head-days
                     </span>
                 </div>
 
@@ -422,12 +422,12 @@ export default function FeedGrowthReport() {
                                     <tr key={row.pen}>
                                         <td><strong>Pen {row.pen}</strong></td>
                                         <td>{row.planName ?? '—'}</td>
-                                        <td>{row.avgHeadPerDay.toFixed(1)}</td>
+                                        <td>{(Number(row.avgHeadPerDay) || 0).toFixed(1)}</td>
                                         <td>{row.daysLogged}</td>
                                         <td>{Math.round(row.totalCost).toLocaleString()} PKR</td>
                                         <td>{row.costPerAnimalPerDay !== null ? `${Math.round(row.costPerAnimalPerDay)} PKR` : '—'}</td>
                                         <td style={{ color: row.avgAdg === null ? 'var(--text-muted)' : (row.isBelowFloor ? 'hsl(0, 75%, 55%)' : (row.avgAdg >= 1.2 ? 'var(--primary-green-light)' : 'var(--accent-gold)')) }}>
-                                            {row.avgAdg !== null ? `${row.avgAdg.toFixed(2)} kg/day` : '—'}
+                                            {row.avgAdg !== null ? `${(Number(row.avgAdg) || 0).toFixed(2)} kg/day` : '—'}
                                             {row.isBelowFloor && <i class="fa-solid fa-triangle-exclamation" style={{ marginLeft: '0.35rem' }} title="Below ADG floor"></i>}
                                         </td>
                                         <td>{row.targetAdg !== null && row.targetAdg !== undefined ? `${row.targetAdg} kg/day` : '—'}</td>
@@ -490,7 +490,7 @@ export default function FeedGrowthReport() {
                                                 <td>{formatDate(iss.date)}</td>
                                                 <td>{iss.pen === 'ALL' ? 'All Pens' : `Pen ${iss.pen}`}</td>
                                                 <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }} title="Manually issued from Feed Stock & Store Ledger — priced at FIFO actual cost, not a TMR log">
-                                                    {item?.name || iss.itemId} · {iss.quantity.toFixed(2)} kg (stock issue)
+                                                    {item?.name || iss.itemId} · {(Number(iss.quantity) || 0).toFixed(2)} kg (stock issue)
                                                 </td>
                                                 <td>{headCount}</td>
                                                 <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(cost).toLocaleString()} PKR</strong></td>
