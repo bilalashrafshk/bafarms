@@ -310,8 +310,8 @@ export default function AdminApprovals() {
                                                         case 'DELETE_FEED_LOG':
                                                             return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Feed log for {snap.date || payload?.date} (Pen {snap.pen || payload?.pen})</div>;
                                                         case 'OVERWRITE_FEED_LOG': {
-                                                            const oldKg = snap ? (snap.total_batch_kg || snap.totalBatchKg || 0) : 0;
-                                                            const newKg = payload.totalBatchKg || 0;
+                                                            const oldKg = Number(snap ? (snap.total_batch_kg || snap.totalBatchKg || 0) : 0) || 0;
+                                                            const newKg = Number(payload.totalBatchKg || payload.total_batch_kg || 0) || 0;
                                                             return (
                                                                 <div style={{ fontSize: '0.78rem', color: 'var(--text-pure)' }}>
                                                                     Date: {payload.date} · Pen: {payload.pen || 'ALL'} · Total Batch: <strong>{oldKg.toFixed(2)} kg</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{newKg.toFixed(2)} kg</strong>
