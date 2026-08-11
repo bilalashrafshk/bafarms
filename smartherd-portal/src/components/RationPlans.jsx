@@ -4,7 +4,7 @@ import { FarmContext } from '../context/FarmContext';
 export default function RationPlans() {
     const {
         rationPlans, saveRationPlan, duplicateRationPlan, deleteRationPlan,
-        rationPlansV2, rationRows, rationRowItems, importRationPlanCSV, updateRationPlanV2, updateRationRow,
+        rationPlansV2, rationRows, rationRowItems, importRationPlanCSV, updateRationPlanV2, deleteRationPlanV2, updateRationRow,
         pens, savePen, deletePen, getPenRationRow,
         animals, feedIngredients, getIngredientStockPrice, addStockTrackedIngredient, staffUser
     } = useContext(FarmContext);
@@ -668,6 +668,17 @@ export default function RationPlans() {
         }
     };
 
+    const handleDeleteV2Plan = (plan) => {
+        if (!isAdmin) return;
+        const affectedPens = pens.filter(p => p.planId === plan.id).map(p => p.id);
+        const impactMsg = affectedPens.length > 0
+            ? `\n\n${affectedPens.length} pen${affectedPens.length === 1 ? '' : 's'} currently use this plan and will be unassigned: Pen ${affectedPens.join(', Pen ')}.`
+            : '\n\nNo pens are currently using this plan.';
+        if (window.confirm(`Delete Ration Plan "${plan.name}" (v${plan.version})?${impactMsg}\n\nThis will remove the plan and all its brackets. This cannot be undone.`)) {
+            deleteRationPlanV2(plan.id);
+        }
+    };
+
     // Non-blocking heads-up for gaps/overlaps in the 5kg brackets, checked separately per
     // forage_type group since silage and chari row-sets cover the same weight range but
     // are independent tables.
@@ -993,6 +1004,11 @@ export default function RationPlans() {
                                                                 <button type="button" class="btn btn-ghost btn-sm" title="Export as CSV" onClick={() => handleExportV2Plan(plan)}>
                                                                     <i class="fa-solid fa-file-csv"></i>
                                                                 </button>
+                                                                {isAdmin && (
+                                                                    <button type="button" class="btn btn-ghost btn-sm" title="Delete Ration Plan" style={{ color: 'hsl(0,75%,60%)' }} onClick={() => handleDeleteV2Plan(plan)}>
+                                                                        <i class="fa-solid fa-trash-can"></i>
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                         </td>
                                                     </tr>

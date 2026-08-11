@@ -2091,6 +2091,10 @@ export const FarmProvider = ({ children }) => {
             } else if (approval.action === 'DELETE_RATION_PLAN') {
                 setRationPlans(prev => prev.filter(p => p.id !== (approval.payload?.id)));
                 setPens(prev => prev.map(pen => pen.rationPlanId === (approval.payload?.id) ? { ...pen, rationPlanId: null } : pen));
+            } else if (approval.action === 'DELETE_RATION_PLAN_V2') {
+                setRationPlansV2(prev => prev.filter(p => p.id !== (approval.payload?.id)));
+                setRationRows(prev => prev.filter(r => r.planId !== (approval.payload?.id)));
+                setPens(prev => prev.map(pen => pen.planId === (approval.payload?.id) ? { ...pen, planId: null } : pen));
             } else if (approval.action === 'DELETE_PEN') {
                 setPens(prev => prev.filter(p => p.id !== (approval.payload?.id)));
             } else if (approval.action === 'DELETE_ORDER') {
@@ -2432,6 +2436,19 @@ export const FarmProvider = ({ children }) => {
         // ON DELETE SET NULL / explicit unassign in the DELETE_RATION_PLAN handler.
         setPens(prev => prev.map(p => (p.rationPlanId === id ? { ...p, rationPlanId: null } : p)));
         persistMutation('DELETE_RATION_PLAN', { id });
+        setTimeout(refreshApprovals, 250);
+        return { success: true };
+    };
+
+    const deleteRationPlanV2 = async (id) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            return await handleNonAdminDelete('DELETE_RATION_PLAN_V2', { id });
+        }
+        setRationPlansV2(prev => prev.filter(p => p.id !== id));
+        setRationRows(prev => prev.filter(r => r.planId !== id));
+        setPens(prev => prev.map(p => (p.planId === id ? { ...p, planId: null } : p)));
+        persistMutation('DELETE_RATION_PLAN_V2', { id });
         setTimeout(refreshApprovals, 250);
         return { success: true };
     };
@@ -3268,6 +3285,7 @@ export const FarmProvider = ({ children }) => {
             saveRationPlan,
             duplicateRationPlan,
             deleteRationPlan,
+            deleteRationPlanV2,
             importRationPlanCSV,
             updateRationPlanV2,
             updateRationRow,

@@ -338,6 +338,7 @@ export default function AdminApprovals() {
                                                                 );
                                                             }
                                                             case 'DELETE_RATION_PLAN':
+                                                            case 'DELETE_RATION_PLAN_V2':
                                                                 return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Plan name: {snap?.name || payload?.name || payload?.id}</div>;
                                                             case 'DELETE_PEN':
                                                                 return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Pen ID: {snap?.id || payload?.id}</div>;
