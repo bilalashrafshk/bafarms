@@ -2493,20 +2493,7 @@ module.exports = async (req, res) => {
                 const { id } = payload;
                 const isAdmin = !!(perms && perms.isAdmin);
                 if (!isAdmin) {
-                    const existingPending = await client.query(
-                        `SELECT id FROM ba_pending_approvals WHERE action = 'DELETE_RATION_PLAN' AND (payload->>'id') = $1 AND status = 'pending'`,
-                        [String(id)]
-                    );
-                    if (existingPending.rows.length === 0) {
-                        const currentRes = await client.query('SELECT * FROM ba_ration_plans WHERE id = $1', [id]);
-                        if (currentRes.rows.length > 0) {
-                            await client.query(`
-                                INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
-                                VALUES ('DELETE_RATION_PLAN', $1, $2, $3)
-                            `, [JSON.stringify({ id }), JSON.stringify(currentRes.rows[0]), session.email.toLowerCase().trim()]);
-                        }
-                    }
-                    return res.status(200).json({ success: true, pending: true });
+                    return res.status(403).json({ success: false, error: "Unauthorized: Deleting Ration Plans requires Super Admin access." });
                 }
                 await client.query('UPDATE ba_pens SET ration_plan_id = NULL WHERE ration_plan_id = $1', [id]);
                 await client.query('DELETE FROM ba_ration_plans WHERE id = $1', [id]);
@@ -2785,20 +2772,7 @@ module.exports = async (req, res) => {
                 const { id } = payload;
                 const isAdmin = !!(perms && perms.isAdmin);
                 if (!isAdmin) {
-                    const existingPending = await client.query(
-                        `SELECT id FROM ba_pending_approvals WHERE action = 'DELETE_RATION_PLAN_V2' AND (payload->>'id') = $1 AND status = 'pending'`,
-                        [String(id)]
-                    );
-                    if (existingPending.rows.length === 0) {
-                        const currentRes = await client.query('SELECT * FROM ba_ration_plans_v2 WHERE id = $1', [id]);
-                        if (currentRes.rows.length > 0) {
-                            await client.query(`
-                                INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
-                                VALUES ('DELETE_RATION_PLAN_V2', $1, $2, $3)
-                            `, [JSON.stringify({ id }), JSON.stringify(currentRes.rows[0]), session.email.toLowerCase().trim()]);
-                        }
-                    }
-                    return res.status(200).json({ success: true, pending: true });
+                    return res.status(403).json({ success: false, error: "Unauthorized: Deleting Ration Plans requires Super Admin access." });
                 }
                 await client.query('UPDATE ba_pens SET plan_id = NULL WHERE plan_id = $1', [id]);
                 await client.query('DELETE FROM ba_ration_plans_v2 WHERE id = $1', [id]);

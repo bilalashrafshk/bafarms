@@ -13,6 +13,7 @@ export default function RationPlans() {
     // diets — the "Internal Corporate Staff" role is just an email-domain login role, so it's
     // OR'd in for backward compatibility (matches FeedStock.jsx).
     const isAdmin = staffUser?.accessHerd === true || staffUser?.isAdmin === true;
+    const isSuperAdmin = staffUser?.isAdmin === true;
 
     const [activeTab, setActiveTab] = useState('plans');
 
@@ -657,7 +658,7 @@ export default function RationPlans() {
     };
 
     const handleDeletePlan = (plan) => {
-        if (!isAdmin) return;
+        if (!isSuperAdmin) return;
         const affectedPens = pens.filter(p => p.rationPlanId === plan.id).map(p => p.id);
         const impactMsg = affectedPens.length > 0
             ? `\n\n${affectedPens.length} pen${affectedPens.length === 1 ? '' : 's'} currently use this plan and will be unassigned and stop being fed until reassigned: Pen ${affectedPens.join(', Pen ')}.`
@@ -669,7 +670,7 @@ export default function RationPlans() {
     };
 
     const handleDeleteV2Plan = (plan) => {
-        if (!isAdmin) return;
+        if (!isSuperAdmin) return;
         const affectedPens = pens.filter(p => p.planId === plan.id).map(p => p.id);
         const impactMsg = affectedPens.length > 0
             ? `\n\n${affectedPens.length} pen${affectedPens.length === 1 ? '' : 's'} currently use this plan and will be unassigned: Pen ${affectedPens.join(', Pen ')}.`
@@ -866,9 +867,11 @@ export default function RationPlans() {
                                                         <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px' }} onClick={() => duplicateRationPlan(plan)} title="Duplicate as scenario variant">
                                                             <i class="fa-solid fa-copy"></i>
                                                         </button>
-                                                        <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => handleDeletePlan(plan)} title="Delete">
-                                                            <i class="fa-solid fa-trash-can"></i>
-                                                        </button>
+                                                        {isSuperAdmin && (
+                                                            <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => handleDeletePlan(plan)} title="Delete">
+                                                                <i class="fa-solid fa-trash-can"></i>
+                                                            </button>
+                                                        )}
                                                     </td>
                                                 )}
                                             </tr>
@@ -1004,7 +1007,7 @@ export default function RationPlans() {
                                                                 <button type="button" class="btn btn-ghost btn-sm" title="Export as CSV" onClick={() => handleExportV2Plan(plan)}>
                                                                     <i class="fa-solid fa-file-csv"></i>
                                                                 </button>
-                                                                {isAdmin && (
+                                                                {isSuperAdmin && (
                                                                     <button type="button" class="btn btn-ghost btn-sm" title="Delete Ration Plan" style={{ color: 'hsl(0,75%,60%)' }} onClick={() => handleDeleteV2Plan(plan)}>
                                                                         <i class="fa-solid fa-trash-can"></i>
                                                                     </button>

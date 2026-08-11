@@ -161,6 +161,12 @@ export const FarmProvider = ({ children }) => {
         const stored = localStorage.getItem('ba_staff_user');
         return stored ? JSON.parse(stored) : null;
     });
+    // Bumped only on an actual login/reauth (see handleLoginSuccess) — deliberately
+    // NOT tied to staffUser.token, which also changes on every silent background
+    // token renewal (see refreshSession). The full-database bootstrap fetch below is
+    // keyed on this instead of the token so it re-runs once right after a real
+    // (re-)login, not every few minutes just because the token string rotated.
+    const [sessionEpoch, setSessionEpoch] = useState(0);
     // Admin-only roster of per-user Sales/Herd access (populated from GET when the
     // logged-in user is an admin; empty for everyone else).
     const [staffPermissions, setStaffPermissions] = useState([]);
@@ -182,12 +188,13 @@ export const FarmProvider = ({ children }) => {
         localStorage.setItem('ba_staff_user', JSON.stringify(userSession));
         setIsLoggedIn(true);
         setStaffUser(userSession);
-        // A fresh token means any mutations stuck on a 401 can now go through. The
-        // staffUser?.token-keyed effect below picks up the change and flushes the
-        // queue before it re-fetches from the server — don't also kick off a flush
-        // here, or the two runs race and the GET can win, overwriting a just-queued
-        // edit (e.g. a pen ration assignment) with stale pre-edit server data.
+        // A fresh token means any mutations stuck on a 401 can now go through. Bumping
+        // sessionEpoch triggers the bootstrap effect below, which flushes the queue
+        // before it re-fetches from the server — don't also kick off a flush here, or
+        // the two runs race and the GET can win, overwriting a just-queued edit (e.g. a
+        // pen ration assignment) with stale pre-edit server data.
         setSessionExpired(false);
+        setSessionEpoch(e => e + 1);
     };
 
     // Attaches the staff session token (issued by /api/auth) to every write against
@@ -242,56 +249,17 @@ export const FarmProvider = ({ children }) => {
         localStorage.setItem('ba_failed_mutations', JSON.stringify(failedMutations));
     }, [failedMutations]);
 
-    // Active session security heartbeat: verifies token validity & authorization with /api/auth.
-    // Immediately evicts users whose session token has expired or whose access was revoked.
-    useEffect(() => {
-        if (!isLoggedIn || !staffUser?.token) return;
-
-        let isMounted = true;
-        const verifyActiveSession = async () => {
-            try {
-                const res = await fetch('/api/auth', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${staffUser.token}`
-                    },
-                    body: JSON.stringify({ refresh: true })
-                });
-                const data = await res.json().catch(() => ({}));
-
-                if (!res.ok || !data.success) {
-                    if (isMounted) {
-                        console.warn('Session invalidated or access revoked by auth server:', data.error);
-                        handleLogout();
-                    }
-                    return;
-                }
-
-                if (data.token && data.user && isMounted) {
-                    setStaffUser(prev => {
-                        const updated = { ...prev, ...data.user, token: data.token };
-                        localStorage.setItem('ba_staff_user', JSON.stringify(updated));
-                        return updated;
-                    });
-                }
-            } catch (err) {
-                // Ignore transient network drops
-            }
-        };
-
-        verifyActiveSession();
-
-        const onFocus = () => verifyActiveSession();
-        window.addEventListener('focus', onFocus);
-        const interval = setInterval(verifyActiveSession, 30000);
-
-        return () => {
-            isMounted = false;
-            window.removeEventListener('focus', onFocus);
-            clearInterval(interval);
-        };
-    }, [isLoggedIn, staffUser?.token]);
+    // Session validity/revocation checking lives solely in refreshSession() below —
+    // it hits the exact same /api/auth `refresh: true` endpoint (which re-authorizes
+    // the email server-side on every call) and is already wired to fire on mount,
+    // window focus, tab visibility, and a 15-minute belt-and-braces interval, throttled
+    // to once per 5 minutes. A second independent heartbeat used to live here, polling
+    // the same endpoint every 30 seconds on its own timer — harmless on its own, but
+    // since it rewrote staffUser.token every 30s, and the bootstrap data fetch further
+    // below used to be keyed on that token, it was silently forcing a full re-fetch of
+    // the entire farm database every ~30 seconds (visible as a near-constant "Syncing…"
+    // badge). Removed in favor of the single slower heartbeat — a few minutes of
+    // revocation latency is an acceptable trade for not hammering the DB and the UI.
 
     // Sends one mutation to the server. Shared by the immediate fast-path send in
     // persistMutation and the durable queue flush loop below, so both stay in sync
@@ -474,6 +442,11 @@ export const FarmProvider = ({ children }) => {
                     localStorage.setItem('ba_staff_user', JSON.stringify(merged));
                     return merged;
                 });
+                // Piggyback a silent (no "Syncing…" badge) background data refresh onto
+                // this same already-throttled heartbeat, so records added/approved by
+                // other staff still show up within a few minutes — without re-running
+                // the full bootstrap fetch on every token rotation like before.
+                fetchFarmData({ silent: true });
             }
         } catch (err) {
             // Network error — say nothing, the next scheduled attempt will retry.
@@ -1577,32 +1550,37 @@ export const FarmProvider = ({ children }) => {
     }, [specSheets]);
 
     // ─── NEON DB GET SYNC RUNNER ───
-    // Re-runs whenever the staff session token changes (login/logout) — without a
-    // valid token the server only returns the public-safe subset of the data (no
-    // orders/treatments/weight logs/etc), so we need a fresh authenticated fetch
-    // right after login rather than waiting for a page reload.
-    useEffect(() => {
-        const syncState = async () => {
-            // Wait out any direct (non-queued) mutation sends still in flight — e.g. a
-            // feed purchase just saved a moment before this sync fired (the sliding-
-            // session token refresh triggers this effect every ~30s). Without this, the
-            // GET below can win the race against that POST and its full-array overwrite
-            // would briefly hide the new record even though it lands in the DB moments
-            // later.
-            while (inFlightDirectRef.current.size > 0) {
-                await new Promise(r => setTimeout(r, 50));
-            }
-            // Replay any locally-queued writes (made while offline or mid-session-expiry)
-            // with the current token BEFORE pulling the "authoritative" snapshot below.
-            // Otherwise this GET can race the queued POST and win, overwriting a just-made
-            // edit (e.g. a pen ration assignment) with stale pre-edit server data — which is
-            // what made changes look like they "disappeared" right after logging back in.
-            await flushQueue();
+    // The full-database bootstrap fetch. Called (a) once right after mount/login/
+    // reauth via the sessionEpoch-keyed effect below, with the "Syncing…" badge shown
+    // (silent: false), and (b) periodically in the background by refreshSession's
+    // already-throttled heartbeat, with the badge suppressed (silent: true) so routine
+    // token renewal doesn't read as a visible, disruptive resync. Reads the token via
+    // staffUserRef rather than the authHeaders()/staffUser closure so it's safe to call
+    // from refreshSession's long-lived event listeners without stale-closure risk.
+    const fetchFarmData = async ({ silent = false } = {}) => {
+        // Wait out any direct (non-queued) mutation sends still in flight — e.g. a
+        // feed purchase just saved a moment before this sync fired. Without this, the
+        // GET below can win the race against that POST and its full-array overwrite
+        // would briefly hide the new record even though it lands in the DB moments
+        // later.
+        while (inFlightDirectRef.current.size > 0) {
+            await new Promise(r => setTimeout(r, 50));
+        }
+        // Replay any locally-queued writes (made while offline or mid-session-expiry)
+        // with the current token BEFORE pulling the "authoritative" snapshot below.
+        // Otherwise this GET can race the queued POST and win, overwriting a just-made
+        // edit (e.g. a pen ration assignment) with stale pre-edit server data — which is
+        // what made changes look like they "disappeared" right after logging back in.
+        await flushQueue();
 
-            setFetchLoading(true);
-            try {
-                const res = await fetch('/api/farm', { headers: authHeaders() });
-                const data = await res.json();
+        if (!silent) setFetchLoading(true);
+        try {
+            const headers = {
+                'Content-Type': 'application/json',
+                ...(staffUserRef.current?.token ? { Authorization: `Bearer ${staffUserRef.current.token}` } : {})
+            };
+            const res = await fetch('/api/farm', { headers });
+            const data = await res.json();
 
                 if (data.success) {
                     const setIfChanged = (setter, newValue) => {
@@ -1692,15 +1670,21 @@ export const FarmProvider = ({ children }) => {
                     setDbUnconfigured(true);
                     console.warn("Neon Database connection string unconfigured. Utilizing offline localStorage backup.");
                 }
-            } catch (err) {
-                console.error("Neon API unreachable, preserving localStorage backup states:", err);
-            } finally {
-                setFetchLoading(false);
-            }
-        };
-        syncState();
+        } catch (err) {
+            console.error("Neon API unreachable, preserving localStorage backup states:", err);
+        } finally {
+            if (!silent) setFetchLoading(false);
+        }
+    };
+
+    // Fires once on mount (anonymous visitors get the public-safe subset), and again
+    // every time sessionEpoch is bumped by a real login/reauth — NOT on every silent
+    // background token rotation (see refreshSession, which handles those separately
+    // and silently via fetchFarmData({ silent: true })).
+    useEffect(() => {
+        fetchFarmData({ silent: false });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [staffUser?.token]);
+    }, [sessionEpoch]);
 
     // ─── STATE TRANSACTIONS TRIGGER SYNCS ───
 
@@ -2431,9 +2415,12 @@ export const FarmProvider = ({ children }) => {
     };
 
     const deleteRationPlan = async (id) => {
+        const isSuperAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isSuperAdmin) {
+            alert('Deleting Ration Plans is restricted to Super Admins.');
+            return { success: false, error: 'Unauthorized: Requires Super Admin access.' };
+        }
         setRationPlans(prev => prev.filter(p => p.id !== id));
-        // Unassign any pen that was pointed at this plan, mirroring the server's
-        // ON DELETE SET NULL / explicit unassign in the DELETE_RATION_PLAN handler.
         setPens(prev => prev.map(p => (p.rationPlanId === id ? { ...p, rationPlanId: null } : p)));
         persistMutation('DELETE_RATION_PLAN', { id });
         setTimeout(refreshApprovals, 250);
@@ -2441,9 +2428,10 @@ export const FarmProvider = ({ children }) => {
     };
 
     const deleteRationPlanV2 = async (id) => {
-        const isAdmin = staffUserRef.current?.isAdmin === true;
-        if (!isAdmin) {
-            return await handleNonAdminDelete('DELETE_RATION_PLAN_V2', { id });
+        const isSuperAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isSuperAdmin) {
+            alert('Deleting Ration Plans is restricted to Super Admins.');
+            return { success: false, error: 'Unauthorized: Requires Super Admin access.' };
         }
         setRationPlansV2(prev => prev.filter(p => p.id !== id));
         setRationRows(prev => prev.filter(r => r.planId !== id));
