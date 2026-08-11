@@ -148,6 +148,8 @@ export default function ActivityFeed() {
             const itemName = p.itemName || (itemObj ? itemObj.name : p.itemId);
             return {
                 key: `fp-${p.id}`,
+                recordId: p.id,
+                originalObj: p,
                 animalId: null,
                 pen: null,
                 date: p.date,
@@ -164,6 +166,8 @@ export default function ActivityFeed() {
             const itemName = s.itemName || (itemObj ? itemObj.name : s.itemId);
             return {
                 key: `fi-${s.id}`,
+                recordId: s.id,
+                originalObj: s,
                 animalId: null,
                 pen: s.pen,
                 date: s.date,
@@ -182,6 +186,8 @@ export default function ActivityFeed() {
             const statusTag = (app.status || 'PENDING').toUpperCase();
             return {
                 key: `app-${app.id}`,
+                recordId: app.id,
+                approvalObj: app,
                 animalId: app.animal_id || app.animalId || null,
                 pen: null,
                 date: dateStr,

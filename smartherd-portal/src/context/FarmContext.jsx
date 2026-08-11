@@ -1989,7 +1989,37 @@ export const FarmProvider = ({ children }) => {
         }
         const currentUser = staffUserRef.current?.name || staffUserRef.current?.email || 'Admin';
 
-        if (item.eventType === 'pen_transfer' || (item.note && item.note.includes('Moved '))) {
+        if (item.eventType === 'feed_issue' || (typeof item.key === 'string' && item.key.startsWith('fi-'))) {
+            const issueId = item.recordId || item.id || (typeof item.key === 'string' ? item.key.replace('fi-', '') : null);
+            if (issueId) {
+                deleteFeedStockIssue(issueId);
+            }
+        } else if (item.eventType === 'feed_purchase' || (typeof item.key === 'string' && item.key.startsWith('fp-'))) {
+            const purchaseId = item.recordId || item.id || (typeof item.key === 'string' ? item.key.replace('fp-', '') : null);
+            if (purchaseId) {
+                deleteFeedPurchase(purchaseId);
+            }
+        } else if (item.eventType === 'feed_log' || (typeof item.key === 'string' && item.key.startsWith('fl-'))) {
+            const log = item.originalLog;
+            if (log) {
+                deleteFeedLog(log.date, log.pen, log.feedingIndex);
+            }
+        } else if (item.eventType === 'approval_decision' || (typeof item.key === 'string' && item.key.startsWith('app-'))) {
+            const app = item.approvalObj || (allApprovals || []).find(a => String(a.id) === String(item.recordId || (typeof item.key === 'string' ? item.key.replace('app-', '') : '')));
+            if (app) {
+                const changes = app.payload || {};
+                if ((app.action === 'ADD_FEED_STOCK_ISSUE' || app.action === 'DELETE_FEED_STOCK_ISSUE') && changes.id) {
+                    deleteFeedStockIssue(changes.id);
+                } else if ((app.action === 'ADD_FEED_PURCHASE' || app.action === 'DELETE_FEED_PURCHASE' || app.action === 'UPDATE_FEED_PURCHASE') && changes.id) {
+                    deleteFeedPurchase(changes.id);
+                } else if (app.action === 'ADD_OVERHEAD_EXPENSE' && changes.id) {
+                    deleteOverheadExpense(changes.id);
+                } else if (app.action === 'OVERWRITE_FEED_LOG' && changes.date) {
+                    deleteFeedLog(changes.date, changes.pen || 'ALL', changes.feedingIndex || 0);
+                }
+                rejectPendingChange(app.id, 'Undone via Activity Feed');
+            }
+        } else if (item.eventType === 'pen_transfer' || (item.note && item.note.includes('Moved '))) {
             const animalId = item.animalId;
             let fromPen = item.fromPen;
             if (!fromPen && item.note && item.note.includes('Moved ')) {
