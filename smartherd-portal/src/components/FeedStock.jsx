@@ -1,4 +1,4 @@
-import React, { useContext, useState, useMemo } from 'react';
+import React, { useContext, useState, useMemo, useEffect } from 'react';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 import { todayPKT, daysBetween } from '../utils/dateOnly';
@@ -48,6 +48,25 @@ export default function FeedStock() {
     const [dateFrom, setDateFrom] = useState(defaultFrom);
     const [dateTo, setDateTo] = useState(todayStr);
     const inRange = (d) => d >= dateFrom && d <= dateTo;
+
+    // Search + pagination for the long, list-style tables (Purchase History, Issue
+    // History, Batch History). A non-empty search bypasses the date-range filter
+    // entirely — otherwise a real match sitting outside the default 30-day window would
+    // silently show as "no results", which is exactly the confusing behavior this is
+    // meant to fix. Each table's "visible" count resets to one page whenever its own
+    // search or the shared date range changes, so a new filter never lands mid-scroll.
+    const PAGE_SIZE = 25;
+    const [purchaseSearch, setPurchaseSearch] = useState('');
+    const [purchasesVisible, setPurchasesVisible] = useState(PAGE_SIZE);
+    useEffect(() => setPurchasesVisible(PAGE_SIZE), [purchaseSearch, dateFrom, dateTo]);
+
+    const [issueSearch, setIssueSearch] = useState('');
+    const [issuesVisible, setIssuesVisible] = useState(PAGE_SIZE);
+    useEffect(() => setIssuesVisible(PAGE_SIZE), [issueSearch, dateFrom, dateTo]);
+
+    const [batchSearch, setBatchSearch] = useState('');
+    const [batchesVisible, setBatchesVisible] = useState(PAGE_SIZE);
+    useEffect(() => setBatchesVisible(PAGE_SIZE), [batchSearch]);
 
     const distinctPenNames = useMemo(() => [...new Set([
         ...animals.filter(a => a.pen).map(a => a.pen),
@@ -202,10 +221,16 @@ export default function FeedStock() {
         return list;
     }, [feedPurchases, myRequests]);
 
-    const filteredPurchases = useMemo(() =>
-        effectiveFeedPurchases.filter(p => inRange(p.date)).sort((a, b) => daysBetween(b.date, a.date)),
-        [effectiveFeedPurchases, dateFrom, dateTo]
-    );
+    const filteredPurchases = useMemo(() => {
+        const q = purchaseSearch.trim().toLowerCase();
+        const rows = q
+            ? effectiveFeedPurchases.filter(p => {
+                const nm = (p.itemName || feedStockItems.find(i => i.id === p.itemId)?.name || p.itemId || '').toLowerCase();
+                return nm.includes(q) || (p.supplier || '').toLowerCase().includes(q) || (p.notes || '').toLowerCase().includes(q);
+            })
+            : effectiveFeedPurchases.filter(p => inRange(p.date));
+        return rows.sort((a, b) => daysBetween(b.date, a.date));
+    }, [effectiveFeedPurchases, dateFrom, dateTo, purchaseSearch, feedStockItems]);
 
     // ─── ISSUES ───
     const [iDate, setIDate] = useState(todayStr);
@@ -286,10 +311,16 @@ export default function FeedStock() {
         return [...autoIssues, ...manualIssues];
     }, [feedLogs, feedStockItems, effectiveFeedStockIssues, mineralSplitRatio]);
 
-    const filteredIssues = useMemo(() =>
-        combinedIssues.filter(i => inRange(i.date)).sort((a, b) => daysBetween(b.date, a.date)),
-        [combinedIssues, dateFrom, dateTo]
-    );
+    const filteredIssues = useMemo(() => {
+        const q = issueSearch.trim().toLowerCase();
+        const rows = q
+            ? combinedIssues.filter(i => {
+                const nm = (i.itemName || feedStockItems.find(it => it.id === i.itemId)?.name || i.itemId || '').toLowerCase();
+                return nm.includes(q) || (i.pen || '').toLowerCase().includes(q) || (i.notes || '').toLowerCase().includes(q);
+            })
+            : combinedIssues.filter(i => inRange(i.date));
+        return rows.sort((a, b) => daysBetween(b.date, a.date));
+    }, [combinedIssues, dateFrom, dateTo, issueSearch, feedStockItems]);
 
     // Full-history ledger (opening + all-time purchases/issues) — closing stock is
     // always a current, all-time snapshot regardless of the Purchases/Issues date filter.
@@ -519,10 +550,16 @@ export default function FeedStock() {
         setBLotOverrides({});
     };
 
-    const sortedBatches = useMemo(() =>
-        [...premixBatches].sort((a, b) => daysBetween(b.date, a.date)),
-        [premixBatches]
-    );
+    const sortedBatches = useMemo(() => {
+        const q = batchSearch.trim().toLowerCase();
+        const rows = q
+            ? premixBatches.filter(b => {
+                const materials = (b.consumed || []).map(c => (feedStockItems.find(i => i.id === c.stockItemId)?.name || c.stockItemId || '')).join(' ').toLowerCase();
+                return (b.premixTypeName || '').toLowerCase().includes(q) || (b.notes || '').toLowerCase().includes(q) || materials.includes(q);
+            })
+            : premixBatches;
+        return [...rows].sort((a, b) => daysBetween(b.date, a.date));
+    }, [premixBatches, batchSearch, feedStockItems]);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -808,15 +845,20 @@ export default function FeedStock() {
                             <h3 class="panel-title" style={{ margin: 0 }}><i class="fa-solid fa-truck-ramp-box"></i> Purchase History</h3>
                             <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                                 <div class="form-group" style={{ marginBottom: 0 }}>
-                                    <label style={{ fontSize: '0.75rem' }}>From</label>
-                                    <input type="date" class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem' }} value={dateFrom} max={dateTo} onChange={e => setDateFrom(e.target.value)} />
+                                    <label style={{ fontSize: '0.75rem' }}>Search</label>
+                                    <input type="text" class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem', minWidth: '160px' }} placeholder="Item, supplier, notes…" value={purchaseSearch} onChange={e => setPurchaseSearch(e.target.value)} />
                                 </div>
-                                <div class="form-group" style={{ marginBottom: 0 }}>
+                                <div class="form-group" style={{ marginBottom: 0, opacity: purchaseSearch.trim() ? 0.4 : 1 }}>
+                                    <label style={{ fontSize: '0.75rem' }}>From</label>
+                                    <input type="date" class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem' }} value={dateFrom} max={dateTo} disabled={!!purchaseSearch.trim()} onChange={e => setDateFrom(e.target.value)} />
+                                </div>
+                                <div class="form-group" style={{ marginBottom: 0, opacity: purchaseSearch.trim() ? 0.4 : 1 }}>
                                     <label style={{ fontSize: '0.75rem' }}>To</label>
-                                    <input type="date" class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem' }} value={dateTo} min={dateFrom} max={todayStr} onChange={e => setDateTo(e.target.value)} />
+                                    <input type="date" class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem' }} value={dateTo} min={dateFrom} max={todayStr} disabled={!!purchaseSearch.trim()} onChange={e => setDateTo(e.target.value)} />
                                 </div>
                             </div>
                         </div>
+                        {purchaseSearch.trim() && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '-0.6rem', marginBottom: '0.8rem' }}><i class="fa-solid fa-circle-info"></i> Searching across all dates — date range is ignored while searching.</div>}
                         <div class="table-wrapper">
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                 <thead>
@@ -833,7 +875,7 @@ export default function FeedStock() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredPurchases.map(p => {
+                                    {filteredPurchases.slice(0, purchasesVisible).map(p => {
                                         const lot = lotsByItemId[p.itemId]?.find(l => l.id === p.id);
                                         const remaining = lot ? lot.remaining : p.quantity;
                                         const touched = remaining < p.quantity - 0.005;
@@ -887,13 +929,23 @@ export default function FeedStock() {
                                     {filteredPurchases.length === 0 && (
                                         <tr>
                                             <td colSpan={isAdmin ? 9 : 8} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
-                                                No purchases logged in this date range.
+                                                {purchaseSearch.trim() ? 'No purchases match your search.' : 'No purchases logged in this date range.'}
                                             </td>
                                         </tr>
                                     )}
                                 </tbody>
                             </table>
                         </div>
+                        {filteredPurchases.length > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.8rem', marginTop: '0.9rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                <span>Showing {Math.min(purchasesVisible, filteredPurchases.length)} of {filteredPurchases.length}</span>
+                                {filteredPurchases.length > purchasesVisible && (
+                                    <button type="button" class="btn btn-secondary" style={{ padding: '0.3rem 0.9rem', minHeight: '30px', height: '30px' }} onClick={() => setPurchasesVisible(v => v + PAGE_SIZE)}>
+                                        Show More
+                                    </button>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -1079,7 +1131,24 @@ export default function FeedStock() {
                     </div>
 
                     <div class="glass-panel">
-                        <h3 class="panel-title"><i class="fa-solid fa-dolly"></i> Issue History</h3>
+                        <div class="form-header-bar" style={{ marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
+                            <h3 class="panel-title" style={{ margin: 0 }}><i class="fa-solid fa-dolly"></i> Issue History</h3>
+                            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                                <div class="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: '0.75rem' }}>Search</label>
+                                    <input type="text" class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem', minWidth: '160px' }} placeholder="Item, pen, notes…" value={issueSearch} onChange={e => setIssueSearch(e.target.value)} />
+                                </div>
+                                <div class="form-group" style={{ marginBottom: 0, opacity: issueSearch.trim() ? 0.4 : 1 }}>
+                                    <label style={{ fontSize: '0.75rem' }}>From</label>
+                                    <input type="date" class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem' }} value={dateFrom} max={dateTo} disabled={!!issueSearch.trim()} onChange={e => setDateFrom(e.target.value)} />
+                                </div>
+                                <div class="form-group" style={{ marginBottom: 0, opacity: issueSearch.trim() ? 0.4 : 1 }}>
+                                    <label style={{ fontSize: '0.75rem' }}>To</label>
+                                    <input type="date" class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem' }} value={dateTo} min={dateFrom} max={todayStr} disabled={!!issueSearch.trim()} onChange={e => setDateTo(e.target.value)} />
+                                </div>
+                            </div>
+                        </div>
+                        {issueSearch.trim() && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '-0.6rem', marginBottom: '0.8rem' }}><i class="fa-solid fa-circle-info"></i> Searching across all dates — date range is ignored while searching.</div>}
                         <div class="table-wrapper">
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                 <thead>
@@ -1095,7 +1164,7 @@ export default function FeedStock() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredIssues.map(iss => {
+                                    {filteredIssues.slice(0, issuesVisible).map(iss => {
                                         const pending = pendingIssuesById[iss.id];
                                         return (
                                         <tr key={iss.id} style={pending ? { opacity: 0.65 } : undefined}>
@@ -1154,13 +1223,23 @@ export default function FeedStock() {
                                     {filteredIssues.length === 0 && (
                                         <tr>
                                             <td colSpan={isAdmin ? 8 : 6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
-                                                No issues logged in this date range.
+                                                {issueSearch.trim() ? 'No issues match your search.' : 'No issues logged in this date range.'}
                                             </td>
                                         </tr>
                                     )}
                                 </tbody>
                             </table>
                         </div>
+                        {filteredIssues.length > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.8rem', marginTop: '0.9rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                <span>Showing {Math.min(issuesVisible, filteredIssues.length)} of {filteredIssues.length}</span>
+                                {filteredIssues.length > issuesVisible && (
+                                    <button type="button" class="btn btn-secondary" style={{ padding: '0.3rem 0.9rem', minHeight: '30px', height: '30px' }} onClick={() => setIssuesVisible(v => v + PAGE_SIZE)}>
+                                        Show More
+                                    </button>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -1355,7 +1434,13 @@ export default function FeedStock() {
                     )}
 
                     <div class="glass-panel">
-                        <h3 class="panel-title"><i class="fa-solid fa-clock-rotate-left"></i> Batch History</h3>
+                        <div class="form-header-bar" style={{ marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
+                            <h3 class="panel-title" style={{ margin: 0 }}><i class="fa-solid fa-clock-rotate-left"></i> Batch History</h3>
+                            <div class="form-group" style={{ marginBottom: 0 }}>
+                                <label style={{ fontSize: '0.75rem' }}>Search</label>
+                                <input type="text" class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem', minWidth: '160px' }} placeholder="Premix, material, notes…" value={batchSearch} onChange={e => setBatchSearch(e.target.value)} />
+                            </div>
+                        </div>
                         <div class="table-wrapper">
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                 <thead>
@@ -1370,7 +1455,7 @@ export default function FeedStock() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {sortedBatches.map(b => (
+                                    {sortedBatches.slice(0, batchesVisible).map(b => (
                                         <tr key={b.id}>
                                             <td>{formatDate(b.date)}</td>
                                             <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{b.premixTypeName || itemName(b.premixTypeId)}</td>
@@ -1402,13 +1487,23 @@ export default function FeedStock() {
                                     {sortedBatches.length === 0 && (
                                         <tr>
                                             <td colSpan={isAdmin ? 7 : 6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
-                                                No premix batches logged yet.
+                                                {batchSearch.trim() ? 'No batches match your search.' : 'No premix batches logged yet.'}
                                             </td>
                                         </tr>
                                     )}
                                 </tbody>
                             </table>
                         </div>
+                        {sortedBatches.length > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.8rem', marginTop: '0.9rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                <span>Showing {Math.min(batchesVisible, sortedBatches.length)} of {sortedBatches.length}</span>
+                                {sortedBatches.length > batchesVisible && (
+                                    <button type="button" class="btn btn-secondary" style={{ padding: '0.3rem 0.9rem', minHeight: '30px', height: '30px' }} onClick={() => setBatchesVisible(v => v + PAGE_SIZE)}>
+                                        Show More
+                                    </button>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

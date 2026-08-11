@@ -1358,7 +1358,7 @@ export const FarmProvider = ({ children }) => {
     // authoritative quantity produced — bagWeight/bagCount are optional, free-form (any
     // weight) fields kept only for display/reference on the batch history, since farms don't
     // necessarily use a fixed bag size.
-    const addPremixBatch = (batch) => {
+    const addPremixBatch = async (batch) => {
         const premixTypeId = batch.premixTypeId;
         const premixType = premixTypes.find(p => p.id === premixTypeId);
         const totalKg = parseFloat(batch.totalKg) || 0;
@@ -1389,12 +1389,13 @@ export const FarmProvider = ({ children }) => {
         const bagWeight = parseFloat(batch.bagWeight) || 0;
         const bagCount = parseFloat(batch.bagCount) || 0;
 
-        const issueIds = consumed.map(c => addFeedStockIssue({
+        const issueRecords = await Promise.all(consumed.map(c => addFeedStockIssue({
             date, itemId: c.stockItemId, pen: 'PRODUCTION', quantity: c.quantity, lotId: c.lotId,
             notes: `Used to produce ${totalKg.toFixed(2)} kg of ${premixType.name}`
-        }).id);
+        })));
+        const issueIds = issueRecords.map(r => r.id);
 
-        const purchaseRec = addFeedPurchase({
+        const purchaseRec = await addFeedPurchase({
             date, itemId: premixTypeId, quantity: totalKg, rate: costPerKg,
             supplier: 'In-house production',
             notes: batch.notes || `Batch of ${premixType.name} from ${consumed.length} raw material(s)`
@@ -1422,11 +1423,11 @@ export const FarmProvider = ({ children }) => {
 
     // Reverses a batch entirely — undoes the raw-material deductions and the premix stock
     // credit it created — then removes the batch record itself.
-    const deletePremixBatch = (id) => {
+    const deletePremixBatch = async (id) => {
         const batch = premixBatches.find(b => b.id === id);
         if (!batch) return;
-        (batch.issueIds || []).forEach(issueId => deleteFeedStockIssue(issueId));
-        if (batch.purchaseId) deleteFeedPurchase(batch.purchaseId);
+        await Promise.all((batch.issueIds || []).filter(Boolean).map(issueId => deleteFeedStockIssue(issueId)));
+        if (batch.purchaseId) await deleteFeedPurchase(batch.purchaseId);
         setPremixBatches(prev => {
             const next = prev.filter(b => b.id !== id);
             persistMutation('SAVE_SETTINGS', { key: 'premix_batches', value: next });
