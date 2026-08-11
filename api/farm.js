@@ -419,6 +419,82 @@ async function ensureColumns(client) {
         ALTER TABLE ba_feed_stock_issues ADD COLUMN IF NOT EXISTS lot_id VARCHAR(50);
     `);
 
+    // Denormalize the item's real name/unit onto each purchase/issue row at the moment
+    // it's recorded, instead of relying purely on a live join against the feed_stock_items
+    // master list (which could silently be missing/out of sync, e.g. for issues, whose
+    // approval path never used to sync it at all) — so Feed Stock / Store Ledger rows
+    // never fall back to showing the internal "item_<timestamp>" id as the product name.
+    await client.query(`
+        ALTER TABLE ba_feed_purchases ADD COLUMN IF NOT EXISTS item_name VARCHAR(150);
+        ALTER TABLE ba_feed_purchases ADD COLUMN IF NOT EXISTS item_unit VARCHAR(20);
+        ALTER TABLE ba_feed_stock_issues ADD COLUMN IF NOT EXISTS item_name VARCHAR(150);
+        ALTER TABLE ba_feed_stock_issues ADD COLUMN IF NOT EXISTS item_unit VARCHAR(20);
+    `);
+
+    // One-time self-heal for rows saved before item_name existed (or before the
+    // ADD_FEED_STOCK_ISSUE approval path synced names at all): recover the real name from
+    // the archived approval payload — ba_pending_approvals keeps approved rows forever —
+    // or, failing that, from whatever's currently in the feed_stock_items master list.
+    // Both queries are idempotent (WHERE item_name IS NULL), safe to run on every boot.
+    await client.query(`
+        UPDATE ba_feed_purchases fp
+        SET item_name = sub.name, item_unit = COALESCE(sub.unit, fp.item_unit)
+        FROM (
+            SELECT DISTINCT ON (payload->>'id')
+                payload->>'id' AS purchase_id,
+                payload->>'itemName' AS name,
+                payload->>'itemUnit' AS unit
+            FROM ba_pending_approvals
+            WHERE action IN ('ADD_FEED_PURCHASE', 'UPDATE_FEED_PURCHASE')
+                AND status = 'approved'
+                AND payload->>'itemName' IS NOT NULL
+                AND payload->>'itemName' NOT LIKE 'item\_%'
+            ORDER BY payload->>'id', reviewed_at DESC
+        ) sub
+        WHERE fp.id = sub.purchase_id AND fp.item_name IS NULL
+    `);
+    await client.query(`
+        UPDATE ba_feed_stock_issues fi
+        SET item_name = sub.name, item_unit = COALESCE(sub.unit, fi.item_unit)
+        FROM (
+            SELECT DISTINCT ON (payload->>'id')
+                payload->>'id' AS issue_id,
+                payload->>'itemName' AS name,
+                payload->>'itemUnit' AS unit
+            FROM ba_pending_approvals
+            WHERE action = 'ADD_FEED_STOCK_ISSUE'
+                AND status = 'approved'
+                AND payload->>'itemName' IS NOT NULL
+                AND payload->>'itemName' NOT LIKE 'item\_%'
+            ORDER BY payload->>'id', reviewed_at DESC
+        ) sub
+        WHERE fi.id = sub.issue_id AND fi.item_name IS NULL
+    `);
+    await client.query(`
+        UPDATE ba_feed_purchases fp
+        SET item_name = items.item ->> 'name', item_unit = COALESCE(items.item ->> 'unit', fp.item_unit)
+        FROM (
+            SELECT jsonb_array_elements(value) AS item
+            FROM ba_settings WHERE key = 'feed_stock_items'
+        ) items
+        WHERE fp.item_name IS NULL
+            AND fp.item_id = items.item ->> 'id'
+            AND items.item ->> 'name' IS NOT NULL
+            AND items.item ->> 'name' NOT LIKE 'item\_%'
+    `);
+    await client.query(`
+        UPDATE ba_feed_stock_issues fi
+        SET item_name = items.item ->> 'name', item_unit = COALESCE(items.item ->> 'unit', fi.item_unit)
+        FROM (
+            SELECT jsonb_array_elements(value) AS item
+            FROM ba_settings WHERE key = 'feed_stock_items'
+        ) items
+        WHERE fi.item_name IS NULL
+            AND fi.item_id = items.item ->> 'id'
+            AND items.item ->> 'name' IS NOT NULL
+            AND items.item ->> 'name' NOT LIKE 'item\_%'
+    `);
+
     // Operating overhead ledger (salaries, electricity, rent, misc) — separate from the
     // feed/medicine stock system since these are pure dated expenses with no quantity/FIFO
     // costing. Feeds the unified Cost of Gain report as a per-day-in-herd shared cost, same
@@ -836,6 +912,52 @@ async function ensureTables(client) {
             created_at TIMESTAMP DEFAULT NOW()
         );
     `);
+}
+
+// Resolves the real product name/unit for a feed_stock item id and durably persists it
+// into the feed_stock_items master list (ba_settings) whenever it's missing or has
+// changed. Shared by every path that inserts or approves a feed purchase/stock issue, so
+// the master list — and therefore the Store Ledger's per-item summary rows, which are
+// keyed off it — never drifts out of sync with what a staff member actually typed in,
+// regardless of who created it or whether it went through the approval queue. Never
+// writes the raw "item_<timestamp>" id back out as if it were a real product name.
+async function resolveAndSyncFeedStockItemName(client, itemId, providedName, unit, category, updatedBy) {
+    const isValidName = n => !!n && !String(n).startsWith('item_');
+
+    const settingsRes = await client.query("SELECT value FROM ba_settings WHERE key = 'feed_stock_items'");
+    let items = [];
+    if (settingsRes.rows.length > 0) {
+        try { items = typeof settingsRes.rows[0].value === 'string' ? JSON.parse(settingsRes.rows[0].value) : settingsRes.rows[0].value; } catch (e) {}
+    }
+    if (!Array.isArray(items)) items = [];
+    const existing = items.find(i => i.id === itemId);
+
+    const resolvedName = isValidName(providedName) ? providedName : (isValidName(existing?.name) ? existing.name : (providedName || itemId));
+    const resolvedUnit = unit || existing?.unit || 'kg';
+
+    if (isValidName(resolvedName) && itemId) {
+        let updated = false;
+        if (existing) {
+            if (existing.name !== resolvedName || (resolvedUnit && existing.unit !== resolvedUnit) || (category && existing.category !== category)) {
+                existing.name = resolvedName;
+                if (resolvedUnit) existing.unit = resolvedUnit;
+                if (category) existing.category = category;
+                updated = true;
+            }
+        } else {
+            items.push({ id: itemId, name: resolvedName, category: category || 'medicine', unit: resolvedUnit });
+            updated = true;
+        }
+        if (updated) {
+            await client.query(`
+                INSERT INTO ba_settings (key, value, updated_by, updated_at)
+                VALUES ('feed_stock_items', $1, $2, NOW())
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+            `, [JSON.stringify(items), updatedBy || 'System']);
+        }
+    }
+
+    return { name: resolvedName, unit: resolvedUnit };
 }
 
 // Resolve (and lazily bootstrap) a staff member's per-section access. Existing/new staff
@@ -1472,6 +1594,8 @@ module.exports = async (req, res) => {
             const feedPurchases = feedPurchasesRes.rows.map(row => ({
                 id: row.id,
                 itemId: row.item_id,
+                itemName: row.item_name || null,
+                itemUnit: row.item_unit || null,
                 date: formatDate(row.date),
                 quantity: parseFloat(row.quantity || 0),
                 rate: parseFloat(row.rate || 0),
@@ -1484,6 +1608,8 @@ module.exports = async (req, res) => {
             const feedStockIssues = feedStockIssuesRes.rows.map(row => ({
                 id: row.id,
                 itemId: row.item_id,
+                itemName: row.item_name || null,
+                itemUnit: row.item_unit || null,
                 date: formatDate(row.date),
                 pen: row.pen,
                 quantity: parseFloat(row.quantity || 0),
@@ -2013,43 +2139,17 @@ module.exports = async (req, res) => {
                     await client.query(`UPDATE ba_animals SET status = 'Sold', sale_price = $1, buyer_name = $2, sale_date = $3 WHERE id = $4`, [changes.salePrice, changes.buyerName, changes.saleDate, approval.animal_id]);
                     await client.query(`INSERT INTO ba_events (animal_id, date, event_type, note, created_by) VALUES ($1, $2, 'sold', $3, $4)`, [approval.animal_id, changes.saleDate, `Sold to ${changes.buyerName} — PKR ${changes.salePrice?.toLocaleString()}`, userEmail]);
                 } else if (approval.action === 'ADD_FEED_PURCHASE' || approval.action === 'UPDATE_FEED_PURCHASE') {
+                    const resolved = await resolveAndSyncFeedStockItemName(
+                        client, changes.itemId, changes.itemName || changes.name,
+                        changes.itemUnit || changes.unit || changes.newItem?.unit,
+                        changes.category || changes.newItem?.category,
+                        approval.requested_by
+                    );
                     await client.query(`
-                        INSERT INTO ba_feed_purchases (id, item_id, date, quantity, rate, supplier, notes, created_by, created_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-                        ON CONFLICT (id) DO UPDATE SET item_id = EXCLUDED.item_id, date = EXCLUDED.date, quantity = EXCLUDED.quantity, rate = EXCLUDED.rate, supplier = EXCLUDED.supplier, notes = EXCLUDED.notes
-                    `, [changes.id, changes.itemId, changes.date, changes.quantity || 0, changes.rate || 0, changes.supplier || null, changes.notes || null, approval.requested_by]);
-
-                    const nameVal = changes.itemName || changes.name;
-                    const unitVal = changes.itemUnit || changes.unit || 'kg';
-                    const catVal = changes.category;
-                    if (nameVal && changes.itemId && !nameVal.startsWith('item_')) {
-                        const settingsRes = await client.query("SELECT value FROM ba_settings WHERE key = 'feed_stock_items'");
-                        let items = [];
-                        if (settingsRes.rows.length > 0) {
-                            try { items = typeof settingsRes.rows[0].value === 'string' ? JSON.parse(settingsRes.rows[0].value) : settingsRes.rows[0].value; } catch (e) {}
-                        }
-                        if (!Array.isArray(items)) items = [];
-                        let updated = false;
-                        const existing = items.find(i => i.id === changes.itemId);
-                        if (existing) {
-                            if (existing.name !== nameVal || (unitVal && existing.unit !== unitVal) || (catVal && existing.category !== catVal)) {
-                                existing.name = nameVal;
-                                if (unitVal) existing.unit = unitVal;
-                                if (catVal) existing.category = catVal;
-                                updated = true;
-                            }
-                        } else {
-                            items.push({ id: changes.itemId, name: nameVal, category: catVal || 'medicine', unit: unitVal });
-                            updated = true;
-                        }
-                        if (updated) {
-                            await client.query(`
-                                INSERT INTO ba_settings (key, value, updated_by, updated_at)
-                                VALUES ('feed_stock_items', $1, $2, NOW())
-                                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()
-                            `, [JSON.stringify(items), approval.requested_by || 'System']);
-                        }
-                    }
+                        INSERT INTO ba_feed_purchases (id, item_id, item_name, item_unit, date, quantity, rate, supplier, notes, created_by, created_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+                        ON CONFLICT (id) DO UPDATE SET item_id = EXCLUDED.item_id, item_name = EXCLUDED.item_name, item_unit = EXCLUDED.item_unit, date = EXCLUDED.date, quantity = EXCLUDED.quantity, rate = EXCLUDED.rate, supplier = EXCLUDED.supplier, notes = EXCLUDED.notes
+                    `, [changes.id, changes.itemId, resolved.name, resolved.unit, changes.date, changes.quantity || 0, changes.rate || 0, changes.supplier || null, changes.notes || null, approval.requested_by]);
                 } else if (approval.action === 'SAVE_SETTINGS') {
                     await client.query(`
                         INSERT INTO ba_settings (key, value, updated_by, updated_at)
@@ -2070,11 +2170,17 @@ module.exports = async (req, res) => {
                         ON CONFLICT (id) DO NOTHING
                     `, [changes.id, changes.title, changes.category || 'cuts', changes.price, changes.weight || null, changes.desc || null, changes.ribbon || null, changes.rfid || null, changes.marbling || null, changes.fatRatio || null, JSON.stringify(changes.images || [])]);
                 } else if (approval.action === 'ADD_FEED_STOCK_ISSUE') {
+                    const resolved = await resolveAndSyncFeedStockItemName(
+                        client, changes.itemId, changes.itemName || changes.name,
+                        changes.itemUnit || changes.unit || changes.newItem?.unit,
+                        changes.category || changes.newItem?.category,
+                        approval.requested_by
+                    );
                     await client.query(`
-                        INSERT INTO ba_feed_stock_issues (id, item_id, date, pen, quantity, lot_id, notes, created_by, created_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-                        ON CONFLICT (id) DO UPDATE SET item_id = EXCLUDED.item_id, date = EXCLUDED.date, pen = EXCLUDED.pen, quantity = EXCLUDED.quantity, lot_id = EXCLUDED.lot_id, notes = EXCLUDED.notes
-                    `, [changes.id, changes.itemId, changes.date, changes.pen || 'ALL', changes.quantity || 0, changes.lotId || null, changes.notes || null, approval.requested_by]);
+                        INSERT INTO ba_feed_stock_issues (id, item_id, item_name, item_unit, date, pen, quantity, lot_id, notes, created_by, created_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+                        ON CONFLICT (id) DO UPDATE SET item_id = EXCLUDED.item_id, item_name = EXCLUDED.item_name, item_unit = EXCLUDED.item_unit, date = EXCLUDED.date, pen = EXCLUDED.pen, quantity = EXCLUDED.quantity, lot_id = EXCLUDED.lot_id, notes = EXCLUDED.notes
+                    `, [changes.id, changes.itemId, resolved.name, resolved.unit, changes.date, changes.pen || 'ALL', changes.quantity || 0, changes.lotId || null, changes.notes || null, approval.requested_by]);
                 } else if (approval.action === 'ADD_OVERHEAD_EXPENSE') {
                     await client.query(`
                         INSERT INTO ba_overhead_expenses (id, date, category, description, amount, created_by, created_at)
@@ -2934,47 +3040,25 @@ module.exports = async (req, res) => {
                     return res.status(200).json({ success: true, pending: true });
                 }
 
+                const resolved = await resolveAndSyncFeedStockItemName(
+                    client, itemId, payload.itemName || payload.name,
+                    payload.itemUnit || payload.unit || payload.newItem?.unit,
+                    payload.category || payload.newItem?.category,
+                    session ? session.email : null
+                );
                 await client.query(`
-                    INSERT INTO ba_feed_purchases (id, item_id, date, quantity, rate, supplier, notes, created_by, created_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                    INSERT INTO ba_feed_purchases (id, item_id, item_name, item_unit, date, quantity, rate, supplier, notes, created_by, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
                     ON CONFLICT (id) DO UPDATE SET
                         item_id = EXCLUDED.item_id,
+                        item_name = EXCLUDED.item_name,
+                        item_unit = EXCLUDED.item_unit,
                         date = EXCLUDED.date,
                         quantity = EXCLUDED.quantity,
                         rate = EXCLUDED.rate,
                         supplier = EXCLUDED.supplier,
                         notes = EXCLUDED.notes
-                `, [id, itemId, date, quantity || 0, rate || 0, supplier || null, notes || null, session ? session.email : null]);
-
-                const nameVal = payload.itemName || payload.name;
-                const unitVal = payload.itemUnit || payload.unit || 'kg';
-                if (nameVal && itemId && !nameVal.startsWith('item_')) {
-                    const settingsRes = await client.query("SELECT value FROM ba_settings WHERE key = 'feed_stock_items'");
-                    let items = [];
-                    if (settingsRes.rows.length > 0) {
-                        try { items = typeof settingsRes.rows[0].value === 'string' ? JSON.parse(settingsRes.rows[0].value) : settingsRes.rows[0].value; } catch (e) {}
-                    }
-                    if (!Array.isArray(items)) items = [];
-                    let updated = false;
-                    const existing = items.find(i => i.id === itemId);
-                    if (existing) {
-                        if (existing.name !== nameVal || (unitVal && existing.unit !== unitVal)) {
-                            existing.name = nameVal;
-                            if (unitVal) existing.unit = unitVal;
-                            updated = true;
-                        }
-                    } else {
-                        items.push({ id: itemId, name: nameVal, category: 'medicine', unit: unitVal });
-                        updated = true;
-                    }
-                    if (updated) {
-                        await client.query(`
-                            INSERT INTO ba_settings (key, value, updated_by, updated_at)
-                            VALUES ('feed_stock_items', $1, $2, NOW())
-                            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-                        `, [JSON.stringify(items), session ? session.email : null]);
-                    }
-                }
+                `, [id, itemId, resolved.name, resolved.unit, date, quantity || 0, rate || 0, supplier || null, notes || null, session ? session.email : null]);
 
                 return res.status(200).json({ success: true });
             }
@@ -3006,38 +3090,17 @@ module.exports = async (req, res) => {
                     return res.status(200).json({ success: true, pending: true });
                 }
 
+                const resolved = await resolveAndSyncFeedStockItemName(
+                    client, itemId, itemName,
+                    unit || payload.newItem?.unit,
+                    payload.category || payload.newItem?.category,
+                    session ? session.email : null
+                );
                 await client.query(`
                     UPDATE ba_feed_purchases
-                    SET item_id = $1, date = $2, quantity = $3, rate = $4, supplier = $5, notes = $6
-                    WHERE id = $7
-                `, [itemId, date, quantity || 0, rate || 0, supplier || null, notes || null, id]);
-
-                const catVal = payload.category;
-                if (itemName && itemId) {
-                    const settingsRes = await client.query("SELECT value FROM ba_settings WHERE key = 'feed_stock_items'");
-                    if (settingsRes.rows.length > 0) {
-                        let items = [];
-                        try { items = typeof settingsRes.rows[0].value === 'string' ? JSON.parse(settingsRes.rows[0].value) : settingsRes.rows[0].value; } catch (e) {}
-                        if (Array.isArray(items)) {
-                            let updated = false;
-                            const existing = items.find(i => i.id === itemId);
-                            if (existing) {
-                                if (existing.name !== itemName || (unit && existing.unit !== unit) || (catVal && existing.category !== catVal)) {
-                                    existing.name = itemName;
-                                    if (unit) existing.unit = unit;
-                                    if (catVal) existing.category = catVal;
-                                    updated = true;
-                                }
-                            } else {
-                                items.push({ id: itemId, name: itemName, category: catVal || 'medicine', unit: unit || 'kg' });
-                                updated = true;
-                            }
-                            if (updated) {
-                                await client.query("UPDATE ba_settings SET value = $1, updated_at = NOW() WHERE key = 'feed_stock_items'", [JSON.stringify(items)]);
-                            }
-                        }
-                    }
-                }
+                    SET item_id = $1, item_name = $2, item_unit = $3, date = $4, quantity = $5, rate = $6, supplier = $7, notes = $8
+                    WHERE id = $9
+                `, [itemId, resolved.name, resolved.unit, date, quantity || 0, rate || 0, supplier || null, notes || null, id]);
 
                 return res.status(200).json({ success: true });
             }
@@ -3087,17 +3150,25 @@ module.exports = async (req, res) => {
                     return res.status(200).json({ success: true, pending: true });
                 }
 
+                const resolved = await resolveAndSyncFeedStockItemName(
+                    client, itemId, payload.itemName || payload.name,
+                    payload.itemUnit || payload.unit || payload.newItem?.unit,
+                    payload.category || payload.newItem?.category,
+                    session ? session.email : null
+                );
                 await client.query(`
-                    INSERT INTO ba_feed_stock_issues (id, item_id, date, pen, quantity, lot_id, notes, created_by, created_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                    INSERT INTO ba_feed_stock_issues (id, item_id, item_name, item_unit, date, pen, quantity, lot_id, notes, created_by, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
                     ON CONFLICT (id) DO UPDATE SET
                         item_id = EXCLUDED.item_id,
+                        item_name = EXCLUDED.item_name,
+                        item_unit = EXCLUDED.item_unit,
                         date = EXCLUDED.date,
                         pen = EXCLUDED.pen,
                         quantity = EXCLUDED.quantity,
                         lot_id = EXCLUDED.lot_id,
                         notes = EXCLUDED.notes
-                `, [id, itemId, date, pen || 'ALL', quantity || 0, lotId || null, notes || null, session ? session.email : null]);
+                `, [id, itemId, resolved.name, resolved.unit, date, pen || 'ALL', quantity || 0, lotId || null, notes || null, session ? session.email : null]);
 
                 return res.status(200).json({ success: true });
             }

@@ -394,7 +394,10 @@ export default function FeedStock() {
                 return req.payload.itemName;
             }
         }
-        return (rec?.itemName && !rec.itemName.startsWith('item_')) ? rec.itemName : id;
+        // Nothing resolved to a real product name — show a clear placeholder instead of
+        // ever surfacing the internal "item_<timestamp>" id as if it were the product name.
+        if (rec?.itemName && !rec.itemName.startsWith('item_')) return rec.itemName;
+        return (typeof id === 'string' && id.startsWith('item_')) ? 'Unnamed Item' : (id || 'Unnamed Item');
     };
 
     const itemUnit = (id, rec) => {
@@ -702,7 +705,7 @@ export default function FeedStock() {
                                         const unit = row.item.unit || 'kg';
                                         return (
                                         <tr key={row.item.id}>
-                                            <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{row.item.name}</td>
+                                            <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{(row.item.name && !row.item.name.startsWith('item_')) ? row.item.name : 'Unnamed Item'}</td>
                                             <td style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{CATEGORY_LABELS[row.item.category || 'feed']}</td>
                                             <td>
                                                 {isAdmin ? (

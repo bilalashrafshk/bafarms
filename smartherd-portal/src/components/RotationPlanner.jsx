@@ -37,6 +37,8 @@ export default function RotationPlanner() {
     const [bulkNewMedName, setBulkNewMedName] = useState('');
     const [bulkNewMedUnit, setBulkNewMedUnit] = useState('unit');
     const [bulkNewMedRate, setBulkNewMedRate] = useState('');
+    const [bulkCustomType, setBulkCustomType] = useState('Treatment');
+    const [bulkCustomWithholding, setBulkCustomWithholding] = useState('0');
     const [bulkTaskDate, setBulkTaskDate] = useState(todayPKT());
     const [bulkTaskSubmitting, setBulkTaskSubmitting] = useState(false);
 
