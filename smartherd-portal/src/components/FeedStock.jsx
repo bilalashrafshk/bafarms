@@ -910,17 +910,27 @@ export default function FeedStock() {
                                                                 <i class="fa-solid fa-pen-to-square"></i>
                                                             </button>
                                                         )}
-                                                        {isAdmin && !pending && (
-                                                            p.supplier === 'In-house production' ? (
-                                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Credited by a premix batch — undo it from the Premix Production tab instead"><i class="fa-solid fa-lock"></i></span>
-                                                            ) : touched ? (
-                                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="This lot has already been (partly or fully) drawn from — removing it would reprice whatever was costed against it. Undo those issues/batches first."><i class="fa-solid fa-lock"></i></span>
-                                                            ) : (
-                                                                <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => deleteFeedPurchase(p.id)} title="Delete purchase">
+                                                        {isAdmin && !pending && (() => {
+                                                            // Only lock this row if a batch actually references it — batches
+                                                            // logged before the batch-linking fix never recorded a valid
+                                                            // purchaseId, so their "In-house production" purchase is
+                                                            // orphaned (no batch can ever undo it) and must stay deletable
+                                                            // here instead of being permanently stuck behind a dead-end lock.
+                                                            const linkedBatch = p.supplier === 'In-house production'
+                                                                ? premixBatches.find(b => b.purchaseId === p.id)
+                                                                : null;
+                                                            if (linkedBatch) {
+                                                                return <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Credited by a premix batch — undo it from the Premix Production tab instead"><i class="fa-solid fa-lock"></i></span>;
+                                                            }
+                                                            if (touched) {
+                                                                return <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="This lot has already been (partly or fully) drawn from — removing it would reprice whatever was costed against it. Undo those issues/batches first."><i class="fa-solid fa-lock"></i></span>;
+                                                            }
+                                                            return (
+                                                                <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => deleteFeedPurchase(p.id)} title={p.supplier === 'In-house production' ? 'Orphaned in-house production entry (no linked batch found) — delete directly' : 'Delete purchase'}>
                                                                     <i class="fa-solid fa-trash-can"></i>
                                                                 </button>
-                                                            )
-                                                        )}
+                                                            );
+                                                        })()}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -1194,12 +1204,19 @@ export default function FeedStock() {
                                             )}
                                             {isAdmin && (
                                                 <td style={{ textAlign: 'center' }}>
-                                                    {!pending && (
-                                                        iss.source === 'auto' ? (
-                                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Auto-synced from a TMR feed log — edit or delete it from the TMR Calculator's Recent Feed History instead"><i class="fa-solid fa-lock"></i></span>
-                                                        ) : iss.pen === 'PRODUCTION' ? (
-                                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Consumed by a premix batch — undo it from the Premix Production tab instead"><i class="fa-solid fa-lock"></i></span>
-                                                        ) : (
+                                                    {!pending && (() => {
+                                                        if (iss.source === 'auto') {
+                                                            return <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Auto-synced from a TMR feed log — edit or delete it from the TMR Calculator's Recent Feed History instead"><i class="fa-solid fa-lock"></i></span>;
+                                                        }
+                                                        // As with purchases: only lock a PRODUCTION issue if a batch
+                                                        // actually references it — pre-fix batches never recorded valid
+                                                        // issueIds, so those issues are orphaned and would otherwise be
+                                                        // permanently undeletable.
+                                                        const linkedBatch = iss.pen === 'PRODUCTION' ? premixBatches.find(b => (b.issueIds || []).includes(iss.id)) : null;
+                                                        if (linkedBatch) {
+                                                            return <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }} title="Consumed by a premix batch — undo it from the Premix Production tab instead"><i class="fa-solid fa-lock"></i></span>;
+                                                        }
+                                                        return (
                                                             <button
                                                                 type="button"
                                                                 class="btn btn-secondary"
@@ -1213,8 +1230,8 @@ export default function FeedStock() {
                                                             >
                                                                 <i class="fa-solid fa-trash-can"></i>
                                                             </button>
-                                                        )
-                                                    )}
+                                                        );
+                                                    })()}
                                                 </td>
                                             )}
                                         </tr>
