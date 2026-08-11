@@ -4,22 +4,56 @@ import { formatDate } from '../utils/formatDate';
 import { todayAsDate, parseDateOnly, daysBetween } from '../utils/dateOnly';
 
 export default function Dashboard({ onNavigate }) {
-    const { animals, weightLogs, treatments, feedLogs, transitionAnimalStatus, systemParams, orders, pens, quarantineProtocols } = useContext(FarmContext);
+    const {
+        animals, weightLogs, treatments, feedLogs, transitionAnimalStatus,
+        systemParams, orders, pens, quarantineProtocols, feedStockIssues,
+        feedStockItems, getFeedStockIssueCosts, getPenRosterAsOf
+    } = useContext(FarmContext);
 
     // 1. DYNAMIC CALCULATIONS
 
     // A. Actual Daily Feed Cost per Animal (PKR/Day)
-    // Derived from the logged feed-log ledger (what was actually fed and its actual
-    // cost each day), not the live TMR recipe — rations and ingredient prices change
-    // day to day, so a recipe snapshot would be stale/misleading. Weighted by the
-    // animal-count actually covered in each log entry (cost ÷ animal-days logged) —
-    // NOT total cost ÷ (days × whole-herd-count), which used to silently assume every
-    // pen was logged on every counted day. That made the figure swing wildly based on
-    // how many pens happened to be logged: feeding just one pen spread its cost across
-    // the entire herd (falsely tiny), while feeding every pen that day looked correct
-    // by comparison. Null (shown as "—") until at least one feeding has been logged.
-    const totalLoggedFeedCost = (feedLogs || []).reduce((sum, f) => sum + (f.totalCost || 0), 0);
-    const totalLoggedAnimalDays = (feedLogs || []).reduce((sum, f) => sum + (f.animalCount || 0), 0);
+    // Derived from logged feed logs and manual feed stock issues.
+    // TMR feed logs are weighted by partial feeding percentage (feedingPct / 100)
+    // so split-fed days (e.g. 50% Morning + 50% Evening) or single partial sessions
+    // don't inflate animal-days or double-count headcount.
+    // Manual feed issues (category === 'feed') are priced at FIFO cost and add to
+    // animal-days for any pen+date combination that lacks a TMR log.
+    const manualFeedIssues = (feedStockIssues || []).filter(i => {
+        const item = (feedStockItems || []).find(it => it.id === i.itemId);
+        return (item?.category || 'feed') === 'feed';
+    });
+
+    const issueCostsMap = getFeedStockIssueCosts ? getFeedStockIssueCosts() : {};
+    const totalManualIssueCost = manualFeedIssues.reduce((sum, iss) => sum + (issueCostsMap[iss.id]?.cost || 0), 0);
+
+    const totalLoggedFeedCost = (feedLogs || []).reduce((sum, f) => sum + (f.totalCost || 0), 0) + totalManualIssueCost;
+
+    const tmrAnimalDays = (feedLogs || []).reduce((sum, f) => {
+        const scale = (f.feedingPct ?? 100) / 100;
+        return sum + (f.animalCount || 0) * scale;
+    }, 0);
+
+    const loggedDatePenSet = new Set((feedLogs || []).map(f => `${f.date}__${f.pen}`));
+
+    const manualAnimalDaysMap = new Map();
+    manualFeedIssues.forEach(iss => {
+        const key = `${iss.date}__${iss.pen}`;
+        if (!loggedDatePenSet.has(key) && !manualAnimalDaysMap.has(key)) {
+            let headCount = 0;
+            if (iss.pen === 'ALL') {
+                headCount = (pens || []).reduce((sum, p) => sum + (getPenRosterAsOf ? getPenRosterAsOf(p.id, parseDateOnly(iss.date)).length : 0), 0);
+            } else if (getPenRosterAsOf) {
+                headCount = getPenRosterAsOf(iss.pen, parseDateOnly(iss.date)).length;
+            }
+            manualAnimalDaysMap.set(key, headCount);
+        }
+    });
+
+    const manualAnimalDays = Array.from(manualAnimalDaysMap.values()).reduce((sum, c) => sum + c, 0);
+
+    const totalLoggedAnimalDays = tmrAnimalDays + manualAnimalDays;
+
     const dailyCostPerAnimal = totalLoggedAnimalDays > 0
         ? totalLoggedFeedCost / totalLoggedAnimalDays
         : null;

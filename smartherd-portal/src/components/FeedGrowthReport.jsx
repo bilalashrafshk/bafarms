@@ -197,7 +197,9 @@ export default function FeedGrowthReport() {
         const map = new Map();
         logs.forEach(f => {
             const key = `${f.date}__${f.pen}`;
-            if (!map.has(key)) map.set(key, f.animalCount || 0);
+            const scale = (f.feedingPct ?? 100) / 100;
+            const animalDays = (f.animalCount || 0) * scale;
+            map.set(key, (map.get(key) || 0) + animalDays);
         });
         issues.forEach(iss => {
             const key = `${iss.date}__${iss.pen}`;
