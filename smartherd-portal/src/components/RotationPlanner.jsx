@@ -163,7 +163,18 @@ export default function RotationPlanner() {
         setBulkTaskDate(todayPKT());
         setBulkDrawFromStock(true);
         setBulkStockMode('existing');
-        setBulkStockItemId('');
+        
+        const task = quarantineProtocols.find(t => String(t.id) === String(bulkTaskId));
+        let matchedItemId = '';
+        if (task?.medicine) {
+            const mLower = task.medicine.toLowerCase();
+            const matched = medicineItems.find(i => {
+                const iname = (i.name || '').toLowerCase();
+                return iname && (mLower.includes(iname) || iname.includes(mLower.replace('inj.', '').trim()));
+            });
+            if (matched) matchedItemId = matched.id;
+        }
+        setBulkStockItemId(matchedItemId || medicineItems[0]?.id || '');
         setBulkStockQtyPerAnimal('1');
         setBulkNewMedName('');
         setBulkNewMedUnit('unit');
@@ -777,8 +788,20 @@ export default function RotationPlanner() {
                                     </div>
                                 )}
                                 <div class="form-group" style={{ marginBottom: '0.75rem' }}>
-                                    <label>Quantity per Animal *</label>
-                                    <input type="number" class="form-control" min="0" step="0.01" value={bulkStockQtyPerAnimal} onChange={e => setBulkStockQtyPerAnimal(e.target.value)} />
+                                    <label style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>Quantity per Animal ({bulkStockMode === 'existing' ? (medicineItems.find(i => i.id === bulkStockItemId)?.unit || 'unit') : (bulkNewMedUnit || 'unit')}) *</span>
+                                        {bulkStockMode === 'existing' && bulkStockItemId && (
+                                            <span style={{ color: 'var(--accent-gold)', fontSize: '0.75rem', fontWeight: 600 }}>
+                                                Total draw: {((parseFloat(bulkStockQtyPerAnimal) || 0) * bulkTaskEligible.length).toFixed(2)} {medicineItems.find(i => i.id === bulkStockItemId)?.unit || 'unit'}
+                                            </span>
+                                        )}
+                                    </label>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                        <input type="number" class="form-control" min="0.001" step="any" placeholder="e.g. 1, 0.5, 0.1" value={bulkStockQtyPerAnimal} onChange={e => setBulkStockQtyPerAnimal(e.target.value)} required />
+                                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, minWidth: '32px' }}>
+                                            {bulkStockMode === 'existing' ? (medicineItems.find(i => i.id === bulkStockItemId)?.unit || 'unit') : (bulkNewMedUnit || 'unit')}
+                                        </span>
+                                    </div>
                                 </div>
                                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
                                     Priced at FIFO actual cost. Stock draws by non-admins require Super Admin approval before they're reflected in reports.

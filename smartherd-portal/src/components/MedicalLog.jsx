@@ -7,14 +7,11 @@ import { todayPKT, todayAsDate, parseDateOnly } from '../utils/dateOnly';
 export default function MedicalLog() {
     const {
         animals, treatments, addTreatment, deleteTreatment, medCategories,
-        feedStockItems, addStockTrackedIngredient, addFeedPurchase, addFeedStockIssue,
-        getFeedStockLedger, getFeedStockIssueCosts
+        feedStockItems, feedPurchases, addStockTrackedIngredient, addFeedPurchase, addFeedStockIssue,
+        getFeedStockLedger, getFeedStockLots, getFeedStockIssueCosts
     } = useContext(FarmContext);
 
-    // Medicine is just another category on the same category-agnostic FIFO stock system
-    // feed already uses (feedStockItems/feedPurchases/feedStockIssues) — see Feed Stock &
-    // Store Ledger. A treatment can optionally draw from it, so vet costs stop being
-    // invisible the way manual feed issues used to be (see Feed Cost & Growth Report).
+    // Filter tracked medicine items from the store ledger
     const medicineItems = feedStockItems.filter(i => (i.category || 'feed') === 'medicine');
     const stockLedger = getFeedStockLedger();
     const stockQtyOf = (itemId) => stockLedger.find(r => r.item.id === itemId)?.closingQty ?? 0;
@@ -26,98 +23,128 @@ export default function MedicalLog() {
     const [tagOpen, setTagOpen] = useState(false);
     const [date, setDate] = useState(todayPKT());
     const [type, setType] = useState('');
-    const [medicine, setMedicine] = useState('');
-    const [dosage, setDosage] = useState('');
-    const [withholding, setWithholding] = useState('0');
-    const [isSuccess, setIsSuccess] = useState(false);
-
-    // Optional stock draw — see medicineItems/stockLedger above.
-    const [drawFromStock, setDrawFromStock] = useState(false);
-    const [stockMode, setStockMode] = useState('existing'); // 'existing' | 'new'
-    const [stockItemId, setStockItemId] = useState('');
-    const [stockQty, setStockQty] = useState('1');
+    
+    // Unified medicine & unit selection
+    const [selectedMedMode, setSelectedMedMode] = useState('inventory'); // 'inventory' | 'new' | 'manual'
+    const [selectedMedId, setSelectedMedId] = useState(medicineItems[0]?.id || '');
+    const [dosageQty, setDosageQty] = useState('1');
+    const [manualMedName, setManualMedName] = useState('');
+    const [manualDosage, setManualDosage] = useState('');
     const [newMedName, setNewMedName] = useState('');
     const [newMedUnit, setNewMedUnit] = useState('unit');
     const [newMedRate, setNewMedRate] = useState('');
+    
+    const [withholding, setWithholding] = useState('0');
+    const [isSuccess, setIsSuccess] = useState(false);
 
-    const resetStockFields = () => {
-        setDrawFromStock(false);
-        setStockMode('existing');
-        setStockItemId('');
-        setStockQty('1');
+    // Selected stock item helper
+    const activeStockItem = medicineItems.find(i => i.id === selectedMedId);
+    const activeUnit = activeStockItem?.unit || 'unit';
+    const activeLots = activeStockItem ? getFeedStockLots(activeStockItem.id) : [];
+    const activeRate = activeLots[0]?.rate || (feedPurchases.find(p => p.itemId === activeStockItem?.id)?.rate) || 0;
+    const activeStockQty = activeStockItem ? stockQtyOf(activeStockItem.id) : 0;
+
+    // Reset form helper
+    const resetForm = () => {
+        setSelectedAnimal('');
+        setTagSearch('');
+        setDosageQty('1');
+        setManualMedName('');
+        setManualDosage('');
         setNewMedName('');
         setNewMedUnit('unit');
         setNewMedRate('');
+        setWithholding('0');
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!selectedAnimal || !medicine || !dosage) return;
+        if (!selectedAnimal) {
+            alert('Please select an animal.');
+            return;
+        }
 
+        let medName = '';
+        let finalDosage = '';
         let stockIssueId = null;
-        if (drawFromStock) {
-            const qty = parseFloat(stockQty) || 0;
+
+        const animalObj = animals.find(a => a.id === parseInt(selectedAnimal));
+        const pen = animalObj?.pen || 'ALL';
+
+        if (selectedMedMode === 'inventory') {
+            if (!activeStockItem) {
+                alert('Please select a medicine from stock.');
+                return;
+            }
+            const qty = parseFloat(dosageQty) || 0;
             if (qty <= 0) {
-                alert('Enter a quantity used for the stock draw, or turn off "Draw from medicine stock".');
+                alert(`Enter a valid quantity/dosage in ${activeUnit} (e.g. 1, 0.5, 0.1).`);
                 return;
             }
-
-            let itemId = stockItemId;
-            if (stockMode === 'new') {
-                const name = newMedName.trim();
-                const rate = parseFloat(newMedRate);
-                if (!name || isNaN(rate) || rate < 0) {
-                    alert('Enter a name and a price/unit for the new medicine.');
-                    return;
-                }
-                // Purchase-first: the lot is created before it's drawn against, in this
-                // same action, so FIFO cost is always backed by a real recorded price —
-                // never a stock draw invented after the fact with no purchase behind it.
-                itemId = addStockTrackedIngredient(name, 'medicine', newMedUnit.trim() || 'unit');
-                await addFeedPurchase({
-                    itemId,
-                    itemName: name,
-                    itemUnit: newMedUnit.trim() || 'unit',
-                    date,
-                    quantity: qty,
-                    rate,
-                    supplier: 'Direct purchase (treatment)',
-                    notes: `Backfilled for treatment — ${medicine} (${dosage})`
-                });
-            } else if (!itemId) {
-                alert('Select a medicine from stock, or switch to "New medicine".');
-                return;
-            }
-
+            medName = activeStockItem.name;
+            finalDosage = `${qty} ${activeUnit}`;
             stockIssueId = `fi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-            const animalObj = animals.find(a => a.id === parseInt(selectedAnimal));
+            await addFeedStockIssue({
+                id: stockIssueId,
+                itemId: activeStockItem.id,
+                date,
+                pen,
+                quantity: qty,
+                notes: `Treatment stock draw — ${animalObj?.rfid || selectedAnimal}, ${medName} (${finalDosage})`
+            });
+        } else if (selectedMedMode === 'new') {
+            const name = newMedName.trim();
+            const rate = parseFloat(newMedRate);
+            const qty = parseFloat(dosageQty) || 0;
+            const unit = newMedUnit.trim() || 'unit';
+            if (!name || isNaN(rate) || rate < 0 || qty <= 0) {
+                alert('Please enter a medicine name, price/unit, and quantity.');
+                return;
+            }
+            medName = name;
+            finalDosage = `${qty} ${unit}`;
+            const itemId = addStockTrackedIngredient(name, 'medicine', unit);
+            await addFeedPurchase({
+                itemId,
+                itemName: name,
+                itemUnit: unit,
+                date,
+                quantity: qty,
+                rate,
+                supplier: 'Direct purchase (treatment)',
+                notes: `Backfilled for treatment — ${name} (${finalDosage})`
+            });
+            stockIssueId = `fi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
             await addFeedStockIssue({
                 id: stockIssueId,
                 itemId,
                 date,
-                pen: animalObj?.pen || 'ALL',
+                pen,
                 quantity: qty,
-                notes: `Treatment stock draw — ${animalObj?.rfid || selectedAnimal}, ${medicine} (${dosage})`
+                notes: `Treatment stock draw — ${animalObj?.rfid || selectedAnimal}, ${medName} (${finalDosage})`
             });
+        } else {
+            // Manual / non-inventory
+            medName = manualMedName.trim();
+            finalDosage = manualDosage.trim();
+            if (!medName || !finalDosage) {
+                alert('Please enter a medicine name and dosage.');
+                return;
+            }
         }
 
-        addTreatment(
+        await addTreatment(
             selectedAnimal,
             date,
             type || (medCategories[0] || 'Vaccination'),
-            medicine,
-            dosage,
-            parseInt(withholding),
+            medName,
+            finalDosage,
+            parseInt(withholding) || 0,
             null,
             stockIssueId
         );
 
-        setSelectedAnimal('');
-        setTagSearch('');
-        setMedicine('');
-        setDosage('');
-        setWithholding('0');
-        resetStockFields();
+        resetForm();
         setIsSuccess(true);
         setTimeout(() => setIsSuccess(false), 3000);
     };
@@ -139,94 +166,132 @@ export default function MedicalLog() {
         setTagOpen(false);
     };
 
-    // Portaled to <body> and positioned via this rect — .glass-panel has
-    // overflow:hidden, which clips an absolutely-positioned dropdown whenever the
-    // panel's bottom edge sits close below the input (e.g. desktop, where this
-    // row's fields sit side by side). See WeightTracker.jsx for the same fix.
-    const tagFieldRef = useRef(null);
-    const [tagDropdownRect, setTagDropdownRect] = useState(null);
-
-    useEffect(() => {
-        if (!tagOpen) return;
-        const updateRect = () => {
-            if (tagFieldRef.current) {
-                const r = tagFieldRef.current.getBoundingClientRect();
-                setTagDropdownRect({ top: r.bottom + 2, left: r.left, width: r.width });
-            }
-        };
-        updateRect();
-        window.addEventListener('scroll', updateRect, true);
-        window.addEventListener('resize', updateRect);
-        return () => {
-            window.removeEventListener('scroll', updateRect, true);
-            window.removeEventListener('resize', updateRect);
-        };
-    }, [tagOpen, tagSearch]);
-
-    // Sort treatment logs by date descending
-    const sortedTreatments = [...treatments].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const checkWithholdingActive = (tDate, wDays) => {
+        if (!wDays || wDays <= 0) return 0;
+        const treated = parseDateOnly(tDate);
+        const today = todayAsDate();
+        const diffDays = Math.floor((today - treated) / (1000 * 60 * 60 * 24));
+        const remaining = wDays - diffDays;
+        return remaining > 0 ? remaining : 0;
+    };
 
     const getRfid = (animalId) => {
-        const animal = animals.find(a => a.id === animalId);
-        return animal ? animal.rfid : `Unknown (ID #${animalId})`;
+        const a = animals.find(an => an.id === animalId);
+        return a ? a.rfid : `ID: ${animalId}`;
     };
 
-    // Calculate active withholding status for rows. Uses Math.floor (not round) so a
-    // period isn't shown as cleared up to ~12 hours before it actually elapses.
-    const checkWithholdingActive = (treatmentDate, withholdingDays) => {
-        const msDiff = todayAsDate() - parseDateOnly(treatmentDate);
-        const daysPassed = Math.floor(msDiff / (1000 * 60 * 60 * 24));
-        return daysPassed < withholdingDays ? (withholdingDays - daysPassed) : 0;
+    // Calculate treatment cost reliably for table display
+    const getTreatmentCostDisplay = (t) => {
+        if (t.stockIssueId && issueCosts[t.stockIssueId]?.cost) {
+            return `${Math.round(issueCosts[t.stockIssueId].cost).toLocaleString()} PKR`;
+        }
+        // Match medicine name against stock items
+        const rawMed = (t.medicine || '').toLowerCase();
+        const matched = feedStockItems.find(i => {
+            const iname = (i.name || '').toLowerCase();
+            return iname && (rawMed.includes(iname) || iname.includes(rawMed.replace('inj.', '').trim()));
+        });
+        if (matched) {
+            const purchases = feedPurchases.filter(p => p.itemId === matched.id);
+            const rate = purchases[0]?.rate || 0;
+            if (rate > 0) {
+                const match = (t.dosage || t.medicine || '').match(/([\d.]+)\s*(ml|unit|dose|pc|kg)?/i);
+                const doseVal = match ? parseFloat(match[1]) : 1;
+                const bottleMatch = matched.name.match(/(\d+)\s*ml/i);
+                let multiplier = doseVal;
+                if (matched.unit === 'pc' && match && match[2]?.toLowerCase() === 'ml' && bottleMatch) {
+                    multiplier = doseVal / parseFloat(bottleMatch[1]);
+                }
+                const cost = Math.round(multiplier * rate);
+                return `${cost.toLocaleString()} PKR`;
+            }
+        }
+        return '—';
     };
+
+    const sortedTreatments = [...treatments].sort((a, b) => {
+        const da = parseDateOnly(a.date);
+        const db = parseDateOnly(b.date);
+        return db - da || b.id - a.id;
+    });
+
+    const pickerAnchorRef = useRef(null);
+    const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
+
+    useEffect(() => {
+        if (!tagOpen || !pickerAnchorRef.current) return;
+        const rect = pickerAnchorRef.current.getBoundingClientRect();
+        setDropdownPos({
+            top: rect.bottom + window.scrollY,
+            left: rect.left + window.scrollX,
+            width: rect.width
+        });
+    }, [tagOpen]);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+        <div className="medical-log-page">
             
-            <div>
+            {/* Action Bar / Form Container */}
+            <div className="glass-panel" style={{ marginBottom: '2rem' }}>
+                <h3 className="panel-title">
+                    <i className="fa-solid fa-syringe" style={{ color: 'var(--primary-green-light)' }}></i> 
+                    Record Animal Treatment
+                </h3>
 
-                {/* Form to log medical treatment */}
-                <div class="glass-panel">
-                    <h3 class="panel-title" style={{ marginBottom: '1.2rem' }}><i class="fa-solid fa-file-prescription"></i> Log Treatment</h3>
-                    
-                    <form onSubmit={handleSubmit}>
+                <div className="form-wrapper">
+                    <form onSubmit={handleSubmit} className="medical-form">
                         
-                        {selectedAnimal && (() => {
-                            const a = animals.find(x => x.id === parseInt(selectedAnimal));
-                            return a ? (
-                                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', padding: '0.5rem 0.85rem', marginBottom: '1rem', background: 'rgba(25,135,84,0.07)', border: '1px solid rgba(25,135,84,0.2)', borderRadius: '8px', fontSize: '0.82rem' }}>
-                                    <i class="fa-solid fa-microchip" style={{ color: 'var(--accent-gold)' }}></i>
-                                    <strong style={{ color: 'var(--text-pure)' }}>{a.rfid}</strong>
-                                    <span style={{ color: 'var(--text-muted)' }}>{a.breed}</span>
-                                    {a.pen && <span style={{ color: 'var(--accent-gold)' }}>Pen {a.pen}</span>}
-                                    <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', marginLeft: 'auto', fontSize: '0.9rem' }} onClick={() => { setSelectedAnimal(''); setTagSearch(''); }}>✕</button>
-                                </div>
-                            ) : null;
-                        })()}
-
                         {/* Row 1: Animal, Category, Medicine, Dosage */}
-                        <div class="form-inline-grid-med-row1">
-                            <div class="form-group" style={{ position: 'relative' }} ref={tagFieldRef}>
-                                <label>Tag Number</label>
-                                <input
-                                    type="text"
-                                    class="form-control"
-                                    placeholder="Type tag or scan..."
-                                    value={tagSearch}
-                                    onChange={e => { setTagSearch(e.target.value); setSelectedAnimal(''); setTagOpen(true); }}
-                                    onFocus={() => setTagOpen(true)}
-                                    onBlur={() => setTimeout(() => setTagOpen(false), 150)}
-                                    autoComplete="off"
-                                />
-                                {tagOpen && tagSuggestions.length > 0 && tagDropdownRect && createPortal(
-                                    <div style={{ position: 'fixed', top: tagDropdownRect.top, left: tagDropdownRect.left, width: tagDropdownRect.width, zIndex: 9999, background: 'hsl(210,15%,8%)', border: '1px solid var(--border-subtle)', borderRadius: '8px', maxHeight: '240px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+                        <div className="form-inline-grid-med">
+                            <div className="form-group" style={{ position: 'relative' }}>
+                                <label>Animal RFID / Tag *</label>
+                                <div className="combobox-wrapper" ref={pickerAnchorRef}>
+                                    <input 
+                                        type="text" 
+                                        className="form-control" 
+                                        placeholder="Type RFID or select…"
+                                        value={tagSearch}
+                                        onChange={(e) => {
+                                            setTagSearch(e.target.value);
+                                            setSelectedAnimal('');
+                                            setTagOpen(true);
+                                        }}
+                                        onFocus={() => setTagOpen(true)}
+                                        required={!selectedAnimal}
+                                    />
+                                    {selectedAnimal && (
+                                        <button 
+                                            type="button"
+                                            className="combobox-clear"
+                                            onClick={() => {
+                                                setSelectedAnimal('');
+                                                setTagSearch('');
+                                            }}
+                                        >
+                                            <i className="fa-solid fa-xmark"></i>
+                                        </button>
+                                    )}
+                                </div>
+                                {tagOpen && createPortal(
+                                    <div 
+                                        className="combobox-dropdown"
+                                        style={{
+                                            position: 'absolute',
+                                            top: dropdownPos.top,
+                                            left: dropdownPos.left,
+                                            width: dropdownPos.width,
+                                            zIndex: 9999
+                                        }}
+                                    >
                                         {tagSuggestions.map(a => (
-                                            <button key={a.id} type="button"
-                                                style={{ display: 'flex', width: '100%', padding: '0.65rem 1rem', gap: '0.8rem', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', textAlign: 'left' }}
-                                                onMouseDown={() => selectAnimalFromPicker(a)}>
-                                                <strong style={{ color: 'var(--text-pure)', fontFamily: 'var(--font-heading)', minWidth: '48px', fontSize: '1rem' }}>{a.rfid}</strong>
-                                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{a.breed}</span>
-                                                {a.pen && <span style={{ fontSize: '0.75rem', color: 'var(--accent-gold)' }}>Pen {a.pen}</span>}
-                                                <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', marginLeft: 'auto', fontWeight: '600' }}>{a.currentWeight} kg</span>
+                                            <button
+                                                key={a.id}
+                                                type="button"
+                                                className={`combobox-option ${String(a.id) === selectedAnimal ? 'selected' : ''}`}
+                                                onClick={() => selectAnimalFromPicker(a)}
+                                            >
+                                                <strong>{a.rfid}</strong>
+                                                <span className="combobox-meta">{a.breed} · Pen {a.pen || 'None'}</span>
                                             </button>
                                         ))}
                                     </div>,
@@ -234,59 +299,143 @@ export default function MedicalLog() {
                                 )}
                             </div>
 
-                            <div class="form-group">
+                            <div className="form-group">
                                 <label>Category</label>
-                                <select class="form-control" value={type || (medCategories[0] || 'Vaccination')} onChange={(e) => setType(e.target.value)}>
+                                <select className="form-control" value={type || (medCategories[0] || 'Vaccination')} onChange={(e) => setType(e.target.value)}>
                                     {medCategories.map(cat => (
                                         <option key={cat} value={cat}>{cat}</option>
                                     ))}
                                 </select>
                             </div>
 
-                            <div class="form-group">
-                                <label>Medicine Name *</label>
-                                <input 
-                                    type="text" 
-                                    class="form-control" 
-                                    placeholder="e.g. FMD Vaccine"
-                                    value={medicine}
-                                    onChange={(e) => setMedicine(e.target.value)}
-                                    required
-                                />
+                            <div className="form-group">
+                                <label>Medicine Source *</label>
+                                <select 
+                                    className="form-control"
+                                    value={selectedMedMode === 'inventory' ? selectedMedId : (selectedMedMode === 'new' ? '__new__' : '__manual__')}
+                                    onChange={(e) => {
+                                        const v = e.target.value;
+                                        if (v === '__new__') {
+                                            setSelectedMedMode('new');
+                                        } else if (v === '__manual__') {
+                                            setSelectedMedMode('manual');
+                                        } else {
+                                            setSelectedMedMode('inventory');
+                                            setSelectedMedId(v);
+                                        }
+                                    }}
+                                >
+                                    <optgroup label="Tracked Medicine Stock">
+                                        {medicineItems.map(item => (
+                                            <option key={item.id} value={item.id}>
+                                                {item.name} ({(Number(stockQtyOf(item.id)) || 0).toFixed(2)} {item.unit} on hand)
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                    <optgroup label="Other Options">
+                                        <option value="__new__">+ Register New Medicine…</option>
+                                        <option value="__manual__">Manual / Non-inventory Entry</option>
+                                    </optgroup>
+                                </select>
                             </div>
 
-                            <div class="form-group">
-                                <label>Dosage Volume *</label>
-                                <input 
-                                    type="text" 
-                                    class="form-control" 
-                                    placeholder="e.g. 5ml, 10cc"
-                                    value={dosage}
-                                    onChange={(e) => setDosage(e.target.value)}
-                                    required
-                                />
-                            </div>
+                            {selectedMedMode === 'inventory' && (
+                                <div className="form-group">
+                                    <label style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>Dosage ({activeUnit}) *</span>
+                                        {activeRate > 0 && (
+                                            <span style={{ color: 'var(--accent-gold)', fontSize: '0.75rem', fontWeight: 600 }}>
+                                                ~{Math.round((parseFloat(dosageQty) || 0) * activeRate).toLocaleString()} PKR
+                                            </span>
+                                        )}
+                                    </label>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                        <input 
+                                            type="number"
+                                            step="any"
+                                            min="0.001"
+                                            className="form-control" 
+                                            placeholder="e.g. 1, 0.5, 0.1"
+                                            value={dosageQty}
+                                            onChange={(e) => setDosageQty(e.target.value)}
+                                            required
+                                        />
+                                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, minWidth: '32px' }}>
+                                            {activeUnit}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
+
+                            {selectedMedMode === 'manual' && (
+                                <>
+                                    <div className="form-group">
+                                        <label>Medicine Name *</label>
+                                        <input 
+                                            type="text" 
+                                            className="form-control" 
+                                            placeholder="e.g. Antibiotic"
+                                            value={manualMedName}
+                                            onChange={(e) => setManualMedName(e.target.value)}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Dosage *</label>
+                                        <input 
+                                            type="text" 
+                                            className="form-control" 
+                                            placeholder="e.g. 10ml, 1 dose"
+                                            value={manualDosage}
+                                            onChange={(e) => setManualDosage(e.target.value)}
+                                            required
+                                        />
+                                    </div>
+                                </>
+                            )}
                         </div>
 
+                        {/* New Medicine Mode Sub-form */}
+                        {selectedMedMode === 'new' && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '0.8rem', marginTop: '0.5rem', marginBottom: '0.8rem', padding: '0.8rem', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px' }}>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: '0.75rem' }}>Medicine Name *</label>
+                                    <input type="text" className="form-control" placeholder="e.g. Loxin 100ml" value={newMedName} onChange={(e) => setNewMedName(e.target.value)} required />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: '0.75rem' }}>Unit *</label>
+                                    <input type="text" className="form-control" placeholder="pc, ml, dose…" value={newMedUnit} onChange={(e) => setNewMedUnit(e.target.value)} required />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: '0.75rem' }}>Dosage ({newMedUnit}) *</label>
+                                    <input type="number" step="any" min="0.001" className="form-control" value={dosageQty} onChange={(e) => setDosageQty(e.target.value)} required />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: '0.75rem' }}>Price / Unit (PKR) *</label>
+                                    <input type="number" min="0" step="any" className="form-control" placeholder="PKR" value={newMedRate} onChange={(e) => setNewMedRate(e.target.value)} required />
+                                </div>
+                            </div>
+                        )}
+
                         {/* Row 2: Date, Withholding, Submit Button */}
-                        <div class="form-inline-grid-med-row2">
-                            <div class="form-group">
+                        <div className="form-inline-grid-med-row2" style={{ marginTop: '0.6rem' }}>
+                            <div className="form-group">
                                 <label>Treatment Date</label>
                                 <input 
                                     type="date" 
-                                    class="form-control" 
+                                    className="form-control" 
                                     value={date}
                                     onChange={(e) => setDate(e.target.value)}
                                     required
                                 />
                             </div>
 
-                            <div class="form-group">
+                            <div className="form-group">
                                 <label>Withholding (Days)</label>
                                 <input 
                                     type="number" 
                                     min="0"
-                                    class="form-control" 
+                                    className="form-control" 
                                     placeholder="e.g. 14"
                                     value={withholding}
                                     onChange={(e) => setWithholding(e.target.value)}
@@ -294,87 +443,17 @@ export default function MedicalLog() {
                                 />
                             </div>
 
-                            <div class="form-group">
-                                <button type="submit" class="btn btn-primary btn-block" style={{ width: '100%' }}>
-                                    Save Treatment
+                            <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
+                                <button type="submit" className="btn btn-primary btn-block" style={{ width: '100%', height: '42px' }}>
+                                    <i className="fa-solid fa-floppy-disk" style={{ marginRight: '0.4rem' }}></i> Save Treatment
                                 </button>
                             </div>
                         </div>
 
-                        {/* Optional: cost this treatment against tracked medicine stock —
-                            same FIFO stock system Feed Stock & Store Ledger uses, just a
-                            'medicine' category item instead of 'feed'. */}
-                        <div style={{ marginTop: '1rem', padding: '0.85rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '8px' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer', marginBottom: drawFromStock ? '0.85rem' : 0 }}>
-                                <input type="checkbox" checked={drawFromStock} onChange={(e) => setDrawFromStock(e.target.checked)} />
-                                Draw from medicine stock (tracks cost)
-                            </label>
-
-                            {drawFromStock && (
-                                <>
-                                    <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.85rem', fontSize: '0.8rem' }}>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
-                                            <input type="radio" name="stockMode" checked={stockMode === 'existing'} onChange={() => setStockMode('existing')} />
-                                            Existing stock item
-                                        </label>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
-                                            <input type="radio" name="stockMode" checked={stockMode === 'new'} onChange={() => setStockMode('new')} />
-                                            New medicine (not in stock)
-                                        </label>
-                                    </div>
-
-                                    {stockMode === 'existing' ? (
-                                        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                                            <div class="form-group" style={{ flex: '1 1 220px', marginBottom: 0 }}>
-                                                <label>Medicine</label>
-                                                <select class="form-control" value={stockItemId} onChange={(e) => setStockItemId(e.target.value)}>
-                                                    <option value="">Select…</option>
-                                                    {medicineItems.map(item => (
-                                                        <option key={item.id} value={item.id}>
-                                                            {item.name} — {(Number(stockQtyOf(item.id)) || 0).toFixed(2)} {item.unit} in stock
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                                {medicineItems.length === 0 && (
-                                                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>No medicine stock items yet — use "New medicine" or add one in Feed Stock & Store Ledger.</span>
-                                                )}
-                                            </div>
-                                            <div class="form-group" style={{ flex: '0 1 140px', marginBottom: 0 }}>
-                                                <label>Quantity Used</label>
-                                                <input type="number" min="0" step="0.01" class="form-control" value={stockQty} onChange={(e) => setStockQty(e.target.value)} />
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                                            <div class="form-group" style={{ flex: '1 1 180px', marginBottom: 0 }}>
-                                                <label>Medicine Name</label>
-                                                <input type="text" class="form-control" placeholder="e.g. Oxytetracycline" value={newMedName} onChange={(e) => setNewMedName(e.target.value)} />
-                                            </div>
-                                            <div class="form-group" style={{ flex: '0 1 100px', marginBottom: 0 }}>
-                                                <label>Unit</label>
-                                                <input type="text" class="form-control" placeholder="ml, dose…" value={newMedUnit} onChange={(e) => setNewMedUnit(e.target.value)} />
-                                            </div>
-                                            <div class="form-group" style={{ flex: '0 1 120px', marginBottom: 0 }}>
-                                                <label>Quantity Used</label>
-                                                <input type="number" min="0" step="0.01" class="form-control" value={stockQty} onChange={(e) => setStockQty(e.target.value)} />
-                                            </div>
-                                            <div class="form-group" style={{ flex: '0 1 130px', marginBottom: 0 }}>
-                                                <label>Price / Unit (PKR)</label>
-                                                <input type="number" min="0" step="0.01" class="form-control" value={newMedRate} onChange={(e) => setNewMedRate(e.target.value)} />
-                                            </div>
-                                        </div>
-                                    )}
-                                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.5rem' }}>
-                                        Priced at actual FIFO stock cost, same as feed. If you're not a Super Admin, this stock draw is queued for Super Admin approval — the treatment itself still saves immediately.
-                                    </span>
-                                </>
-                            )}
-                        </div>
-
                         {isSuccess && (
                             <div style={{ marginTop: '1.2rem', padding: '0.8rem', background: 'rgba(25,135,84,0.1)', border: '1px solid var(--primary-green-light)', borderRadius: '8px', color: 'var(--primary-green-light)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.88rem' }}>
-                                <i class="fa-solid fa-circle-check"></i>
-                                Treatment saved.
+                                <i className="fa-solid fa-circle-check"></i>
+                                Treatment saved and medicine stock updated.
                             </div>
                         )}
 
@@ -385,11 +464,18 @@ export default function MedicalLog() {
 
             {/* Historical list */}
             <div className="glass-panel">
-                <h3 className="panel-title"><i className="fa-solid fa-clock-rotate-left"></i> Treatment History</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <h3 className="panel-title" style={{ margin: 0 }}>
+                        <i className="fa-solid fa-clock-rotate-left"></i> Treatment History
+                    </h3>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        {sortedTreatments.length} record{sortedTreatments.length === 1 ? '' : 's'} logged
+                    </span>
+                </div>
                 
                 {/* Table */}
                 <div className="table-wrapper">
-                    <table className="data-table">
+                    <table className="data-table" style={{ fontSize: '0.85rem' }}>
                         <thead>
                             <tr>
                                 <th>ID</th>
@@ -397,15 +483,16 @@ export default function MedicalLog() {
                                 <th>DATE</th>
                                 <th>CATEGORY</th>
                                 <th>MEDICINE</th>
-                                <th title="FIFO actual cost of the linked stock draw, if any">COST</th>
+                                <th style={{ textAlign: 'right' }} title="FIFO actual cost of medicine used">COST</th>
                                 <th>WTHLD</th>
                                 <th>STATUS</th>
-                                <th style={{ textAlign: 'center' }}>ACTIONS</th>
+                                <th style={{ textAlign: 'center', width: '60px' }}>ACTIONS</th>
                             </tr>
                         </thead>
                         <tbody>
                             {sortedTreatments.map((t) => {
                                 const daysRemaining = checkWithholdingActive(t.date, t.withholding);
+                                const costDisplay = getTreatmentCostDisplay(t);
                                 return (
                                     <tr key={t.id}>
                                         <td>#{t.id}</td>
@@ -413,22 +500,26 @@ export default function MedicalLog() {
                                             {getRfid(t.animalId)}
                                         </td>
                                         <td>{formatDate(t.date)}</td>
-                                        <td>{t.type}</td>
-                                        <td><strong>{t.medicine}</strong> ({t.dosage})</td>
-                                        <td style={{ fontSize: '0.8rem' }}>
-                                            {!t.stockIssueId ? <span style={{ color: 'var(--text-muted)' }}>—</span>
-                                                : issueCosts[t.stockIssueId] ? `${Math.round(issueCosts[t.stockIssueId].cost).toLocaleString()} PKR`
-                                                : <span style={{ color: 'var(--accent-gold)' }} title="Stock draw not yet approved/synced">Pending</span>}
+                                        <td>
+                                            <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.45rem', borderRadius: '6px', background: 'rgba(255,255,255,0.06)' }}>
+                                                {t.type}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <strong>{t.medicine}</strong> <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>({t.dosage})</span>
+                                        </td>
+                                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: costDisplay === '—' ? 'var(--text-muted)' : 'var(--accent-gold)' }}>
+                                            {costDisplay}
                                         </td>
                                         <td>{t.withholding} Days</td>
                                         <td>
                                             {daysRemaining > 0 ? (
-                                                <span style={{ color: 'hsl(0, 75%, 55%)', fontWeight: '700' }}>
+                                                <span style={{ color: 'hsl(0, 75%, 55%)', fontWeight: '700', fontSize: '0.78rem' }}>
                                                     <i className="fa-solid fa-circle-xmark" style={{ marginRight: '0.3rem' }}></i>
                                                     {daysRemaining}d LOCKED
                                                 </span>
                                             ) : (
-                                                <span style={{ color: 'var(--primary-green-light)', fontWeight: '600' }}>
+                                                <span style={{ color: 'var(--primary-green-light)', fontWeight: '600', fontSize: '0.78rem' }}>
                                                     <i className="fa-solid fa-circle-check" style={{ marginRight: '0.3rem' }}></i>
                                                     CLEAR
                                                 </span>
@@ -436,12 +527,12 @@ export default function MedicalLog() {
                                         </td>
                                         <td>
                                             <div style={{ display: 'flex', justifyContent: 'center' }}>
-                                                <button className="btn btn-secondary" style={{ minHeight: '30px', padding: '0.15rem 0.5rem', fontSize: '0.75rem', borderColor: 'rgba(220, 53, 69, 0.15)', color: 'hsl(0, 75%, 65%)', background: 'rgba(220, 53, 69, 0.01)' }} onClick={() => {
+                                                <button className="btn btn-secondary" style={{ minHeight: '26px', height: '26px', padding: '0.1rem 0.45rem', fontSize: '0.72rem', borderColor: 'rgba(220, 53, 69, 0.15)', color: 'hsl(0, 75%, 65%)', background: 'rgba(220, 53, 69, 0.01)' }} onClick={() => {
                                                     if (window.confirm("Delete this treatment record?")) {
                                                         deleteTreatment(t.id);
                                                     }
-                                                }}>
-                                                    <i className="fa-solid fa-trash-can"></i> Del
+                                                }} title="Delete treatment">
+                                                    <i className="fa-solid fa-trash-can"></i>
                                                 </button>
                                             </div>
                                         </td>
