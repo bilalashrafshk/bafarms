@@ -653,29 +653,6 @@ export default function FeedStock() {
                         </div>
                     </div>
 
-                    {isAdmin && (
-                        <div class="glass-panel">
-                            <h3 class="panel-title" style={{ marginBottom: '0.5rem' }}><i class="fa-solid fa-sliders"></i> Mineral Split (auto-sync)</h3>
-                            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 0, marginBottom: '0.8rem' }}>
-                                TMR logs one combined "Limestone / Minerals" ingredient — this decides what share of that quantity is auto-counted against each line below.
-                            </p>
-                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                                <div class="form-group" style={{ marginBottom: 0 }}>
-                                    <label style={{ fontSize: '0.75rem' }}>Limestone %</label>
-                                    <input
-                                        type="number" min="0" max="100" step="1" class="form-control" style={{ width: '90px' }}
-                                        value={Math.round(mineralSplitRatio * 100)}
-                                        onChange={e => setMineralSplitRatio(Math.min(1, Math.max(0, (parseFloat(e.target.value) || 0) / 100)))}
-                                    />
-                                </div>
-                                <div class="form-group" style={{ marginBottom: 0 }}>
-                                    <label style={{ fontSize: '0.75rem' }}>Mineral Pack %</label>
-                                    <input type="number" class="form-control" style={{ width: '90px' }} value={Math.round((1 - mineralSplitRatio) * 100)} disabled />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
                     <div class="glass-panel">
                         <div class="form-header-bar" style={{ marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
