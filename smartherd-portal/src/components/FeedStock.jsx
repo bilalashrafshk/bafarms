@@ -1003,7 +1003,12 @@ export default function FeedStock() {
                                         </div>
                                         <div class="form-group">
                                             <label>Category</label>
-                                            <select class="form-control" value={pNewItemCategory} onChange={e => setPNewItemCategory(e.target.value)}>
+                                            <select class="form-control" value={pNewItemCategory} onChange={e => {
+                                                const cat = e.target.value;
+                                                setPNewItemCategory(cat);
+                                                if (cat === 'medicine') setPNewItemUnit('pc');
+                                                else if (cat === 'feed') setPNewItemUnit('kg');
+                                            }}>
                                                 <option value="feed">Feed (rationable)</option>
                                                 <option value="medicine">Medicine</option>
                                                 <option value="other">Other</option>
@@ -1011,7 +1016,16 @@ export default function FeedStock() {
                                         </div>
                                         <div class="form-group">
                                             <label>Unit</label>
-                                            <input type="text" class="form-control" placeholder="kg, ml, dose…" value={pNewItemUnit} onChange={e => setPNewItemUnit(e.target.value)} />
+                                            {pNewItemCategory === 'medicine' ? (
+                                                <select class="form-control" value={pNewItemUnit} onChange={e => setPNewItemUnit(e.target.value)}>
+                                                    <option value="pc">pc (pieces / bottles)</option>
+                                                    <option value="ml">ml (millilitres)</option>
+                                                    <option value="kg">kg (kilograms)</option>
+                                                    <option value="mun">mun (40 kg)</option>
+                                                </select>
+                                            ) : (
+                                                <input type="text" class="form-control" placeholder="kg, bag…" value={pNewItemUnit} onChange={e => setPNewItemUnit(e.target.value)} />
+                                            )}
                                         </div>
                                     </>
                                 )}
