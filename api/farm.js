@@ -914,6 +914,47 @@ async function ensureTables(client) {
     `);
 }
 
+// Reconciles and self-heals orphaned stock issues:
+// 1. Treatment stock draws whose treatment no longer exists in ba_treatments.
+// 2. Premix production draws whose batch no longer exists in ba_settings.premix_batches.
+// Direct manual issues entered via the Issue form are never touched.
+async function reconcileOrphanedFeedStockIssues(client) {
+    try {
+        // Prune orphaned treatment stock draws
+        await client.query(`
+            DELETE FROM ba_feed_stock_issues
+            WHERE (notes LIKE '%stock draw%' OR notes LIKE '%Treatment stock draw%')
+              AND id NOT IN (SELECT stock_issue_id FROM ba_treatments WHERE stock_issue_id IS NOT NULL)
+        `);
+
+        // Prune orphaned premix production issues
+        const premixRes = await client.query("SELECT value FROM ba_settings WHERE key = 'premix_batches'");
+        let batches = [];
+        if (premixRes.rows.length > 0) {
+            try {
+                batches = typeof premixRes.rows[0].value === 'string' ? JSON.parse(premixRes.rows[0].value) : premixRes.rows[0].value;
+            } catch (e) {}
+        }
+        if (!Array.isArray(batches)) batches = [];
+        const validBatchIssueIds = batches.flatMap(b => b.issueIds || []).filter(Boolean);
+
+        if (validBatchIssueIds.length > 0) {
+            await client.query(`
+                DELETE FROM ba_feed_stock_issues
+                WHERE pen = 'PRODUCTION'
+                  AND id != ALL($1::text[])
+            `, [validBatchIssueIds]);
+        } else {
+            await client.query(`
+                DELETE FROM ba_feed_stock_issues
+                WHERE pen = 'PRODUCTION'
+            `);
+        }
+    } catch (err) {
+        console.error("reconcileOrphanedFeedStockIssues error:", err);
+    }
+}
+
 // Resolves the real product name/unit for a feed_stock item id and durably persists it
 // into the feed_stock_items master list (ba_settings) whenever it's missing or has
 // changed. Shared by every path that inserts or approves a feed purchase/stock issue, so
@@ -1332,6 +1373,7 @@ module.exports = async (req, res) => {
             await ensureTables(client);
             await ensureColumns(client);
             await ensureDefaultCuts(client);
+            await reconcileOrphanedFeedStockIssues(client);
             schemaEnsured = true;
         }
 
@@ -2083,7 +2125,12 @@ module.exports = async (req, res) => {
                 } else if (approval.action === 'DELETE_WEIGHT_LOG') {
                     await client.query('DELETE FROM ba_weights WHERE id = $1', [changes.logId]);
                 } else if (approval.action === 'DELETE_TREATMENT') {
+                    const tRes = await client.query('SELECT stock_issue_id FROM ba_treatments WHERE id = $1', [changes.treatmentId]);
+                    const stockIssueId = tRes.rows[0]?.stock_issue_id || approval.previous_snapshot?.stock_issue_id;
                     await client.query('DELETE FROM ba_treatments WHERE id = $1', [changes.treatmentId]);
+                    if (stockIssueId) {
+                        await client.query('DELETE FROM ba_feed_stock_issues WHERE id = $1', [stockIssueId]);
+                    }
                 } else if (approval.action === 'DELETE_FEED_LOG') {
                     if (changes.feedingIndex === undefined || changes.feedingIndex === null) {
                         await client.query('DELETE FROM ba_feed_logs WHERE date = $1 AND pen = $2', [changes.date, changes.pen || 'ALL']);
@@ -2436,7 +2483,12 @@ module.exports = async (req, res) => {
                     }
                     return res.status(200).json({ success: true, pending: true });
                 }
+                const tRes = await client.query('SELECT stock_issue_id FROM ba_treatments WHERE id = $1', [treatmentId]);
+                const stockIssueId = tRes.rows[0]?.stock_issue_id;
                 await client.query('DELETE FROM ba_treatments WHERE id = $1', [treatmentId]);
+                if (stockIssueId) {
+                    await client.query('DELETE FROM ba_feed_stock_issues WHERE id = $1', [stockIssueId]);
+                }
                 return res.status(200).json({ success: true });
             }
 

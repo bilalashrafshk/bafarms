@@ -868,6 +868,42 @@ export const FarmProvider = ({ children }) => {
         return list;
     }, [feedStockItems, myRequests, pendingApprovals]);
 
+    // Effective feed purchases including pending additions and excluding pending deletions
+    const effectiveFeedPurchases = useMemo(() => {
+        let list = [...feedPurchases];
+        const pendingDeletes = new Set();
+        (myRequests || []).forEach(r => {
+            if (r.status === 'pending') {
+                if (r.action === 'DELETE_FEED_PURCHASE' && r.payload?.id) {
+                    pendingDeletes.add(r.payload.id);
+                } else if (r.action === 'ADD_FEED_PURCHASE' && r.payload?.id) {
+                    if (!list.some(p => p.id === r.payload.id)) {
+                        list.push(r.payload);
+                    }
+                }
+            }
+        });
+        return list.filter(p => !pendingDeletes.has(p.id));
+    }, [feedPurchases, myRequests]);
+
+    // Effective feed stock issues including pending additions and excluding pending deletions
+    const effectiveFeedStockIssues = useMemo(() => {
+        let list = [...feedStockIssues];
+        const pendingDeletes = new Set();
+        (myRequests || []).forEach(r => {
+            if (r.status === 'pending') {
+                if (r.action === 'DELETE_FEED_STOCK_ISSUE' && r.payload?.id) {
+                    pendingDeletes.add(r.payload.id);
+                } else if (r.action === 'ADD_FEED_STOCK_ISSUE' && r.payload?.id) {
+                    if (!list.some(i => i.id === r.payload.id)) {
+                        list.push(r.payload);
+                    }
+                }
+            }
+        });
+        return list.filter(i => !pendingDeletes.has(i.id));
+    }, [feedStockIssues, myRequests]);
+
     // Any feed stock item that's its own canonical ingredient (i.e. not a split component
     // like limestone/mineralPack, which both share the combined "minerals" ingredient id)
     // but has no matching feedIngredients entry gets one auto-created here. This covers
@@ -965,6 +1001,20 @@ export const FarmProvider = ({ children }) => {
     };
 
     const deleteFeedPurchase = async (id) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            setMyRequests(prev => [
+                {
+                    id: `temp_del_${id}_${Date.now()}`,
+                    action: 'DELETE_FEED_PURCHASE',
+                    payload: { id },
+                    status: 'pending',
+                    requestedBy: staffUserRef.current?.email || 'me',
+                    requestedAt: new Date().toISOString()
+                },
+                ...prev.filter(r => !(r.action === 'DELETE_FEED_PURCHASE' && r.payload?.id === id))
+            ]);
+        }
         setFeedPurchases(prev => prev.filter(p => p.id !== id));
         persistMutation('DELETE_FEED_PURCHASE', { id });
         setTimeout(refreshApprovals, 250);
@@ -1086,6 +1136,20 @@ export const FarmProvider = ({ children }) => {
     };
 
     const deleteFeedStockIssue = async (id) => {
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            setMyRequests(prev => [
+                {
+                    id: `temp_del_${id}_${Date.now()}`,
+                    action: 'DELETE_FEED_STOCK_ISSUE',
+                    payload: { id },
+                    status: 'pending',
+                    requestedBy: staffUserRef.current?.email || 'me',
+                    requestedAt: new Date().toISOString()
+                },
+                ...prev.filter(r => !(r.action === 'DELETE_FEED_STOCK_ISSUE' && r.payload?.id === id))
+            ]);
+        }
         setFeedStockIssues(prev => prev.filter(i => i.id !== id));
         persistMutation('DELETE_FEED_STOCK_ISSUE', { id });
         setTimeout(refreshApprovals, 250);
@@ -1132,7 +1196,7 @@ export const FarmProvider = ({ children }) => {
                 });
             });
         });
-        const manualIssues = feedStockIssues.map(i => ({ ...i, source: 'manual' }));
+        const manualIssues = effectiveFeedStockIssues.map(i => ({ ...i, source: 'manual' }));
         return [...autoIssues, ...manualIssues];
     };
 
@@ -1156,7 +1220,7 @@ export const FarmProvider = ({ children }) => {
         const byItem = {};
         effectiveFeedStockItems.forEach(item => {
             const opening = feedOpeningStock[item.id] || { qty: 0, value: 0 };
-            const lots = buildLots(item.id, opening, feedPurchases);
+            const lots = buildLots(item.id, opening, effectiveFeedPurchases);
             const issues = (issuesByItem[item.id] || [])
                 .slice()
                 .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.id < b.id ? -1 : 1)));
@@ -1191,7 +1255,7 @@ export const FarmProvider = ({ children }) => {
         const { byItem } = getFeedStockValuationMap();
         return effectiveFeedStockItems.map(item => {
             const v = byItem[item.id];
-            const purchases = feedPurchases.filter(p => p.itemId === item.id);
+            const purchases = effectiveFeedPurchases.filter(p => p.itemId === item.id);
             const purchasedQty = purchases.reduce((sum, p) => sum + p.quantity, 0);
             const purchasedValue = purchases.reduce((sum, p) => sum + (p.quantity * p.rate), 0);
 
@@ -1993,10 +2057,14 @@ export const FarmProvider = ({ children }) => {
             const app = item.approvalObj || (allApprovals || []).find(a => String(a.id) === String(item.recordId || (typeof item.key === 'string' ? item.key.replace('app-', '') : '')));
             if (app) {
                 const changes = app.payload || {};
-                if ((app.action === 'ADD_FEED_STOCK_ISSUE' || app.action === 'DELETE_FEED_STOCK_ISSUE') && changes.id) {
+                if (app.action === 'ADD_FEED_STOCK_ISSUE' && changes.id) {
                     deleteFeedStockIssue(changes.id);
-                } else if ((app.action === 'ADD_FEED_PURCHASE' || app.action === 'DELETE_FEED_PURCHASE' || app.action === 'UPDATE_FEED_PURCHASE') && changes.id) {
+                } else if (app.action === 'DELETE_FEED_STOCK_ISSUE' && app.previousSnapshot && app.previousSnapshot.id) {
+                    addFeedStockIssue(app.previousSnapshot);
+                } else if ((app.action === 'ADD_FEED_PURCHASE' || app.action === 'UPDATE_FEED_PURCHASE') && changes.id) {
                     deleteFeedPurchase(changes.id);
+                } else if (app.action === 'DELETE_FEED_PURCHASE' && app.previousSnapshot && app.previousSnapshot.id) {
+                    addFeedPurchase(app.previousSnapshot);
                 } else if (app.action === 'ADD_OVERHEAD_EXPENSE' && changes.id) {
                     deleteOverheadExpense(changes.id);
                 } else if (app.action === 'OVERWRITE_FEED_LOG' && changes.date) {
@@ -2024,6 +2092,10 @@ export const FarmProvider = ({ children }) => {
             setEvents(prev => prev.filter(e => e.id !== item.sortId));
             persistMutation('TRANSITION_STATUS', { animalId, status: targetStatus, date: todayPKT(), note: `Restored to ${targetStatus}` });
         } else if (item.eventType === 'treatment') {
+            const treatment = treatments.find(t => t.id === item.sortId || t.id === item.recordId);
+            if (treatment?.stockIssueId) {
+                deleteFeedStockIssue(treatment.stockIssueId);
+            }
             deleteTreatment(item.sortId);
         } else if (item.eventType === 'weight') {
             deleteWeightLog(item.sortId);
@@ -2069,7 +2141,13 @@ export const FarmProvider = ({ children }) => {
             } else if (approval.action === 'DELETE_WEIGHT_LOG') {
                 setWeightLogs(prev => prev.filter(w => w.id !== (approval.payload?.logId)));
             } else if (approval.action === 'DELETE_TREATMENT') {
-                setTreatments(prev => prev.filter(t => t.id !== (approval.payload?.treatmentId)));
+                const treatmentId = approval.payload?.treatmentId;
+                const treatment = treatments.find(t => t.id === treatmentId) || approval.previous_snapshot;
+                const linkedStockIssueId = treatment?.stock_issue_id || treatment?.stockIssueId;
+                setTreatments(prev => prev.filter(t => t.id !== treatmentId));
+                if (linkedStockIssueId) {
+                    setFeedStockIssues(prev => prev.filter(i => i.id !== linkedStockIssueId));
+                }
             } else if (approval.action === 'DELETE_FEED_LOG') {
                 const changes = approval.payload || {};
                 setFeedLogs(prev => prev.filter(f => !(f.date === changes.date && (f.pen === changes.pen || (!f.pen && changes.pen === 'ALL')) && (changes.feedingIndex === undefined || changes.feedingIndex === null || f.feedingIndex === changes.feedingIndex))));
@@ -2210,11 +2288,20 @@ export const FarmProvider = ({ children }) => {
     };
 
     const deleteTreatment = async (treatmentId) => {
+        const treatment = treatments.find(t => t.id === treatmentId);
+        const linkedStockIssueId = treatment?.stockIssueId;
+
         const isAdmin = staffUserRef.current?.isAdmin === true;
         if (!isAdmin) {
+            if (linkedStockIssueId) {
+                deleteFeedStockIssue(linkedStockIssueId);
+            }
             return await handleNonAdminDelete('DELETE_TREATMENT', { treatmentId });
         }
         setTreatments(prev => prev.filter(t => t.id !== treatmentId));
+        if (linkedStockIssueId) {
+            setFeedStockIssues(prev => prev.filter(i => i.id !== linkedStockIssueId));
+        }
         persistMutation('DELETE_TREATMENT', { treatmentId });
         return { success: true };
     };
@@ -2369,7 +2456,11 @@ export const FarmProvider = ({ children }) => {
         if (!isAdmin) {
             return await handleNonAdminDelete('DELETE_FEED_LOG', { date, pen, feedingIndex });
         }
-        setFeedLogs(prev => prev.filter(f => !(f.date === date && f.pen === pen && (feedingIndex === undefined || (f.feedingIndex || 0) === feedingIndex))));
+        setFeedLogs(prev => prev.filter(f => !(
+            f.date === date &&
+            (String(f.pen) === String(pen) || (!f.pen && pen === 'ALL')) &&
+            (feedingIndex === undefined || (f.feedingIndex || 0) === feedingIndex)
+        )));
         persistMutation('DELETE_FEED_LOG', { date, pen, feedingIndex });
         return { success: true };
     };
@@ -3240,10 +3331,12 @@ export const FarmProvider = ({ children }) => {
             feedOpeningStock,
             setItemOpeningStock,
             feedPurchases,
+            effectiveFeedPurchases,
             addFeedPurchase,
             updateFeedPurchase,
             deleteFeedPurchase,
             feedStockIssues,
+            effectiveFeedStockIssues,
             addFeedStockIssue,
             deleteFeedStockIssue,
             overheadExpenses,

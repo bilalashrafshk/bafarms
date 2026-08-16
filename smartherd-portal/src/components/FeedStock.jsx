@@ -16,8 +16,8 @@ export default function FeedStock() {
         staffUser, animals, pens, feedLogs,
         feedStockItems, updateFeedStockItems, addStockTrackedIngredient,
         feedOpeningStock, setItemOpeningStock,
-        feedPurchases, addFeedPurchase, updateFeedPurchase, deleteFeedPurchase,
-        feedStockIssues, addFeedStockIssue, deleteFeedStockIssue,
+        feedPurchases, effectiveFeedPurchases, addFeedPurchase, updateFeedPurchase, deleteFeedPurchase,
+        feedStockIssues, effectiveFeedStockIssues, addFeedStockIssue, deleteFeedStockIssue,
         getFeedStockLedger, getFeedStockLots, getFeedStockIssueCosts, getCombinedFeedIssues,
         mineralSplitRatio, setMineralSplitRatio,
         premixTypes, addPremixType, deletePremixType,
@@ -209,18 +209,6 @@ export default function FeedStock() {
         return map;
     }, [myRequests]);
 
-    const effectiveFeedPurchases = useMemo(() => {
-        const list = [...feedPurchases];
-        (myRequests || []).forEach(r => {
-            if (r.status === 'pending' && r.action === 'ADD_FEED_PURCHASE' && r.payload?.id) {
-                if (!list.some(p => p.id === r.payload.id)) {
-                    list.push(r.payload);
-                }
-            }
-        });
-        return list;
-    }, [feedPurchases, myRequests]);
-
     const filteredPurchases = useMemo(() => {
         const q = purchaseSearch.trim().toLowerCase();
         const rows = q
@@ -260,18 +248,6 @@ export default function FeedStock() {
         });
         return map;
     }, [myRequests]);
-
-    const effectiveFeedStockIssues = useMemo(() => {
-        const list = [...feedStockIssues];
-        (myRequests || []).forEach(r => {
-            if (r.status === 'pending' && r.action === 'ADD_FEED_STOCK_ISSUE' && r.payload?.id) {
-                if (!list.some(i => i.id === r.payload.id)) {
-                    list.push(r.payload);
-                }
-            }
-        });
-        return list;
-    }, [feedStockIssues, myRequests]);
 
     // Auto-derived (from TMR "Log This Feeding" records) + manual exception issues,
     // merged and tagged by source — so routine pen feeding never has to be typed twice.
