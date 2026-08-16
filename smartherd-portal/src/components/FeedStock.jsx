@@ -57,12 +57,18 @@ export default function FeedStock() {
     // search or the shared date range changes, so a new filter never lands mid-scroll.
     const PAGE_SIZE = 25;
     const [purchaseSearch, setPurchaseSearch] = useState('');
+    const [purchaseCategoryFilter, setPurchaseCategoryFilter] = useState('all');
     const [purchasesVisible, setPurchasesVisible] = useState(PAGE_SIZE);
-    useEffect(() => setPurchasesVisible(PAGE_SIZE), [purchaseSearch, dateFrom, dateTo]);
+    useEffect(() => setPurchasesVisible(PAGE_SIZE), [purchaseSearch, dateFrom, dateTo, purchaseCategoryFilter]);
 
     const [issueSearch, setIssueSearch] = useState('');
+    const [issueSourceFilter, setIssueSourceFilter] = useState('all');
+    const [issueCategoryFilter, setIssueCategoryFilter] = useState('all');
+    const [issuePenFilter, setIssuePenFilter] = useState('all');
     const [issuesVisible, setIssuesVisible] = useState(PAGE_SIZE);
-    useEffect(() => setIssuesVisible(PAGE_SIZE), [issueSearch, dateFrom, dateTo]);
+    useEffect(() => setIssuesVisible(PAGE_SIZE), [issueSearch, dateFrom, dateTo, issueSourceFilter, issueCategoryFilter, issuePenFilter]);
+
+    const [ledgerCategoryFilter, setLedgerCategoryFilter] = useState('all');
 
     const [batchSearch, setBatchSearch] = useState('');
     const [batchesVisible, setBatchesVisible] = useState(PAGE_SIZE);
@@ -211,14 +217,21 @@ export default function FeedStock() {
 
     const filteredPurchases = useMemo(() => {
         const q = purchaseSearch.trim().toLowerCase();
-        const rows = q
-            ? effectiveFeedPurchases.filter(p => {
-                const nm = (p.itemName || feedStockItems.find(i => i.id === p.itemId)?.name || p.itemId || '').toLowerCase();
-                return nm.includes(q) || (p.supplier || '').toLowerCase().includes(q) || (p.notes || '').toLowerCase().includes(q);
-            })
-            : effectiveFeedPurchases.filter(p => inRange(p.date));
-        return rows.sort((a, b) => daysBetween(b.date, a.date));
-    }, [effectiveFeedPurchases, dateFrom, dateTo, purchaseSearch, feedStockItems]);
+        return effectiveFeedPurchases.filter(p => {
+            const itemObj = feedStockItems.find(i => i.id === p.itemId);
+            const cat = itemObj?.category || 'feed';
+            if (purchaseCategoryFilter !== 'all' && cat !== purchaseCategoryFilter) return false;
+
+            if (!q && !inRange(p.date)) return false;
+
+            if (q) {
+                const nm = (p.itemName || itemObj?.name || p.itemId || '').toLowerCase();
+                const matches = nm.includes(q) || (p.supplier || '').toLowerCase().includes(q) || (p.notes || '').toLowerCase().includes(q);
+                if (!matches) return false;
+            }
+            return true;
+        }).sort((a, b) => daysBetween(b.date, a.date));
+    }, [effectiveFeedPurchases, dateFrom, dateTo, purchaseSearch, purchaseCategoryFilter, feedStockItems]);
 
     // ─── ISSUES ───
     const [iDate, setIDate] = useState(todayStr);
@@ -289,18 +302,46 @@ export default function FeedStock() {
 
     const filteredIssues = useMemo(() => {
         const q = issueSearch.trim().toLowerCase();
-        const rows = q
-            ? combinedIssues.filter(i => {
-                const nm = (i.itemName || feedStockItems.find(it => it.id === i.itemId)?.name || i.itemId || '').toLowerCase();
-                return nm.includes(q) || (i.pen || '').toLowerCase().includes(q) || (i.notes || '').toLowerCase().includes(q);
-            })
-            : combinedIssues.filter(i => inRange(i.date));
-        return rows.sort((a, b) => daysBetween(b.date, a.date));
-    }, [combinedIssues, dateFrom, dateTo, issueSearch, feedStockItems]);
+        return combinedIssues.filter(i => {
+            // Source filter
+            if (issueSourceFilter === 'manual') {
+                if (i.source !== 'manual' || i.pen === 'PRODUCTION') return false;
+            } else if (issueSourceFilter === 'auto') {
+                if (i.source !== 'auto') return false;
+            } else if (issueSourceFilter === 'premix') {
+                if (i.pen !== 'PRODUCTION') return false;
+            }
+
+            // Pen filter
+            if (issuePenFilter !== 'all') {
+                if (String(i.pen || '').toLowerCase() !== String(issuePenFilter).toLowerCase()) return false;
+            }
+
+            // Category filter
+            const itemObj = feedStockItems.find(it => it.id === i.itemId);
+            const cat = itemObj?.category || 'feed';
+            if (issueCategoryFilter !== 'all' && cat !== issueCategoryFilter) return false;
+
+            // Date filter (active if no text search query)
+            if (!q && !inRange(i.date)) return false;
+
+            // Text search query
+            if (q) {
+                const nm = (i.itemName || itemObj?.name || i.itemId || '').toLowerCase();
+                const matches = nm.includes(q) || (i.pen || '').toLowerCase().includes(q) || (i.notes || '').toLowerCase().includes(q);
+                if (!matches) return false;
+            }
+            return true;
+        }).sort((a, b) => daysBetween(b.date, a.date));
+    }, [combinedIssues, dateFrom, dateTo, issueSearch, issueSourceFilter, issueCategoryFilter, issuePenFilter, feedStockItems]);
 
     // Full-history ledger (opening + all-time purchases/issues) — closing stock is
     // always a current, all-time snapshot regardless of the Purchases/Issues date filter.
     const ledger = useMemo(() => getFeedStockLedger(), [feedStockItems, feedOpeningStock, feedPurchases, feedLogs, feedStockIssues, mineralSplitRatio]);
+    const filteredLedger = useMemo(() => {
+        if (ledgerCategoryFilter === 'all') return ledger;
+        return ledger.filter(r => (r.item.category || 'feed') === ledgerCategoryFilter);
+    }, [ledger, ledgerCategoryFilter]);
     const ledgerByItemId = useMemo(() => Object.fromEntries(ledger.map(l => [l.item.id, l])), [ledger]);
 
     // FIFO lots per item (each purchase + opening balance, with remaining qty after every
@@ -632,6 +673,23 @@ export default function FeedStock() {
                             )}
                         </div>
 
+                        {/* Category Filter Pills */}
+                        <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem', paddingBottom: '0.75rem', borderBottom: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '0.3rem', fontWeight: 600 }}>CATEGORY:</span>
+                            <button type="button" class={`filter-btn ${ledgerCategoryFilter === 'all' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setLedgerCategoryFilter('all')}>
+                                All Items ({ledger.length})
+                            </button>
+                            <button type="button" class={`filter-btn ${ledgerCategoryFilter === 'feed' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setLedgerCategoryFilter('feed')}>
+                                Feed ({ledger.filter(r => (r.item.category || 'feed') === 'feed').length})
+                            </button>
+                            <button type="button" class={`filter-btn ${ledgerCategoryFilter === 'medicine' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setLedgerCategoryFilter('medicine')}>
+                                Medicine ({ledger.filter(r => (r.item.category || 'feed') === 'medicine').length})
+                            </button>
+                            <button type="button" class={`filter-btn ${ledgerCategoryFilter === 'other' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setLedgerCategoryFilter('other')}>
+                                Other ({ledger.filter(r => (r.item.category || 'feed') === 'other').length})
+                            </button>
+                        </div>
+
                         {isAddItemFormOpen && (
                             <form onSubmit={handleAddItem} style={{ background: 'rgba(0, 0, 0, 0.2)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '0.8rem 1rem', marginBottom: '1.2rem' }}>
                                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '0.8rem', alignItems: 'flex-end' }}>
@@ -677,7 +735,7 @@ export default function FeedStock() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {ledger.map(row => {
+                                    {filteredLedger.map(row => {
                                         const unit = row.item.unit || 'kg';
                                         return (
                                         <tr key={row.item.id}>
@@ -837,7 +895,23 @@ export default function FeedStock() {
                                 </div>
                             </div>
                         </div>
-                        {purchaseSearch.trim() && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '-0.6rem', marginBottom: '0.8rem' }}><i class="fa-solid fa-circle-info"></i> Searching across all dates — date range is ignored while searching.</div>}
+                        {/* Category Filter Pills */}
+                        <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem', paddingBottom: '0.75rem', borderBottom: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '0.3rem', fontWeight: 600 }}>CATEGORY:</span>
+                            <button type="button" class={`filter-btn ${purchaseCategoryFilter === 'all' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setPurchaseCategoryFilter('all')}>
+                                All ({effectiveFeedPurchases.length})
+                            </button>
+                            <button type="button" class={`filter-btn ${purchaseCategoryFilter === 'feed' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setPurchaseCategoryFilter('feed')}>
+                                Feed ({effectiveFeedPurchases.filter(p => (feedStockItems.find(i => i.id === p.itemId)?.category || 'feed') === 'feed').length})
+                            </button>
+                            <button type="button" class={`filter-btn ${purchaseCategoryFilter === 'medicine' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setPurchaseCategoryFilter('medicine')}>
+                                Medicine ({effectiveFeedPurchases.filter(p => (feedStockItems.find(i => i.id === p.itemId)?.category || 'feed') === 'medicine').length})
+                            </button>
+                            <button type="button" class={`filter-btn ${purchaseCategoryFilter === 'other' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setPurchaseCategoryFilter('other')}>
+                                Other ({effectiveFeedPurchases.filter(p => (feedStockItems.find(i => i.id === p.itemId)?.category || 'feed') === 'other').length})
+                            </button>
+                        </div>
+                        {purchaseSearch.trim() && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '-0.4rem', marginBottom: '0.8rem' }}><i class="fa-solid fa-circle-info"></i> Searching across all dates — date range is ignored while searching.</div>}
                         <div class="table-wrapper">
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                 <thead>
@@ -1127,6 +1201,17 @@ export default function FeedStock() {
                                     <label style={{ fontSize: '0.75rem' }}>Search</label>
                                     <input type="text" class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem', minWidth: '160px' }} placeholder="Item, pen, notes…" value={issueSearch} onChange={e => setIssueSearch(e.target.value)} />
                                 </div>
+                                <div class="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: '0.75rem' }}>Pen</label>
+                                    <select class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem' }} value={issuePenFilter} onChange={e => setIssuePenFilter(e.target.value)}>
+                                        <option value="all">All Pens</option>
+                                        <option value="ALL">All Pens (Bulk)</option>
+                                        <option value="PRODUCTION">Premix Production</option>
+                                        {distinctPenNames.map(p => (
+                                            <option key={p} value={p}>{penLabel(p)}</option>
+                                        ))}
+                                    </select>
+                                </div>
                                 <div class="form-group" style={{ marginBottom: 0, opacity: issueSearch.trim() ? 0.4 : 1 }}>
                                     <label style={{ fontSize: '0.75rem' }}>From</label>
                                     <input type="date" class="form-control" style={{ minHeight: '36px', height: '36px', padding: '0.3rem 0.7rem', fontSize: '0.85rem' }} value={dateFrom} max={dateTo} disabled={!!issueSearch.trim()} onChange={e => setDateFrom(e.target.value)} />
@@ -1137,7 +1222,42 @@ export default function FeedStock() {
                                 </div>
                             </div>
                         </div>
-                        {issueSearch.trim() && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '-0.6rem', marginBottom: '0.8rem' }}><i class="fa-solid fa-circle-info"></i> Searching across all dates — date range is ignored while searching.</div>}
+
+                        {/* Filter Bar: Source pills & Category pills */}
+                        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '1rem', paddingBottom: '0.75rem', borderBottom: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                            <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '0.3rem', fontWeight: 600 }}>SOURCE:</span>
+                                <button type="button" class={`filter-btn ${issueSourceFilter === 'all' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setIssueSourceFilter('all')}>
+                                    All ({combinedIssues.length})
+                                </button>
+                                <button type="button" class={`filter-btn ${issueSourceFilter === 'manual' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setIssueSourceFilter('manual')}>
+                                    <i class="fa-solid fa-pen" style={{ marginRight: '0.3rem' }}></i> Manual ({combinedIssues.filter(i => i.source === 'manual' && i.pen !== 'PRODUCTION').length})
+                                </button>
+                                <button type="button" class={`filter-btn ${issueSourceFilter === 'auto' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setIssueSourceFilter('auto')}>
+                                    <i class="fa-solid fa-arrows-rotate" style={{ marginRight: '0.3rem' }}></i> TMR Logs ({combinedIssues.filter(i => i.source === 'auto').length})
+                                </button>
+                                <button type="button" class={`filter-btn ${issueSourceFilter === 'premix' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setIssueSourceFilter('premix')}>
+                                    <i class="fa-solid fa-flask" style={{ marginRight: '0.3rem' }}></i> Premix ({combinedIssues.filter(i => i.pen === 'PRODUCTION').length})
+                                </button>
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '0.3rem', fontWeight: 600 }}>CATEGORY:</span>
+                                <button type="button" class={`filter-btn ${issueCategoryFilter === 'all' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setIssueCategoryFilter('all')}>
+                                    All
+                                </button>
+                                <button type="button" class={`filter-btn ${issueCategoryFilter === 'feed' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setIssueCategoryFilter('feed')}>
+                                    Feed
+                                </button>
+                                <button type="button" class={`filter-btn ${issueCategoryFilter === 'medicine' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setIssueCategoryFilter('medicine')}>
+                                    Medicine
+                                </button>
+                                <button type="button" class={`filter-btn ${issueCategoryFilter === 'other' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setIssueCategoryFilter('other')}>
+                                    Other
+                                </button>
+                            </div>
+                        </div>
+
+                        {issueSearch.trim() && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '-0.4rem', marginBottom: '0.8rem' }}><i class="fa-solid fa-circle-info"></i> Searching across all dates — date range is ignored while searching.</div>}
                         <div class="table-wrapper">
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                 <thead>
