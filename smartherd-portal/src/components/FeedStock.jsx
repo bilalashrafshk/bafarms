@@ -69,6 +69,8 @@ export default function FeedStock() {
     useEffect(() => setIssuesVisible(PAGE_SIZE), [issueSearch, dateFrom, dateTo, issueSourceFilter, issueCategoryFilter, issuePenFilter]);
 
     const [ledgerCategoryFilter, setLedgerCategoryFilter] = useState('all');
+    const [ledgerSearch, setLedgerSearch] = useState('');
+    const [editingOpeningItemId, setEditingOpeningItemId] = useState(null);
 
     const [batchSearch, setBatchSearch] = useState('');
     const [batchesVisible, setBatchesVisible] = useState(PAGE_SIZE);
@@ -339,9 +341,20 @@ export default function FeedStock() {
     // always a current, all-time snapshot regardless of the Purchases/Issues date filter.
     const ledger = useMemo(() => getFeedStockLedger(), [feedStockItems, feedOpeningStock, feedPurchases, feedLogs, feedStockIssues, mineralSplitRatio]);
     const filteredLedger = useMemo(() => {
-        if (ledgerCategoryFilter === 'all') return ledger;
-        return ledger.filter(r => (r.item.category || 'feed') === ledgerCategoryFilter);
-    }, [ledger, ledgerCategoryFilter]);
+        const q = ledgerSearch.trim().toLowerCase();
+        return ledger.filter(r => {
+            if (ledgerCategoryFilter !== 'all') {
+                const cat = r.item.category || 'feed';
+                if (cat !== ledgerCategoryFilter) return false;
+            }
+            if (q) {
+                const nm = (r.item.name || '').toLowerCase();
+                const unit = (r.item.unit || '').toLowerCase();
+                if (!nm.includes(q) && !unit.includes(q)) return false;
+            }
+            return true;
+        });
+    }, [ledger, ledgerCategoryFilter, ledgerSearch]);
     const ledgerByItemId = useMemo(() => Object.fromEntries(ledger.map(l => [l.item.id, l])), [ledger]);
 
     // FIFO lots per item (each purchase + opening balance, with remaining qty after every
@@ -664,13 +677,30 @@ export default function FeedStock() {
                     )}
 
                     <div class="glass-panel">
-                        <div class="form-header-bar" style={{ marginBottom: '1rem' }}>
-                            <h3 class="panel-title" style={{ margin: 0 }}><i class="fa-solid fa-clipboard-list"></i> Per-Item Ledger</h3>
-                            {isAdmin && (
-                                <button type="button" class="btn btn-secondary btn-sm" onClick={() => setIsAddItemFormOpen(!isAddItemFormOpen)}>
-                                    <i class={`fa-solid ${isAddItemFormOpen ? 'fa-xmark' : 'fa-plus'}`}></i> {isAddItemFormOpen ? 'Cancel' : 'Add Item'}
-                                </button>
-                            )}
+                        <div class="form-header-bar" style={{ marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <h3 class="panel-title" style={{ margin: 0 }}><i class="fa-solid fa-clipboard-list"></i> Per-Item Store Ledger</h3>
+                                <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.55rem', borderRadius: '12px', background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }}>
+                                    {filteredLedger.length} item{filteredLedger.length === 1 ? '' : 's'}
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                <div class="form-group" style={{ marginBottom: 0 }}>
+                                    <input
+                                        type="text"
+                                        class="form-control"
+                                        style={{ minHeight: '34px', height: '34px', padding: '0.25rem 0.65rem', fontSize: '0.82rem', minWidth: '170px' }}
+                                        placeholder="Search ledger items…"
+                                        value={ledgerSearch}
+                                        onChange={e => setLedgerSearch(e.target.value)}
+                                    />
+                                </div>
+                                {isAdmin && (
+                                    <button type="button" class="btn btn-secondary btn-sm" style={{ minHeight: '34px', height: '34px' }} onClick={() => setIsAddItemFormOpen(!isAddItemFormOpen)}>
+                                        <i class={`fa-solid ${isAddItemFormOpen ? 'fa-xmark' : 'fa-plus'}`}></i> {isAddItemFormOpen ? 'Cancel' : 'Add Item'}
+                                    </button>
+                                )}
+                            </div>
                         </div>
 
                         {/* Category Filter Pills */}
@@ -680,13 +710,13 @@ export default function FeedStock() {
                                 All Items ({ledger.length})
                             </button>
                             <button type="button" class={`filter-btn ${ledgerCategoryFilter === 'feed' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setLedgerCategoryFilter('feed')}>
-                                Feed ({ledger.filter(r => (r.item.category || 'feed') === 'feed').length})
+                                <i class="fa-solid fa-wheat-awn" style={{ marginRight: '0.25rem' }}></i> Feed ({ledger.filter(r => (r.item.category || 'feed') === 'feed').length})
                             </button>
                             <button type="button" class={`filter-btn ${ledgerCategoryFilter === 'medicine' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setLedgerCategoryFilter('medicine')}>
-                                Medicine ({ledger.filter(r => (r.item.category || 'feed') === 'medicine').length})
+                                <i class="fa-solid fa-prescription-bottle-medical" style={{ marginRight: '0.25rem' }}></i> Medicine ({ledger.filter(r => (r.item.category || 'feed') === 'medicine').length})
                             </button>
                             <button type="button" class={`filter-btn ${ledgerCategoryFilter === 'other' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setLedgerCategoryFilter('other')}>
-                                Other ({ledger.filter(r => (r.item.category || 'feed') === 'other').length})
+                                <i class="fa-solid fa-cubes" style={{ marginRight: '0.25rem' }}></i> Other ({ledger.filter(r => (r.item.category || 'feed') === 'other').length})
                             </button>
                         </div>
 
@@ -723,66 +753,171 @@ export default function FeedStock() {
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                 <thead>
                                     <tr>
-                                        <th>ITEM</th>
-                                        <th>CATEGORY</th>
-                                        <th>OPENING STOCK</th>
-                                        <th>PURCHASED</th>
-                                        <th>ISSUED</th>
-                                        <th>CLOSING STOCK</th>
-                                        <th title="Weighted-average rate of the stock still in the store (FIFO — depleted lots don't drag it down/up)">AVG RATE</th>
-                                        <th>STOCK VALUE</th>
-                                        {isAdmin && <th style={{ textAlign: 'center' }}>REMOVE</th>}
+                                        <th style={{ minWidth: '150px' }}>ITEM</th>
+                                        <th style={{ width: '110px' }}>CATEGORY</th>
+                                        <th style={{ textAlign: 'right', minWidth: '140px' }} title="Opening stock on hand before tracking started">OPENING STOCK</th>
+                                        <th style={{ textAlign: 'right', minWidth: '110px' }}>PURCHASED</th>
+                                        <th style={{ textAlign: 'right', minWidth: '110px' }}>ISSUED</th>
+                                        <th style={{ textAlign: 'right', minWidth: '120px' }}>CLOSING STOCK</th>
+                                        <th style={{ textAlign: 'right', minWidth: '130px' }} title="Weighted-average rate of remaining stock (FIFO)">AVG RATE</th>
+                                        <th style={{ textAlign: 'right', minWidth: '120px' }}>STOCK VALUE</th>
+                                        {isAdmin && <th style={{ textAlign: 'center', width: '60px' }}>ACTIONS</th>}
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {filteredLedger.map(row => {
                                         const unit = row.item.unit || 'kg';
+                                        const cat = row.item.category || 'feed';
+                                        const isEditingOpening = editingOpeningItemId === row.item.id;
                                         return (
-                                        <tr key={row.item.id}>
-                                            <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{(row.item.name && !row.item.name.startsWith('item_')) ? row.item.name : 'Unnamed Item'}</td>
-                                            <td style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{CATEGORY_LABELS[row.item.category || 'feed']}</td>
+                                        <tr key={row.item.id} style={{ transition: 'background 0.15s ease' }}>
+                                            <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>
+                                                {(row.item.name && !row.item.name.startsWith('item_')) ? row.item.name : 'Unnamed Item'}
+                                                {row.item.derivedFromIngredientId && (
+                                                    <span style={{ marginLeft: '0.4rem', fontSize: '0.68rem', color: 'var(--text-muted)' }} title="Linked to Ration Plan ingredients">
+                                                        <i class="fa-solid fa-link"></i>
+                                                    </span>
+                                                )}
+                                            </td>
                                             <td>
-                                                {isAdmin ? (
-                                                    <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                                {cat === 'medicine' ? (
+                                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: '6px', background: 'rgba(59, 130, 246, 0.12)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                                                        <i class="fa-solid fa-prescription-bottle-medical" style={{ fontSize: '0.65rem' }}></i> Med
+                                                    </span>
+                                                ) : cat === 'feed' ? (
+                                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: '6px', background: 'rgba(34, 197, 94, 0.12)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.2)' }}>
+                                                        <i class="fa-solid fa-wheat-awn" style={{ fontSize: '0.65rem' }}></i> Feed
+                                                    </span>
+                                                ) : (
+                                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: '6px', background: 'rgba(156, 163, 175, 0.12)', color: '#9ca3af', border: '1px solid rgba(156, 163, 175, 0.2)' }}>
+                                                        <i class="fa-solid fa-cubes" style={{ fontSize: '0.65rem' }}></i> Other
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                                {isEditingOpening && isAdmin ? (
+                                                    <div style={{ display: 'inline-flex', gap: '0.25rem', alignItems: 'center', background: 'rgba(0,0,0,0.5)', padding: '0.2rem 0.35rem', borderRadius: '6px', border: '1px solid var(--primary-green-mid)' }}>
                                                         <input
                                                             type="number"
                                                             step="0.01"
                                                             class="form-control"
-                                                            style={{ width: '80px', minHeight: '30px', height: '30px', padding: '0.15rem 0.4rem', fontSize: '0.8rem' }}
+                                                            style={{ width: '65px', height: '26px', padding: '0.1rem 0.3rem', fontSize: '0.76rem', textAlign: 'right' }}
                                                             value={getOpeningDraftVal(row.item.id, 'qty')}
                                                             onChange={e => handleOpeningDraftChange(row.item.id, 'qty', e.target.value)}
-                                                            title={`Opening qty (${unit})`}
+                                                            placeholder="Qty"
+                                                            title={`Opening qty in ${unit}`}
+                                                            autoFocus
                                                         />
-                                                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{unit} @</span>
+                                                        <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{unit} @</span>
                                                         <input
                                                             type="number"
                                                             step="0.01"
                                                             class="form-control"
-                                                            style={{ width: '90px', minHeight: '30px', height: '30px', padding: '0.15rem 0.4rem', fontSize: '0.8rem' }}
+                                                            style={{ width: '75px', height: '26px', padding: '0.1rem 0.3rem', fontSize: '0.76rem', textAlign: 'right' }}
                                                             value={getOpeningDraftVal(row.item.id, 'value')}
                                                             onChange={e => handleOpeningDraftChange(row.item.id, 'value', e.target.value)}
-                                                            title="Opening total value (PKR)"
+                                                            placeholder="Val PKR"
+                                                            title="Opening stock total cost in PKR"
                                                         />
-                                                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>PKR</span>
-                                                        <button type="button" class="btn btn-secondary" style={{ padding: '0.15rem 0.5rem', minHeight: '30px', height: '30px' }} onClick={() => handleSaveOpening(row.item.id)} title="Save opening stock">
-                                                            <i class="fa-solid fa-floppy-disk"></i>
+                                                        <button
+                                                            type="button"
+                                                            class="btn btn-primary btn-sm"
+                                                            style={{ padding: '0.1rem 0.4rem', minHeight: '24px', height: '24px', fontSize: '0.7rem' }}
+                                                            onClick={() => {
+                                                                handleSaveOpening(row.item.id);
+                                                                setEditingOpeningItemId(null);
+                                                            }}
+                                                            title="Save opening stock"
+                                                        >
+                                                            <i class="fa-solid fa-check"></i>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            class="btn btn-secondary btn-sm"
+                                                            style={{ padding: '0.1rem 0.4rem', minHeight: '24px', height: '24px', fontSize: '0.7rem' }}
+                                                            onClick={() => setEditingOpeningItemId(null)}
+                                                            title="Cancel"
+                                                        >
+                                                            <i class="fa-solid fa-xmark"></i>
                                                         </button>
                                                     </div>
                                                 ) : (
-                                                    <span>{(Number(row.openingQty) || 0).toFixed(2)} {unit} ({Math.round(row.openingValue).toLocaleString()} PKR)</span>
+                                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', justifyContent: 'flex-end' }}>
+                                                        <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                                                            <span style={{ fontWeight: row.openingQty > 0 ? '600' : '400', color: row.openingQty > 0 ? 'var(--text-pure)' : 'var(--text-muted)' }}>
+                                                                {(Number(row.openingQty) || 0).toFixed(2)}
+                                                            </span>
+                                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: '0.2rem' }}>{unit}</span>
+                                                            {row.openingValue > 0 && (
+                                                                <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                                                    @{Math.round(row.openingValue / (row.openingQty || 1))} PKR
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        {isAdmin && (
+                                                            <button
+                                                                type="button"
+                                                                class="btn btn-secondary"
+                                                                style={{ padding: '0.1rem 0.35rem', minHeight: '22px', height: '22px', fontSize: '0.68rem', opacity: 0.65 }}
+                                                                onClick={() => {
+                                                                    handleOpeningDraftChange(row.item.id, 'qty', row.openingQty || 0);
+                                                                    handleOpeningDraftChange(row.item.id, 'value', row.openingValue || 0);
+                                                                    setEditingOpeningItemId(row.item.id);
+                                                                }}
+                                                                title="Set opening stock"
+                                                            >
+                                                                <i class="fa-solid fa-pencil"></i>
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 )}
                                             </td>
-                                            <td>{(Number(row.purchasedQty) || 0).toFixed(2)} {unit}</td>
-                                            <td>{(Number(row.issuedQty) || 0).toFixed(2)} {unit}</td>
-                                            <td><strong style={{ color: row.closingQty < 0 ? 'hsl(0,75%,60%)' : 'var(--primary-green-light)' }}>{(Number(row.closingQty) || 0).toFixed(2)} {unit}</strong></td>
-                                            <td>{(Number(row.avgRate) || 0).toFixed(2)} PKR/{unit}</td>
-                                            <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(row.closingValue).toLocaleString()} PKR</strong></td>
+                                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                                                <span style={{ fontWeight: row.purchasedQty > 0 ? '600' : '400', color: row.purchasedQty > 0 ? 'var(--text-pure)' : 'var(--text-muted)' }}>
+                                                    {(Number(row.purchasedQty) || 0).toFixed(2)}
+                                                </span>
+                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: '0.2rem' }}>{unit}</span>
+                                            </td>
+                                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                                                <span style={{ fontWeight: row.issuedQty > 0 ? '600' : '400', color: row.issuedQty > 0 ? 'var(--text-pure)' : 'var(--text-muted)' }}>
+                                                    {(Number(row.issuedQty) || 0).toFixed(2)}
+                                                </span>
+                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: '0.2rem' }}>{unit}</span>
+                                            </td>
+                                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                                <span style={{
+                                                    display: 'inline-block',
+                                                    fontVariantNumeric: 'tabular-nums',
+                                                    fontWeight: '700',
+                                                    padding: '0.15rem 0.45rem',
+                                                    borderRadius: '6px',
+                                                    background: row.closingQty < -0.001 ? 'rgba(239, 68, 68, 0.12)' : row.closingQty > 0.001 ? 'rgba(34, 197, 94, 0.12)' : 'transparent',
+                                                    color: row.closingQty < -0.001 ? '#f87171' : row.closingQty > 0.001 ? 'var(--primary-green-light)' : 'var(--text-muted)',
+                                                    border: row.closingQty < -0.001 ? '1px solid rgba(239, 68, 68, 0.25)' : row.closingQty > 0.001 ? '1px solid rgba(34, 197, 94, 0.2)' : 'none'
+                                                }}>
+                                                    {(Number(row.closingQty) || 0).toFixed(2)} {unit}
+                                                </span>
+                                            </td>
+                                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                                                {row.avgRate > 0 ? (
+                                                    <span style={{ color: 'var(--text-pure)' }}>
+                                                        {(Number(row.avgRate) || 0).toFixed(2)} <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>PKR/{unit}</span>
+                                                    </span>
+                                                ) : (
+                                                    <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                                )}
+                                            </td>
+                                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                                                <strong style={{ color: 'var(--accent-gold)', fontSize: '0.88rem' }}>
+                                                    {Math.round(row.closingValue).toLocaleString()} <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>PKR</span>
+                                                </strong>
+                                            </td>
                                             {isAdmin && (
                                                 <td style={{ textAlign: 'center' }}>
                                                     {row.item.isDefault ? (
                                                         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-lock" title="Baseline items cannot be removed"></i></span>
                                                     ) : (
-                                                        <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => handleDeleteItem(row.item.id)}>
+                                                        <button type="button" class="btn btn-secondary" style={{ padding: '0.2rem 0.45rem', minHeight: '26px', height: '26px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }} onClick={() => handleDeleteItem(row.item.id)} title="Remove stock item">
                                                             <i class="fa-solid fa-trash-can"></i>
                                                         </button>
                                                     )}
@@ -791,14 +926,44 @@ export default function FeedStock() {
                                         </tr>
                                         );
                                     })}
-                                    {ledger.length === 0 && (
+                                    {filteredLedger.length === 0 && (
                                         <tr>
                                             <td colSpan={isAdmin ? 9 : 8} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
-                                                No stock items defined yet.
+                                                No stock items match the current search / filter.
                                             </td>
                                         </tr>
                                     )}
                                 </tbody>
+                                {filteredLedger.length > 0 && (
+                                    <tfoot style={{ borderTop: '2px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.25)', fontWeight: 600 }}>
+                                        <tr>
+                                            <td colSpan={2} style={{ padding: '0.75rem 1rem', color: 'var(--text-pure)' }}>
+                                                TOTALS ({filteredLedger.length} items)
+                                            </td>
+                                            <td style={{ textAlign: 'right', padding: '0.75rem 1rem', color: 'var(--text-pure)', fontVariantNumeric: 'tabular-nums' }}>
+                                                {Math.round(filteredLedger.reduce((sum, r) => sum + (r.openingValue || 0), 0)).toLocaleString()} <small style={{ color: 'var(--text-muted)' }}>PKR</small>
+                                            </td>
+                                            <td style={{ textAlign: 'right', padding: '0.75rem 1rem', color: 'var(--text-pure)', fontVariantNumeric: 'tabular-nums' }}>
+                                                {Math.round(filteredLedger.reduce((sum, r) => sum + (r.purchasedValue || 0), 0)).toLocaleString()} <small style={{ color: 'var(--text-muted)' }}>PKR</small>
+                                            </td>
+                                            <td style={{ textAlign: 'right', padding: '0.75rem 1rem', color: 'var(--text-pure)', fontVariantNumeric: 'tabular-nums' }}>
+                                                {Math.round(filteredLedger.reduce((sum, r) => sum + (r.consumptionValue || 0), 0)).toLocaleString()} <small style={{ color: 'var(--text-muted)' }}>PKR</small>
+                                            </td>
+                                            <td style={{ textAlign: 'right', padding: '0.75rem 1rem' }}>
+                                                —
+                                            </td>
+                                            <td style={{ textAlign: 'right', padding: '0.75rem 1rem' }}>
+                                                —
+                                            </td>
+                                            <td style={{ textAlign: 'right', padding: '0.75rem 1rem', color: 'var(--accent-gold)', fontVariantNumeric: 'tabular-nums' }}>
+                                                <strong style={{ fontSize: '0.95rem' }}>
+                                                    {Math.round(filteredLedger.reduce((sum, r) => sum + (r.closingValue || 0), 0)).toLocaleString()} <small style={{ color: 'var(--text-muted)' }}>PKR</small>
+                                                </strong>
+                                            </td>
+                                            {isAdmin && <td></td>}
+                                        </tr>
+                                    </tfoot>
+                                )}
                             </table>
                         </div>
                         {ledger.some(l => l.closingQty < 0) && (
