@@ -31,7 +31,7 @@ export default function MedicalLog() {
     const [manualMedName, setManualMedName] = useState('');
     const [manualDosage, setManualDosage] = useState('');
     const [newMedName, setNewMedName] = useState('');
-    const [newMedUnit, setNewMedUnit] = useState('unit');
+    const [newMedUnit, setNewMedUnit] = useState('pc');
     const [newMedRate, setNewMedRate] = useState('');
     
     const [withholding, setWithholding] = useState('0');
@@ -39,7 +39,7 @@ export default function MedicalLog() {
 
     // Selected stock item helper
     const activeStockItem = medicineItems.find(i => i.id === selectedMedId);
-    const activeUnit = activeStockItem?.unit || 'unit';
+    const activeUnit = activeStockItem?.unit || 'pc';
     const activeLots = activeStockItem ? getFeedStockLots(activeStockItem.id) : [];
     const activeRate = activeLots[0]?.rate || (feedPurchases.find(p => p.itemId === activeStockItem?.id)?.rate) || 0;
     const activeStockQty = activeStockItem ? stockQtyOf(activeStockItem.id) : 0;
@@ -52,7 +52,7 @@ export default function MedicalLog() {
         setManualMedName('');
         setManualDosage('');
         setNewMedName('');
-        setNewMedUnit('unit');
+        setNewMedUnit('pc');
         setNewMedRate('');
         setWithholding('0');
     };
@@ -96,7 +96,8 @@ export default function MedicalLog() {
             const name = newMedName.trim();
             const rate = parseFloat(newMedRate);
             const qty = parseFloat(dosageQty) || 0;
-            const unit = newMedUnit.trim() || 'unit';
+            const validUnits = ['ml', 'kg', 'mun', 'pc'];
+            const unit = validUnits.includes(newMedUnit.toLowerCase()) ? newMedUnit.toLowerCase() : 'pc';
             if (!name || isNaN(rate) || rate < 0 || qty <= 0) {
                 alert('Please enter a medicine name, price/unit, and quantity.');
                 return;
@@ -404,7 +405,12 @@ export default function MedicalLog() {
                                 </div>
                                 <div className="form-group" style={{ marginBottom: 0 }}>
                                     <label style={{ fontSize: '0.75rem' }}>Unit *</label>
-                                    <input type="text" className="form-control" placeholder="pc, ml, dose…" value={newMedUnit} onChange={(e) => setNewMedUnit(e.target.value)} required />
+                                    <select className="form-control" value={newMedUnit} onChange={(e) => setNewMedUnit(e.target.value)}>
+                                        <option value="pc">pc (pieces / bottles)</option>
+                                        <option value="ml">ml (millilitres)</option>
+                                        <option value="kg">kg (kilograms)</option>
+                                        <option value="mun">mun (40 kg)</option>
+                                    </select>
                                 </div>
                                 <div className="form-group" style={{ marginBottom: 0 }}>
                                     <label style={{ fontSize: '0.75rem' }}>Dosage ({newMedUnit}) *</label>

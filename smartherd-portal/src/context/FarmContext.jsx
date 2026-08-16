@@ -1333,8 +1333,15 @@ export const FarmProvider = ({ children }) => {
         const existing = effectiveFeedStockItems.find(i => (i.name || '').toLowerCase() === trimmed.toLowerCase());
         if (existing) return existing.id;
 
+        const MEDICINE_UNITS = ['ml', 'kg', 'mun', 'pc'];
+        let finalUnit = unit || 'kg';
+        if (category === 'medicine') {
+            const uLower = (unit || '').toLowerCase().trim();
+            finalUnit = MEDICINE_UNITS.includes(uLower) ? uLower : 'pc';
+        }
+
         const id = 'item_' + Date.now();
-        const item = { id, name: trimmed, unit: unit || 'kg', category, isDefault: false, derivedFromIngredientId: id };
+        const item = { id, name: trimmed, unit: finalUnit, category, isDefault: false, derivedFromIngredientId: id };
 
         const isAdmin = staffUserRef.current?.isAdmin === true;
         if (isAdmin) {

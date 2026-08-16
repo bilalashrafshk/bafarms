@@ -90,7 +90,12 @@ export default function FeedStock() {
     const handleAddItem = (e) => {
         e.preventDefault();
         if (!isAdmin || !newItemName.trim()) return;
-        addStockTrackedIngredient(newItemName.trim(), newItemCategory, newItemUnit.trim() || 'kg');
+        const validMedUnits = ['ml', 'kg', 'mun', 'pc'];
+        let unit = newItemUnit.trim() || 'kg';
+        if (newItemCategory === 'medicine') {
+            unit = validMedUnits.includes(unit.toLowerCase()) ? unit.toLowerCase() : 'pc';
+        }
+        addStockTrackedIngredient(newItemName.trim(), newItemCategory, unit);
         setNewItemName('');
         setNewItemCategory('feed');
         setNewItemUnit('kg');
@@ -706,7 +711,12 @@ export default function FeedStock() {
                                     </div>
                                     <div class="form-group" style={{ marginBottom: 0 }}>
                                         <label style={{ fontSize: '0.75rem' }}>Category</label>
-                                        <select class="form-control" value={newItemCategory} onChange={e => setNewItemCategory(e.target.value)}>
+                                        <select class="form-control" value={newItemCategory} onChange={e => {
+                                            const cat = e.target.value;
+                                            setNewItemCategory(cat);
+                                            if (cat === 'medicine') setNewItemUnit('pc');
+                                            else if (cat === 'feed') setNewItemUnit('kg');
+                                        }}>
                                             <option value="feed">Feed (rationable)</option>
                                             <option value="medicine">Medicine</option>
                                             <option value="other">Other</option>
@@ -714,7 +724,16 @@ export default function FeedStock() {
                                     </div>
                                     <div class="form-group" style={{ marginBottom: 0 }}>
                                         <label style={{ fontSize: '0.75rem' }}>Unit</label>
-                                        <input type="text" class="form-control" placeholder="kg, ml, dose…" value={newItemUnit} onChange={e => setNewItemUnit(e.target.value)} />
+                                        {newItemCategory === 'medicine' ? (
+                                            <select class="form-control" value={newItemUnit} onChange={e => setNewItemUnit(e.target.value)}>
+                                                <option value="pc">pc (pieces / bottles)</option>
+                                                <option value="ml">ml (millilitres)</option>
+                                                <option value="kg">kg (kilograms)</option>
+                                                <option value="mun">mun (40 kg)</option>
+                                            </select>
+                                        ) : (
+                                            <input type="text" class="form-control" placeholder="kg, bag…" value={newItemUnit} onChange={e => setNewItemUnit(e.target.value)} />
+                                        )}
                                     </div>
                                     <button type="submit" class="btn btn-primary">Add</button>
                                 </div>

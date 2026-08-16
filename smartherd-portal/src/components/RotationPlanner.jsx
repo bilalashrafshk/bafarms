@@ -35,7 +35,7 @@ export default function RotationPlanner() {
     const [bulkStockItemId, setBulkStockItemId] = useState('');
     const [bulkStockQtyPerAnimal, setBulkStockQtyPerAnimal] = useState('1');
     const [bulkNewMedName, setBulkNewMedName] = useState('');
-    const [bulkNewMedUnit, setBulkNewMedUnit] = useState('unit');
+    const [bulkNewMedUnit, setBulkNewMedUnit] = useState('pc');
     const [bulkNewMedRate, setBulkNewMedRate] = useState('');
     const [bulkCustomType, setBulkCustomType] = useState('Treatment');
     const [bulkCustomWithholding, setBulkCustomWithholding] = useState('0');
@@ -177,7 +177,7 @@ export default function RotationPlanner() {
         setBulkStockItemId(matchedItemId || medicineItems[0]?.id || '');
         setBulkStockQtyPerAnimal('1');
         setBulkNewMedName('');
-        setBulkNewMedUnit('unit');
+        setBulkNewMedUnit('pc');
         setBulkNewMedRate('');
         setBulkCustomType('Treatment');
         setBulkCustomWithholding('0');
@@ -225,15 +225,17 @@ export default function RotationPlanner() {
                 alert('Enter a name and price per unit for the new medicine.');
                 return;
             }
-            itemId = addStockTrackedIngredient(name, 'medicine', bulkNewMedUnit.trim() || 'unit');
+            const validUnits = ['ml', 'kg', 'mun', 'pc'];
+            const unit = validUnits.includes(bulkNewMedUnit.toLowerCase()) ? bulkNewMedUnit.toLowerCase() : 'pc';
+            itemId = addStockTrackedIngredient(name, 'medicine', unit);
             setBulkTaskSubmitting(true);
             await addFeedPurchase({
                 itemId, date: logDate, quantity: qtyPerAnimal * eligible.length, rate,
                 supplier: 'Direct purchase (bulk treatment)',
                 notes: `Backfilled for "${taskLabel}" — ${eligible.length} animal${eligible.length === 1 ? '' : 's'}`
             });
-            actualMedicine = `${name} (${qtyPerAnimal} ${bulkNewMedUnit.trim() || 'unit'})`;
-            actualDosage = `${qtyPerAnimal} ${bulkNewMedUnit.trim() || 'unit'}`;
+            actualMedicine = `${name} (${qtyPerAnimal} ${unit})`;
+            actualDosage = `${qtyPerAnimal} ${unit}`;
         } else if (!itemId) {
             alert('Select a medicine from stock, or switch to "New medicine".');
             return;
@@ -778,8 +780,13 @@ export default function RotationPlanner() {
                                             <input type="text" class="form-control" placeholder="e.g. Ivermectin" value={bulkNewMedName} onChange={e => setBulkNewMedName(e.target.value)} />
                                         </div>
                                         <div class="form-group" style={{ marginBottom: 0 }}>
-                                            <label>Unit</label>
-                                            <input type="text" class="form-control" placeholder="e.g. ml, dose" value={bulkNewMedUnit} onChange={e => setBulkNewMedUnit(e.target.value)} />
+                                            <label>Unit *</label>
+                                            <select class="form-control" value={bulkNewMedUnit} onChange={e => setBulkNewMedUnit(e.target.value)}>
+                                                <option value="pc">pc (pieces / bottles)</option>
+                                                <option value="ml">ml (millilitres)</option>
+                                                <option value="kg">kg (kilograms)</option>
+                                                <option value="mun">mun (40 kg)</option>
+                                            </select>
                                         </div>
                                         <div class="form-group" style={{ marginBottom: 0, gridColumn: '1 / -1' }}>
                                             <label>Price per Unit (PKR) *</label>
