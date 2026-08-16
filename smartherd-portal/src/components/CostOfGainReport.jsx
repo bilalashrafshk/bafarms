@@ -28,7 +28,25 @@ export default function CostOfGainReport() {
     const [penFilter, setPenFilter] = useState('ALL');
     const [statusFilter, setStatusFilter] = useState('active'); // 'active' | 'all'
 
-    const inRange = (d) => d >= dateFrom && d <= dateTo;
+    const normalizeDateStr = (val) => {
+        if (!val) return '';
+        if (typeof val === 'string') {
+            const mIso = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (mIso) return `${mIso[1]}-${mIso[2]}-${mIso[3]}`;
+            const mDmy = val.match(/^(\d{2})-(\d{2})-(\d{4})/);
+            if (mDmy) return `${mDmy[3]}-${mDmy[2]}-${mDmy[1]}`;
+        }
+        const d = new Date(val);
+        if (!isNaN(d.getTime())) {
+            return d.toISOString().split('T')[0];
+        }
+        return '';
+    };
+
+    const inRange = (d) => {
+        const nd = normalizeDateStr(d);
+        return nd >= dateFrom && nd <= dateTo;
+    };
 
     const activePens = useMemo(() => {
         const set = new Set();
@@ -174,8 +192,32 @@ export default function CostOfGainReport() {
                     + days.totalDays * allPoolRate;
 
                 const treatCost = treatments
-                    .filter(t => t.animalId === animal.id && inRange(t.date) && t.stockIssueId)
-                    .reduce((sum, t) => sum + (issueCosts[t.stockIssueId]?.cost ?? 0), 0);
+                    .filter(t => String(t.animalId) === String(animal.id) && inRange(t.date))
+                    .reduce((sum, t) => {
+                        if (t.stockIssueId && issueCosts[t.stockIssueId]?.cost) {
+                            return sum + issueCosts[t.stockIssueId].cost;
+                        }
+                        const rawMed = (t.medicine || '').toLowerCase();
+                        const matched = feedStockItems.find(i => {
+                            const iname = (i.name || '').toLowerCase();
+                            return iname && (rawMed.includes(iname) || iname.includes(rawMed.replace('inj.', '').trim()));
+                        });
+                        if (matched) {
+                            const purchases = feedPurchases.filter(p => p.itemId === matched.id);
+                            const rate = purchases[0]?.rate || 0;
+                            if (rate > 0) {
+                                const match = (t.dosage || t.medicine || '').match(/([\d.]+)\s*(ml|unit|dose|pc|kg)?/i);
+                                const doseVal = match ? parseFloat(match[1]) : 1;
+                                const bottleMatch = matched.name.match(/(\d+)\s*ml/i);
+                                let multiplier = doseVal;
+                                if (matched.unit === 'pc' && match && match[2]?.toLowerCase() === 'ml' && bottleMatch) {
+                                    multiplier = doseVal / parseFloat(bottleMatch[1]);
+                                }
+                                return sum + (multiplier * rate);
+                            }
+                        }
+                        return sum;
+                    }, 0);
 
                 const overheadShare = days.totalDays * overheadPerHeadDay;
 
