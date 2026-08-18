@@ -825,6 +825,10 @@ export const FarmProvider = ({ children }) => {
         persistMutation('SAVE_SETTINGS', { key: 'mineral_split_ratio', value: newRatio });
     };
 
+    const [premixTypes, setPremixTypes] = useState(() => loadStoredData('ba_premix_types', []));
+    const [premixFormulas, setPremixFormulas] = useState(() => loadStoredData('ba_premix_formulas', {}));
+    const [premixBatches, setPremixBatches] = useState(() => loadStoredData('ba_premix_batches', []));
+
     // Backfill derivedFromIngredientId onto any ledger saved to localStorage before this
     // auto-sync mapping existed, so existing farms don't lose the feature silently.
     useEffect(() => {
@@ -1385,10 +1389,6 @@ export const FarmProvider = ({ children }) => {
     // premix's own stock via addFeedPurchase (rate = that batch's rolled-up material cost).
     // Reusing those two existing functions means getFeedStockLedger needs no changes at all.
     // Any number of differently-named premixes can be defined (not just one hardcoded "Wanda").
-    const [premixTypes, setPremixTypes] = useState(() => loadStoredData('ba_premix_types', []));
-    const [premixFormulas, setPremixFormulas] = useState(() => loadStoredData('ba_premix_formulas', {}));
-    const [premixBatches, setPremixBatches] = useState(() => loadStoredData('ba_premix_batches', []));
-
     const addPremixType = (name) => {
         const trimmed = (name || '').trim();
         if (!trimmed) return null;
