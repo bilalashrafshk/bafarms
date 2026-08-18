@@ -3100,7 +3100,7 @@ module.exports = async (req, res) => {
                 );
                 await client.query(`
                     INSERT INTO ba_feed_purchases (id, item_id, item_name, item_unit, date, quantity, rate, supplier, notes, created_by, created_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
                     ON CONFLICT (id) DO UPDATE SET
                         item_id = EXCLUDED.item_id,
                         item_name = EXCLUDED.item_name,
