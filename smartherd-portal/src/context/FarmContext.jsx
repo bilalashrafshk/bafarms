@@ -868,7 +868,8 @@ export const FarmProvider = ({ children }) => {
         return list;
     }, [feedStockItems, myRequests, pendingApprovals]);
 
-    // Effective feed purchases including pending additions and excluding pending deletions
+    // Effective feed purchases including pending additions and excluding pending deletions,
+    // and ensuring orphaned in-house production purchases whose batches are deleted are excluded.
     const effectiveFeedPurchases = useMemo(() => {
         let list = [...feedPurchases];
         const pendingDeletes = new Set();
@@ -883,10 +884,16 @@ export const FarmProvider = ({ children }) => {
                 }
             }
         });
-        return list.filter(p => !pendingDeletes.has(p.id));
-    }, [feedPurchases, myRequests]);
+        const validBatchPurchaseIds = new Set((premixBatches || []).map(b => b.purchaseId).filter(Boolean));
+        return list.filter(p => {
+            if (pendingDeletes.has(p.id)) return false;
+            if (p.supplier === 'In-house production' && !validBatchPurchaseIds.has(p.id)) return false;
+            return true;
+        });
+    }, [feedPurchases, myRequests, premixBatches]);
 
-    // Effective feed stock issues including pending additions and excluding pending deletions
+    // Effective feed stock issues including pending additions and excluding pending deletions,
+    // and ensuring orphaned production issues whose batches are deleted are excluded.
     const effectiveFeedStockIssues = useMemo(() => {
         let list = [...feedStockIssues];
         const pendingDeletes = new Set();
@@ -901,8 +908,13 @@ export const FarmProvider = ({ children }) => {
                 }
             }
         });
-        return list.filter(i => !pendingDeletes.has(i.id));
-    }, [feedStockIssues, myRequests]);
+        const validBatchIssueIds = new Set((premixBatches || []).flatMap(b => b.issueIds || []).filter(Boolean));
+        return list.filter(i => {
+            if (pendingDeletes.has(i.id)) return false;
+            if (i.pen === 'PRODUCTION' && !validBatchIssueIds.has(i.id)) return false;
+            return true;
+        });
+    }, [feedStockIssues, myRequests, premixBatches]);
 
     // Any feed stock item that's its own canonical ingredient (i.e. not a split component
     // like limestone/mineralPack, which both share the combined "minerals" ingredient id)

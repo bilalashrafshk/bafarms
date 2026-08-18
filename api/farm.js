@@ -927,7 +927,7 @@ async function reconcileOrphanedFeedStockIssues(client) {
               AND id NOT IN (SELECT stock_issue_id FROM ba_treatments WHERE stock_issue_id IS NOT NULL)
         `);
 
-        // Prune orphaned premix production issues
+        // Prune orphaned premix production issues and purchases
         const premixRes = await client.query("SELECT value FROM ba_settings WHERE key = 'premix_batches'");
         let batches = [];
         if (premixRes.rows.length > 0) {
@@ -937,6 +937,7 @@ async function reconcileOrphanedFeedStockIssues(client) {
         }
         if (!Array.isArray(batches)) batches = [];
         const validBatchIssueIds = batches.flatMap(b => b.issueIds || []).filter(Boolean);
+        const validBatchPurchaseIds = batches.map(b => b.purchaseId).filter(Boolean);
 
         if (validBatchIssueIds.length > 0) {
             await client.query(`
@@ -948,6 +949,19 @@ async function reconcileOrphanedFeedStockIssues(client) {
             await client.query(`
                 DELETE FROM ba_feed_stock_issues
                 WHERE pen = 'PRODUCTION'
+            `);
+        }
+
+        if (validBatchPurchaseIds.length > 0) {
+            await client.query(`
+                DELETE FROM ba_feed_purchases
+                WHERE supplier = 'In-house production'
+                  AND id != ALL($1::text[])
+            `, [validBatchPurchaseIds]);
+        } else {
+            await client.query(`
+                DELETE FROM ba_feed_purchases
+                WHERE supplier = 'In-house production'
             `);
         }
     } catch (err) {
@@ -2203,6 +2217,9 @@ module.exports = async (req, res) => {
                         VALUES ($1, $2, $3, NOW())
                         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()
                     `, [changes.key, JSON.stringify(changes.value), approval.requested_by]);
+                    if (changes.key === 'premix_batches') {
+                        await reconcileOrphanedFeedStockIssues(client);
+                    }
                 } else if (approval.action === 'UPDATE_WEIGHT_LOGS_BATCH') {
                     for (const log of (changes.logs || [])) {
                         await client.query(`UPDATE ba_weights SET date = $1, weight = $2, adg = $3 WHERE id = $4`, [log.date, log.weight, log.adg, log.id]);
@@ -3066,6 +3083,10 @@ module.exports = async (req, res) => {
                         updated_by = EXCLUDED.updated_by,
                         updated_at = NOW()
                 `, [key, JSON.stringify(value), session ? session.email : null]);
+
+                if (key === 'premix_batches') {
+                    await reconcileOrphanedFeedStockIssues(client);
+                }
 
                 return res.status(200).json({ success: true });
             }
