@@ -12,14 +12,31 @@ export default function Dashboard({ onNavigate }) {
 
     // 1. DYNAMIC CALCULATIONS
 
+    // One-off corrupted intake window exclusion (pre-08-Aug-2026 corrupted entry baseline).
+    // All feed logs, manual stock issues, and weigh-in gains from 08-Aug-2026 onwards are
+    // synchronized to the exact same valid operational window.
+    const isCorruptedWeighDate = d => {
+        if (!d) return false;
+        const str = String(d);
+        return str.startsWith('2026-07-29') || str.startsWith('2026-08-08');
+    };
+
+    const isPreBaselineFeedDate = d => {
+        if (!d) return false;
+        const str = String(d);
+        return str < '2026-08-08';
+    };
+
     // A. Actual Daily Feed Cost per Animal (PKR/Day)
-    // Derived from logged feed logs and manual feed stock issues.
+    // Derived from logged feed logs and manual feed stock issues in the valid baseline window.
     // TMR feed logs are weighted by partial feeding percentage (feedingPct / 100)
     // so split-fed days (e.g. 50% Morning + 50% Evening) or single partial sessions
     // don't inflate animal-days or double-count headcount.
     // Manual feed issues (category === 'feed') are priced at FIFO cost and add to
     // animal-days for any pen+date combination that lacks a TMR log.
+    const validFeedLogs = (feedLogs || []).filter(f => !isPreBaselineFeedDate(f.date));
     const manualFeedIssues = (feedStockIssues || []).filter(i => {
+        if (isPreBaselineFeedDate(i.date)) return false;
         const item = (feedStockItems || []).find(it => it.id === i.itemId);
         return (item?.category || 'feed') === 'feed';
     });
@@ -27,14 +44,14 @@ export default function Dashboard({ onNavigate }) {
     const issueCostsMap = getFeedStockIssueCosts ? getFeedStockIssueCosts() : {};
     const totalManualIssueCost = manualFeedIssues.reduce((sum, iss) => sum + (issueCostsMap[iss.id]?.cost || 0), 0);
 
-    const totalLoggedFeedCost = (feedLogs || []).reduce((sum, f) => sum + (f.totalCost || 0), 0) + totalManualIssueCost;
+    const totalLoggedFeedCost = validFeedLogs.reduce((sum, f) => sum + (f.totalCost || 0), 0) + totalManualIssueCost;
 
-    const tmrAnimalDays = (feedLogs || []).reduce((sum, f) => {
+    const tmrAnimalDays = validFeedLogs.reduce((sum, f) => {
         const scale = (f.feedingPct ?? 100) / 100;
         return sum + (f.animalCount || 0) * scale;
     }, 0);
 
-    const loggedDatePenSet = new Set((feedLogs || []).map(f => `${f.date}__${f.pen}`));
+    const loggedDatePenSet = new Set(validFeedLogs.map(f => `${f.date}__${f.pen}`));
 
     const manualAnimalDaysMap = new Map();
     manualFeedIssues.forEach(iss => {
@@ -61,12 +78,6 @@ export default function Dashboard({ onNavigate }) {
     // B. Herd Average ADG — overall average across all valid weight logs across time,
     // excluding the one-off corrupted weigh-in (29-07-2026 / 08-08-2026 interval).
     // All subsequent weigh-ins will be accumulated and averaged together normally.
-    const isCorruptedWeighDate = d => {
-        if (!d) return false;
-        const str = String(d);
-        return str.startsWith('2026-07-29') || str.startsWith('2026-08-08');
-    };
-
     const validAdgLogs = (weightLogs || []).filter(w => w.adg !== 0 && !isCorruptedWeighDate(w.date));
     const avgHerdAdg = validAdgLogs.length > 0
         ? parseFloat((validAdgLogs.reduce((sum, log) => sum + log.adg, 0) / validAdgLogs.length).toFixed(2))
