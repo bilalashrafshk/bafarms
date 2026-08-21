@@ -182,6 +182,7 @@ export default function SalesManager() {
                         <table className="data-table">
                             <thead>
                                 <tr>
+                                    <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                     <th>Ref / Date</th>
                                     <th>Recipient / Contact</th>
                                     <th>Destination City</th>
@@ -192,9 +193,10 @@ export default function SalesManager() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredOrders.map(order => {
+                                {filteredOrders.map((order, idx) => {
                                     return (
                                         <tr key={order.id}>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td>
                                                 <strong style={{ color: order.hasLive ? 'var(--accent-gold)' : 'var(--text-pure)' }}>{order.id}</strong>
                                                 <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>

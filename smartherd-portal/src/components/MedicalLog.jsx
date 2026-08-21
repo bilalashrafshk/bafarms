@@ -484,6 +484,7 @@ export default function MedicalLog() {
                     <table className="data-table" style={{ fontSize: '0.85rem' }}>
                         <thead>
                             <tr>
+                                <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                 <th>ID</th>
                                 <th>RFID</th>
                                 <th>DATE</th>
@@ -496,11 +497,12 @@ export default function MedicalLog() {
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedTreatments.map((t) => {
+                            {sortedTreatments.map((t, idx) => {
                                 const daysRemaining = checkWithholdingActive(t.date, t.withholding);
                                 const costDisplay = getTreatmentCostDisplay(t);
                                 return (
                                     <tr key={t.id}>
+                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                         <td>#{t.id}</td>
                                         <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '600', color: 'var(--text-pure)' }}>
                                             {getRfid(t.animalId)}
@@ -547,7 +549,7 @@ export default function MedicalLog() {
                             })}
                             {sortedTreatments.length === 0 && (
                                 <tr>
-                                    <td colSpan="9" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                                    <td colSpan="10" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                                         <i className="fa-solid fa-prescription-bottle-medical" style={{ fontSize: '2rem', marginBottom: '0.8rem', display: 'block', color: 'var(--text-muted)', opacity: '0.8' }}></i>
                                         No veterinary treatment records logged in the database yet.
                                     </td>

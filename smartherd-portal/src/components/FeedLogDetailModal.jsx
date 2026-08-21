@@ -136,6 +136,7 @@ export default function FeedLogDetailModal({ feedLog, onClose }) {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                         <thead>
                             <tr style={{ background: 'rgba(255,255,255,0.04)', color: 'var(--text-muted)', textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                                <th style={{ padding: '0.6rem 0.8rem', width: '40px', textAlign: 'center' }}>#</th>
                                 <th style={{ padding: '0.6rem 0.8rem' }}>Ingredient</th>
                                 <th style={{ padding: '0.6rem 0.8rem', textAlign: 'right' }}>Fed DM (kg/head)</th>
                                 <th style={{ padding: '0.6rem 0.8rem', textAlign: 'right' }}>Plan DM (kg/head)</th>
@@ -150,6 +151,7 @@ export default function FeedLogDetailModal({ feedLog, onClose }) {
                                 const differed = planned !== undefined && Math.abs((fedDm || 0) - planned) > 0.0005;
                                 return (
                                     <tr key={ing.id || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                        <td style={{ padding: '0.6rem 0.8rem', color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                         <td style={{ padding: '0.6rem 0.8rem', color: 'var(--text-pure)', fontWeight: '600' }}>
                                             {getItemName(ing.id || ing.name)}
                                         </td>

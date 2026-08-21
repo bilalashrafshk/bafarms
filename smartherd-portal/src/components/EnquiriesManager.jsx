@@ -183,6 +183,7 @@ export default function EnquiriesManager() {
                             <table className="data-table">
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                         <th>Ref / Date</th>
                                         <th>Company & Contact</th>
                                         <th>Region</th>
@@ -193,9 +194,10 @@ export default function EnquiriesManager() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredEnquiries.map(enq => {
+                                    {filteredEnquiries.map((enq, idx) => {
                                         return (
                                             <tr key={enq.id}>
+                                                <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                 <td>
                                                     <strong style={{ color: 'var(--accent-gold)' }}>{enq.id}</strong>
                                                     <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
@@ -324,6 +326,7 @@ export default function EnquiriesManager() {
                             <table className="data-table">
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                         <th>Ref / Date</th>
                                         <th>Client Company</th>
                                         <th>Destination</th>
@@ -334,11 +337,12 @@ export default function EnquiriesManager() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {quotations.map(quote => {
+                                    {quotations.map((quote, idx) => {
                                         const prodNames = quote.products.map(p => `${p.title} (${p.weight})`).join(', ');
                                         const destName = quote.scope === 'single' ? quote.targetDestination : 'Multi-Destination';
                                         return (
                                             <tr key={quote.id}>
+                                                <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                 <td>
                                                     <strong style={{ color: 'var(--accent-gold)' }}>{quote.id}</strong>
                                                     <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
@@ -459,6 +463,7 @@ export default function EnquiriesManager() {
                             <table className="data-table">
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                         <th>Ref / Date</th>
                                         <th>Product Name</th>
                                         <th>Client Buyer</th>
@@ -468,8 +473,9 @@ export default function EnquiriesManager() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {specSheets.map(spec => (
+                                    {specSheets.map((spec, idx) => (
                                         <tr key={spec.docRef}>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td>
                                                 <strong style={{ color: 'var(--accent-gold)' }}>{spec.docRef}</strong>
                                                 <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>

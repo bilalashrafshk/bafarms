@@ -428,7 +428,8 @@ export default function RotationPlanner() {
                         <table class="data-table" style={{ fontSize: '0.83rem' }}>
                             <thead>
                                 <tr>
-                                    <th style={{ ...headStyle, width: '40px', textAlign: 'center' }}>
+                                    <th style={{ ...headStyle, width: '35px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
+                                    <th style={{ ...headStyle, width: '35px', textAlign: 'center' }}>
                                         <input type="checkbox" checked={isAllCurrentSelected} onChange={() => toggleSelectAll(fQ)} />
                                     </th>
                                     <th style={headStyle}>Tag</th>
@@ -441,11 +442,12 @@ export default function RotationPlanner() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {fQ.map(c => {
+                                {fQ.map((c, idx) => {
                                     const doneCount = quarantineProtocols.filter(t => isTaskDone(c, t)).length;
                                     const cleared = c.dof >= systemParams.quarantineDays;
                                     return (
                                         <tr key={c.id} style={{ borderLeft: cleared ? '3px solid var(--primary-green-light)' : '3px solid var(--accent-gold)' }}>
+                                            <td style={{ ...cellStyle, color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td style={{ ...cellStyle, textAlign: 'center' }}>
                                                 <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => toggleSelect(c.id)} />
                                             </td>
@@ -478,7 +480,7 @@ export default function RotationPlanner() {
                                         </tr>
                                     );
                                 })}
-                                {fQ.length === 0 && <tr><td colSpan={8 + quarantineProtocols.length} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-circle-check" style={{ color: 'var(--primary-green-light)', marginRight: '0.5rem' }}></i>Quarantine pen is empty.</td></tr>}
+                                {fQ.length === 0 && <tr><td colSpan={9 + quarantineProtocols.length} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-circle-check" style={{ color: 'var(--primary-green-light)', marginRight: '0.5rem' }}></i>Quarantine pen is empty.</td></tr>}
                             </tbody>
                         </table>
                     </div>
@@ -490,7 +492,8 @@ export default function RotationPlanner() {
                         <table class="data-table" style={{ fontSize: '0.83rem' }}>
                             <thead>
                                 <tr>
-                                    <th style={{ ...headStyle, width: '40px', textAlign: 'center' }}>
+                                    <th style={{ ...headStyle, width: '35px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
+                                    <th style={{ ...headStyle, width: '35px', textAlign: 'center' }}>
                                         <input type="checkbox" checked={isAllCurrentSelected} onChange={() => toggleSelectAll(fF)} />
                                     </th>
                                     <th style={headStyle}>Tag</th>
@@ -504,8 +507,9 @@ export default function RotationPlanner() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {fF.map(c => (
+                                {fF.map((c, idx) => (
                                     <tr key={c.id}>
+                                        <td style={{ ...cellStyle, color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                         <td style={{ ...cellStyle, textAlign: 'center' }}>
                                             <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => toggleSelect(c.id)} />
                                         </td>
@@ -531,7 +535,7 @@ export default function RotationPlanner() {
                                         </td>
                                     </tr>
                                 ))}
-                                {fF.length === 0 && <tr><td colSpan={9} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>No fattening animals match criteria.</td></tr>}
+                                {fF.length === 0 && <tr><td colSpan={10} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>No fattening animals match criteria.</td></tr>}
                             </tbody>
                         </table>
                     </div>
@@ -543,7 +547,8 @@ export default function RotationPlanner() {
                         <table class="data-table" style={{ fontSize: '0.83rem' }}>
                             <thead>
                                 <tr>
-                                    <th style={{ ...headStyle, width: '40px', textAlign: 'center' }}>
+                                    <th style={{ ...headStyle, width: '35px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
+                                    <th style={{ ...headStyle, width: '35px', textAlign: 'center' }}>
                                         <input type="checkbox" checked={isAllCurrentSelected} onChange={() => toggleSelectAll(fS)} />
                                     </th>
                                     <th style={headStyle}>Tag</th>
@@ -556,8 +561,9 @@ export default function RotationPlanner() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {fS.map(c => (
+                                {fS.map((c, idx) => (
                                     <tr key={c.id}>
+                                        <td style={{ ...cellStyle, color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                         <td style={{ ...cellStyle, textAlign: 'center' }}>
                                             <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => toggleSelect(c.id)} />
                                         </td>
@@ -579,7 +585,7 @@ export default function RotationPlanner() {
                                         </td>
                                     </tr>
                                 ))}
-                                {fS.length === 0 && <tr><td colSpan={8} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-circle-check" style={{ color: 'var(--primary-green-light)', marginRight: '0.5rem' }}></i>Sick pen is clear.</td></tr>}
+                                {fS.length === 0 && <tr><td colSpan={9} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-circle-check" style={{ color: 'var(--primary-green-light)', marginRight: '0.5rem' }}></i>Sick pen is clear.</td></tr>}
                             </tbody>
                         </table>
                     </div>
@@ -591,7 +597,8 @@ export default function RotationPlanner() {
                         <table class="data-table" style={{ fontSize: '0.83rem' }}>
                             <thead>
                                 <tr>
-                                    <th style={{ ...headStyle, width: '40px', textAlign: 'center' }}>
+                                    <th style={{ ...headStyle, width: '35px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
+                                    <th style={{ ...headStyle, width: '35px', textAlign: 'center' }}>
                                         <input type="checkbox" checked={isAllCurrentSelected} onChange={() => toggleSelectAll(fM)} />
                                     </th>
                                     <th style={headStyle}>Tag</th>
@@ -604,8 +611,9 @@ export default function RotationPlanner() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {fM.map(c => (
+                                {fM.map((c, idx) => (
                                     <tr key={c.id} style={{ borderLeft: '3px solid var(--accent-gold)' }}>
+                                        <td style={{ ...cellStyle, color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                         <td style={{ ...cellStyle, textAlign: 'center' }}>
                                             <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => toggleSelect(c.id)} />
                                         </td>
@@ -622,7 +630,7 @@ export default function RotationPlanner() {
                                         </td>
                                     </tr>
                                 ))}
-                                {fM.length === 0 && <tr><td colSpan={8} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>No animals at market weight yet.</td></tr>}
+                                {fM.length === 0 && <tr><td colSpan={9} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>No animals at market weight yet.</td></tr>}
                             </tbody>
                         </table>
                     </div>
@@ -638,14 +646,16 @@ export default function RotationPlanner() {
                         <table class="data-table">
                             <thead>
                                 <tr>
+                                    <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                     <th>TAG</th><th>BREED</th><th>SALE DATE</th><th>BUYER</th><th>COST</th><th>SOLD</th><th>P&L</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {fSold.map(a => {
+                                {fSold.map((a, idx) => {
                                     const profit = (a.salePrice || 0) - (a.purchasePrice || 0);
                                     return (
                                         <tr key={a.id}>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '600', color: 'var(--text-pure)' }}>{a.rfid}</td>
                                             <td>{a.breed}</td>
                                             <td>{formatDate(a.saleDate) || '—'}</td>

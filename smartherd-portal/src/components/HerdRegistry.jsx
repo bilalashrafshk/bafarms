@@ -169,9 +169,9 @@ export default function HerdRegistry() {
     };
 
     const exportCSV = () => {
-        const headers = ['RFID,Breed,Entry Date,Entry Weight (kg),Current Weight (kg),Total Gain (kg),Purchase Cost (PKR),Cost per KG (PKR),Source,Pen,Status'];
-        const rows = sortedAnimals.map(a =>
-            [a.rfid, a.breed, formatDate(a.entryDate), a.entryWeight, a.currentWeight,
+        const headers = ['#,RFID,Previous Tags,Breed,Entry Date,Entry Weight (kg),Current Weight (kg),Total Gain (kg),Purchase Cost (PKR),Cost per KG (PKR),Source,Pen,Status'];
+        const rows = sortedAnimals.map((a, idx) =>
+            [idx + 1, a.rfid, (a.previousTags && a.previousTags.length > 0) ? a.previousTags.join(';') : '', a.breed, formatDate(a.entryDate), a.entryWeight, a.currentWeight,
              (a.currentWeight - a.entryWeight).toFixed(1), a.purchasePrice,
              a.entryWeight ? (a.purchasePrice / a.entryWeight).toFixed(0) : '', a.source || '', a.pen || '', a.status].join(',')
         );
@@ -201,9 +201,10 @@ export default function HerdRegistry() {
 
         autoTable(doc, {
             startY: 27,
-            head: [['Tag', 'Breed', 'Entry Date', 'Entry Wt (kg)', 'Current Wt (kg)', 'Gain (kg)', 'Cost (PKR)', 'Cost/kg (PKR)', 'Source', 'Pen', 'Status']],
-            body: sortedAnimals.map(a => [
-                a.rfid,
+            head: [['#', 'Tag', 'Breed', 'Entry Date', 'Entry Wt (kg)', 'Current Wt (kg)', 'Gain (kg)', 'Cost (PKR)', 'Cost/kg (PKR)', 'Source', 'Pen', 'Status']],
+            body: sortedAnimals.map((a, idx) => [
+                idx + 1,
+                (a.previousTags && a.previousTags.length > 0) ? `${a.rfid} (prev: ${a.previousTags.join(', ')})` : a.rfid,
                 a.breed,
                 formatDate(a.entryDate),
                 a.entryWeight,
@@ -215,7 +216,7 @@ export default function HerdRegistry() {
                 a.pen || '—',
                 a.status
             ]),
-            foot: [['', '', '', totalWeight.toLocaleString(), '', '', totalCost.toLocaleString(), Math.round(avgPerKg).toLocaleString(), '', '', 'TOTAL / AVG']],
+            foot: [['', '', '', '', totalWeight.toLocaleString(), '', '', totalCost.toLocaleString(), Math.round(avgPerKg).toLocaleString(), '', '', 'TOTAL / AVG']],
             styles: { fontSize: 8 },
             headStyles: { fillColor: [25, 90, 60] },
             footStyles: { fillColor: [230, 230, 230], textColor: 20, fontStyle: 'bold' }
@@ -865,6 +866,7 @@ export default function HerdRegistry() {
                 <table className="data-table">
                     <thead>
                         <tr>
+                            <th style={{ width: '45px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                             {sortableTh('TAG', 'tag')}
                             {sortableTh('BREED', 'breed')}
                             {sortableTh('ENTRY DATE', 'entryDate')}
@@ -879,8 +881,9 @@ export default function HerdRegistry() {
                         </tr>
                     </thead>
                     <tbody>
-                        {sortedAnimals.map((animal) => (
+                        {sortedAnimals.map((animal, idx) => (
                             <tr key={animal.id}>
+                                <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                 <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                                         <span>{animal.rfid}</span>

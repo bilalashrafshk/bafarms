@@ -409,6 +409,7 @@ export default function FeedGrowthReport() {
                         <table class="data-table" style={{ fontSize: '0.85rem' }}>
                             <thead>
                                 <tr>
+                                    <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                     <th>PEN</th>
                                     <th>PLAN</th>
                                     <th title="Avg animals actually on feed per logged day (head-days ÷ days logged) — not today's live pen headcount">AVG HEAD/DAY</th>
@@ -420,8 +421,9 @@ export default function FeedGrowthReport() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {perPenBreakdown.map(row => (
+                                {perPenBreakdown.map((row, idx) => (
                                     <tr key={row.pen}>
+                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                         <td><strong>Pen {row.pen}</strong></td>
                                         <td>{row.planName ?? '—'}</td>
                                         <td>{(Number(row.avgHeadPerDay) || 0).toFixed(1)}</td>
@@ -441,12 +443,7 @@ export default function FeedGrowthReport() {
                 </div>
             )}
 
-            {/* Day-by-day feed log within range — TMR feed logs, merged in and sorted
-                alongside manual stock issues (e.g. a bag of Chokar handed out loose,
-                outside the TMR calculator — manualFeedIssues above) and synthetic 0% rows
-                for pen-days that had active animals on feed but no feed log at all
-                (missedDayRows above). Every PKR counted in the stat cards above shows up
-                as a row here — nothing is folded into the totals invisibly. */}
+            {/* Day-by-day feed log within range */}
             <div class="glass-panel">
                 <h3 class="panel-title"><i class="fa-solid fa-calendar-days"></i> Daily Feed Log</h3>
                 {filteredFeedLogs.length === 0 && missedDayRows.length === 0 && manualFeedIssues.length === 0 ? (
@@ -456,6 +453,7 @@ export default function FeedGrowthReport() {
                         <table class="data-table" style={{ fontSize: '0.85rem' }}>
                             <thead>
                                 <tr>
+                                    <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                     <th>DATE</th>
                                     <th>PEN</th>
                                     <th>SESSION</th>
@@ -472,8 +470,9 @@ export default function FeedGrowthReport() {
                                     ...missedDayRows.map(m => ({ type: 'missed', date: m.date, pen: m.pen, missed: m }))
                                 ]
                                     .sort((a, b) => daysBetween(b.date, a.date))
-                                    .map(row => row.type === 'logged' ? (
+                                    .map((row, idx) => row.type === 'logged' ? (
                                         <tr key={`${row.log.date}__${row.log.pen}__${row.log.feedingIndex || 0}`}>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td>{formatDate(row.log.date)}</td>
                                             <td>{row.log.pen === 'ALL' ? 'All Pens' : `Pen ${row.log.pen}`}</td>
                                             <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{sessionLabel(row.log)}</td>
@@ -489,6 +488,7 @@ export default function FeedGrowthReport() {
                                         const headCount = headDaysMap.get(`${iss.date}__${iss.pen}`) || 0;
                                         return (
                                             <tr key={`issue__${iss.id}`}>
+                                                <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                 <td>{formatDate(iss.date)}</td>
                                                 <td>{iss.pen === 'ALL' ? 'All Pens' : `Pen ${iss.pen}`}</td>
                                                 <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }} title="Manually issued from Feed Stock & Store Ledger — priced at FIFO actual cost, not a TMR log">
@@ -502,6 +502,7 @@ export default function FeedGrowthReport() {
                                         );
                                     })() : (
                                         <tr key={`missed__${row.missed.date}__${row.missed.pen}`}>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td>{formatDate(row.missed.date)}</td>
                                             <td>{`Pen ${row.missed.pen}`}</td>
                                             <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>—</td>

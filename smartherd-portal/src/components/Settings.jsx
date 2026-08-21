@@ -395,14 +395,16 @@ export default function Settings() {
                             <table class="data-table">
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                         <th>BREED NAME</th>
                                         <th>DEFAULT TARGET WT</th>
                                         {isAdmin && <th style={{ textAlign: 'center', width: '80px' }}>REMOVE</th>}
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {breedsConfig.map(b => (
+                                    {breedsConfig.map((b, idx) => (
                                         <tr key={b.name}>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>{b.name}</td>
                                             <td><strong style={{ color: 'var(--accent-gold)' }}>{b.defaultTargetWeight} kg</strong></td>
                                             {isAdmin && (
@@ -463,13 +465,15 @@ export default function Settings() {
                             <table class="data-table">
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                         <th>CATEGORY NAME</th>
                                         {isAdmin && <th style={{ textAlign: 'center', width: '80px' }}>REMOVE</th>}
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {medCategories.map(cat => (
+                                    {medCategories.map((cat, idx) => (
                                         <tr key={cat}>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>{cat}</td>
                                             {isAdmin && (
                                                 <td style={{ textAlign: 'center' }}>
@@ -494,89 +498,86 @@ export default function Settings() {
 
             {/* TAB CONTENT: QUARANTINE PROTOCOLS */}
             {activeSettingsTab === 'protocols' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                <div class="tmr-grid">
                     
-                    {/* Add Checklist Item Form (Admin Only) */}
-                    <div class="glass-panel animate-scale-up">
-                        <h3 class="panel-title"><i class="fa-solid fa-circle-plus"></i> Configure Protocol Task Checklist</h3>
+                    {/* Add Protocol Form (Admin Only) */}
+                    <div class="glass-panel animate-scale-up" style={{ alignSelf: 'flex-start' }}>
+                        <h3 class="panel-title"><i class="fa-solid fa-plus-circle"></i> Add Protocol Step</h3>
                         {isAdmin ? (
-                            <form onSubmit={handleAddProtocol}>
-                                {protoError && <p style={{ color: 'hsl(0,75%,60%)', fontSize: '0.8rem', marginBottom: '1rem' }}>{protoError}</p>}
-                                <div class="form-grid-3">
-                                    <div class="form-group">
-                                        <label>Task Display Label *</label>
-                                        <input 
-                                            type="text" 
-                                            class="form-control" 
-                                            placeholder="e.g. Deworm, FMD Booster" 
-                                            value={protoLabel}
-                                            onChange={e => setProtoLabel(e.target.value)}
-                                            required
-                                        />
-                                    </div>
-                                    <div class="form-group">
-                                        <label>Due On Day *</label>
-                                        <input 
-                                            type="number" 
-                                            class="form-control" 
-                                            min="1"
-                                            value={protoDueDay}
-                                            onChange={e => setProtoDueDay(e.target.value)}
-                                            required
-                                        />
-                                    </div>
-                                    <div class="form-group">
-                                        <label>Treatment Category</label>
-                                        <select 
-                                            class="form-control" 
-                                            value={protoType} 
-                                            onChange={e => setProtoType(e.target.value)}
-                                        >
-                                            {medCategories.map(cat => (
-                                                <option key={cat} value={cat}>{cat}</option>
-                                            ))}
-                                        </select>
-                                    </div>
+                            <form onSubmit={handleAddProtocol} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                {protoError && <p style={{ color: 'hsl(0,75%,60%)', fontSize: '0.8rem', margin: 0 }}>{protoError}</p>}
+                                <div class="form-group">
+                                    <label>Action Label</label>
+                                    <input 
+                                        type="text" 
+                                        class="form-control" 
+                                        placeholder="e.g. Ear Tagging, Dewormer Shot" 
+                                        value={protoLabel}
+                                        onChange={e => setProtoLabel(e.target.value)}
+                                        required
+                                    />
                                 </div>
-                                <div class="form-grid-3" style={{ marginTop: '0.8rem' }}>
-                                    <div class="form-group">
-                                        <label>Medicine / Drug Name *</label>
-                                        <input 
-                                            type="text" 
-                                            class="form-control" 
-                                            placeholder="e.g. Ivermectin" 
-                                            value={protoMedicine}
-                                            onChange={e => setProtoMedicine(e.target.value)}
-                                            required
-                                        />
-                                    </div>
-                                    <div class="form-group">
-                                        <label>Dosage *</label>
-                                        <input 
-                                            type="text" 
-                                            class="form-control" 
-                                            placeholder="e.g. 5ml" 
-                                            value={protoDosage}
-                                            onChange={e => setProtoDosage(e.target.value)}
-                                            required
-                                        />
-                                    </div>
-                                    <div class="form-group">
-                                        <label>Withholding (Days)</label>
-                                        <input 
-                                            type="number" 
-                                            class="form-control" 
-                                            value={protoWithholding}
-                                            onChange={e => setProtoWithholding(e.target.value)}
-                                        />
-                                    </div>
+                                <div class="form-group">
+                                    <label>Due Day in Quarantine</label>
+                                    <input 
+                                        type="number" 
+                                        class="form-control" 
+                                        placeholder="e.g. 1" 
+                                        value={protoDueDay}
+                                        onChange={e => setProtoDueDay(e.target.value)}
+                                        min="1"
+                                        required
+                                    />
                                 </div>
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.2rem' }}>
-                                    <button type="submit" class="btn btn-primary" style={{ minWidth: '180px' }}><i class="fa-solid fa-plus-circle"></i> Add Checklist Step</button>
+                                <div class="form-group">
+                                    <label>Treatment Category</label>
+                                    <select 
+                                        class="form-control"
+                                        value={protoType}
+                                        onChange={e => setProtoType(e.target.value)}
+                                    >
+                                        {medCategories.map(cat => (
+                                            <option key={cat} value={cat}>{cat}</option>
+                                        ))}
+                                    </select>
                                 </div>
+                                <div class="form-group">
+                                    <label>Medicine / Vaccine Product</label>
+                                    <input 
+                                        type="text" 
+                                        class="form-control" 
+                                        placeholder="e.g. Ivermectin 1%" 
+                                        value={protoMedicine}
+                                        onChange={e => setProtoMedicine(e.target.value)}
+                                        required
+                                    />
+                                </div>
+                                <div class="form-group">
+                                    <label>Dosage</label>
+                                    <input 
+                                        type="text" 
+                                        class="form-control" 
+                                        placeholder="e.g. 5ml SubQ" 
+                                        value={protoDosage}
+                                        onChange={e => setProtoDosage(e.target.value)}
+                                        required
+                                    />
+                                </div>
+                                <div class="form-group">
+                                    <label>Withholding Period (Days)</label>
+                                    <input 
+                                        type="number" 
+                                        class="form-control" 
+                                        placeholder="e.g. 28" 
+                                        value={protoWithholding}
+                                        onChange={e => setProtoWithholding(e.target.value)}
+                                        min="0"
+                                    />
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-block"><i class="fa-solid fa-circle-plus"></i> Save Protocol Step</button>
                             </form>
                         ) : (
-                            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic', margin: 0 }}>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>
                                 Protocol checklist creation is restricted to Admin staff.
                             </p>
                         )}
@@ -589,6 +590,7 @@ export default function Settings() {
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                         <th>LABEL</th>
                                         <th>DUE DAY</th>
                                         <th>CATEGORY</th>
@@ -599,8 +601,9 @@ export default function Settings() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {quarantineProtocols.map(p => (
+                                    {quarantineProtocols.map((p, idx) => (
                                         <tr key={p.id}>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>{p.label}</td>
                                             <td>Day <strong style={{ color: 'var(--accent-gold)' }}>{p.dueDay}</strong></td>
                                             <td>{p.type}</td>
@@ -623,7 +626,7 @@ export default function Settings() {
                                     ))}
                                     {quarantineProtocols.length === 0 && (
                                         <tr>
-                                            <td colSpan={isAdmin ? 7 : 6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                            <td colSpan={isAdmin ? 8 : 7} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No quarantine protocol checklist steps configured. Calves can be cleared immediately.
                                             </td>
                                         </tr>
@@ -670,6 +673,7 @@ export default function Settings() {
                             <table class="data-table">
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                         <th>EMAIL</th>
                                         <th style={{ textAlign: 'center' }}>SALES ACCESS</th>
                                         <th style={{ textAlign: 'center' }}>HERD ACCESS</th>
@@ -678,8 +682,9 @@ export default function Settings() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {staffPermissions.map(p => (
+                                    {staffPermissions.map((p, idx) => (
                                         <tr key={p.email}>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
                                                 {p.email}
                                                 {p.email === staffUser?.email && (
@@ -730,7 +735,7 @@ export default function Settings() {
                                     ))}
                                     {staffPermissions.length === 0 && (
                                         <tr>
-                                            <td colSpan={5} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                            <td colSpan={6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No staff members have logged in yet, or none have been pre-authorized.
                                             </td>
                                         </tr>
@@ -774,6 +779,7 @@ export default function Settings() {
                         <table class="data-table" style={{ fontSize: '0.85rem' }}>
                             <thead>
                                 <tr>
+                                    <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                     <th>ITEM / ENTITY</th>
                                     <th>REQUEST</th>
                                     <th>REQUESTED BY</th>
@@ -784,8 +790,9 @@ export default function Settings() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredApprovals.map(a => (
+                                {filteredApprovals.map((a, idx) => (
                                     <tr key={a.id}>
+                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                         <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
                                             {a.animalRfid || (a.animalId ? `#${a.animalId}` : (a.previousSnapshot?.name || a.previousSnapshot?.title || a.previousSnapshot?.doc_ref || a.payload?.id || a.payload?.orderId || a.payload?.enquiryId || a.payload?.quoteId || a.payload?.refId || `ID ${a.id}`))}
                                             {a.animalBreed && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> ({a.animalBreed})</span>}

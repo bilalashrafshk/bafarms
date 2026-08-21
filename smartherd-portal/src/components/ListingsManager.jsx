@@ -370,6 +370,7 @@ export default function ListingsManager() {
                     <table class="data-table">
                         <thead>
                             <tr>
+                                <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                 <th>RFID</th>
                                 <th>TITLE</th>
                                 <th>WEIGHT</th>
@@ -380,8 +381,9 @@ export default function ListingsManager() {
                             </tr>
                         </thead>
                         <tbody>
-                            {filteredCuts.map(cut => (
+                            {filteredCuts.map((cut, idx) => (
                                 <tr key={cut.id}>
+                                    <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                     <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)' }}>{cut.rfid}</td>
                                     <td><strong>{cut.title}</strong></td>
                                     <td>{cut.weight}</td>
@@ -416,7 +418,7 @@ export default function ListingsManager() {
                             ))}
                             {filteredCuts.length === 0 && (
                                 <tr>
-                                    <td colSpan="7" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                                    <td colSpan="8" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                                         No gourmet cuts matched your criteria.
                                     </td>
                                 </tr>
@@ -432,6 +434,7 @@ export default function ListingsManager() {
                     <table class="data-table">
                         <thead>
                             <tr>
+                                <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                 <th>TAG ID</th>
                                 <th>BREED</th>
                                 <th>WT (KG)</th>
@@ -442,7 +445,7 @@ export default function ListingsManager() {
                             </tr>
                         </thead>
                         <tbody>
-                            {filteredLive.map(a => {
+                            {filteredLive.map((a, idx) => {
                                 const aBreedLower = (a.breed || '').toLowerCase();
                                 const defaultPrice = Math.round(a.currentWeight * (aBreedLower.includes('goat') || aBreedLower.includes('sheep') || aBreedLower.includes('beetal') || aBreedLower.includes('kajla') || aBreedLower.includes('teddy') ? 1300 : 700));
                                 const currentPrice = a.price || defaultPrice;
@@ -450,6 +453,7 @@ export default function ListingsManager() {
 
                                 return (
                                     <tr key={a.id}>
+                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                         <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)' }}>{a.rfid}</td>
                                         <td>{a.breed}</td>
                                         <td><strong>{a.currentWeight} kg</strong></td>

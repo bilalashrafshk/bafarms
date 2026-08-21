@@ -319,6 +319,7 @@ export default function CostOfGainReport() {
                     <table class="data-table" style={{ fontSize: '0.83rem' }}>
                         <thead>
                             <tr>
+                                <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                 <th>RFID</th>
                                 <th>PEN(S)</th>
                                 <th>DAYS</th>
@@ -334,8 +335,9 @@ export default function CostOfGainReport() {
                             </tr>
                         </thead>
                         <tbody>
-                            {rows.map(r => (
+                            {rows.map((r, idx) => (
                                 <tr key={r.animal.id}>
+                                    <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                     <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{r.animal.rfid}</td>
                                     <td>{r.pensResided.join(', ') || '—'}</td>
                                     <td>{r.daysInRange}</td>
@@ -353,7 +355,7 @@ export default function CostOfGainReport() {
                                 </tr>
                             ))}
                             {rows.length === 0 && (
-                                <tr><td colSpan="12" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No animals with recorded days in this range.</td></tr>
+                                <tr><td colSpan="13" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No animals with recorded days in this range.</td></tr>
                             )}
                         </tbody>
                     </table>

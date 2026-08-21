@@ -188,6 +188,7 @@ export default function OverheadExpenses() {
                     <table class="data-table" style={{ fontSize: '0.85rem' }}>
                         <thead>
                             <tr>
+                                <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                 <th>DATE</th>
                                 <th>CATEGORY</th>
                                 <th>DESCRIPTION</th>
@@ -197,10 +198,11 @@ export default function OverheadExpenses() {
                             </tr>
                         </thead>
                         <tbody>
-                            {filtered.map(exp => {
+                            {filtered.map((exp, idx) => {
                                 const pending = pendingById[exp.id];
                                 return (
                                 <tr key={exp.id} style={pending ? { opacity: 0.6 } : undefined}>
+                                    <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                     <td>{formatDate(exp.date)}</td>
                                     <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{exp.category}</td>
                                     <td>{exp.description || '—'}</td>
@@ -225,7 +227,7 @@ export default function OverheadExpenses() {
                                 );
                             })}
                             {filtered.length === 0 && (
-                                <tr><td colSpan={isAdmin ? 5 : 4} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No expenses recorded in this range.</td></tr>
+                                <tr><td colSpan={isAdmin ? 7 : 5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No expenses recorded in this range.</td></tr>
                             )}
                         </tbody>
                     </table>

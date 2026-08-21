@@ -749,6 +749,7 @@ export default function FeedStock() {
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                         <th style={{ minWidth: '150px' }}>ITEM</th>
                                         <th style={{ width: '110px' }}>CATEGORY</th>
                                         <th style={{ textAlign: 'right', minWidth: '140px' }} title="Opening stock on hand before tracking started">OPENING STOCK</th>
@@ -761,12 +762,13 @@ export default function FeedStock() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredLedger.map(row => {
+                                    {filteredLedger.map((row, idx) => {
                                         const unit = row.item.unit || 'kg';
                                         const cat = row.item.category || 'feed';
                                         const isEditingOpening = editingOpeningItemId === row.item.id;
                                         return (
                                         <tr key={row.item.id} style={{ transition: 'background 0.15s ease' }}>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>
                                                 {(row.item.name && !row.item.name.startsWith('item_')) ? row.item.name : 'Unnamed Item'}
                                                 {row.item.derivedFromIngredientId && (
@@ -1091,6 +1093,7 @@ export default function FeedStock() {
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                         <th>DATE</th>
                                         <th>ITEM</th>
                                         <th>QTY</th>
@@ -1103,7 +1106,7 @@ export default function FeedStock() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredPurchases.slice(0, purchasesVisible).map(p => {
+                                    {filteredPurchases.slice(0, purchasesVisible).map((p, idx) => {
                                         const lot = lotsByItemId[p.itemId]?.find(l => l.id === p.id);
                                         const remaining = lot ? lot.remaining : p.quantity;
                                         const touched = remaining < p.quantity - 0.005;
@@ -1111,6 +1114,7 @@ export default function FeedStock() {
                                         const pending = pendingPurchasesById[p.id];
                                         return (
                                             <tr key={p.id} style={pending ? { opacity: 0.65 } : undefined}>
+                                                <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                 <td>{formatDate(p.date)}</td>
                                                 <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(p.itemId, p)}</td>
                                                 <td>{(Number(p.quantity) || 0).toFixed(2)} {unit}</td>
@@ -1340,14 +1344,16 @@ export default function FeedStock() {
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                         <th>PEN</th>
                                         <th>QTY ISSUED</th>
                                         {isSuperAdmin && <th>ACTUAL FEED COST</th>}
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {perPenCost.map(row => (
+                                    {perPenCost.map((row, idx) => (
                                         <tr key={row.pen}>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
                                                 {penLabel(row.pen)}
                                                 <div style={{ fontWeight: '400', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>{row.itemBreakdown}</div>
@@ -1358,7 +1364,7 @@ export default function FeedStock() {
                                     ))}
                                     {perPenCost.length === 0 && (
                                         <tr>
-                                            <td colSpan={isSuperAdmin ? 3 : 2} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                                            <td colSpan={isSuperAdmin ? 4 : 3} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
                                                 No issues logged in this date range.
                                             </td>
                                         </tr>
@@ -1437,6 +1443,7 @@ export default function FeedStock() {
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                         <th>DATE</th>
                                         <th>ITEM</th>
                                         <th>PEN</th>
@@ -1448,10 +1455,11 @@ export default function FeedStock() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredIssues.slice(0, issuesVisible).map(iss => {
+                                    {filteredIssues.slice(0, issuesVisible).map((iss, idx) => {
                                         const pending = pendingIssuesById[iss.id];
                                         return (
                                         <tr key={iss.id} style={pending ? { opacity: 0.65 } : undefined}>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td>{formatDate(iss.date)}</td>
                                             <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(iss.itemId, iss)}</td>
                                             <td>{penLabel(iss.pen)}</td>
@@ -1736,6 +1744,7 @@ export default function FeedStock() {
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                         <th>DATE</th>
                                         <th>PREMIX</th>
                                         <th>TOTAL PRODUCED</th>
@@ -1746,8 +1755,9 @@ export default function FeedStock() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {sortedBatches.slice(0, batchesVisible).map(b => (
+                                    {sortedBatches.slice(0, batchesVisible).map((b, idx) => (
                                         <tr key={b.id}>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td>{formatDate(b.date)}</td>
                                             <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{b.premixTypeName || itemName(b.premixTypeId)}</td>
                                             <td>{(Number(b.totalKg) || 0).toFixed(2)} kg</td>

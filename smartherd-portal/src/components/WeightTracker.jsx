@@ -233,9 +233,10 @@ export default function WeightTracker() {
     })();
 
     const exportReportCSV = () => {
-        const headers = ['Tag,Previous Tags,Breed,Pen,Start Date,Start Wt (kg),End Date,End Wt (kg),Total Gain (kg),Days,Period ADG (kg/day),Performance Tier'];
-        const rows = weightReportRows.map(r =>
+        const headers = ['#,Tag,Previous Tags,Breed,Pen,Start Date,Start Wt (kg),End Date,End Wt (kg),Total Gain (kg),Days,Period ADG (kg/day),Performance Tier'];
+        const rows = weightReportRows.map((r, idx) =>
             [
+                idx + 1,
                 r.animal.rfid,
                 (r.animal.previousTags && r.animal.previousTags.length > 0) ? r.animal.previousTags.join(';') : '',
                 r.animal.breed,
@@ -304,12 +305,13 @@ export default function WeightTracker() {
         // Animal Data Table
         autoTable(doc, {
             startY: doc.lastAutoTable.finalY + 4,
-            head: [['Tag ID', 'Breed', 'Pen', 'Start Date', 'Start Wt', 'End Date', 'End Wt', 'Gain', 'Days', 'ADG', 'Performance Tier']],
-            body: weightReportRows.map(r => {
+            head: [['#', 'Tag ID', 'Breed', 'Pen', 'Start Date', 'Start Wt', 'End Date', 'End Wt', 'Gain', 'Days', 'ADG', 'Performance Tier']],
+            body: weightReportRows.map((r, idx) => {
                 const prevTagText = (r.animal.previousTags && r.animal.previousTags.length > 0)
                     ? `\n(prev: ${r.animal.previousTags.join(', ')})`
                     : '';
                 return [
+                    idx + 1,
                     `${r.animal.rfid}${prevTagText}`,
                     r.animal.breed,
                     r.animal.pen || '—',
@@ -324,7 +326,7 @@ export default function WeightTracker() {
                 ];
             }),
             foot: [[
-                `TOTAL (${reportKpis.headCount} Head)`, '', '', '',
+                `TOTAL (${reportKpis.headCount} Head)`, '', '', '', '',
                 `${reportTotals.before.toFixed(1)} kg`, '',
                 `${reportTotals.after.toFixed(1)} kg`,
                 `+${reportTotals.gain.toFixed(1)} kg`, '',
@@ -338,7 +340,7 @@ export default function WeightTracker() {
                 if (data.section === 'body') {
                     const row = weightReportRows[data.row.index];
                     if (!row) return;
-                    if (data.column.index === 9 || data.column.index === 10) {
+                    if (data.column.index === 10 || data.column.index === 11) {
                         if (row.tier === 'high') {
                             data.cell.styles.textColor = [15, 120, 50];
                             data.cell.styles.fontStyle = 'bold';
@@ -720,6 +722,7 @@ export default function WeightTracker() {
                         <table class="data-table">
                             <thead>
                                 <tr>
+                                    <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                     <th>DATE</th>
                                     <th>WEIGHT (KG)</th>
                                     <th>ADG (KG/DAY)</th>
@@ -727,8 +730,9 @@ export default function WeightTracker() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {animalHistory.map(log => (
+                                {animalHistory.map((log, idx) => (
                                     <tr key={log.id}>
+                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                         <td>{formatDate(log.date)}</td>
                                         <td><strong>{log.weight} kg</strong></td>
                                         <td>
@@ -871,6 +875,7 @@ export default function WeightTracker() {
                         <table class="data-table">
                             <thead>
                                 <tr>
+                                    <th style={{ width: '45px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                     <th>TAG ID</th>
                                     <th>BREED</th>
                                     <th>PEN</th>
@@ -885,8 +890,9 @@ export default function WeightTracker() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {weightReportRows.map(r => (
+                                {weightReportRows.map((r, idx) => (
                                     <tr key={r.animal.id}>
+                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                         <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '600', color: 'var(--text-pure)' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                                                 <span>{r.animal.rfid}</span>
@@ -941,7 +947,7 @@ export default function WeightTracker() {
                             </tbody>
                             <tfoot>
                                 <tr style={{ fontWeight: '700', borderTop: '2px solid rgba(255,255,255,0.1)' }}>
-                                    <td colSpan="4">TOTAL ({weightReportRows.length} animal{weightReportRows.length === 1 ? '' : 's'})</td>
+                                    <td colSpan="5">TOTAL ({weightReportRows.length} animal{weightReportRows.length === 1 ? '' : 's'})</td>
                                     <td>{reportTotals.before.toFixed(1)} kg</td>
                                     <td></td>
                                     <td>{reportTotals.after.toFixed(1)} kg</td>
@@ -975,6 +981,7 @@ export default function WeightTracker() {
                     <table className="data-table">
                         <thead>
                             <tr>
+                                <th style={{ width: '45px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                 <th>WEIGHT ENTRY ID</th>
                                 <th>RFID TAG ID</th>
                                 <th>WEIGHING DATE</th>
@@ -985,8 +992,9 @@ export default function WeightTracker() {
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedLogs.map((log) => (
+                            {sortedLogs.map((log, idx) => (
                                 <tr key={log.id}>
+                                    <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                     <td>#{log.id}</td>
                                     <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '600', color: 'var(--text-pure)' }}>
                                         {getRfid(log.animalId)}

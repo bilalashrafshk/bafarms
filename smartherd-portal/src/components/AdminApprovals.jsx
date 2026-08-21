@@ -169,6 +169,7 @@ export default function AdminApprovals() {
                         <table class="data-table" style={{ fontSize: '0.85rem', width: '100%', minWidth: '900px' }}>
                             <thead>
                                 <tr>
+                                    <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                     <th style={{ width: '170px' }}>ACTION / TYPE</th>
                                     <th style={{ width: '190px' }}>REQUESTED BY &amp; DATE</th>
                                     <th style={{ width: '160px' }}>TARGET / ITEM</th>
@@ -177,7 +178,7 @@ export default function AdminApprovals() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredApprovals.map(item => {
+                                {filteredApprovals.map((item, idx) => {
                                     const snap = item.previousSnapshot || {};
                                     const payload = item.payload || {};
 
@@ -237,6 +238,7 @@ export default function AdminApprovals() {
 
                                     return (
                                         <tr key={item.id}>
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td>{actionBadge}</td>
                                             <td>
                                                 <div style={{ fontWeight: '600', color: 'var(--text-pure)', fontSize: '0.82rem' }}>{item.requestedBy}</div>

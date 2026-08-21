@@ -957,6 +957,7 @@ export default function TMRCalculator() {
                                     <table className="data-table" style={{ fontSize: '0.85rem' }}>
                                         <thead>
                                             <tr>
+                                                <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                                 <th>INGREDIENT</th>
                                                 <th>AVG PLAN QTY</th>
                                                 <th>TODAY'S AVG QTY (KG/HEAD)</th>
@@ -964,8 +965,9 @@ export default function TMRCalculator() {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {allPensTableRows.filter(r => !r.isExtra).map(row => (
+                                            {allPensTableRows.filter(r => !r.isExtra).map((row, idx) => (
                                                 <tr key={row.id}>
+                                                    <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                     <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{row.name}</td>
                                                     <td>{row.avgPlanQty.toFixed(3)} kg</td>
                                                     <td>
@@ -989,8 +991,9 @@ export default function TMRCalculator() {
                                                     </td>
                                                 </tr>
                                             ))}
-                                            {allPensTableRows.filter(r => r.isExtra).map(row => (
+                                            {allPensTableRows.filter(r => r.isExtra).map((row, idx) => (
                                                 <tr key={row.id} style={{ background: 'rgba(212,175,55,0.06)' }}>
+                                                    <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{allPensTableRows.filter(r => !r.isExtra).length + idx + 1}</td>
                                                     <td style={{ fontWeight: '600', color: 'var(--accent-gold)' }}>
                                                         {row.name} <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '400' }}>(added to all pens)</span>
                                                     </td>
@@ -1360,6 +1363,7 @@ export default function TMRCalculator() {
                                 <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                     <thead>
                                         <tr>
+                                            <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                             <th>INGREDIENT</th>
                                             <th>PLAN QTY (KG/HEAD/DAY)</th>
                                             <th>TODAY'S QTY</th>
@@ -1367,8 +1371,9 @@ export default function TMRCalculator() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {planIngredientRows.map(row => (
+                                        {planIngredientRows.map((row, idx) => (
                                             <tr key={row.id}>
+                                                <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                 <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{row.name}</td>
                                                 <td>{row.planQty.toFixed(3)} kg</td>
                                                 <td>
@@ -1392,8 +1397,9 @@ export default function TMRCalculator() {
                                                 </td>
                                             </tr>
                                         ))}
-                                        {extraIngredientRows.map(row => (
+                                        {extraIngredientRows.map((row, idx) => (
                                             <tr key={row.id} style={{ background: 'rgba(212,175,55,0.06)' }}>
+                                                <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{planIngredientRows.length + idx + 1}</td>
                                                 <td style={{ fontWeight: '600', color: 'var(--accent-gold)' }}>
                                                     {row.name} <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '400' }}>(added, not in plan)</span>
                                                 </td>
@@ -1609,6 +1615,7 @@ export default function TMRCalculator() {
                                         <table class="data-table">
                                             <thead>
                                                 <tr>
+                                                    <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                                     <th>FEED INGREDIENT</th>
                                                     <th>QTY / HEAD</th>
                                                     <th>WET WT / ANIMAL</th>
@@ -1617,8 +1624,9 @@ export default function TMRCalculator() {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {displayIngredients.map(ing => (
+                                                {displayIngredients.map((ing, idx) => (
                                                     <tr key={ing.id}>
+                                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                         <td><strong>{ing.name}</strong>{ing.isExtra && <span style={{ marginLeft: '0.4rem', fontSize: '0.65rem', color: 'var(--accent-gold)' }}>ADDED</span>}</td>
                                                         <td>{(ing.dmTarget * activeFeedingScale).toFixed(2)} kg</td>
                                                         <td>{(ing.wetSingle * activeFeedingScale).toFixed(2)} kg</td>
@@ -1627,7 +1635,7 @@ export default function TMRCalculator() {
                                                     </tr>
                                                 ))}
                                                 <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                                                    <td><strong>Total Feed Mix</strong></td>
+                                                    <td colSpan="2"><strong>Total Feed Mix</strong></td>
                                                     <td><strong>{(totalDM * activeFeedingScale).toFixed(2)} kg</strong></td>
                                                     <td><strong>{(displayIngredients.reduce((sum, ing) => sum + ing.wetSingle, 0) * activeFeedingScale).toFixed(2)} kg</strong></td>
                                                     <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{(totalBatchWeight * activeFeedingScale).toFixed(2)} kg</strong></td>
@@ -1705,9 +1713,6 @@ export default function TMRCalculator() {
                                                 <div style={{ fontWeight: '700', color: 'hsl(0,75%,70%)', marginBottom: '0.5rem' }}>
                                                     <i class="fa-solid fa-triangle-exclamation"></i> Pens don't share the same forage type / feeding phase
                                                 </div>
-                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.8rem' }}>
-                                                    {allPensMismatchedPens.join(' · ')} — averaging these together blends meaningfully different rations.
-                                                </div>
                                                 <button type="button" class="btn btn-secondary btn-sm" onClick={() => setAllPensConfirmedMismatch(true)}>
                                                     Average Anyway
                                                 </button>
@@ -1720,6 +1725,7 @@ export default function TMRCalculator() {
                                                     <table class="data-table">
                                                         <thead>
                                                             <tr>
+                                                                <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                                                 <th>FEED INGREDIENT</th>
                                                                 <th>AVG QTY / HEAD</th>
                                                                 <th>BATCH WEIGHT</th>
@@ -1727,8 +1733,9 @@ export default function TMRCalculator() {
                                                             </tr>
                                                         </thead>
                                                         <tbody>
-                                                            {allPensAggregateIngredients.map(ing => (
+                                                            {allPensAggregateIngredients.map((ing, idx) => (
                                                                 <tr key={ing.id}>
+                                                                    <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                                     <td><strong>{ing.name}</strong></td>
                                                                     <td>{(ing.avgPerHead * activeFeedingScale).toFixed(3)} kg</td>
                                                                     <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{(ing.wetBatch * activeFeedingScale).toFixed(2)} kg</strong></td>
@@ -1736,7 +1743,7 @@ export default function TMRCalculator() {
                                                                 </tr>
                                                             ))}
                                                             <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                                                                <td><strong>Total Feed Mix</strong></td>
+                                                                <td colSpan="2"><strong>Total Feed Mix</strong></td>
                                                                 <td><strong>{(allPensAggregateIngredients.reduce((sum, i) => sum + i.avgPerHead, 0) * activeFeedingScale).toFixed(3)} kg</strong></td>
                                                                 <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{(allPensTotalBatchWeight * activeFeedingScale).toFixed(2)} kg</strong></td>
                                                                 {isSuperAdmin && <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(allPensTotalCost * activeFeedingScale).toLocaleString()} PKR</strong></td>}
@@ -2063,6 +2070,7 @@ export default function TMRCalculator() {
                         <table class="data-table" style={{ fontSize: '0.85rem' }}>
                             <thead>
                                 <tr>
+                                    <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                     <th>DATE</th>
                                     <th>PEN</th>
                                     <th>SESSION / SPLIT</th>
@@ -2083,6 +2091,7 @@ export default function TMRCalculator() {
                                             onClick={() => setSelectedFeedLogDetails(log)}
                                             title="Click to view full ingredient breakdown"
                                         >
+                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td>{formatDate(log.date)}</td>
                                             <td><strong style={{ color: 'var(--text-pure)' }}>{log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`}</strong></td>
                                             <td>

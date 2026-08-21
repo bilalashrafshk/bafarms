@@ -834,6 +834,7 @@ export default function RationPlans() {
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                         <th>NAME</th>
                                         <th>WEEKS</th>
                                         <th>ADG FLOOR</th>
@@ -843,12 +844,13 @@ export default function RationPlans() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {rationPlans.map(plan => {
+                                    {rationPlans.map((plan, idx) => {
                                         const weekCosts = (plan.weeks || []).map(w => estimateWeekAvgCost(w, plan));
                                         const minCost = weekCosts.length ? Math.min(...weekCosts) : null;
                                         const maxCost = weekCosts.length ? Math.max(...weekCosts) : null;
                                         return (
                                             <tr key={plan.id}>
+                                                <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                 <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
                                                     {plan.name}
                                                     {plan.isDefault && <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--accent-gold)' }}>DEFAULT</span>}
@@ -879,7 +881,7 @@ export default function RationPlans() {
                                     })}
                                     {rationPlans.length === 0 && (
                                         <tr>
-                                            <td colSpan={isAdmin ? 6 : 5} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                            <td colSpan={isAdmin ? 7 : 6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No Ration Plans defined yet.
                                             </td>
                                         </tr>
@@ -945,6 +947,7 @@ export default function RationPlans() {
                                 <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                     <thead>
                                         <tr>
+                                            <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                             <th>NAME</th>
                                             <th>VERSION</th>
                                             <th>ADAPTATION DAYS</th>
@@ -955,10 +958,11 @@ export default function RationPlans() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {rationPlansV2.map(plan => (
+                                        {rationPlansV2.map((plan, idx) => (
                                             <React.Fragment key={plan.id}>
                                                 {editingV2Id === plan.id ? (
                                                     <tr>
+                                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                         <td>
                                                             <input type="text" class="form-control" style={{ minWidth: '140px' }} value={v2EditName} onChange={e => setV2EditName(e.target.value)} />
                                                         </td>
@@ -985,6 +989,7 @@ export default function RationPlans() {
                                                     </tr>
                                                 ) : (
                                                     <tr>
+                                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                         <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
                                                             {plan.name}
                                                             {plan.isDefault && <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--accent-gold)' }}>DEFAULT</span>}
@@ -1516,6 +1521,7 @@ export default function RationPlans() {
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                         <th>PEN</th>
                                         <th>HEAD COUNT</th>
                                         <th>AVG WEIGHT</th>
@@ -1528,11 +1534,12 @@ export default function RationPlans() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {distinctPenNames.map(penId => {
+                                    {distinctPenNames.map((penId, idx) => {
                                         const penConfig = pens.find(p => p.id === penId) || {};
                                         const resolved = getPenRationRow(penId);
                                         return (
                                             <tr key={penId}>
+                                                <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                 <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>Pen {penId}</td>
                                                 <td>{resolved ? resolved.headCount : animals.filter(a => a.pen === penId && a.status !== 'Sold' && a.status !== 'Deceased').length}</td>
                                                 <td>{resolved?.avgWeight ? `${(Number(resolved.avgWeight) || 0).toFixed(1)} kg` : '—'}</td>
@@ -1646,7 +1653,7 @@ export default function RationPlans() {
                                     })}
                                     {distinctPenNames.length === 0 && (
                                         <tr>
-                                            <td colSpan={isAdmin ? 9 : 8} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                            <td colSpan={isAdmin ? 10 : 9} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No pens registered yet. Assign animals to a pen in Herd Registry, or add one above.
                                             </td>
                                         </tr>
@@ -1698,15 +1705,17 @@ export default function RationPlans() {
                             <table class="data-table" style={{ fontSize: '0.85rem' }}>
                                 <thead>
                                     <tr>
+                                        <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                         <th>INGREDIENT</th>
                                         <th>CURRENT AVG PRICE (PKR/KG)</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {feedIngredients.map(ing => {
+                                    {feedIngredients.map((ing, idx) => {
                                         const stockPrice = getIngredientStockPrice(ing.id);
                                         return (
                                             <tr key={ing.id}>
+                                                <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                 <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{ing.name}</td>
                                                 <td>
                                                     {stockPrice !== null
@@ -1798,6 +1807,7 @@ function BracketDetailPanel({
                 <table class="data-table" style={{ fontSize: '0.78rem' }}>
                     <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-card, #1a1d24)', zIndex: 1 }}>
                         <tr>
+                            <th style={{ width: '35px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                             <th>FORAGE</th>
                             <th>PHASE</th>
                             <th>DAY</th>
@@ -1810,7 +1820,7 @@ function BracketDetailPanel({
                         </tr>
                     </thead>
                     <tbody>
-                        {filteredRows.map(row => {
+                        {filteredRows.map((row, idx) => {
                             const isEditing = editingRowId === row.id;
                             const itemsByIng = {};
                             rationRowItems.filter(i => i.rowId === row.id).forEach(i => { itemsByIng[i.ingredientId] = i.qtyKgPerHeadPerDay; });
@@ -1818,6 +1828,7 @@ function BracketDetailPanel({
                             if (isEditing) {
                                 return (
                                     <tr key={row.id} style={{ background: 'rgba(212,175,55,0.08)' }}>
+                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                         <td>{row.forageType}</td>
                                         <td>{row.phase}</td>
                                         <td>{row.dayNo ?? '—'}</td>
@@ -1848,6 +1859,7 @@ function BracketDetailPanel({
 
                             return (
                                 <tr key={row.id}>
+                                    <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                     <td>{row.forageType}</td>
                                     <td>{row.phase}</td>
                                     <td>{row.dayNo ?? '—'}</td>
