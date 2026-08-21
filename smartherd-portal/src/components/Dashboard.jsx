@@ -28,13 +28,17 @@ export default function Dashboard({ onNavigate }) {
     };
 
     // A. Actual Daily Feed Cost per Animal (PKR/Day)
-    // Derived from logged feed logs and manual feed stock issues in the valid baseline window.
-    // TMR feed logs are weighted by partial feeding percentage (feedingPct / 100)
-    // so split-fed days (e.g. 50% Morning + 50% Evening) or single partial sessions
-    // don't inflate animal-days or double-count headcount.
-    // Manual feed issues (category === 'feed') are priced at FIFO cost and add to
-    // animal-days for any pen+date combination that lacks a TMR log.
-    const validFeedLogs = (feedLogs || []).filter(f => !isPreBaselineFeedDate(f.date));
+    // Derived strictly from actual logged feedings and manual stock issues in the valid baseline window.
+    // - 0% feed days / unlogged days are completely excluded (never drag down the average).
+    // - Partial sessions (e.g. 50% Morning session) are weighted by (feedingPct / 100) so partial
+    //   feedings do not artificially cut the reported daily cost rate in half.
+    const validFeedLogs = (feedLogs || []).filter(f =>
+        !isPreBaselineFeedDate(f.date) &&
+        (f.totalCost || 0) > 0 &&
+        (f.animalCount || 0) > 0 &&
+        (f.feedingPct === undefined || f.feedingPct > 0)
+    );
+
     const manualFeedIssues = (feedStockIssues || []).filter(i => {
         if (isPreBaselineFeedDate(i.date)) return false;
         const item = (feedStockItems || []).find(it => it.id === i.itemId);
@@ -47,7 +51,7 @@ export default function Dashboard({ onNavigate }) {
     const totalLoggedFeedCost = validFeedLogs.reduce((sum, f) => sum + (f.totalCost || 0), 0) + totalManualIssueCost;
 
     const tmrAnimalDays = validFeedLogs.reduce((sum, f) => {
-        const scale = (f.feedingPct ?? 100) / 100;
+        const scale = ((f.feedingPct !== undefined && f.feedingPct !== null) ? f.feedingPct : 100) / 100;
         return sum + (f.animalCount || 0) * scale;
     }, 0);
 
@@ -63,7 +67,9 @@ export default function Dashboard({ onNavigate }) {
             } else if (getPenRosterAsOf) {
                 headCount = getPenRosterAsOf(iss.pen, parseDateOnly(iss.date)).length;
             }
-            manualAnimalDaysMap.set(key, headCount);
+            if (headCount > 0) {
+                manualAnimalDaysMap.set(key, headCount);
+            }
         }
     });
 
