@@ -16,6 +16,7 @@ const EVENT_META = {
     feed_log:      { icon: 'fa-wheat-awn',          color: 'hsl(140,65%,55%)' },
     feed_purchase: { icon: 'fa-cart-shopping',     color: 'hsl(210,75%,60%)' },
     feed_issue:    { icon: 'fa-boxes-packing',      color: 'hsl(30,80%,55%)' },
+    tag_replacement: { icon: 'fa-tags',             color: 'hsl(45,95%,55%)' },
 };
 
 export default function ActivityFeed() {
@@ -96,7 +97,7 @@ export default function ActivityFeed() {
             pen: e.toPen || e.fromPen || null,
             date: e.date,
             createdAt: e.createdAt || e.date,
-            category: (e.eventType === 'registered' || e.eventType === 'status_change' || e.eventType === 'pen_transfer') ? 'status' : e.eventType,
+            category: (e.eventType === 'registered' || e.eventType === 'status_change' || e.eventType === 'pen_transfer' || e.eventType === 'tag_replacement') ? 'status' : e.eventType,
             eventType: e.eventType,
             note: e.note,
             fromPen: e.fromPen,

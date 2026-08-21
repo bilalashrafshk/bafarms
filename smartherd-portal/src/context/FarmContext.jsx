@@ -2012,6 +2012,20 @@ export const FarmProvider = ({ children }) => {
             newEntryWeight !== existing.entryWeight || newPurchasePrice !== existing.purchasePrice
         );
 
+        const rfidChanged = Boolean(existing && updatedAnimal.rfid && existing.rfid && updatedAnimal.rfid.trim() !== existing.rfid.trim());
+        let updatedPreviousTags = Array.isArray(existing?.previousTags) ? [...existing.previousTags] : [];
+        if (rfidChanged && !updatedPreviousTags.includes(existing.rfid.trim())) {
+            updatedPreviousTags.push(existing.rfid.trim());
+            setEvents(prev => [{
+                id: 'tmp-event-' + Date.now(),
+                animalId: existing.id,
+                date: todayPKT(),
+                eventType: 'tag_replacement',
+                note: `Tag updated: ${existing.rfid} → ${updatedAnimal.rfid} (Tag replacement)`,
+                createdBy: currentUser
+            }, ...prev]);
+        }
+
         if (!isAdmin && sensitiveChanged) {
             try {
                 const { res, data } = await sendMutationToServer('UPDATE_ANIMAL', updatedAnimal);
@@ -2019,7 +2033,7 @@ export const FarmProvider = ({ children }) => {
                     return { success: false, error: data.error || 'Update could not be saved.' };
                 }
                 setAnimals(prev => prev.map(a => a.id === updatedAnimal.id
-                    ? { ...a, ...updatedAnimal, entryWeight: existing.entryWeight, purchasePrice: existing.purchasePrice }
+                    ? { ...a, ...updatedAnimal, previousTags: updatedPreviousTags, entryWeight: existing.entryWeight, purchasePrice: existing.purchasePrice }
                     : a));
                 refreshApprovals();
                 return { success: true, pending: true, pendingFields: data.pendingFields || [] };
@@ -2030,7 +2044,7 @@ export const FarmProvider = ({ children }) => {
         }
 
         // 1. Sync UI locally
-        setAnimals(prev => prev.map(a => a.id === updatedAnimal.id ? { ...a, ...updatedAnimal } : a));
+        setAnimals(prev => prev.map(a => a.id === updatedAnimal.id ? { ...a, ...updatedAnimal, previousTags: updatedPreviousTags } : a));
 
         if (existing) {
             const newEntryDate = updatedAnimal.entryDate ?? existing.entryDate;

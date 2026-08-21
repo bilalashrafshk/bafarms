@@ -345,6 +345,7 @@ export default function HerdRegistry() {
                 const s = search.toLowerCase().trim();
                 const matches = (
                     (animal.rfid || '').toLowerCase().includes(s) ||
+                    (animal.previousTags || []).some(t => String(t).toLowerCase().includes(s)) ||
                     (animal.breed || '').toLowerCase().includes(s) ||
                     (animal.source || '').toLowerCase().includes(s) ||
                     (animal.pen || '').toLowerCase().includes(s)
@@ -881,7 +882,25 @@ export default function HerdRegistry() {
                         {sortedAnimals.map((animal) => (
                             <tr key={animal.id}>
                                 <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)' }}>
-                                    {animal.rfid}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                        <span>{animal.rfid}</span>
+                                        {animal.previousTags && animal.previousTags.length > 0 && (
+                                            <span
+                                                style={{
+                                                    fontSize: '0.68rem',
+                                                    padding: '1px 5px',
+                                                    borderRadius: '4px',
+                                                    background: 'rgba(255, 255, 255, 0.08)',
+                                                    color: 'var(--text-muted)',
+                                                    fontWeight: '500',
+                                                    border: '1px solid rgba(255, 255, 255, 0.12)'
+                                                }}
+                                                title={`Previous Tag(s): ${animal.previousTags.join(', ')}`}
+                                            >
+                                                Prev: {animal.previousTags.join(', ')}
+                                            </span>
+                                        )}
+                                    </div>
                                 </td>
                                 <td>{animal.breed}</td>
                                 <td style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{animal.entryDate ? formatDate(animal.entryDate) : '—'}</td>
@@ -989,6 +1008,12 @@ export default function HerdRegistry() {
                                     <div class="form-group" style={{ marginBottom: 0 }}>
                                         <label>Tag ID</label>
                                         <input type="text" class="form-control" placeholder="e.g. 001, 012" value={rfid} onChange={(e) => setRfid(e.target.value)} required />
+                                        {editingAnimal?.previousTags && editingAnimal.previousTags.length > 0 && (
+                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                                <i className="fa-solid fa-clock-rotate-left" style={{ marginRight: '3px' }}></i>
+                                                Prev: <strong>{editingAnimal.previousTags.join(', ')}</strong>
+                                            </div>
+                                        )}
                                     </div>
                                     <div class="form-group" style={{ marginBottom: 0 }}>
                                         <label>Source Mandi</label>

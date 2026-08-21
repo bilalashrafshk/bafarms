@@ -199,7 +199,8 @@ async function ensureColumns(client) {
             ADD COLUMN IF NOT EXISTS pen VARCHAR(20) DEFAULT NULL,
             ADD COLUMN IF NOT EXISTS price NUMERIC DEFAULT NULL,
             ADD COLUMN IF NOT EXISTS description TEXT DEFAULT NULL,
-            ADD COLUMN IF NOT EXISTS images TEXT DEFAULT NULL
+            ADD COLUMN IF NOT EXISTS images TEXT DEFAULT NULL,
+            ADD COLUMN IF NOT EXISTS previous_tags TEXT DEFAULT '[]'
     `);
 
     // Links a logged treatment back to the specific quarantine-protocol checklist step
@@ -1530,7 +1531,8 @@ module.exports = async (req, res) => {
                 pen: row.pen || null,
                 price: row.price ? parseFloat(row.price) : null,
                 desc: row.description || null,
-                images: row.images ? JSON.parse(row.images) : null
+                images: row.images ? JSON.parse(row.images) : null,
+                previousTags: row.previous_tags ? (typeof row.previous_tags === 'string' ? (row.previous_tags.startsWith('[') ? JSON.parse(row.previous_tags) : [row.previous_tags]) : row.previous_tags) : []
             }));
 
             const weightLogs = weightsRes.rows.map(row => ({
@@ -2028,6 +2030,21 @@ module.exports = async (req, res) => {
                 const newPen = finalPen;
                 const penChanged = oldPen !== newPen;
 
+                const rfidChanged = Boolean(current.rfid && finalRfid && current.rfid.trim() !== finalRfid.trim());
+                let finalPreviousTags = current.previous_tags;
+                try {
+                    let tagsList = current.previous_tags ? (typeof current.previous_tags === 'string' ? JSON.parse(current.previous_tags) : current.previous_tags) : [];
+                    if (!Array.isArray(tagsList)) tagsList = [];
+                    if (rfidChanged && !tagsList.includes(current.rfid.trim())) {
+                        tagsList.push(current.rfid.trim());
+                        finalPreviousTags = JSON.stringify(tagsList);
+                    }
+                } catch (e) {
+                    if (rfidChanged) {
+                        finalPreviousTags = JSON.stringify([current.rfid.trim()]);
+                    }
+                }
+
                 // Non-super-admins can't directly overwrite purchase price or entry (gross)
                 // weight — those two fields are queued for super-admin approval instead.
                 // Every other field (breed, source, status, pen, target weight, dates,
@@ -2055,9 +2072,9 @@ module.exports = async (req, res) => {
 
                     await client.query(`
                         UPDATE ba_animals
-                        SET rfid = $1, breed = $2, entry_date = $3, target_weight = $4, source = $5, status = $6, pen = $7, price = $8, description = $9, images = $10
-                        WHERE id = $11
-                    `, [finalRfid, finalBreed, finalEntryDate, finalTargetWeight, finalSource, finalStatus, finalPen, finalPrice, finalDesc, finalImages ? JSON.stringify(finalImages) : null, id]);
+                        SET rfid = $1, breed = $2, entry_date = $3, target_weight = $4, source = $5, status = $6, pen = $7, price = $8, description = $9, images = $10, previous_tags = $11
+                        WHERE id = $12
+                    `, [finalRfid, finalBreed, finalEntryDate, finalTargetWeight, finalSource, finalStatus, finalPen, finalPrice, finalDesc, finalImages ? JSON.stringify(finalImages) : null, finalPreviousTags, id]);
 
                     if (penChanged) {
                         await refreshPenCache(client, oldPen);
@@ -2068,16 +2085,23 @@ module.exports = async (req, res) => {
                         `, [id, new Date().toISOString().split('T')[0], `Moved Pen ${oldPen || 'Unassigned'} → Pen ${newPen || 'Unassigned'}`, oldPen, newPen, userEmail]);
                     }
 
+                    if (rfidChanged) {
+                        await client.query(`
+                            INSERT INTO ba_events (animal_id, date, event_type, note, created_by)
+                            VALUES ($1, $2, 'tag_replacement', $3, $4)
+                        `, [id, new Date().toISOString().split('T')[0], `Ear tag updated: Tag ${current.rfid} → Tag ${finalRfid} (Tag replacement)`, userEmail]);
+                    }
+
                     return res.status(200).json({ success: true, pending: true, pendingFields: Object.keys(changes) });
                 }
 
                 await client.query(`
                     UPDATE ba_animals
-                    SET rfid = $1, breed = $2, entry_date = $3, entry_weight = $4, target_weight = $5, purchase_price = $6, source = $7, status = $8, pen = $9, price = $10, description = $11, images = $12
-                    WHERE id = $13
+                    SET rfid = $1, breed = $2, entry_date = $3, entry_weight = $4, target_weight = $5, purchase_price = $6, source = $7, status = $8, pen = $9, price = $10, description = $11, images = $12, previous_tags = $13
+                    WHERE id = $14
                 `, [
                     finalRfid, finalBreed, finalEntryDate, finalEntryWeight, finalTargetWeight, finalPurchasePrice, finalSource, finalStatus, finalPen,
-                    finalPrice, finalDesc, finalImages ? JSON.stringify(finalImages) : null,
+                    finalPrice, finalDesc, finalImages ? JSON.stringify(finalImages) : null, finalPreviousTags,
                     id
                 ]);
 
@@ -2088,6 +2112,13 @@ module.exports = async (req, res) => {
                         INSERT INTO ba_events (animal_id, date, event_type, note, from_pen, to_pen, created_by)
                         VALUES ($1, $2, 'pen_transfer', $3, $4, $5, $6)
                     `, [id, new Date().toISOString().split('T')[0], `Moved Pen ${oldPen || 'Unassigned'} → Pen ${newPen || 'Unassigned'}`, oldPen, newPen, userEmail]);
+                }
+
+                if (rfidChanged) {
+                    await client.query(`
+                        INSERT INTO ba_events (animal_id, date, event_type, note, created_by)
+                        VALUES ($1, $2, 'tag_replacement', $3, $4)
+                    `, [id, new Date().toISOString().split('T')[0], `Ear tag updated: Tag ${current.rfid} → Tag ${finalRfid} (Tag replacement)`, userEmail]);
                 }
 
                 return res.status(200).json({ success: true });
