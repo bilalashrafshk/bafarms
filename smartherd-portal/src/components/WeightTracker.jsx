@@ -147,6 +147,7 @@ export default function WeightTracker() {
     // has nothing to diff against, so it's excluded rather than faked against
     // entryWeight/currentWeight (which are equal until the first log anyway).
     const [reportPen, setReportPen] = useState('all');
+    const [reportMode, setReportMode] = useState('interval'); // 'interval' | 'cumulative' | 'custom'
     const [reportFrom, setReportFrom] = useState('');
     const [reportTo, setReportTo] = useState('');
 
@@ -158,18 +159,49 @@ export default function WeightTracker() {
                 .sort((a, b) => new Date(a.date) - new Date(b.date));
             if (logs.length < 2) return null;
 
-            // "Before" = latest log on/before the From cutoff (defaults to the
-            // animal's first-ever log if From is left blank). "After" = latest log
-            // on/before the To cutoff (defaults to its most recent log).
-            const beforeLog = reportFrom ? [...logs].reverse().find(l => l.date <= reportFrom) : logs[0];
-            const afterLog = reportTo ? [...logs].reverse().find(l => l.date <= reportTo) : logs[logs.length - 1];
+            let beforeLog = null;
+            let afterLog = null;
+
+            if (reportMode === 'interval') {
+                // Mode A: Latest Interval (Second-to-last weigh-in ➔ Most recent weigh-in)
+                beforeLog = logs[logs.length - 2];
+                afterLog = logs[logs.length - 1];
+            } else if (reportMode === 'cumulative') {
+                // Mode B: Full Cycle (First-ever weigh-in ➔ Most recent weigh-in)
+                beforeLog = logs[0];
+                afterLog = logs[logs.length - 1];
+            } else {
+                // Custom Date Range
+                beforeLog = reportFrom ? [...logs].reverse().find(l => l.date <= reportFrom) : logs[0];
+                afterLog = reportTo ? [...logs].reverse().find(l => l.date <= reportTo) : logs[logs.length - 1];
+            }
+
             if (!beforeLog || !afterLog || beforeLog.id === afterLog.id) return null;
 
             const days = Math.max(1, daysBetween(afterLog.date, beforeLog.date));
             const totalGain = parseFloat((afterLog.weight - beforeLog.weight).toFixed(1));
             const periodAdg = parseFloat((totalGain / days).toFixed(2));
 
-            return { animal, beforeLog, afterLog, days, totalGain, periodAdg, latestDiff: logs[logs.length - 1].adg };
+            // World-class feedlot performance tiers:
+            // 🟢 High Gainers: ADG >= 1.4 kg/day
+            // 🟡 On Target: 1.0 <= ADG < 1.4 kg/day
+            // 🔴 Poor Doers / Stagnant: ADG < 0.5 kg/day (or negative)
+            let tier = 'moderate';
+            let tierLabel = 'Moderate';
+            if (periodAdg >= 1.4) {
+                tier = 'high';
+                tierLabel = 'High Gainer (≥1.4)';
+            } else if (periodAdg >= 1.0) {
+                tier = 'on_target';
+                tierLabel = 'On Target (1.0-1.4)';
+            } else if (periodAdg < 0.5) {
+                tier = 'stagnant';
+                tierLabel = 'Poor Doer (<0.5)';
+            } else {
+                tierLabel = 'Moderate (0.5-1.0)';
+            }
+
+            return { animal, beforeLog, afterLog, days, totalGain, periodAdg, tier, tierLabel, latestDiff: logs[logs.length - 1].adg };
         }).filter(Boolean).sort((a, b) => a.animal.rfid.localeCompare(b.animal.rfid, undefined, { numeric: true }));
     })();
 
@@ -179,13 +211,46 @@ export default function WeightTracker() {
         gain: acc.gain + r.totalGain
     }), { before: 0, after: 0, gain: 0 });
 
+    const reportKpis = (() => {
+        const n = weightReportRows.length;
+        if (n === 0) return { headCount: 0, beforeAvg: 0, afterAvg: 0, totalGain: 0, avgAdg: 0, stdDev: 0, cv: 0, highCount: 0, targetCount: 0, poorCount: 0 };
+
+        const beforeAvg = parseFloat((reportTotals.before / n).toFixed(1));
+        const afterAvg = parseFloat((reportTotals.after / n).toFixed(1));
+        const totalGain = parseFloat(reportTotals.gain.toFixed(1));
+        const avgAdg = parseFloat((weightReportRows.reduce((sum, r) => sum + r.periodAdg, 0) / n).toFixed(2));
+
+        // Uniformity Score: Standard Deviation & Coefficient of Variation (CV%)
+        const variance = weightReportRows.reduce((sum, r) => sum + Math.pow(r.afterLog.weight - afterAvg, 2), 0) / n;
+        const stdDev = parseFloat(Math.sqrt(variance).toFixed(1));
+        const cv = afterAvg > 0 ? parseFloat(((stdDev / afterAvg) * 100).toFixed(1)) : 0;
+
+        const highCount = weightReportRows.filter(r => r.tier === 'high').length;
+        const targetCount = weightReportRows.filter(r => r.tier === 'on_target').length;
+        const poorCount = weightReportRows.filter(r => r.tier === 'stagnant').length;
+
+        return { headCount: n, beforeAvg, afterAvg, totalGain, avgAdg, stdDev, cv, highCount, targetCount, poorCount };
+    })();
+
     const exportReportCSV = () => {
-        const headers = ['RFID,Breed,Pen,Before Date,Before Wt (kg),After Date,After Wt (kg),Total Gain (kg),Period ADG (kg/day),Latest Differential (kg/day)'];
+        const headers = ['Tag,Previous Tags,Breed,Pen,Start Date,Start Wt (kg),End Date,End Wt (kg),Total Gain (kg),Days,Period ADG (kg/day),Performance Tier'];
         const rows = weightReportRows.map(r =>
-            [r.animal.rfid, r.animal.breed, r.animal.pen || '', formatDate(r.beforeLog.date), r.beforeLog.weight,
-             formatDate(r.afterLog.date), r.afterLog.weight, r.totalGain, r.periodAdg, r.latestDiff].join(',')
+            [
+                r.animal.rfid,
+                (r.animal.previousTags && r.animal.previousTags.length > 0) ? r.animal.previousTags.join(';') : '',
+                r.animal.breed,
+                r.animal.pen || '',
+                formatDate(r.beforeLog.date),
+                r.beforeLog.weight,
+                formatDate(r.afterLog.date),
+                r.afterLog.weight,
+                r.totalGain,
+                r.days,
+                r.periodAdg,
+                r.tierLabel
+            ].join(',')
         );
-        rows.push(['TOTAL', '', '', '', reportTotals.before.toFixed(1), '', reportTotals.after.toFixed(1), reportTotals.gain.toFixed(1), '', ''].join(','));
+        rows.push(['TOTAL', '', '', '', '', reportTotals.before.toFixed(1), '', reportTotals.after.toFixed(1), reportTotals.gain.toFixed(1), '', reportKpis.avgAdg, '']);
         const csv = [...headers, ...rows].join('\n');
         const blob = new Blob([csv], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
@@ -198,28 +263,95 @@ export default function WeightTracker() {
 
     const exportReportPDF = () => {
         const doc = new jsPDF({ orientation: 'landscape' });
-        doc.setFontSize(16);
-        doc.text('BA Farms — Weight & Gain Report', 14, 15);
-        doc.setFontSize(10);
-        doc.setTextColor(100);
-        const periodLabel = reportFrom || reportTo
-            ? `${reportFrom ? formatDate(reportFrom) : 'Earliest'} → ${reportTo ? formatDate(reportTo) : 'Latest'}`
-            : 'Full history (first → latest weigh-in)';
-        doc.text(`Generated ${formatDate(todayPKT())} · Period: ${periodLabel} · ${weightReportRows.length} animal${weightReportRows.length === 1 ? '' : 's'}`, 14, 21);
+        
+        // Brand Header
+        doc.setFillColor(20, 60, 40);
+        doc.rect(0, 0, doc.internal.pageSize.width, 18, 'F');
+        doc.setFontSize(14);
+        doc.setTextColor(255, 255, 255);
+        doc.setFont(undefined, 'bold');
+        doc.text('BA FARMS · FEEDLOT WEIGHT & GAIN AUDIT REPORT', 14, 12);
 
+        doc.setFontSize(9);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(220, 240, 230);
+        const modeTitle = reportMode === 'interval'
+            ? 'Latest Interval (Last 2 Weigh-Ins)'
+            : reportMode === 'cumulative'
+            ? 'Full Cycle (Entry ➔ Latest)'
+            : `Custom Range (${reportFrom || 'Earliest'} → ${reportTo || 'Latest'})`;
+        doc.text(`Horizon: ${modeTitle}   |   Pen: ${reportPen === 'all' ? 'All Active Pens' : 'Pen ' + reportPen}   |   Generated: ${formatDate(todayPKT())}`, doc.internal.pageSize.width - 14, 12, { align: 'right' });
+
+        // Executive KPI Summary Strip
         autoTable(doc, {
-            startY: 27,
-            head: [['Tag', 'Breed', 'Pen', 'Before Date', 'Before Wt', 'After Date', 'After Wt', 'Total Gain', 'Period ADG', 'Latest Diff']],
-            body: weightReportRows.map(r => [
-                r.animal.rfid, r.animal.breed, r.animal.pen || '—',
-                formatDate(r.beforeLog.date), `${r.beforeLog.weight} kg`,
-                formatDate(r.afterLog.date), `${r.afterLog.weight} kg`,
-                `${r.totalGain} kg`, `${r.periodAdg} kg/d`, `${r.latestDiff} kg/d`
-            ]),
-            foot: [['', '', '', '', `${reportTotals.before.toFixed(1)} kg`, '', `${reportTotals.after.toFixed(1)} kg`, `${reportTotals.gain.toFixed(1)} kg`, '', 'TOTAL']],
-            styles: { fontSize: 8 },
-            headStyles: { fillColor: [25, 90, 60] },
-            footStyles: { fillColor: [230, 230, 230], textColor: 20, fontStyle: 'bold' }
+            startY: 23,
+            head: [['EXECUTIVE PEN KPI SUMMARY', 'START AVG', 'CURRENT AVG', 'TOTAL GAIN', 'AVG ADG', 'UNIFORMITY SCORE', 'TIER BREAKDOWN']],
+            body: [[
+                `${reportKpis.headCount} Head Active`,
+                `${reportKpis.beforeAvg} kg`,
+                `${reportKpis.afterAvg} kg`,
+                `+${reportKpis.totalGain} kg`,
+                `+${reportKpis.avgAdg} kg/d`,
+                `±${reportKpis.stdDev} kg (CV ${reportKpis.cv}%)`,
+                `High: ${reportKpis.highCount}  |  Target: ${reportKpis.targetCount}  |  Poor: ${reportKpis.poorCount}`
+            ]],
+            styles: { fontSize: 8.5, cellPadding: 3, fontStyle: 'bold' },
+            headStyles: { fillColor: [35, 45, 40], textColor: [240, 240, 240], fontSize: 7.5 },
+            bodyStyles: { fillColor: [245, 248, 246], textColor: [30, 40, 35] },
+            theme: 'grid'
+        });
+
+        // Animal Data Table
+        autoTable(doc, {
+            startY: doc.lastAutoTable.finalY + 4,
+            head: [['Tag ID', 'Breed', 'Pen', 'Start Date', 'Start Wt', 'End Date', 'End Wt', 'Gain', 'Days', 'ADG', 'Performance Tier']],
+            body: weightReportRows.map(r => {
+                const prevTagText = (r.animal.previousTags && r.animal.previousTags.length > 0)
+                    ? `\n(prev: ${r.animal.previousTags.join(', ')})`
+                    : '';
+                return [
+                    `${r.animal.rfid}${prevTagText}`,
+                    r.animal.breed,
+                    r.animal.pen || '—',
+                    formatDate(r.beforeLog.date),
+                    `${r.beforeLog.weight} kg`,
+                    formatDate(r.afterLog.date),
+                    `${r.afterLog.weight} kg`,
+                    `${r.totalGain > 0 ? '+' : ''}${r.totalGain} kg`,
+                    `${r.days}d`,
+                    `${r.periodAdg > 0 ? '+' : ''}${r.periodAdg} kg/d`,
+                    r.tierLabel
+                ];
+            }),
+            foot: [[
+                `TOTAL (${reportKpis.headCount} Head)`, '', '', '',
+                `${reportTotals.before.toFixed(1)} kg`, '',
+                `${reportTotals.after.toFixed(1)} kg`,
+                `+${reportTotals.gain.toFixed(1)} kg`, '',
+                `Avg +${reportKpis.avgAdg} kg/d`,
+                `High: ${reportKpis.highCount} | Target: ${reportKpis.targetCount} | Poor: ${reportKpis.poorCount}`
+            ]],
+            styles: { fontSize: 8, cellPadding: 2.5, valign: 'middle' },
+            headStyles: { fillColor: [25, 90, 60], textColor: 255, fontStyle: 'bold' },
+            footStyles: { fillColor: [230, 235, 230], textColor: 20, fontStyle: 'bold', fontSize: 8 },
+            didParseCell: (data) => {
+                if (data.section === 'body') {
+                    const row = weightReportRows[data.row.index];
+                    if (!row) return;
+                    if (data.column.index === 9 || data.column.index === 10) {
+                        if (row.tier === 'high') {
+                            data.cell.styles.textColor = [15, 120, 50];
+                            data.cell.styles.fontStyle = 'bold';
+                        } else if (row.tier === 'stagnant') {
+                            data.cell.styles.textColor = [190, 40, 40];
+                            data.cell.styles.fontStyle = 'bold';
+                        } else if (row.tier === 'on_target') {
+                            data.cell.styles.textColor = [150, 105, 10];
+                            data.cell.styles.fontStyle = 'bold';
+                        }
+                    }
+                }
+            }
         });
 
         doc.save(`BA_Farms_Weight_Gain_Report_${todayPKT()}.pdf`);
@@ -638,8 +770,29 @@ export default function WeightTracker() {
                     Animal-wise before/after weight differential. Only animals with at least two real logged weigh-ins are included — a registration-only weight has nothing to diff against.
                 </p>
 
-                {/* Filters */}
+                {/* 1-Click Mode Selector & Filters */}
                 <div style={{ display: 'flex', gap: '1.2rem', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '1.4rem' }}>
+                    <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>Horizon Mode</div>
+                        <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                            <button type="button" class={`filter-btn ${reportMode === 'interval' ? 'active' : ''}`}
+                                style={{ fontSize: '0.72rem', minHeight: '28px', padding: '0.2rem 0.6rem' }}
+                                onClick={() => setReportMode('interval')}>
+                                <i class="fa-solid fa-bolt" style={{ marginRight: '3px' }}></i> Latest Interval (Last 2)
+                            </button>
+                            <button type="button" class={`filter-btn ${reportMode === 'cumulative' ? 'active' : ''}`}
+                                style={{ fontSize: '0.72rem', minHeight: '28px', padding: '0.2rem 0.6rem' }}
+                                onClick={() => setReportMode('cumulative')}>
+                                <i class="fa-solid fa-chart-line" style={{ marginRight: '3px' }}></i> Full Cycle (Entry ➔ Latest)
+                            </button>
+                            <button type="button" class={`filter-btn ${reportMode === 'custom' ? 'active' : ''}`}
+                                style={{ fontSize: '0.72rem', minHeight: '28px', padding: '0.2rem 0.6rem' }}
+                                onClick={() => setReportMode('custom')}>
+                                <i class="fa-solid fa-calendar" style={{ marginRight: '3px' }}></i> Custom Dates
+                            </button>
+                        </div>
+                    </div>
+
                     <div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>Pen</div>
                         <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
@@ -653,20 +806,60 @@ export default function WeightTracker() {
                             ))}
                         </div>
                     </div>
-                    <div class="form-group" style={{ marginBottom: 0 }}>
-                        <label style={{ fontSize: '0.75rem' }}>From (Before)</label>
-                        <input type="date" class="form-control" style={{ minHeight: '28px', padding: '0.2rem 0.6rem', fontSize: '0.8rem' }} value={reportFrom} onChange={e => setReportFrom(e.target.value)} />
-                    </div>
-                    <div class="form-group" style={{ marginBottom: 0 }}>
-                        <label style={{ fontSize: '0.75rem' }}>To (After)</label>
-                        <input type="date" class="form-control" style={{ minHeight: '28px', padding: '0.2rem 0.6rem', fontSize: '0.8rem' }} value={reportTo} onChange={e => setReportTo(e.target.value)} />
-                    </div>
-                    {(reportFrom || reportTo) && (
-                        <button type="button" class="btn btn-secondary" style={{ minHeight: '28px', padding: '0.2rem 0.7rem', fontSize: '0.75rem' }} onClick={() => { setReportFrom(''); setReportTo(''); }}>
-                            Clear Dates
-                        </button>
+
+                    {reportMode === 'custom' && (
+                        <>
+                            <div class="form-group" style={{ marginBottom: 0 }}>
+                                <label style={{ fontSize: '0.75rem' }}>From (Start)</label>
+                                <input type="date" class="form-control" style={{ minHeight: '28px', padding: '0.2rem 0.6rem', fontSize: '0.8rem' }} value={reportFrom} onChange={e => setReportFrom(e.target.value)} />
+                            </div>
+                            <div class="form-group" style={{ marginBottom: 0 }}>
+                                <label style={{ fontSize: '0.75rem' }}>To (End)</label>
+                                <input type="date" class="form-control" style={{ minHeight: '28px', padding: '0.2rem 0.6rem', fontSize: '0.8rem' }} value={reportTo} onChange={e => setReportTo(e.target.value)} />
+                            </div>
+                            {(reportFrom || reportTo) && (
+                                <button type="button" class="btn btn-secondary" style={{ minHeight: '28px', padding: '0.2rem 0.7rem', fontSize: '0.75rem' }} onClick={() => { setReportFrom(''); setReportTo(''); }}>
+                                    Clear Dates
+                                </button>
+                            )}
+                        </>
                     )}
                 </div>
+
+                {/* Executive KPI Summary Cards */}
+                {weightReportRows.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginBottom: '1.2rem' }}>
+                        <div class="glass-panel" style={{ padding: '0.75rem 1rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Head Count &amp; Average Weight</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-pure)', marginTop: '0.2rem' }}>
+                                {reportKpis.headCount} Head <span style={{ fontSize: '0.8rem', fontWeight: '500', color: 'var(--text-muted)' }}>({reportKpis.beforeAvg}kg ➔ {reportKpis.afterAvg}kg)</span>
+                            </div>
+                        </div>
+
+                        <div class="glass-panel" style={{ padding: '0.75rem 1rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Gain &amp; Pen Average ADG</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: '700', color: reportKpis.avgAdg >= 1.0 ? 'var(--primary-green-light)' : 'var(--accent-gold)', marginTop: '0.2rem' }}>
+                                +{reportKpis.totalGain} kg <span style={{ fontSize: '0.8rem', fontWeight: '600' }}>({reportKpis.avgAdg > 0 ? '+' : ''}{reportKpis.avgAdg} kg/day)</span>
+                            </div>
+                        </div>
+
+                        <div class="glass-panel" style={{ padding: '0.75rem 1rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Uniformity Score (Spread)</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-pure)', marginTop: '0.2rem' }}>
+                                ±{reportKpis.stdDev} kg <span style={{ fontSize: '0.8rem', fontWeight: '500', color: 'var(--text-muted)' }}>(CV {reportKpis.cv}%)</span>
+                            </div>
+                        </div>
+
+                        <div class="glass-panel" style={{ padding: '0.75rem 1rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Performance Tiers</div>
+                            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.3rem', fontSize: '0.8rem', fontWeight: '600' }}>
+                                <span style={{ color: 'hsl(140,75%,60%)' }}>🟢 High: {reportKpis.highCount}</span>
+                                <span style={{ color: 'hsl(45,95%,60%)' }}>🟡 Target: {reportKpis.targetCount}</span>
+                                <span style={{ color: 'hsl(0,75%,60%)' }}>🔴 Poor: {reportKpis.poorCount}</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {weightReportRows.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-muted)' }}>
@@ -678,42 +871,70 @@ export default function WeightTracker() {
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th>TAG</th>
+                                    <th>TAG ID</th>
                                     <th>BREED</th>
                                     <th>PEN</th>
-                                    <th>BEFORE DATE</th>
-                                    <th>BEFORE WT (KG)</th>
-                                    <th>AFTER DATE</th>
-                                    <th>AFTER WT (KG)</th>
-                                    <th>TOTAL GAIN (KG)</th>
-                                    <th>PERIOD ADG (KG/DAY)</th>
-                                    <th>LATEST DIFFERENTIAL (KG/DAY)</th>
+                                    <th>START DATE</th>
+                                    <th>START WT (KG)</th>
+                                    <th>END DATE</th>
+                                    <th>END WT (KG)</th>
+                                    <th>TOTAL GAIN</th>
+                                    <th>DAYS</th>
+                                    <th>PERIOD ADG</th>
+                                    <th>PERFORMANCE TIER</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {weightReportRows.map(r => (
                                     <tr key={r.animal.id}>
-                                        <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '600', color: 'var(--text-pure)' }}>{r.animal.rfid}</td>
+                                        <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '600', color: 'var(--text-pure)' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                                <span>{r.animal.rfid}</span>
+                                                {r.animal.previousTags && r.animal.previousTags.length > 0 && (
+                                                    <span style={{ fontSize: '0.65rem', padding: '1px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', color: 'var(--text-muted)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                                                        prev: {r.animal.previousTags.join(', ')}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </td>
                                         <td>{r.animal.breed}</td>
                                         <td>{r.animal.pen ? <span style={{ color: 'var(--accent-gold)' }}>{r.animal.pen}</span> : '—'}</td>
                                         <td>{formatDate(r.beforeLog.date)}</td>
                                         <td>{r.beforeLog.weight} kg</td>
                                         <td>{formatDate(r.afterLog.date)}</td>
-                                        <td>{r.afterLog.weight} kg</td>
+                                        <td><strong>{r.afterLog.weight} kg</strong></td>
                                         <td>
                                             <span class={r.totalGain >= 0 ? 'adg-text good' : 'adg-text alert'}>
                                                 {r.totalGain > 0 ? '+' : ''}{r.totalGain} kg
                                             </span>
                                         </td>
+                                        <td style={{ color: 'var(--text-muted)' }}>{r.days}d</td>
                                         <td>
-                                            <span class={r.periodAdg >= (systemParams.adgAlertThreshold ?? 1.0) ? 'adg-text good' : 'adg-text alert'}>
-                                                {r.periodAdg > 0 ? '+' : ''}{r.periodAdg} kg/day
+                                            <span class={r.tier === 'high' ? 'adg-text good' : r.tier === 'stagnant' ? 'adg-text alert' : 'adg-text good'}>
+                                                {r.periodAdg > 0 ? '+' : ''}{r.periodAdg} kg/d
                                             </span>
                                         </td>
                                         <td>
-                                            <span class={r.latestDiff >= (systemParams.adgAlertThreshold ?? 1.0) ? 'adg-text good' : 'adg-text alert'}>
-                                                {r.latestDiff > 0 ? '+' : ''}{r.latestDiff} kg/day
-                                            </span>
+                                            {r.tier === 'high' && (
+                                                <span style={{ fontSize: '0.72rem', fontWeight: '700', padding: '2px 8px', borderRadius: '12px', background: 'rgba(40,167,69,0.15)', color: 'hsl(140,75%,60%)', border: '1px solid rgba(40,167,69,0.3)' }}>
+                                                    🟢 High Gainer
+                                                </span>
+                                            )}
+                                            {r.tier === 'on_target' && (
+                                                <span style={{ fontSize: '0.72rem', fontWeight: '600', padding: '2px 8px', borderRadius: '12px', background: 'rgba(255,193,7,0.15)', color: 'hsl(45,95%,60%)', border: '1px solid rgba(255,193,7,0.3)' }}>
+                                                    🟡 On Target
+                                                </span>
+                                            )}
+                                            {r.tier === 'stagnant' && (
+                                                <span style={{ fontSize: '0.72rem', fontWeight: '700', padding: '2px 8px', borderRadius: '12px', background: 'rgba(220,53,69,0.15)', color: 'hsl(0,75%,60%)', border: '1px solid rgba(220,53,69,0.3)' }}>
+                                                    🔴 Poor Doer
+                                                </span>
+                                            )}
+                                            {r.tier === 'moderate' && (
+                                                <span style={{ fontSize: '0.72rem', fontWeight: '500', padding: '2px 8px', borderRadius: '12px', background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }}>
+                                                    Moderate
+                                                </span>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}
@@ -729,7 +950,15 @@ export default function WeightTracker() {
                                             {reportTotals.gain > 0 ? '+' : ''}{reportTotals.gain.toFixed(1)} kg
                                         </span>
                                     </td>
-                                    <td colSpan="2"></td>
+                                    <td></td>
+                                    <td>
+                                        <span style={{ color: reportKpis.avgAdg >= 1.0 ? 'var(--primary-green-light)' : 'var(--accent-gold)' }}>
+                                            Avg +{reportKpis.avgAdg} kg/d
+                                        </span>
+                                    </td>
+                                    <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                        🟢 {reportKpis.highCount} | 🟡 {reportKpis.targetCount} | 🔴 {reportKpis.poorCount}
+                                    </td>
                                 </tr>
                             </tfoot>
                         </table>
