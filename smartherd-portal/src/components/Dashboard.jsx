@@ -58,32 +58,19 @@ export default function Dashboard({ onNavigate }) {
         ? totalLoggedFeedCost / totalLoggedAnimalDays
         : null;
 
-    // B. Herd Average ADG — computed from the active herd's latest on-feed weigh-in,
-    // explicitly ignoring the 29-07-2026 arrival baseline weigh-in as requested.
-    // adg is non-zero (sentinel for "no prior weigh-in").
-    const isIgnoredWeighDate = d => {
+    // B. Herd Average ADG — overall average across all valid weight logs across time,
+    // excluding the one-off corrupted weigh-in (29-07-2026 / 08-08-2026 interval).
+    // All subsequent weigh-ins will be accumulated and averaged together normally.
+    const isCorruptedWeighDate = d => {
         if (!d) return false;
         const str = String(d);
-        return str.startsWith('2026-07-29') || str.includes('2026-07-29');
+        return str.startsWith('2026-07-29') || str.startsWith('2026-08-08');
     };
 
-    const activeAnimals = animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased');
-    const latestActiveAdgs = [];
-    activeAnimals.forEach(a => {
-        const animalLogs = (weightLogs || [])
-            .filter(w => w.animalId === a.id && w.adg !== 0 && !isIgnoredWeighDate(w.date))
-            .sort((x, y) => daysBetween(y.date, x.date));
-        if (animalLogs.length > 0) {
-            latestActiveAdgs.push(animalLogs[0].adg);
-        }
-    });
-
-    const fallbackLogs = (weightLogs || []).filter(w => w.adg !== 0 && !isIgnoredWeighDate(w.date));
-    const avgHerdAdg = latestActiveAdgs.length > 0
-        ? parseFloat((latestActiveAdgs.reduce((sum, adg) => sum + adg, 0) / latestActiveAdgs.length).toFixed(2))
-        : (fallbackLogs.length > 0
-            ? parseFloat((fallbackLogs.reduce((sum, log) => sum + log.adg, 0) / fallbackLogs.length).toFixed(2))
-            : null);
+    const validAdgLogs = (weightLogs || []).filter(w => w.adg !== 0 && !isCorruptedWeighDate(w.date));
+    const avgHerdAdg = validAdgLogs.length > 0
+        ? parseFloat((validAdgLogs.reduce((sum, log) => sum + log.adg, 0) / validAdgLogs.length).toFixed(2))
+        : null;
 
     // A2. Actual Cost per kg Gained = actual logged feed cost/day ÷ actual herd ADG.
     // Requires both real feeding logs and real weight logs; null otherwise.
@@ -92,11 +79,10 @@ export default function Dashboard({ onNavigate }) {
     // C. Trigger Alerts for Underperforming Calves (ADG < 1.0 kg/day)
     const alertCalves = [];
     animals.forEach(animal => {
-        const animalLogs = weightLogs.filter(w => w.animalId === animal.id && !isIgnoredWeighDate(w.date))
-                                     .sort((a, b) => daysBetween(b.date, a.date));
-        // adg !== 0 (see note above) — a calf actively losing weight (negative ADG)
-        // is the clearest case of underperforming and must still trigger this alert,
-        // not be skipped for having "too positive" a check.
+        const animalLogs = (weightLogs || [])
+            .filter(w => w.animalId === animal.id && !isCorruptedWeighDate(w.date))
+            .sort((a, b) => daysBetween(b.date, a.date));
+        // adg !== 0 — a calf actively losing weight (negative ADG) is underperforming
         if (animalLogs.length > 0 && animalLogs[0].adg !== 0 && animalLogs[0].adg < (systemParams.adgAlertThreshold ?? 1.0)) {
             alertCalves.push({
                 rfid: animal.rfid,
@@ -297,7 +283,7 @@ export default function Dashboard({ onNavigate }) {
     const adgByDate = (() => {
         if (!weightLogs || weightLogs.length === 0) return [];
         const groups = {};
-        weightLogs.filter(w => w.adg !== 0 && !isIgnoredWeighDate(w.date)).forEach(w => {
+        weightLogs.filter(w => w.adg !== 0 && !isCorruptedWeighDate(w.date)).forEach(w => {
             if (!groups[w.date]) groups[w.date] = { sum: 0, count: 0 };
             groups[w.date].sum += w.adg;
             groups[w.date].count += 1;
