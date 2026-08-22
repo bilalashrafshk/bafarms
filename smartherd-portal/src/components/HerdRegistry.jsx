@@ -12,9 +12,14 @@ const SORT_ACCESSORS = {
     tag: (a) => a.rfid,
     breed: (a) => a.breed,
     entryDate: (a) => a.entryDate || '',
+    mandiWeight: (a) => a.mandiWeight || 0,
     entryWeight: (a) => a.entryWeight,
     weight: (a) => a.currentWeight,
     gain: (a) => a.currentWeight - a.entryWeight,
+    mandiPrice: (a) => a.mandiPrice || 0,
+    mandiTax: (a) => a.mandiTax || 0,
+    carriage: (a) => a.carriage || 0,
+    miscExpense: (a) => a.miscExpense || 0,
     cost: (a) => a.purchasePrice,
     costPerKg: (a) => (a.entryWeight ? a.purchasePrice / a.entryWeight : 0),
     pen: (a) => a.pen || '',
@@ -972,15 +977,20 @@ export default function HerdRegistry() {
                 <table className="data-table">
                     <thead>
                         <tr>
-                            <th style={{ width: '45px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
+                            <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                             {sortableTh('TAG', 'tag')}
                             {sortableTh('BREED', 'breed')}
                             {sortableTh('ENTRY DATE', 'entryDate')}
-                            {sortableTh('ENTRY WT (KG)', 'entryWeight')}
-                            {sortableTh('LATEST WT (KG)', 'weight')}
+                            {sortableTh('MANDI WT', 'mandiWeight')}
+                            {sortableTh('ENTRY WT', 'entryWeight')}
+                            {sortableTh('LATEST WT', 'weight')}
                             {sortableTh('GAIN', 'gain')}
-                            {sortableTh('COST (PKR)', 'cost')}
-                            {sortableTh('COST/KG', 'costPerKg')}
+                            {sortableTh('MANDI BASE', 'mandiPrice')}
+                            {sortableTh('TAX', 'mandiTax')}
+                            {sortableTh('CARRIAGE', 'carriage')}
+                            {sortableTh('MISC', 'miscExpense')}
+                            {sortableTh('LANDED COST', 'cost')}
+                            {sortableTh('LANDED /KG', 'costPerKg')}
                             {sortableTh('PEN', 'pen')}
                             {sortableTh('STATUS', 'status')}
                             <th style={{ textAlign: 'center' }}>ACTIONS</th>
@@ -1014,13 +1024,16 @@ export default function HerdRegistry() {
                                 <td>{animal.breed}</td>
                                 <td style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{animal.entryDate ? formatDate(animal.entryDate) : '—'}</td>
                                 <td>
-                                    <div>{animal.entryWeight} kg</div>
-                                    {animal.mandiWeight && (
-                                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }} title={`Mandi: ${animal.mandiWeight} kg | Loss: -${(animal.mandiWeight - animal.entryWeight).toFixed(1)} kg (${(((animal.mandiWeight - animal.entryWeight) / animal.mandiWeight) * 100).toFixed(1)}% transit shrink)`}>
-                                            Mandi: {animal.mandiWeight}kg <span style={{ color: 'hsl(43,90%,53%)' }}>(-{(((animal.mandiWeight - animal.entryWeight) / animal.mandiWeight) * 100).toFixed(1)}%)</span>
+                                    {animal.mandiWeight ? (
+                                        <div>
+                                            <span>{animal.mandiWeight} kg</span>
+                                            <div style={{ fontSize: '0.68rem', color: 'hsl(43,90%,53%)' }} title={`Loss: -${(animal.mandiWeight - animal.entryWeight).toFixed(1)} kg`}>
+                                                -{(((animal.mandiWeight - animal.entryWeight) / animal.mandiWeight) * 100).toFixed(1)}%
+                                            </div>
                                         </div>
-                                    )}
+                                    ) : <span style={{ opacity: 0.35 }}>—</span>}
                                 </td>
+                                <td><strong>{animal.entryWeight} kg</strong></td>
                                 <td><strong>{animal.currentWeight} kg</strong></td>
                                 {(() => {
                                     const gain = parseFloat((animal.currentWeight - animal.entryWeight).toFixed(1));
@@ -1031,29 +1044,42 @@ export default function HerdRegistry() {
                                     );
                                 })()}
                                 <td>
-                                    <div style={{ fontWeight: '700', color: 'var(--text-pure)', fontSize: '0.88rem' }}>
-                                        {animal.purchasePrice ? animal.purchasePrice.toLocaleString() : '—'} <small style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>PKR</small>
-                                    </div>
                                     {animal.mandiPrice ? (
-                                        <div style={{ marginTop: '0.2rem', display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '0.67rem' }}>
-                                            <div style={{ color: 'rgba(255,255,255,0.65)' }}>
-                                                Base: <strong style={{ color: 'var(--text-pure)' }}>{animal.mandiPrice.toLocaleString()}</strong>
-                                            </div>
-                                            {((animal.mandiTax || 0) + (animal.carriage || 0) + (animal.miscExpense || 0)) > 0 ? (
-                                                <div style={{ color: 'hsl(43,90%,53%)', whiteSpace: 'nowrap', lineHeight: '1.2' }} title={`Mandi Tax: ${animal.mandiTax ? animal.mandiTax.toLocaleString() : 0} PKR | Carriage: ${animal.carriage ? animal.carriage.toLocaleString() : 0} PKR | Misc: ${animal.miscExpense ? animal.miscExpense.toLocaleString() : 0} PKR`}>
-                                                    Tax: {animal.mandiTax ? Math.round(animal.mandiTax).toLocaleString() : '0'} · Carr: {animal.carriage ? Math.round(animal.carriage).toLocaleString() : '0'} · Misc: {animal.miscExpense ? Math.round(animal.miscExpense).toLocaleString() : '0'}
+                                        <div>
+                                            <div style={{ fontWeight: '600' }}>{animal.mandiPrice.toLocaleString()}</div>
+                                            {animal.mandiWeight && (
+                                                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                                    {Math.round(animal.mandiPrice / animal.mandiWeight)}/kg
                                                 </div>
-                                            ) : null}
+                                            )}
                                         </div>
-                                    ) : null}
+                                    ) : <span style={{ opacity: 0.35 }}>—</span>}
                                 </td>
-                                <td style={{ color: 'var(--text-muted)' }}>
-                                    <div style={{ color: 'var(--text-pure)', fontWeight: '600' }}>{animal.entryWeight ? `${Math.round(animal.purchasePrice / animal.entryWeight).toLocaleString()} /kg` : '—'}</div>
-                                    {animal.mandiPrice && animal.mandiWeight && (
-                                        <div style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.45)', whiteSpace: 'nowrap' }} title={`Mandi Rate: ${Math.round(animal.mandiPrice / animal.mandiWeight)} PKR/kg`}>
-                                            Mandi: {Math.round(animal.mandiPrice / animal.mandiWeight)} /kg
-                                        </div>
-                                    )}
+                                <td>
+                                    {animal.mandiTax ? (
+                                        <span style={{ color: 'var(--text-muted)' }}>{Math.round(animal.mandiTax).toLocaleString()}</span>
+                                    ) : <span style={{ opacity: 0.35 }}>—</span>}
+                                </td>
+                                <td>
+                                    {animal.carriage ? (
+                                        <span style={{ color: 'var(--text-muted)' }}>{Math.round(animal.carriage).toLocaleString()}</span>
+                                    ) : <span style={{ opacity: 0.35 }}>—</span>}
+                                </td>
+                                <td>
+                                    {animal.miscExpense ? (
+                                        <span style={{ color: 'var(--text-muted)' }}>{Math.round(animal.miscExpense).toLocaleString()}</span>
+                                    ) : <span style={{ opacity: 0.35 }}>—</span>}
+                                </td>
+                                <td>
+                                    <div style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
+                                        {animal.purchasePrice ? animal.purchasePrice.toLocaleString() : '—'}
+                                    </div>
+                                </td>
+                                <td>
+                                    <strong style={{ color: 'var(--primary-green-light)' }}>
+                                        {animal.entryWeight && animal.purchasePrice ? `${Math.round(animal.purchasePrice / animal.entryWeight).toLocaleString()}` : '—'}
+                                    </strong>
+                                    <small style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}> /kg</small>
                                 </td>
                                 <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '600' }}>
                                     {animal.pen ? <span style={{ color: 'var(--accent-gold)' }}>{animal.pen}</span> : <span style={{ opacity: 0.4 }}>—</span>}
@@ -1109,7 +1135,7 @@ export default function HerdRegistry() {
                         ))}
                         {sortedAnimals.length === 0 && (
                             <tr>
-                                <td colSpan="11" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                                <td colSpan="17" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                                     <i className="fa-solid fa-cow" style={{ fontSize: '2rem', marginBottom: '0.5rem', display: 'block' }}></i>
                                     No animal records matching your filters were found in the database.
                                     <div style={{ marginTop: '0.8rem' }}>
