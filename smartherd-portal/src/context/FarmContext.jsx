@@ -1791,7 +1791,10 @@ export const FarmProvider = ({ children }) => {
             status: newAnimal.status || 'Quarantined',
             pen: newAnimal.pen || null,
             mandiPrice: newAnimal.mandiPrice ? parseFloat(newAnimal.mandiPrice) : null,
-            mandiWeight: newAnimal.mandiWeight ? parseFloat(newAnimal.mandiWeight) : null
+            mandiWeight: newAnimal.mandiWeight ? parseFloat(newAnimal.mandiWeight) : null,
+            mandiTax: newAnimal.mandiTax ? parseFloat(newAnimal.mandiTax) : null,
+            carriage: newAnimal.carriage ? parseFloat(newAnimal.carriage) : null,
+            miscExpense: newAnimal.miscExpense ? parseFloat(newAnimal.miscExpense) : null
         };
 
         // 1. Sync UI locally immediately for zero-lag response

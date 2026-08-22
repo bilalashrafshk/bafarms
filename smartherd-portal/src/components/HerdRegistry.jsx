@@ -67,6 +67,9 @@ export default function HerdRegistry() {
     const [pen, setPen] = useState('');
     const [mandiPrice, setMandiPrice] = useState('');
     const [mandiWeight, setMandiWeight] = useState('');
+    const [mandiTax, setMandiTax] = useState('');
+    const [carriage, setCarriage] = useState('');
+    const [miscExpense, setMiscExpense] = useState('');
     // When true, the Breed field is a free-text input instead of the preset dropdown —
     // lets staff register an animal with a breed that isn't in the configured list yet.
     const [customBreedMode, setCustomBreedMode] = useState(false);
@@ -171,10 +174,13 @@ export default function HerdRegistry() {
     };
 
     const exportCSV = () => {
-        const headers = ['#,RFID,Previous Tags,Breed,Entry Date,Mandi Weight (kg),Entry Weight (kg),Transit Shrink (kg),Transit Shrink (%),Current Weight (kg),Total Gain (kg),Mandi Price (PKR),Purchase Cost (PKR),Cost per KG (PKR),Source,Pen,Status'];
+        const headers = ['#,RFID,Previous Tags,Breed,Entry Date,Mandi Weight (kg),Entry Weight (kg),Transit Shrink (kg),Transit Shrink (%),Current Weight (kg),Total Gain (kg),Mandi Price (PKR),Mandi Tax (PKR),Carriage (PKR),Misc Expense (PKR),Total Landed Cost (PKR),Actual Landed Cost per KG (PKR),Mandi Cost per KG (PKR),Source,Pen,Status'];
         const rows = sortedAnimals.map((a, idx) => {
             const shrinkKg = a.mandiWeight ? (a.mandiWeight - a.entryWeight).toFixed(1) : '';
             const shrinkPct = (a.mandiWeight && a.mandiWeight > 0) ? (((a.mandiWeight - a.entryWeight) / a.mandiWeight) * 100).toFixed(2) : '';
+            const landedCostPerKg = a.entryWeight && a.purchasePrice ? (a.purchasePrice / a.entryWeight).toFixed(0) : '';
+            const mandiCostPerKg = a.mandiWeight && a.mandiPrice ? (a.mandiPrice / a.mandiWeight).toFixed(0) : '';
+
             return [
                 idx + 1,
                 a.rfid,
@@ -188,8 +194,12 @@ export default function HerdRegistry() {
                 a.currentWeight,
                 (a.currentWeight - a.entryWeight).toFixed(1),
                 a.mandiPrice || '',
+                a.mandiTax || '',
+                a.carriage || '',
+                a.miscExpense || '',
                 a.purchasePrice,
-                a.entryWeight ? (a.purchasePrice / a.entryWeight).toFixed(0) : '',
+                landedCostPerKg,
+                mandiCostPerKg,
                 a.source || '',
                 a.pen || '',
                 a.status
@@ -219,24 +229,28 @@ export default function HerdRegistry() {
         const totalShrinkPct = totalMandiWeight > 0 ? ((totalShrinkKg / totalMandiWeight) * 100) : 0;
         const shrinkSummaryStr = totalMandiWeight > 0 ? `-${totalShrinkKg.toFixed(1)}kg (-${totalShrinkPct.toFixed(2)}%)` : '—';
 
+        const totalMandiPrice = filteredAnimals.reduce((sum, a) => sum + (a.mandiPrice || 0), 0);
+        const totalExpenses = filteredAnimals.reduce((sum, a) => sum + ((a.mandiTax || 0) + (a.carriage || 0) + (a.miscExpense || 0)), 0);
+
         const doc = new jsPDF({ orientation: 'landscape' });
 
         doc.setFontSize(16);
         doc.text('BA Farms — Herd Registry', 14, 15);
-        doc.setFontSize(9.5);
+        doc.setFontSize(9);
         doc.setTextColor(100);
         const filterNote = activeFilterCount > 0 || search || filterStatus !== 'All' ? ' (Filtered View)' : '';
         const shrinkHeaderNote = totalMandiWeight > 0 ? ` · Transit Shrink: -${totalShrinkKg.toFixed(1)} kg (-${totalShrinkPct.toFixed(2)}%)` : '';
-        doc.text(`Generated ${formatDate(todayPKT())} · ${filteredAnimals.length} animal${filteredAnimals.length === 1 ? '' : 's'}${filterNote} · Avg Landed Cost: ${Math.round(avgPerKg).toLocaleString()} PKR/kg${shrinkHeaderNote}`, 14, 21);
+        const expenseHeaderNote = totalExpenses > 0 ? ` · Total Acquisition Exp: ${totalExpenses.toLocaleString()} PKR` : '';
+        doc.text(`Generated ${formatDate(todayPKT())} · ${filteredAnimals.length} animal${filteredAnimals.length === 1 ? '' : 's'}${filterNote} · Avg Landed Cost: ${Math.round(avgPerKg).toLocaleString()} PKR/kg${shrinkHeaderNote}${expenseHeaderNote}`, 14, 21);
 
         autoTable(doc, {
             startY: 26,
-            head: [['#', 'Tag', 'Breed', 'Entry Date', 'Mandi Wt', 'Entry Wt', 'Transit Shrink', 'Latest Wt', 'Gain', 'Cost (PKR)', 'Cost/kg', 'Pen', 'Status']],
+            head: [['#', 'Tag', 'Breed', 'Entry Date', 'Mandi Wt', 'Entry Wt', 'Transit Shrink', 'Latest Wt', 'Mandi Base', 'Tax/Carriage/Misc', 'Total Landed Cost', 'Actual Cost/kg', 'Pen', 'Status']],
             body: sortedAnimals.map((a, idx) => {
                 const shrinkKg = a.mandiWeight ? (a.mandiWeight - a.entryWeight) : null;
                 const shrinkPct = (a.mandiWeight && a.mandiWeight > 0) ? ((shrinkKg / a.mandiWeight) * 100) : null;
                 const shrinkStr = shrinkKg !== null ? `-${shrinkKg.toFixed(1)}kg (-${shrinkPct.toFixed(1)}%)` : '—';
-                const gain = (a.currentWeight - a.entryWeight);
+                const exp = (a.mandiTax || 0) + (a.carriage || 0) + (a.miscExpense || 0);
 
                 return [
                     idx + 1,
@@ -247,7 +261,8 @@ export default function HerdRegistry() {
                     `${a.entryWeight} kg`,
                     shrinkStr,
                     `${a.currentWeight} kg`,
-                    `${gain > 0 ? '+' : ''}${gain.toFixed(1)} kg`,
+                    a.mandiPrice ? a.mandiPrice.toLocaleString() : '—',
+                    exp > 0 ? exp.toLocaleString() : (a.mandiPrice ? '0' : '—'),
                     a.purchasePrice.toLocaleString(),
                     a.entryWeight ? `${Math.round(a.purchasePrice / a.entryWeight).toLocaleString()} /kg` : '—',
                     a.pen || '—',
@@ -260,13 +275,14 @@ export default function HerdRegistry() {
                 `${totalWeight.toFixed(1)} kg`,
                 shrinkSummaryStr,
                 `${totalCurrentWeight.toFixed(1)} kg`,
-                `${totalGain > 0 ? '+' : ''}${totalGain.toFixed(1)} kg`,
+                totalMandiPrice > 0 ? totalMandiPrice.toLocaleString() : '',
+                totalExpenses > 0 ? totalExpenses.toLocaleString() : '',
                 totalCost.toLocaleString(),
                 `${Math.round(avgPerKg).toLocaleString()} /kg`,
                 '',
                 'TOTAL / AVG'
             ]],
-            styles: { fontSize: 7.5, cellPadding: 2 },
+            styles: { fontSize: 7.2, cellPadding: 2 },
             headStyles: { fillColor: [25, 90, 60], fontStyle: 'bold' },
             footStyles: { fillColor: [230, 230, 230], textColor: 20, fontStyle: 'bold' }
         });
@@ -283,6 +299,9 @@ export default function HerdRegistry() {
         setPurchasePrice('');
         setMandiPrice('');
         setMandiWeight('');
+        setMandiTax('');
+        setCarriage('');
+        setMiscExpense('');
         setSource('');
         setStatus('Quarantined');
         setTargetWeight('');
@@ -303,6 +322,9 @@ export default function HerdRegistry() {
         setPurchasePrice(animal.purchasePrice);
         setMandiPrice(animal.mandiPrice ? String(animal.mandiPrice) : '');
         setMandiWeight(animal.mandiWeight ? String(animal.mandiWeight) : '');
+        setMandiTax(animal.mandiTax ? String(animal.mandiTax) : '');
+        setCarriage(animal.carriage ? String(animal.carriage) : '');
+        setMiscExpense(animal.miscExpense ? String(animal.miscExpense) : '');
         setSource(animal.source);
         setStatus(animal.status);
         setTargetWeight(animal.targetWeight || '');
@@ -342,7 +364,10 @@ export default function HerdRegistry() {
             entryDate,
             pen: pen || null,
             mandiPrice: mandiPrice ? parseFloat(mandiPrice) : null,
-            mandiWeight: mandiWeight ? parseFloat(mandiWeight) : null
+            mandiWeight: mandiWeight ? parseFloat(mandiWeight) : null,
+            mandiTax: mandiTax ? parseFloat(mandiTax) : null,
+            carriage: carriage ? parseFloat(carriage) : null,
+            miscExpense: miscExpense ? parseFloat(miscExpense) : null
         };
 
         if (editingAnimal) {
@@ -982,15 +1007,23 @@ export default function HerdRegistry() {
                                     );
                                 })()}
                                 <td>
-                                    <div>{animal.purchasePrice.toLocaleString()}</div>
-                                    {animal.mandiPrice && (
-                                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }} title={`Mandi Price: PKR ${animal.mandiPrice.toLocaleString()}`}>
-                                            Mandi: {animal.mandiPrice.toLocaleString()}
+                                    <div style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{animal.purchasePrice.toLocaleString()}</div>
+                                    {(animal.mandiPrice || animal.mandiTax || animal.carriage || animal.miscExpense) && (
+                                        <div 
+                                            style={{ fontSize: '0.68rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', cursor: 'help' }} 
+                                            title={`Mandi Base: ${animal.mandiPrice ? animal.mandiPrice.toLocaleString() : '—'} PKR | Tax: ${animal.mandiTax ? animal.mandiTax.toLocaleString() : '0'} PKR | Carriage: ${animal.carriage ? animal.carriage.toLocaleString() : '0'} PKR | Misc: ${animal.miscExpense ? animal.miscExpense.toLocaleString() : '0'} PKR`}
+                                        >
+                                            {animal.mandiPrice ? `Base: ${animal.mandiPrice.toLocaleString()}` : ''}
+                                            {((animal.mandiTax || 0) + (animal.carriage || 0) + (animal.miscExpense || 0)) > 0 ? (
+                                                <span style={{ color: 'hsl(43,90%,53%)' }}>
+                                                    {animal.mandiPrice ? ' + ' : ''}Exp: {((animal.mandiTax || 0) + (animal.carriage || 0) + (animal.miscExpense || 0)).toLocaleString()}
+                                                </span>
+                                            ) : null}
                                         </div>
                                     )}
                                 </td>
                                 <td style={{ color: 'var(--text-muted)' }}>
-                                    <div>{animal.entryWeight ? `${Math.round(animal.purchasePrice / animal.entryWeight).toLocaleString()} /kg` : '—'}</div>
+                                    <div style={{ color: 'var(--text-pure)', fontWeight: '600' }}>{animal.entryWeight ? `${Math.round(animal.purchasePrice / animal.entryWeight).toLocaleString()} /kg` : '—'}</div>
                                     {animal.mandiPrice && animal.mandiWeight && (
                                         <div style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.45)', whiteSpace: 'nowrap' }} title={`Mandi Rate: ${Math.round(animal.mandiPrice / animal.mandiWeight)} PKR/kg`}>
                                             Mandi: {Math.round(animal.mandiPrice / animal.mandiWeight)} /kg
@@ -1071,7 +1104,7 @@ export default function HerdRegistry() {
             {/* 4. MODAL POPUP ADD/EDIT CALF REGISTER FORM */}
             {isModalOpen && createPortal(
                 <div class="modal-overlay">
-                    <div class="glass-panel modal-container">
+                    <div class="glass-panel modal-container" style={{ maxWidth: '580px' }}>
                         <button class="modal-close-btn" onClick={() => setIsModalOpen(false)}>
                             <i class="fa-solid fa-xmark"></i>
                         </button>
@@ -1153,7 +1186,7 @@ export default function HerdRegistry() {
                                         )}
                                     </div>
                                     <div class="form-group" style={{ marginBottom: 0 }}>
-                                        <label>Purchase Cost (PKR) *</label>
+                                        <label>Total Landed Cost (PKR) *</label>
                                         <input type="number" class="form-control" placeholder="e.g. 150000" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} required />
                                         {editingAnimal && !isSuperAdmin && (
                                             <small style={{ color: 'hsl(43,90%,53%)', fontSize: '0.7rem' }}>Changes need Super Admin approval</small>
@@ -1187,26 +1220,119 @@ export default function HerdRegistry() {
                                     </div>
                                 </div>
 
-                                {/* Row 4: Mandi Purchase & Transit Shrinkage (Optional) */}
-                                <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.07)', borderRadius: '8px', padding: '0.6rem 0.8rem', marginBottom: '0.5rem' }}>
-                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span><i class="fa-solid fa-truck-ramp-box" style={{ marginRight: '0.35rem' }}></i> Mandi Purchase & Transit Shrinkage (Optional)</span>
+                                {/* Row 4: Mandi Purchase & Expense Breakdown */}
+                                <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.07)', borderRadius: '8px', padding: '0.75rem 0.9rem', marginBottom: '0.5rem' }}>
+                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span><i class="fa-solid fa-receipt" style={{ marginRight: '0.35rem', color: 'var(--primary-green-light)' }}></i> Mandi Purchase & Acquisition Expenses (Optional)</span>
                                         {mandiWeight && entryWeight && parseFloat(mandiWeight) > 0 && (
-                                            <span style={{ color: (parseFloat(mandiWeight) - parseFloat(entryWeight)) >= 0 ? 'var(--accent-gold)' : 'hsl(0,75%,60%)' }}>
+                                            <span style={{ color: (parseFloat(mandiWeight) - parseFloat(entryWeight)) >= 0 ? 'var(--accent-gold)' : 'hsl(0,75%,60%)', fontSize: '0.75rem' }}>
                                                 Shrink: -{(parseFloat(mandiWeight) - parseFloat(entryWeight)).toFixed(1)} kg ({(((parseFloat(mandiWeight) - parseFloat(entryWeight)) / parseFloat(mandiWeight)) * 100).toFixed(1)}%)
                                             </span>
                                         )}
                                     </div>
-                                    <div class="form-grid-row">
+                                    <div class="form-grid-row" style={{ marginBottom: '0.5rem' }}>
                                         <div class="form-group" style={{ marginBottom: 0 }}>
                                             <label style={{ fontSize: '0.75rem' }}>Mandi Weight (kg)</label>
                                             <input type="number" step="0.1" class="form-control" placeholder="Mandi scale wt" value={mandiWeight} onChange={(e) => setMandiWeight(e.target.value)} />
                                         </div>
                                         <div class="form-group" style={{ marginBottom: 0 }}>
-                                            <label style={{ fontSize: '0.75rem' }}>Mandi Price (PKR)</label>
-                                            <input type="number" class="form-control" placeholder="Mandi purchase price" value={mandiPrice} onChange={(e) => setMandiPrice(e.target.value)} />
+                                            <label style={{ fontSize: '0.75rem' }}>Mandi Base Price (PKR)</label>
+                                            <input 
+                                                type="number" 
+                                                class="form-control" 
+                                                placeholder="Base price to seller" 
+                                                value={mandiPrice} 
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    setMandiPrice(val);
+                                                    const base = parseFloat(val) || 0;
+                                                    const tax = parseFloat(mandiTax) || 0;
+                                                    const carr = parseFloat(carriage) || 0;
+                                                    const misc = parseFloat(miscExpense) || 0;
+                                                    if (base > 0 || tax > 0 || carr > 0 || misc > 0) setPurchasePrice(String(base + tax + carr + misc));
+                                                }} 
+                                            />
                                         </div>
                                     </div>
+
+                                    <div class="form-grid-3">
+                                        <div class="form-group" style={{ marginBottom: 0 }}>
+                                            <label style={{ fontSize: '0.75rem' }}>Mandi Tax / Parchi (PKR)</label>
+                                            <input 
+                                                type="number" 
+                                                class="form-control" 
+                                                placeholder="e.g. 1000" 
+                                                value={mandiTax} 
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    setMandiTax(val);
+                                                    const base = parseFloat(mandiPrice) || 0;
+                                                    const tax = parseFloat(val) || 0;
+                                                    const carr = parseFloat(carriage) || 0;
+                                                    const misc = parseFloat(miscExpense) || 0;
+                                                    if (base > 0) setPurchasePrice(String(base + tax + carr + misc));
+                                                }} 
+                                            />
+                                        </div>
+                                        <div class="form-group" style={{ marginBottom: 0 }}>
+                                            <label style={{ fontSize: '0.75rem' }}>Carriage / Freight (PKR)</label>
+                                            <input 
+                                                type="number" 
+                                                class="form-control" 
+                                                placeholder="e.g. 2500" 
+                                                value={carriage} 
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    setCarriage(val);
+                                                    const base = parseFloat(mandiPrice) || 0;
+                                                    const tax = parseFloat(mandiTax) || 0;
+                                                    const carr = parseFloat(val) || 0;
+                                                    const misc = parseFloat(miscExpense) || 0;
+                                                    if (base > 0) setPurchasePrice(String(base + tax + carr + misc));
+                                                }} 
+                                            />
+                                        </div>
+                                        <div class="form-group" style={{ marginBottom: 0 }}>
+                                            <label style={{ fontSize: '0.75rem' }}>Misc Expense (PKR)</label>
+                                            <input 
+                                                type="number" 
+                                                class="form-control" 
+                                                placeholder="e.g. 1000" 
+                                                value={miscExpense} 
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    setMiscExpense(val);
+                                                    const base = parseFloat(mandiPrice) || 0;
+                                                    const tax = parseFloat(mandiTax) || 0;
+                                                    const carr = parseFloat(carriage) || 0;
+                                                    const misc = parseFloat(val) || 0;
+                                                    if (base > 0) setPurchasePrice(String(base + tax + carr + misc));
+                                                }} 
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Live Landed Cost Summary Badge */}
+                                    {(mandiPrice || mandiTax || carriage || miscExpense) && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(38,194,129,0.08)', border: '1px solid rgba(38,194,129,0.2)', borderRadius: '6px', padding: '0.4rem 0.6rem', fontSize: '0.75rem', marginTop: '0.5rem' }}>
+                                            <div>
+                                                <span style={{ color: 'var(--text-muted)' }}>Total Landed: </span>
+                                                <strong style={{ color: 'var(--primary-green-light)' }}>
+                                                    PKR {((parseFloat(mandiPrice||0) + parseFloat(mandiTax||0) + parseFloat(carriage||0) + parseFloat(miscExpense||0))).toLocaleString()}
+                                                </strong>
+                                                {entryWeight && parseFloat(entryWeight) > 0 && (
+                                                    <span style={{ marginLeft: '0.5rem', color: 'var(--accent-gold)' }}>
+                                                        ({Math.round(((parseFloat(mandiPrice||0) + parseFloat(mandiTax||0) + parseFloat(carriage||0) + parseFloat(miscExpense||0))) / parseFloat(entryWeight)).toLocaleString()} PKR/kg)
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {mandiPrice && mandiWeight && parseFloat(mandiWeight) > 0 && (
+                                                <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
+                                                    Mandi Rate: {Math.round(parseFloat(mandiPrice) / parseFloat(mandiWeight)).toLocaleString()} PKR/kg
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 

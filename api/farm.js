@@ -332,6 +332,9 @@ async function ensureColumns(client) {
     await client.query(`ALTER TABLE ba_treatments ADD COLUMN IF NOT EXISTS created_by VARCHAR(150)`);
     await client.query(`ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS mandi_price NUMERIC`);
     await client.query(`ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS mandi_weight NUMERIC`);
+    await client.query(`ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS mandi_tax NUMERIC`);
+    await client.query(`ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS carriage NUMERIC`);
+    await client.query(`ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS misc_expense NUMERIC`);
 
     // Approval queue for sensitive herd changes made by non-super-admin staff: edits to
     // an animal's purchase price / entry (gross) weight, and any animal deletion, are
@@ -1535,7 +1538,10 @@ module.exports = async (req, res) => {
                 images: row.images ? JSON.parse(row.images) : null,
                 previousTags: row.previous_tags ? (typeof row.previous_tags === 'string' ? (row.previous_tags.startsWith('[') ? JSON.parse(row.previous_tags) : [row.previous_tags]) : row.previous_tags) : [],
                 mandiPrice: row.mandi_price ? parseFloat(row.mandi_price) : null,
-                mandiWeight: row.mandi_weight ? parseFloat(row.mandi_weight) : null
+                mandiWeight: row.mandi_weight ? parseFloat(row.mandi_weight) : null,
+                mandiTax: row.mandi_tax ? parseFloat(row.mandi_tax) : null,
+                carriage: row.carriage ? parseFloat(row.carriage) : null,
+                miscExpense: row.misc_expense ? parseFloat(row.misc_expense) : null
             }));
 
             const weightLogs = weightsRes.rows.map(row => ({
@@ -1872,17 +1878,20 @@ module.exports = async (req, res) => {
             }
 
             if (action === 'ADD_ANIMAL') {
-                const { rfid, breed, entryDate, entryWeight, targetWeight, purchasePrice, source, status, pen, price, desc, images, mandiPrice, mandiWeight } = payload;
+                const { rfid, breed, entryDate, entryWeight, targetWeight, purchasePrice, source, status, pen, price, desc, images, mandiPrice, mandiWeight, mandiTax, carriage, miscExpense } = payload;
 
                 const animalRes = await client.query(`
-                    INSERT INTO ba_animals (rfid, breed, entry_date, entry_weight, current_weight, target_weight, purchase_price, source, status, pen, price, description, images, mandi_price, mandi_weight)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                    INSERT INTO ba_animals (rfid, breed, entry_date, entry_weight, current_weight, target_weight, purchase_price, source, status, pen, price, description, images, mandi_price, mandi_weight, mandi_tax, carriage, misc_expense)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
                     RETURNING *
                 `, [
                     rfid, breed, entryDate, entryWeight, entryWeight, targetWeight, purchasePrice, source, status, pen || null,
                     price || null, desc || null, images ? JSON.stringify(images) : null,
                     mandiPrice ? parseFloat(mandiPrice) : null,
-                    mandiWeight ? parseFloat(mandiWeight) : null
+                    mandiWeight ? parseFloat(mandiWeight) : null,
+                    mandiTax ? parseFloat(mandiTax) : null,
+                    carriage ? parseFloat(carriage) : null,
+                    miscExpense ? parseFloat(miscExpense) : null
                 ]);
 
                 const animal = animalRes.rows[0];
@@ -2027,6 +2036,9 @@ module.exports = async (req, res) => {
                 const finalImages = images !== undefined ? images : current.images;
                 const finalMandiPrice = mandiPrice !== undefined ? (mandiPrice ? parseFloat(mandiPrice) : null) : (current.mandi_price ? parseFloat(current.mandi_price) : null);
                 const finalMandiWeight = mandiWeight !== undefined ? (mandiWeight ? parseFloat(mandiWeight) : null) : (current.mandi_weight ? parseFloat(current.mandi_weight) : null);
+                const finalMandiTax = mandiTax !== undefined ? (mandiTax ? parseFloat(mandiTax) : null) : (current.mandi_tax ? parseFloat(current.mandi_tax) : null);
+                const finalCarriage = carriage !== undefined ? (carriage ? parseFloat(carriage) : null) : (current.carriage ? parseFloat(current.carriage) : null);
+                const finalMiscExpense = miscExpense !== undefined ? (miscExpense ? parseFloat(miscExpense) : null) : (current.misc_expense ? parseFloat(current.misc_expense) : null);
 
                 const entryWeightChanged = finalEntryWeight !== parseFloat(current.entry_weight);
                 const purchasePriceChanged = finalPurchasePrice !== parseFloat(current.purchase_price);
@@ -2079,9 +2091,9 @@ module.exports = async (req, res) => {
 
                     await client.query(`
                         UPDATE ba_animals
-                        SET rfid = $1, breed = $2, entry_date = $3, target_weight = $4, source = $5, status = $6, pen = $7, price = $8, description = $9, images = $10, previous_tags = $11, mandi_price = $12, mandi_weight = $13
-                        WHERE id = $14
-                    `, [finalRfid, finalBreed, finalEntryDate, finalTargetWeight, finalSource, finalStatus, finalPen, finalPrice, finalDesc, finalImages ? JSON.stringify(finalImages) : null, finalPreviousTags, finalMandiPrice, finalMandiWeight, id]);
+                        SET rfid = $1, breed = $2, entry_date = $3, target_weight = $4, source = $5, status = $6, pen = $7, price = $8, description = $9, images = $10, previous_tags = $11, mandi_price = $12, mandi_weight = $13, mandi_tax = $14, carriage = $15, misc_expense = $16
+                        WHERE id = $17
+                    `, [finalRfid, finalBreed, finalEntryDate, finalTargetWeight, finalSource, finalStatus, finalPen, finalPrice, finalDesc, finalImages ? JSON.stringify(finalImages) : null, finalPreviousTags, finalMandiPrice, finalMandiWeight, finalMandiTax, finalCarriage, finalMiscExpense, id]);
 
                     if (penChanged) {
                         await refreshPenCache(client, oldPen);
@@ -2104,11 +2116,12 @@ module.exports = async (req, res) => {
 
                 await client.query(`
                     UPDATE ba_animals
-                    SET rfid = $1, breed = $2, entry_date = $3, entry_weight = $4, target_weight = $5, purchase_price = $6, source = $7, status = $8, pen = $9, price = $10, description = $11, images = $12, previous_tags = $13, mandi_price = $14, mandi_weight = $15
-                    WHERE id = $16
+                    SET rfid = $1, breed = $2, entry_date = $3, entry_weight = $4, target_weight = $5, purchase_price = $6, source = $7, status = $8, pen = $9, price = $10, description = $11, images = $12, previous_tags = $13, mandi_price = $14, mandi_weight = $15, mandi_tax = $16, carriage = $17, misc_expense = $18
+                    WHERE id = $19
                 `, [
                     finalRfid, finalBreed, finalEntryDate, finalEntryWeight, finalTargetWeight, finalPurchasePrice, finalSource, finalStatus, finalPen,
                     finalPrice, finalDesc, finalImages ? JSON.stringify(finalImages) : null, finalPreviousTags, finalMandiPrice, finalMandiWeight,
+                    finalMandiTax, finalCarriage, finalMiscExpense,
                     id
                 ]);
 
