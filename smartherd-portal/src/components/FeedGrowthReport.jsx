@@ -62,7 +62,7 @@ export default function FeedGrowthReport() {
         return feedStockIssues.filter(i => {
             if (i.pen === 'PRODUCTION') return false; // Premix manufacturing batches are converted to Wanda
             const item = feedStockItems.find(it => it.id === i.itemId);
-            if ((item?.category || 'feed') !== 'feed') return false;
+            if (!item || item.category !== 'feed') return false;
             return inRange(i.date);
         });
     }, [feedStockIssues, feedStockItems, dateFrom, dateTo]);
