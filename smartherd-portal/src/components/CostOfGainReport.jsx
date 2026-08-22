@@ -125,22 +125,13 @@ export default function CostOfGainReport() {
         }),
         [feedStockIssues, feedStockItems, dateFrom, dateTo]);
 
-    const buildHeadDaysMap = (logs, issues) => {
+    const buildHeadDaysMap = (logs) => {
         const map = new Map();
         logs.forEach(f => {
             const key = `${f.date}__${f.pen}`;
             const scale = (f.feedingPct ?? 100) / 100;
             const animalDays = (f.animalCount || 0) * scale;
             map.set(key, (map.get(key) || 0) + animalDays);
-        });
-        issues.forEach(iss => {
-            const key = `${iss.date}__${iss.pen}`;
-            if (!map.has(key)) {
-                const headCount = iss.pen === 'ALL'
-                    ? animalsPresentOn(iss.date)
-                    : animalsPresentOn(iss.date, iss.pen);
-                map.set(key, headCount);
-            }
         });
         return map;
     };
@@ -155,7 +146,7 @@ export default function CostOfGainReport() {
             const logs = filteredFeedLogs.filter(f => f.pen === pen);
             const issues = feedIssuesInRange.filter(i => i.pen === pen);
             const cost = logs.reduce((s, f) => s + (f.totalCost || 0), 0) + issues.reduce((s, i) => s + costOfIssue(i), 0);
-            const headDays = sumHeadDays(buildHeadDaysMap(logs, issues));
+            const headDays = sumHeadDays(buildHeadDaysMap(logs));
             rates[pen] = headDays > 0 ? cost / headDays : 0;
         });
         return rates;

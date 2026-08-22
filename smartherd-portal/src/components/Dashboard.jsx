@@ -55,30 +55,8 @@ export default function Dashboard({ onNavigate }) {
         return sum + (f.animalCount || 0) * scale;
     }, 0);
 
-    const loggedDatePenSet = new Set(validFeedLogs.map(f => `${f.date}__${f.pen}`));
-
-    const manualAnimalDaysMap = new Map();
-    manualFeedIssues.forEach(iss => {
-        const key = `${iss.date}__${iss.pen}`;
-        if (!loggedDatePenSet.has(key) && !manualAnimalDaysMap.has(key)) {
-            let headCount = 0;
-            if (iss.pen === 'ALL') {
-                headCount = (pens || []).reduce((sum, p) => sum + (getPenRosterAsOf ? getPenRosterAsOf(p.id, parseDateOnly(iss.date)).length : 0), 0);
-            } else if (getPenRosterAsOf) {
-                headCount = getPenRosterAsOf(iss.pen, parseDateOnly(iss.date)).length;
-            }
-            if (headCount > 0) {
-                manualAnimalDaysMap.set(key, headCount);
-            }
-        }
-    });
-
-    const manualAnimalDays = Array.from(manualAnimalDaysMap.values()).reduce((sum, c) => sum + c, 0);
-
-    const totalLoggedAnimalDays = tmrAnimalDays + manualAnimalDays;
-
-    const dailyCostPerAnimal = totalLoggedAnimalDays > 0
-        ? totalLoggedFeedCost / totalLoggedAnimalDays
+    const dailyCostPerAnimal = tmrAnimalDays > 0
+        ? totalLoggedFeedCost / tmrAnimalDays
         : null;
 
     // B. Herd Average ADG — overall average across all valid weight logs across time,

@@ -193,7 +193,7 @@ export default function FeedGrowthReport() {
     // animals were later sold, moved to another pen, or had their pen's config row deleted.
     // (Collapsed to one entry per date+pen so a split-fed day's Morning/Evening rows, or a
     // feed log plus a same-day manual issue for the same pen, don't double-count headcount.)
-    const buildHeadDaysMap = (logs, issues) => {
+    const buildHeadDaysMap = (logs) => {
         const map = new Map();
         logs.forEach(f => {
             const key = `${f.date}__${f.pen}`;
@@ -201,22 +201,11 @@ export default function FeedGrowthReport() {
             const animalDays = (f.animalCount || 0) * scale;
             map.set(key, (map.get(key) || 0) + animalDays);
         });
-        issues.forEach(iss => {
-            const key = `${iss.date}__${iss.pen}`;
-            if (!map.has(key)) {
-                const headCount = iss.pen === 'ALL'
-                    ? activePens.reduce((sum, p) => sum + getPenRosterAsOf(p, parseDateOnly(iss.date)).length, 0)
-                    : getPenRosterAsOf(iss.pen, parseDateOnly(iss.date)).length;
-                map.set(key, headCount);
-            }
-        });
         return map;
     };
     const sumHeadDays = (map) => Array.from(map.values()).reduce((sum, c) => sum + c, 0);
 
-    const headDaysMap = useMemo(() => buildHeadDaysMap(filteredFeedLogs, manualFeedIssues),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [filteredFeedLogs, manualFeedIssues, activePens, getPenRosterAsOf]);
+    const headDaysMap = useMemo(() => buildHeadDaysMap(filteredFeedLogs), [filteredFeedLogs]);
     const headDays = sumHeadDays(headDaysMap);
     const avgHeadPerDay = daysLogged > 0 ? headDays / daysLogged : null;
     const costPerAnimalPerDay = headDays > 0 ? totalFeedCost / headDays : null;
