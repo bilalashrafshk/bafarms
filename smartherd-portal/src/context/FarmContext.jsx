@@ -156,10 +156,19 @@ const defaultBaselineRationPlan = {
 
 export const FarmProvider = ({ children }) => {
     // Auth States
-    const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('ba_staff_logged_in') === 'true');
+    const enrichUser = (u) => {
+        if (!u) return null;
+        const email = (u.email || '').toLowerCase().trim();
+        const isCorpAdmin = u.role === 'Internal Corporate Staff' || email === 'bilalashrafshk@gmail.com' || email === 'bilalashraf248@gmail.com' || email.endsWith('@bafoods.pk');
+        const isAdmin = u.isAdmin !== undefined ? Boolean(u.isAdmin) : isCorpAdmin;
+        const accessSales = u.accessSales !== undefined ? Boolean(u.accessSales) : (isAdmin || true);
+        const accessHerd = u.accessHerd !== undefined ? Boolean(u.accessHerd) : (isAdmin || true);
+        return { ...u, isAdmin, accessSales, accessHerd };
+    };
+
     const [staffUser, setStaffUser] = useState(() => {
         const stored = localStorage.getItem('ba_staff_user');
-        return stored ? JSON.parse(stored) : null;
+        return stored ? enrichUser(JSON.parse(stored)) : null;
     });
     // Bumped only on an actual login/reauth (see handleLoginSuccess) — deliberately
     // NOT tied to staffUser.token, which also changes on every silent background
@@ -182,15 +191,11 @@ export const FarmProvider = ({ children }) => {
     const [allApprovals, setAllApprovals] = useState(() => loadStoredData('ba_all_approvals', []));
 
     const handleLoginSuccess = (userSession) => {
+        const enriched = enrichUser(userSession);
         localStorage.setItem('ba_staff_logged_in', 'true');
-        localStorage.setItem('ba_staff_user', JSON.stringify(userSession));
+        localStorage.setItem('ba_staff_user', JSON.stringify(enriched));
         setIsLoggedIn(true);
-        setStaffUser(userSession);
-        // A fresh token means any mutations stuck on a 401 can now go through. Bumping
-        // sessionEpoch triggers the bootstrap effect below, which flushes the queue
-        // before it re-fetches from the server — don't also kick off a flush here, or
-        // the two runs race and the GET can win, overwriting a just-queued edit (e.g. a
-        // pen ration assignment) with stale pre-edit server data.
+        setStaffUser(enriched);
         setSessionExpired(false);
         setSessionEpoch(e => e + 1);
     };

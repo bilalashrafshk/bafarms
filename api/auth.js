@@ -44,40 +44,52 @@ const { Client } = require('pg');
 // client-side logic that used to live in Login.jsx. Checks domain, env vars, and ba_staff_permissions DB table.
 const verifyAndAuthorizeEmail = async (email) => {
     const cleaned = email.toLowerCase().trim();
+    const adminEmails = getEmailList(process.env.ADMIN_EMAILS || process.env.VITE_ADMIN_EMAILS, ['bilalashrafshk@gmail.com', 'bilalashraf248@gmail.com']);
+    const isHardcodedAdmin = adminEmails.includes(cleaned) || cleaned.endsWith('@bafoods.pk');
 
-    if (cleaned.endsWith('@bafoods.pk')) {
-        return { authorized: true, role: 'Internal Corporate Staff' };
-    }
-
-    const adminEmails = getEmailList(process.env.ADMIN_EMAILS || process.env.VITE_ADMIN_EMAILS, ['bilalashrafshk@gmail.com']);
-    if (adminEmails.includes(cleaned)) {
-        return { authorized: true, role: 'Internal Corporate Staff' };
-    }
-
-    const allowedEmails = getEmailList(process.env.ALLOWED_EMAILS || process.env.VITE_ALLOWED_EMAILS, []);
-    if (allowedEmails.includes(cleaned)) {
-        return { authorized: true, role: 'External Guest/Evaluator' };
-    }
-
-    // DB fallback check: allow login if email is pre-authorized or granted access in ba_staff_permissions table
     const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.bafarms_DATABASE_URL || process.env.bafarms_DATABASE_URL_UNPOOLED;
     if (connectionString) {
         const client = new Client({ connectionString, ssl: { rejectUnauthorized: false } });
         try {
             await client.connect();
-            const dbRes = await client.query('SELECT is_admin FROM ba_staff_permissions WHERE LOWER(email) = $1', [cleaned]);
+            const dbRes = await client.query('SELECT is_admin, access_sales, access_herd FROM ba_staff_permissions WHERE LOWER(email) = $1', [cleaned]);
             await client.end();
             if (dbRes.rows.length > 0) {
-                const isAdmin = !!dbRes.rows[0].is_admin;
+                const row = dbRes.rows[0];
+                const isAdmin = Boolean(row.is_admin || isHardcodedAdmin);
                 return {
                     authorized: true,
-                    role: isAdmin ? 'Internal Corporate Staff' : 'External Guest/Evaluator'
+                    role: isAdmin ? 'Internal Corporate Staff' : 'Staff',
+                    isAdmin,
+                    accessSales: Boolean(row.access_sales || isAdmin),
+                    accessHerd: Boolean(row.access_herd || isAdmin)
                 };
             }
         } catch (e) {
             console.error('Error checking ba_staff_permissions in auth API:', e);
             try { await client.end(); } catch (_) {}
         }
+    }
+
+    if (isHardcodedAdmin) {
+        return {
+            authorized: true,
+            role: 'Internal Corporate Staff',
+            isAdmin: true,
+            accessSales: true,
+            accessHerd: true
+        };
+    }
+
+    const allowedEmails = getEmailList(process.env.ALLOWED_EMAILS || process.env.VITE_ALLOWED_EMAILS, []);
+    if (allowedEmails.includes(cleaned)) {
+        return {
+            authorized: true,
+            role: 'External Guest/Evaluator',
+            isAdmin: false,
+            accessSales: true,
+            accessHerd: false
+        };
     }
 
     return { authorized: false };
@@ -137,6 +149,9 @@ module.exports = async (req, res) => {
                 email: decoded.email,
                 picture: decoded.picture,
                 role: authResult.role,
+                isAdmin: Boolean(authResult.isAdmin),
+                accessSales: Boolean(authResult.accessSales),
+                accessHerd: Boolean(authResult.accessHerd),
                 provider: decoded.provider || 'Google'
             };
             const newToken = jwt.sign(user, SESSION_SECRET, { expiresIn: SESSION_TTL });
@@ -177,6 +192,9 @@ module.exports = async (req, res) => {
             email: payload.email,
             picture: payload.picture,
             role: authResult.role,
+            isAdmin: Boolean(authResult.isAdmin),
+            accessSales: Boolean(authResult.accessSales),
+            accessHerd: Boolean(authResult.accessHerd),
             provider: 'Google'
         };
 

@@ -31,9 +31,9 @@ function AppContent() {
         pendingApprovals, approvePendingChange, rejectPendingChange, feedStockItems
     } = useContext(FarmContext);
 
-    const isSuperAdmin = staffUser?.isAdmin === true;
-    const canAccessSales = staffUser?.accessSales === true || isSuperAdmin;
-    const canAccessHerd = staffUser?.accessHerd === true || isSuperAdmin;
+    const isSuperAdmin = staffUser?.isAdmin === true || staffUser?.role === 'Internal Corporate Staff' || staffUser?.email === 'bilalashrafshk@gmail.com' || staffUser?.email === 'bilalashraf248@gmail.com';
+    const canAccessSales = staffUser?.accessSales === true || isSuperAdmin || staffUser?.role === 'Internal Corporate Staff';
+    const canAccessHerd = staffUser?.accessHerd === true || isSuperAdmin || staffUser?.role === 'Internal Corporate Staff';
     const isPermissionsAdmin = isSuperAdmin;
 
     useEffect(() => {
