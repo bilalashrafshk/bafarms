@@ -2,6 +2,7 @@ import React, { useContext } from 'react';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 import { todayAsDate, parseDateOnly, daysBetween } from '../utils/dateOnly';
+import { getLaggerIds } from '../utils/laggers';
 
 export default function Dashboard({ onNavigate }) {
     const {
@@ -112,20 +113,36 @@ export default function Dashboard({ onNavigate }) {
     const activeHerdCount = animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased').length || animals.length || 1;
     const medCostPerHead = activeHerdCount > 0 ? (totalMedCost / activeHerdCount) : 0;
 
-    // C. Trigger Alerts for Underperforming Calves (ADG < 1.0 kg/day)
+    // D2. Sick / Under Treatment — animals currently in the Sick pen, plus anyone else
+    // still mid-withholding from a recent treatment (e.g. a routine vaccination that
+    // never moved them to the Sick pen) but not yet cleared. Deduped since a Sick
+    // animal is very often also mid-withholding.
+    const sickStatsToday = todayAsDate();
+    const sickCount = animals.filter(a => a.status === 'Sick').length;
+    const sickOrTreatedIds = new Set();
+    animals.forEach(a => {
+        if (a.status === 'Sold' || a.status === 'Deceased') return;
+        if (a.status === 'Sick') { sickOrTreatedIds.add(a.id); return; }
+        const underWithholding = treatments.some(t => t.animalId === a.id && daysBetween(sickStatsToday, t.date) < t.withholding);
+        if (underWithholding) sickOrTreatedIds.add(a.id);
+    });
+    const underTreatmentCount = sickOrTreatedIds.size - sickCount;
+
+    // C. Trigger Alerts for Underperforming Calves (ADG < adgAlertThreshold) — "laggers".
+    // Membership comes from the shared utils/laggers.js definition so Dashboard, Herd
+    // Ledger, Weight Tracker, and Rotation Planner all flag exactly the same animals.
+    const laggerIds = getLaggerIds(animals, weightLogs, systemParams);
     const alertCalves = [];
     animals.forEach(animal => {
+        if (!laggerIds.has(animal.id)) return;
         const animalLogs = (weightLogs || [])
             .filter(w => w.animalId === animal.id && !isCorruptedWeighDate(w.date))
             .sort((a, b) => daysBetween(b.date, a.date));
-        // adg !== 0 — a calf actively losing weight (negative ADG) is underperforming
-        if (animalLogs.length > 0 && animalLogs[0].adg !== 0 && animalLogs[0].adg < (systemParams.adgAlertThreshold ?? 1.0)) {
-            alertCalves.push({
-                rfid: animal.rfid,
-                adg: animalLogs[0].adg,
-                breed: animal.breed
-            });
-        }
+        alertCalves.push({
+            rfid: animal.rfid,
+            adg: animalLogs[0].adg,
+            breed: animal.breed
+        });
     });
 
     // All "today"/day-count math is anchored to PKT (see utils/dateOnly.js) — the
@@ -467,6 +484,38 @@ export default function Dashboard({ onNavigate }) {
                     </div>
                     <span class="stat-lbl" style={{ color: 'var(--text-muted)' }}>
                         <i class="fa-solid fa-pills"></i> Total: PKR {Math.round(totalMedCost).toLocaleString()} · {treatments.length} treatments
+                    </span>
+                </div>
+
+                {/* Sick / Under Treatment */}
+                <div class="glass-panel stat-box" style={{ cursor: 'pointer' }} onClick={() => onNavigate && onNavigate('rotation')} title="Click to view Sick Pen">
+                    <div class="stat-header">
+                        <h3>Sick</h3>
+                        <div class="stat-icon" style={{ background: 'rgba(220,53,69,0.1)', borderColor: 'rgba(220,53,69,0.25)', color: 'hsl(0,75%,60%)' }}>
+                            <i class="fa-solid fa-stethoscope"></i>
+                        </div>
+                    </div>
+                    <div class="stat-val" style={sickOrTreatedIds.size > 0 ? { color: 'hsl(0,75%,60%)' } : undefined}>
+                        {sickOrTreatedIds.size} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>Calves</small>
+                    </div>
+                    <span class="stat-lbl" style={{ color: 'var(--text-muted)' }}>
+                        <i class="fa-solid fa-bed-pulse"></i> {sickCount} in Sick Pen · {underTreatmentCount} under treatment
+                    </span>
+                </div>
+
+                {/* Special Attention / Laggers */}
+                <div class="glass-panel stat-box" style={{ cursor: 'pointer' }} onClick={() => onNavigate && onNavigate('weights')} title="Click to view Weight Tracker">
+                    <div class="stat-header">
+                        <h3>Special Attention</h3>
+                        <div class="stat-icon" style={{ background: 'rgba(255,193,7,0.1)', borderColor: 'rgba(255,193,7,0.25)', color: 'hsl(45,90%,55%)' }}>
+                            <i class="fa-solid fa-triangle-exclamation"></i>
+                        </div>
+                    </div>
+                    <div class="stat-val" style={laggerIds.size > 0 ? { color: 'hsl(45,90%,50%)' } : undefined}>
+                        {laggerIds.size} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>Laggers</small>
+                    </div>
+                    <span class="stat-lbl" style={{ color: 'var(--text-muted)' }}>
+                        <i class="fa-solid fa-arrow-trend-down"></i> ADG below {(Number(systemParams.adgAlertThreshold ?? 1.0) || 0).toFixed(1)} kg/day target
                     </span>
                 </div>
 

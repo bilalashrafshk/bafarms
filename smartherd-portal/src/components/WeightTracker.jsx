@@ -5,9 +5,14 @@ import autoTable from 'jspdf-autotable';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 import { todayPKT, daysBetween } from '../utils/dateOnly';
+import { getLaggerIds } from '../utils/laggers';
 
 export default function WeightTracker() {
     const { animals, weightLogs, logWeight, deleteWeightLog, updateWeightLog, systemParams } = useContext(FarmContext);
+
+    // Animals flagged as "laggers" (ADG below the herd alert threshold) — same shared
+    // definition Dashboard/Herd Ledger/Rotation Planner use, surfaced on the report table.
+    const laggerIds = React.useMemo(() => getLaggerIds(animals, weightLogs, systemParams), [animals, weightLogs, systemParams]);
 
     // Edit weight log modal state
     const [editingLog, setEditingLog] = useState(null);
@@ -202,7 +207,11 @@ export default function WeightTracker() {
             }
 
             return { animal, beforeLog, afterLog, days, totalGain, periodAdg, tier, tierLabel, latestDiff: logs[logs.length - 1].adg };
-        }).filter(Boolean).sort((a, b) => a.animal.rfid.localeCompare(b.animal.rfid, undefined, { numeric: true }));
+        // Ranked report, not a static ledger — sort by weight-gain performance (highest
+        // ADG first) so the best/worst performers surface immediately, the standard
+        // convention for feedlot performance reports (rank by the metric being measured,
+        // not by an arbitrary identifier like tag number).
+        }).filter(Boolean).sort((a, b) => b.periodAdg - a.periodAdg);
     })();
 
     const reportTotals = weightReportRows.reduce((acc, r) => ({
@@ -899,6 +908,14 @@ export default function WeightTracker() {
                                                 {r.animal.previousTags && r.animal.previousTags.length > 0 && (
                                                     <span style={{ fontSize: '0.65rem', padding: '1px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', color: 'var(--text-muted)', border: '1px solid rgba(255,255,255,0.12)' }}>
                                                         prev: {r.animal.previousTags.join(', ')}
+                                                    </span>
+                                                )}
+                                                {laggerIds.has(r.animal.id) && (
+                                                    <span
+                                                        style={{ fontSize: '0.65rem', padding: '1px 4px', borderRadius: '3px', background: 'rgba(255,193,7,0.12)', color: 'hsl(45,90%,55%)', fontWeight: '600', border: '1px solid rgba(255,193,7,0.3)' }}
+                                                        title="Special Attention: ADG below herd alert threshold"
+                                                    >
+                                                        <i class="fa-solid fa-triangle-exclamation"></i> Lagger
                                                     </span>
                                                 )}
                                             </div>

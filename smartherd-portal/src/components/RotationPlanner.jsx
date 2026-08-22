@@ -3,12 +3,17 @@ import { createPortal } from 'react-dom';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 import { todayPKT, parseDateOnly, daysBetween } from '../utils/dateOnly';
+import { getLaggerIds } from '../utils/laggers';
 
 export default function RotationPlanner() {
     const {
         animals, treatments, transitionAnimalStatus, updateAnimal, recordSale, addTreatment, deleteTreatment, quarantineProtocols, systemParams, pens,
-        feedStockItems, addStockTrackedIngredient, addFeedPurchase, addFeedStockIssue, getFeedStockLedger
+        feedStockItems, addStockTrackedIngredient, addFeedPurchase, addFeedStockIssue, getFeedStockLedger, weightLogs
     } = useContext(FarmContext);
+
+    // Animals flagged as "laggers" (ADG below the herd alert threshold) — same shared
+    // definition Dashboard/Herd Ledger/Weight Tracker use, surfaced on the Fattening tab.
+    const laggerIds = React.useMemo(() => getLaggerIds(animals, weightLogs, systemParams), [animals, weightLogs, systemParams]);
 
     // Medicine stock for the bulk task modal below — same category-agnostic FIFO stock
     // system feed/MedicalLog already use (feedStockItems/feedPurchases/feedStockIssues).
@@ -39,6 +44,7 @@ export default function RotationPlanner() {
     const [bulkNewMedRate, setBulkNewMedRate] = useState('');
     const [bulkCustomType, setBulkCustomType] = useState('Treatment');
     const [bulkCustomWithholding, setBulkCustomWithholding] = useState('0');
+    const [bulkRemarks, setBulkRemarks] = useState('');
     const [bulkTaskDate, setBulkTaskDate] = useState(todayPKT());
     const [bulkTaskSubmitting, setBulkTaskSubmitting] = useState(false);
 
@@ -120,6 +126,16 @@ export default function RotationPlanner() {
         return max;
     };
 
+    // Most recent treatment note for an animal, so the Sick Pen table can show *why*
+    // an animal is sick (e.g. "Coughing") without needing to jump to Medical Log.
+    // Falls back to the treatment's category (type) if no free-text reason was entered.
+    const latestReason = (animalId) => {
+        const own = treatments.filter(t => t.animalId === animalId);
+        if (own.length === 0) return null;
+        const latest = own.reduce((a, b) => parseDateOnly(b.date) > parseDateOnly(a.date) ? b : a);
+        return latest.notes || latest.type || null;
+    };
+
     const isTaskDone = (animal, task) =>
         treatments.some(t => t.animalId === animal.id && String(t.protocolTaskId) === String(task.id));
 
@@ -134,6 +150,7 @@ export default function RotationPlanner() {
         setBulkNewMedName('');
         setBulkNewMedUnit('unit');
         setBulkNewMedRate('');
+        setBulkRemarks('');
         setBulkTaskModalOpen(true);
     };
 
@@ -181,6 +198,7 @@ export default function RotationPlanner() {
         setBulkNewMedRate('');
         setBulkCustomType('Treatment');
         setBulkCustomWithholding('0');
+        setBulkRemarks('');
         setBulkTaskModalOpen(true);
     };
 
@@ -265,11 +283,12 @@ export default function RotationPlanner() {
                 quantity: qtyPerAnimal,
                 notes: `"${taskLabel}" stock draw — ${animal.rfid}`
             });
-            await addTreatment(animal.id, logDate, taskType, actualMedicine, actualDosage, withholding, taskId, stockIssueId);
+            await addTreatment(animal.id, logDate, taskType, actualMedicine, actualDosage, withholding, taskId, stockIssueId, bulkRemarks.trim());
         }
         setBulkTaskSubmitting(false);
         setBulkTaskModalOpen(false);
         setBulkTaskId('');
+        setBulkRemarks('');
     };
 
     // Classify animals
@@ -513,7 +532,27 @@ export default function RotationPlanner() {
                                         <td style={{ ...cellStyle, textAlign: 'center' }}>
                                             <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => toggleSelect(c.id)} />
                                         </td>
-                                        <td style={{ ...cellStyle, fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)' }}>{c.rfid}</td>
+                                        <td style={{ ...cellStyle, fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                                <span>{c.rfid}</span>
+                                                {laggerIds.has(c.id) && (
+                                                    <span
+                                                        style={{
+                                                            fontSize: '0.68rem',
+                                                            padding: '1px 5px',
+                                                            borderRadius: '4px',
+                                                            background: 'rgba(255,193,7,0.12)',
+                                                            color: 'hsl(45,90%,55%)',
+                                                            fontWeight: '600',
+                                                            border: '1px solid rgba(255,193,7,0.3)'
+                                                        }}
+                                                        title="Special Attention: ADG below herd alert threshold"
+                                                    >
+                                                        <i class="fa-solid fa-triangle-exclamation"></i> Lagger
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </td>
                                         <td style={cellStyle}>{c.breed}</td>
                                         <td style={cellStyle}>{c.pen ? <span style={{ color: 'var(--accent-gold)', fontWeight: '600' }}>{c.pen}</span> : <span style={{ opacity: 0.3 }}>—</span>}</td>
                                         <td style={cellStyle}>{c.dof}d</td>
@@ -556,6 +595,7 @@ export default function RotationPlanner() {
                                     <th style={headStyle}>Pen</th>
                                     <th style={headStyle}>DOF</th>
                                     <th style={headStyle}>Weight</th>
+                                    <th style={headStyle}>Reason</th>
                                     <th style={headStyle}>Med Lock</th>
                                     <th style={{ ...headStyle, textAlign: 'center' }}>Action</th>
                                 </tr>
@@ -572,6 +612,7 @@ export default function RotationPlanner() {
                                         <td style={cellStyle}>{c.pen ? <span style={{ color: 'var(--accent-gold)', fontWeight: '600' }}>{c.pen}</span> : <span style={{ opacity: 0.3 }}>—</span>}</td>
                                         <td style={cellStyle}>{c.dof}d</td>
                                         <td style={{ ...cellStyle, fontWeight: '700', color: 'var(--text-pure)' }}>{c.currentWeight} kg</td>
+                                        <td style={{ ...cellStyle, color: latestReason(c.id) ? 'var(--text-main)' : 'var(--text-muted)' }}>{latestReason(c.id) || '—'}</td>
                                         <td style={cellStyle}>
                                             {c.withholdingDays > 0
                                                 ? <span style={{ color: 'hsl(0,75%,55%)', fontWeight: '700', fontSize: '0.78rem' }}><i class="fa-solid fa-ban" style={{ marginRight: '0.3rem' }}></i>{c.withholdingDays}d</span>
@@ -585,7 +626,7 @@ export default function RotationPlanner() {
                                         </td>
                                     </tr>
                                 ))}
-                                {fS.length === 0 && <tr><td colSpan={9} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-circle-check" style={{ color: 'var(--primary-green-light)', marginRight: '0.5rem' }}></i>Sick pen is clear.</td></tr>}
+                                {fS.length === 0 && <tr><td colSpan={10} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}><i class="fa-solid fa-circle-check" style={{ color: 'var(--primary-green-light)', marginRight: '0.5rem' }}></i>Sick pen is clear.</td></tr>}
                             </tbody>
                         </table>
                     </div>
@@ -745,6 +786,10 @@ export default function RotationPlanner() {
                         <div class="form-group" style={{ marginBottom: '0.75rem' }}>
                             <label style={{ fontSize: '0.82rem', color: 'var(--text-pure)', fontWeight: '600' }}>Date Logged *</label>
                             <input type="date" class="form-control" value={bulkTaskDate} onChange={e => setBulkTaskDate(e.target.value)} />
+                        </div>
+                        <div class="form-group" style={{ marginBottom: '0.75rem' }}>
+                            <label style={{ fontSize: '0.82rem', color: 'var(--text-pure)', fontWeight: '600' }}>Reason / Remarks</label>
+                            <input type="text" class="form-control" placeholder="e.g. Coughing, routine protocol dose" value={bulkRemarks} onChange={e => setBulkRemarks(e.target.value)} />
                         </div>
                         {bulkTaskId === 'other' && (
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>

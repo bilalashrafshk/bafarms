@@ -330,6 +330,10 @@ async function ensureColumns(client) {
     await client.query(`ALTER TABLE ba_events ADD COLUMN IF NOT EXISTS to_pen VARCHAR(50)`);
     await client.query(`ALTER TABLE ba_weights ADD COLUMN IF NOT EXISTS created_by VARCHAR(150)`);
     await client.query(`ALTER TABLE ba_treatments ADD COLUMN IF NOT EXISTS created_by VARCHAR(150)`);
+    // Free-text reason/diagnosis/remarks for the treatment (e.g. "Coughing", "Off-feed",
+    // "Leg injury") — previously there was nowhere to record *why* an animal was treated,
+    // only what medicine/dosage was given. Nullable/additive, existing rows unaffected.
+    await client.query(`ALTER TABLE ba_treatments ADD COLUMN IF NOT EXISTS notes TEXT`);
     await client.query(`ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS mandi_price NUMERIC`);
     await client.query(`ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS mandi_weight NUMERIC`);
     await client.query(`ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS mandi_tax NUMERIC`);
@@ -1563,7 +1567,8 @@ module.exports = async (req, res) => {
                 withholding: parseInt(row.withholding || 0),
                 protocolTaskId: row.protocol_task_id || null,
                 stockIssueId: row.stock_issue_id || null,
-                createdBy: row.created_by || null
+                createdBy: row.created_by || null,
+                notes: row.notes || ''
             }));
 
             const events = eventsRes.rows.map(row => ({
@@ -1941,12 +1946,12 @@ module.exports = async (req, res) => {
             }
 
             if (action === 'LOG_TREATMENT') {
-                const { animalId, date, type, medicine, dosage, withholding, protocolTaskId, stockIssueId } = payload;
+                const { animalId, date, type, medicine, dosage, withholding, protocolTaskId, stockIssueId, notes } = payload;
 
                 await client.query(`
-                    INSERT INTO ba_treatments (animal_id, date, type, medicine, dosage, withholding, protocol_task_id, stock_issue_id, created_by)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                `, [animalId, date, type, medicine, dosage, withholding, protocolTaskId || null, stockIssueId || null, userEmail]);
+                    INSERT INTO ba_treatments (animal_id, date, type, medicine, dosage, withholding, protocol_task_id, stock_issue_id, created_by, notes)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                `, [animalId, date, type, medicine, dosage, withholding, protocolTaskId || null, stockIssueId || null, userEmail, notes || null]);
 
                 return res.status(200).json({ success: true });
             }

@@ -35,6 +35,7 @@ export default function MedicalLog() {
     const [newMedRate, setNewMedRate] = useState('');
     
     const [withholding, setWithholding] = useState('0');
+    const [reason, setReason] = useState('');
     const [isSuccess, setIsSuccess] = useState(false);
 
     // Selected stock item helper
@@ -55,6 +56,7 @@ export default function MedicalLog() {
         setNewMedUnit('pc');
         setNewMedRate('');
         setWithholding('0');
+        setReason('');
     };
 
     const handleSubmit = async (e) => {
@@ -142,7 +144,8 @@ export default function MedicalLog() {
             finalDosage,
             parseInt(withholding) || 0,
             null,
-            stockIssueId
+            stockIssueId,
+            reason.trim()
         );
 
         resetForm();
@@ -423,8 +426,19 @@ export default function MedicalLog() {
                             </div>
                         )}
 
-                        {/* Row 2: Date, Withholding, Submit Button */}
+                        {/* Row 2: Reason, Date, Withholding, Submit Button */}
                         <div className="form-inline-grid-med-row2" style={{ marginTop: '0.6rem' }}>
+                            <div className="form-group">
+                                <label>Reason / Diagnosis</label>
+                                <input
+                                    type="text"
+                                    className="form-control"
+                                    placeholder="e.g. Coughing, Off-feed, Leg injury"
+                                    value={reason}
+                                    onChange={(e) => setReason(e.target.value)}
+                                />
+                            </div>
+
                             <div className="form-group">
                                 <label>Treatment Date</label>
                                 <input 
@@ -489,6 +503,7 @@ export default function MedicalLog() {
                                 <th>RFID</th>
                                 <th>DATE</th>
                                 <th>CATEGORY</th>
+                                <th>REASON</th>
                                 <th>MEDICINE</th>
                                 <th style={{ textAlign: 'right' }} title="FIFO actual cost of medicine used">COST</th>
                                 <th>WTHLD</th>
@@ -512,6 +527,9 @@ export default function MedicalLog() {
                                             <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.45rem', borderRadius: '6px', background: 'rgba(255,255,255,0.06)' }}>
                                                 {t.type}
                                             </span>
+                                        </td>
+                                        <td style={{ color: t.notes ? 'var(--text-main)' : 'var(--text-muted)' }}>
+                                            {t.notes || '—'}
                                         </td>
                                         <td>
                                             <strong>{t.medicine}</strong> <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>({t.dosage})</span>
@@ -549,7 +567,7 @@ export default function MedicalLog() {
                             })}
                             {sortedTreatments.length === 0 && (
                                 <tr>
-                                    <td colSpan="10" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                                    <td colSpan="11" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                                         <i className="fa-solid fa-prescription-bottle-medical" style={{ fontSize: '2rem', marginBottom: '0.8rem', display: 'block', color: 'var(--text-muted)', opacity: '0.8' }}></i>
                                         No veterinary treatment records logged in the database yet.
                                     </td>

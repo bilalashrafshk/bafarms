@@ -1675,6 +1675,20 @@ export const FarmProvider = ({ children }) => {
             const data = await res.json();
 
                 if (data.success) {
+                    // GET never 401s the way POST does (verifySession() just falls back to
+                    // session: null on a rejected/invalid token instead of failing the
+                    // request). Left unchecked, a client that believes it's logged in (has
+                    // a token) but gets session: null back means the token was rejected —
+                    // hasHerdAccess below then silently evaluates false, every herd-gated
+                    // field (treatments, weightLogs, feedLogs, etc.) skips its update, and
+                    // the stale localStorage cache is left in place indefinitely, surviving
+                    // even repeated hard refreshes since the same dead token keeps getting
+                    // resent. Flag it the same way a real POST 401 does so the user is
+                    // prompted to sign back in instead of silently working off stale data.
+                    if (staffUserRef.current?.token && !data.session) {
+                        setSessionExpired(true);
+                    }
+
                     const setIfChanged = (setter, newValue) => {
                         if (newValue === undefined || newValue === null) return;
                         setter(prev => (JSON.stringify(prev) === JSON.stringify(newValue)) ? prev : newValue);
@@ -1916,7 +1930,7 @@ export const FarmProvider = ({ children }) => {
     // Stock & Store Ledger uses, category:'medicine') — this only stores the pointer, so
     // treatment logging stays as fast/ungated as it's always been even when the linked
     // stock draw is still pending Super Admin approval (non-admin) or hasn't synced yet.
-    const addTreatment = async (animalId, date, type, medicine, dosage, withholding, protocolTaskId = null, stockIssueId = null) => {
+    const addTreatment = async (animalId, date, type, medicine, dosage, withholding, protocolTaskId = null, stockIssueId = null, notes = '') => {
         const id = treatments.length > 0 ? Math.max(...treatments.map(t => t.id)) + 1 : 1;
         const currentUser = staffUserRef.current?.email || staffUserRef.current?.name || null;
         const newTreatment = {
@@ -1929,14 +1943,15 @@ export const FarmProvider = ({ children }) => {
             withholding: parseInt(withholding) || 0,
             protocolTaskId: protocolTaskId || null,
             stockIssueId: stockIssueId || null,
-            createdBy: currentUser
+            createdBy: currentUser,
+            notes: notes || ''
         };
 
         // 1. Sync UI locally
         setTreatments(prev => [...prev, newTreatment]);
 
         // 2. Queue database transaction durably
-        persistMutation('LOG_TREATMENT', { animalId: parseInt(animalId), date, type, medicine, dosage, withholding: parseInt(withholding) || 0, protocolTaskId: protocolTaskId || null, stockIssueId: stockIssueId || null, createdBy: currentUser });
+        persistMutation('LOG_TREATMENT', { animalId: parseInt(animalId), date, type, medicine, dosage, withholding: parseInt(withholding) || 0, protocolTaskId: protocolTaskId || null, stockIssueId: stockIssueId || null, createdBy: currentUser, notes: notes || null });
 
         // 3. Auto-flag the animal as Sick for ad-hoc medicine treatments (everything
         // except Vaccination-type entries, matched the same way Dashboard.jsx splits

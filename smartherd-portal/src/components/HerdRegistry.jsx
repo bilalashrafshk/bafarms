@@ -5,6 +5,7 @@ import autoTable from 'jspdf-autotable';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 import { todayPKT } from '../utils/dateOnly';
+import { getLaggerIds } from '../utils/laggers';
 
 // Accessors used to sort the herd table by column. Defined outside the component
 // since they don't depend on props/state.
@@ -27,7 +28,7 @@ const SORT_ACCESSORS = {
 };
 
 export default function HerdRegistry() {
-    const { animals, addAnimal, updateAnimal, deleteAnimal, recordDeath, transitionAnimalStatus, breedsConfig, updateBreedsConfig, staffUser, myRequests } = useContext(FarmContext);
+    const { animals, addAnimal, updateAnimal, deleteAnimal, recordDeath, transitionAnimalStatus, breedsConfig, updateBreedsConfig, staffUser, myRequests, weightLogs, systemParams } = useContext(FarmContext);
 
     // Strictly the DB-backed Super Admin flag — non-admins can add animals freely
     // but have entry weight/purchase price edits and deletes staged for approval.
@@ -512,6 +513,10 @@ export default function HerdRegistry() {
     const totalAcquisitionExp = totalMandiTax + totalCarriage + totalMiscExpense;
     const totalGrossWeight = filteredAnimals.reduce((sum, a) => sum + (a.entryWeight || 0), 0);
     const avgCostPerKg = totalGrossWeight > 0 ? totalPurchaseCost / totalGrossWeight : 0;
+
+    // Animals flagged as "laggers" (ADG below the herd alert threshold) — same shared
+    // definition Dashboard/Weight Tracker/Rotation Planner use, surfaced here as a badge.
+    const laggerIds = React.useMemo(() => getLaggerIds(animals, weightLogs, systemParams), [animals, weightLogs, systemParams]);
 
     // Column sorting — click a header to sort by it, click again to reverse direction
     const handleSort = (key) => {
@@ -1017,6 +1022,22 @@ export default function HerdRegistry() {
                                                 title={`Previous Tag(s): ${animal.previousTags.join(', ')}`}
                                             >
                                                 Prev: {animal.previousTags.join(', ')}
+                                            </span>
+                                        )}
+                                        {laggerIds.has(animal.id) && (
+                                            <span
+                                                style={{
+                                                    fontSize: '0.68rem',
+                                                    padding: '1px 5px',
+                                                    borderRadius: '4px',
+                                                    background: 'rgba(255,193,7,0.12)',
+                                                    color: 'hsl(45,90%,55%)',
+                                                    fontWeight: '600',
+                                                    border: '1px solid rgba(255,193,7,0.3)'
+                                                }}
+                                                title="Special Attention: ADG below herd alert threshold"
+                                            >
+                                                <i class="fa-solid fa-triangle-exclamation"></i> Lagger
                                             </span>
                                         )}
                                     </div>
