@@ -4,6 +4,7 @@ import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 import { todayPKT, daysBetween, parseDateOnly } from '../utils/dateOnly';
 import FeedLogDetailModal from './FeedLogDetailModal';
+import RationVarianceReport from './RationVarianceReport';
 
 // Offsets a 'YYYY-MM-DD' date-only string by `delta` calendar days, staying in the
 // same PKT-anchored day-space as every other date helper in the app (see dateOnly.js)
@@ -74,6 +75,8 @@ export default function TMRCalculator() {
 
     // Selected pen for TMR batch sizing
     const [selectedTMRPen, setSelectedTMRPen] = useState('all');
+    // Active tab in TMR Calculator: 'mixer' (TMR Batch Mixer & Logger) | 'variance' (Plan vs Actual Variance Report)
+    const [activeTmrTab, setActiveTmrTab] = useState('mixer');
 
     const getCurrentTimeHHMM = () => {
         const d = new Date();
@@ -929,8 +932,34 @@ export default function TMRCalculator() {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
 
-            {/* Top Grid: Ingredients list and Batch Recipe Output */}
-            <div class="tmr-grid">
+            {/* Top Navigation Tabs */}
+            <div className="table-filters" style={{ marginBottom: 0 }}>
+                <button
+                    type="button"
+                    className={`filter-btn ${activeTmrTab === 'mixer' ? 'active' : ''}`}
+                    onClick={() => setActiveTmrTab('mixer')}
+                    style={{ fontSize: '0.85rem', padding: '0.4rem 1rem' }}
+                >
+                    <i className="fa-solid fa-calculator" style={{ marginRight: '6px' }}></i>
+                    TMR Batch Mixer & Logger
+                </button>
+                <button
+                    type="button"
+                    className={`filter-btn ${activeTmrTab === 'variance' ? 'active' : ''}`}
+                    onClick={() => setActiveTmrTab('variance')}
+                    style={{ fontSize: '0.85rem', padding: '0.4rem 1rem' }}
+                >
+                    <i className="fa-solid fa-scale-unbalanced-flip" style={{ marginRight: '6px', color: 'var(--primary-green-light)' }}></i>
+                    Plan vs Actual Variance Report
+                </button>
+            </div>
+
+            {activeTmrTab === 'variance' ? (
+                <RationVarianceReport />
+            ) : (
+                <>
+                    {/* Top Grid: Ingredients list and Batch Recipe Output */}
+                    <div class="tmr-grid">
 
                 {/* Left: the plan-driven ration (auto-filled from the pen's assigned Ration Plan),
                     or an empty-state prompt when no plan is attached — rations are never set here */}
@@ -2054,111 +2083,113 @@ export default function TMRCalculator() {
 
             {!isTractorMode && renderDietPreviewPanel()}
 
-            {/* Feed History — what was actually fed each logged day, immutable regardless
-                of later recipe edits. Full historical view lives in Feed & Growth Report. */}
-            {recentFeedLogs.length > 0 && (
-                <div class="glass-panel">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
-                        <h3 class="panel-title" style={{ margin: 0 }}>
-                            <i class="fa-solid fa-clock-rotate-left"></i> Recent Feed History
-                        </h3>
-                        <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                            <i class="fa-solid fa-circle-info" style={{ marginRight: '4px' }}></i> Click any row to view full ingredient breakdown & per head details
-                        </span>
-                    </div>
-                    <div class="table-wrapper">
-                        <table class="data-table" style={{ fontSize: '0.85rem' }}>
-                            <thead>
-                                <tr>
-                                    <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
-                                    <th>DATE</th>
-                                    <th>PEN</th>
-                                    <th>SESSION / SPLIT</th>
-                                    <th>ANIMALS</th>
-                                    <th>TOTAL BATCH</th>
-                                    <th>NOTES</th>
-                                    <th style={{ width: '80px', textAlign: 'center' }}>DETAILS</th>
-                                    {isAdmin && <th style={{ width: '60px', textAlign: 'center' }}>REMOVE</th>}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {recentFeedLogs.map((log, idx) => {
-                                    const sessionLabel = parseFeedingSession(log);
-                                    return (
-                                        <tr
-                                            key={`${log.date}__${log.pen}__${idx}`}
-                                            style={{ cursor: 'pointer', transition: 'background 0.15s ease' }}
-                                            onClick={() => setSelectedFeedLogDetails(log)}
-                                            title="Click to view full ingredient breakdown"
-                                        >
-                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
-                                            <td>{formatDate(log.date)}</td>
-                                            <td><strong style={{ color: 'var(--text-pure)' }}>{log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`}</strong></td>
-                                            <td>
-                                                <span style={{
-                                                    fontSize: '0.74rem',
-                                                    fontWeight: '600',
-                                                    padding: '0.15rem 0.55rem',
-                                                    borderRadius: '4px',
-                                                    background: 'rgba(255, 193, 7, 0.12)',
-                                                    color: 'var(--accent-gold)',
-                                                    border: '1px solid rgba(255, 193, 7, 0.25)',
-                                                    display: 'inline-block'
-                                                }}>
-                                                    <i class="fa-solid fa-cookie-bite" style={{ marginRight: '4px', fontSize: '0.7rem' }}></i>
-                                                    {sessionLabel}
-                                                </span>
-                                            </td>
-                                            <td>{log.animalCount}</td>
-                                            <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '0.95rem' }}>{(log.totalBatchKg || 0).toFixed(2)} kg</strong></td>
-                                            <td>
-                                                {log.dietDiffered ? (
-                                                    <span style={{ fontSize: '0.72rem', color: 'var(--accent-gold)' }} title={log.notes}>
-                                                        <i class="fa-solid fa-triangle-exclamation"></i> Differed from plan
-                                                    </span>
-                                                ) : (
-                                                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>As planned</span>
-                                                )}
-                                            </td>
-                                            <td style={{ textAlign: 'center' }}>
-                                                <button
-                                                    type="button"
-                                                    class="btn btn-secondary btn-sm"
-                                                    style={{ padding: '0.15rem 0.55rem', minHeight: '26px', fontSize: '0.75rem', color: 'var(--accent-gold)', borderColor: 'rgba(255,193,7,0.3)' }}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setSelectedFeedLogDetails(log);
-                                                    }}
-                                                    title="Click to view complete feed breakdown"
-                                                >
-                                                    <i class="fa-solid fa-eye"></i> View
-                                                </button>
-                                            </td>
-                                            {isAdmin && (
-                                                <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
-                                                    <button
-                                                        type="button"
-                                                        class="btn btn-secondary"
-                                                        style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
-                                                        onClick={() => {
-                                                            const penLabel = log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`;
-                                                            if (window.confirm(`Undo this feed log?\n\n${formatDate(log.date)} · ${penLabel} · ${(log.totalBatchKg || 0).toFixed(2)} kg\n\nThis also reverses the matching entry in the Feed Stock ledger and the Feed & Growth Report. This cannot be undone.`)) {
-                                                                deleteFeedLog(log.date, log.pen, log.feedingIndex);
-                                                            }
-                                                        }}
-                                                        title="Undo this feed log"
-                                                    >
-                                                        <i class="fa-solid fa-trash-can"></i>
-                                                    </button>
-                                                </td>
-                                            )}
+                    {/* Feed History — what was actually fed each logged day, immutable regardless
+                        of later recipe edits. Full historical view lives in Feed & Growth Report. */}
+                    {recentFeedLogs.length > 0 && (
+                        <div class="glass-panel">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+                                <h3 class="panel-title" style={{ margin: 0 }}>
+                                    <i class="fa-solid fa-clock-rotate-left"></i> Recent Feed History
+                                </h3>
+                                <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                                    <i class="fa-solid fa-circle-info" style={{ marginRight: '4px' }}></i> Click any row to view full ingredient breakdown & per head details
+                                </span>
+                            </div>
+                            <div class="table-wrapper">
+                                <table class="data-table" style={{ fontSize: '0.85rem' }}>
+                                    <thead>
+                                        <tr>
+                                            <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
+                                            <th>DATE</th>
+                                            <th>PEN</th>
+                                            <th>SESSION / SPLIT</th>
+                                            <th>ANIMALS</th>
+                                            <th>TOTAL BATCH</th>
+                                            <th>NOTES</th>
+                                            <th style={{ width: '80px', textAlign: 'center' }}>DETAILS</th>
+                                            {isAdmin && <th style={{ width: '60px', textAlign: 'center' }}>REMOVE</th>}
                                         </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                                    </thead>
+                                    <tbody>
+                                        {recentFeedLogs.map((log, idx) => {
+                                            const sessionLabel = parseFeedingSession(log);
+                                            return (
+                                                <tr
+                                                    key={`${log.date}__${log.pen}__${idx}`}
+                                                    style={{ cursor: 'pointer', transition: 'background 0.15s ease' }}
+                                                    onClick={() => setSelectedFeedLogDetails(log)}
+                                                    title="Click to view full ingredient breakdown"
+                                                >
+                                                    <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
+                                                    <td>{formatDate(log.date)}</td>
+                                                    <td><strong style={{ color: 'var(--text-pure)' }}>{log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`}</strong></td>
+                                                    <td>
+                                                        <span style={{
+                                                            fontSize: '0.74rem',
+                                                            fontWeight: '600',
+                                                            padding: '0.15rem 0.55rem',
+                                                            borderRadius: '4px',
+                                                            background: 'rgba(255, 193, 7, 0.12)',
+                                                            color: 'var(--accent-gold)',
+                                                            border: '1px solid rgba(255, 193, 7, 0.25)',
+                                                            display: 'inline-block'
+                                                        }}>
+                                                            <i class="fa-solid fa-cookie-bite" style={{ marginRight: '4px', fontSize: '0.7rem' }}></i>
+                                                            {sessionLabel}
+                                                        </span>
+                                                    </td>
+                                                    <td>{log.animalCount}</td>
+                                                    <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '0.95rem' }}>{(log.totalBatchKg || 0).toFixed(2)} kg</strong></td>
+                                                    <td>
+                                                        {log.dietDiffered ? (
+                                                            <span style={{ fontSize: '0.72rem', color: 'var(--accent-gold)' }} title={log.notes}>
+                                                                <i class="fa-solid fa-triangle-exclamation"></i> Differed from plan
+                                                            </span>
+                                                        ) : (
+                                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>As planned</span>
+                                                        )}
+                                                    </td>
+                                                    <td style={{ textAlign: 'center' }}>
+                                                        <button
+                                                            type="button"
+                                                            class="btn btn-secondary btn-sm"
+                                                            style={{ padding: '0.15rem 0.55rem', minHeight: '26px', fontSize: '0.75rem', color: 'var(--accent-gold)', borderColor: 'rgba(255,193,7,0.3)' }}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSelectedFeedLogDetails(log);
+                                                            }}
+                                                            title="Click to view complete feed breakdown"
+                                                        >
+                                                            <i class="fa-solid fa-eye"></i> View
+                                                        </button>
+                                                    </td>
+                                                    {isAdmin && (
+                                                        <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                                                            <button
+                                                                type="button"
+                                                                class="btn btn-secondary"
+                                                                style={{ padding: '0.2rem 0.5rem', minHeight: '28px', height: '28px', color: 'hsl(0,75%,55%)', borderColor: 'rgba(220,53,69,0.2)' }}
+                                                                onClick={() => {
+                                                                    const penLabel = log.pen === 'ALL' ? 'All Pens' : `Pen ${log.pen}`;
+                                                                    if (window.confirm(`Undo this feed log?\n\n${formatDate(log.date)} · ${penLabel} · ${(log.totalBatchKg || 0).toFixed(2)} kg\n\nThis also reverses the matching entry in the Feed Stock ledger and the Feed & Growth Report. This cannot be undone.`)) {
+                                                                        deleteFeedLog(log.date, log.pen, log.feedingIndex);
+                                                                    }
+                                                                }}
+                                                                title="Undo this feed log"
+                                                            >
+                                                                <i class="fa-solid fa-trash-can"></i>
+                                                            </button>
+                                                        </td>
+                                                    )}
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+                </>
             )}
 
             {/* Complete Feed Breakdown Modal */}
