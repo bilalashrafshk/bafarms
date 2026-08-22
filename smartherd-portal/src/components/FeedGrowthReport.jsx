@@ -444,7 +444,7 @@ export default function FeedGrowthReport() {
 
             {/* Day-by-day feed log within range */}
             <div className="glass-panel">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem', marginBottom: '0.8rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem', marginBottom: '1rem' }}>
                     <h3 className="panel-title" style={{ margin: 0 }}>
                         <i className="fa-solid fa-calendar-days"></i> Daily Feed Log
                     </h3>
@@ -474,7 +474,7 @@ export default function FeedGrowthReport() {
                                 onClick={() => setFeedLogFilter('missed')}
                             >
                                 <i className="fa-solid fa-triangle-exclamation" style={{ color: 'hsl(0,75%,60%)', marginRight: '4px' }}></i>
-                                Unrecorded Gaps ({missedDayRows.length})
+                                Unrecorded Days ({missedDayRows.length})
                             </button>
                         )}
                     </div>
@@ -490,7 +490,7 @@ export default function FeedGrowthReport() {
                             </span>
                         </div>
                         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                            Showing as 0% Coverage. Backfill via TMR Calculator if feed was given.
+                            Showing as 0% Coverage. Switch to "Logged Feedings" to view only logged records.
                         </span>
                     </div>
                 )}
