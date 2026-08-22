@@ -1,5 +1,5 @@
 import React, { useContext, useState } from 'react';
-import { FarmContext } from '../context/FarmContext';
+import { FarmContext, defaultStaffPermissions } from '../context/FarmContext';
 import { renderSettingsDiff } from '../utils/renderSettingsDiff';
 
 export default function Settings() {
@@ -16,6 +16,10 @@ export default function Settings() {
     const isCorpAdmin = staffUser?.role === 'Internal Corporate Staff' || emailLower === 'bilalashrafshk@gmail.com' || emailLower === 'bilalashraf248@gmail.com' || emailLower.endsWith('@bafoods.pk');
     const isAdmin = staffUser?.isAdmin === true || isCorpAdmin;
     const isPermsAdmin = isAdmin;
+
+    const effectiveStaffPermissions = (Array.isArray(staffPermissions) && staffPermissions.length > 0)
+        ? staffPermissions
+        : defaultStaffPermissions;
 
     // Local state for Staff Access Form
     const [newStaffEmail, setNewStaffEmail] = useState('');
@@ -682,7 +686,7 @@ export default function Settings() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {staffPermissions.map((p, idx) => (
+                                    {effectiveStaffPermissions.map((p, idx) => (
                                         <tr key={p.email}>
                                             <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
@@ -694,25 +698,25 @@ export default function Settings() {
                                             <td style={{ textAlign: 'center' }}>
                                                 <input
                                                     type="checkbox"
-                                                    checked={p.accessSales}
+                                                    checked={!!p.accessSales}
                                                     disabled={permSavingEmail === p.email}
-                                                    onChange={() => handleTogglePermission(p.email, 'accessSales', p.accessSales)}
+                                                    onChange={() => handleTogglePermission(p.email, 'accessSales', !!p.accessSales)}
                                                 />
                                             </td>
                                             <td style={{ textAlign: 'center' }}>
                                                 <input
                                                     type="checkbox"
-                                                    checked={p.accessHerd}
+                                                    checked={!!p.accessHerd}
                                                     disabled={permSavingEmail === p.email}
-                                                    onChange={() => handleTogglePermission(p.email, 'accessHerd', p.accessHerd)}
+                                                    onChange={() => handleTogglePermission(p.email, 'accessHerd', !!p.accessHerd)}
                                                 />
                                             </td>
                                             <td style={{ textAlign: 'center' }}>
                                                 <input
                                                     type="checkbox"
-                                                    checked={p.isAdmin}
+                                                    checked={!!p.isAdmin}
                                                     disabled={permSavingEmail === p.email}
-                                                    onChange={() => handleTogglePermission(p.email, 'isAdmin', p.isAdmin)}
+                                                    onChange={() => handleTogglePermission(p.email, 'isAdmin', !!p.isAdmin)}
                                                 />
                                             </td>
                                             <td style={{ textAlign: 'center' }}>
@@ -733,7 +737,7 @@ export default function Settings() {
                                             </td>
                                         </tr>
                                     ))}
-                                    {staffPermissions.length === 0 && (
+                                    {effectiveStaffPermissions.length === 0 && (
                                         <tr>
                                             <td colSpan={6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No staff members have logged in yet, or none have been pre-authorized.

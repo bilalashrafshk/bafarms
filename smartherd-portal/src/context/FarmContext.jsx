@@ -154,6 +154,18 @@ const defaultBaselineRationPlan = {
     ]
 };
 
+export const defaultStaffPermissions = [
+    { email: 'bilalashraf248@gmail.com', isAdmin: true, accessSales: true, accessHerd: true },
+    { email: 'bilalashrafshk@gmail.com', isAdmin: true, accessSales: true, accessHerd: true },
+    { email: 'codeex624@gmail.com', isAdmin: false, accessSales: false, accessHerd: true },
+    { email: 'drsami841@gmail.com', isAdmin: false, accessSales: false, accessHerd: true },
+    { email: 'fazeel6254@gmail.com', isAdmin: false, accessSales: false, accessHerd: true },
+    { email: 'hania.waseem2@gmail.com', isAdmin: false, accessSales: false, accessHerd: true },
+    { email: 'khurramashraf031@gmail.com', isAdmin: false, accessSales: true, accessHerd: true },
+    { email: 'muhammadashraf2171959@gmail.com', isAdmin: false, accessSales: true, accessHerd: true },
+    { email: 'saqibs111@gmail.com', isAdmin: false, accessSales: true, accessHerd: true }
+];
+
 export const FarmProvider = ({ children }) => {
     // Auth States
     const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('ba_staff_logged_in') === 'true');
@@ -178,8 +190,11 @@ export const FarmProvider = ({ children }) => {
     // (re-)login, not every few minutes just because the token string rotated.
     const [sessionEpoch, setSessionEpoch] = useState(0);
     // Admin-only roster of per-user Sales/Herd access (populated from GET when the
-    // logged-in user is an admin; backed by localStorage cache).
-    const [staffPermissions, setStaffPermissions] = useState(() => loadStoredData('ba_staff_permissions', []));
+    // logged-in user is an admin; backed by localStorage cache and pre-authorized directory).
+    const [staffPermissions, setStaffPermissions] = useState(() => {
+        const stored = loadStoredData('ba_staff_permissions', []);
+        return (Array.isArray(stored) && stored.length > 0) ? stored : defaultStaffPermissions;
+    });
     // Super-admin's live review queue of staged sensitive-field edits/deletes from
     // non-admin staff (drives the login-triggered approval popup).
     const [pendingApprovals, setPendingApprovals] = useState(() => loadStoredData('ba_pending_approvals', []));
@@ -1778,7 +1793,8 @@ export const FarmProvider = ({ children }) => {
                             return merged;
                         });
                     }
-                    setIfChanged(setStaffPermissions, data.staffPermissions || [], 'ba_staff_permissions');
+                    const permsToSave = (Array.isArray(data.staffPermissions) && data.staffPermissions.length > 0) ? data.staffPermissions : defaultStaffPermissions;
+                    setIfChanged(setStaffPermissions, permsToSave, 'ba_staff_permissions');
                     setIfChanged(setPendingApprovals, data.pendingApprovals || [], 'ba_pending_approvals');
                     setIfChanged(setMyRequests, data.myRequests || [], 'ba_my_requests');
                     setIfChanged(setAllApprovals, data.allApprovals || [], 'ba_all_approvals');
