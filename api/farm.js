@@ -635,6 +635,18 @@ async function ensureTables(client) {
                 updated_at TIMESTAMP DEFAULT NOW()
             );
 
+            INSERT INTO ba_staff_permissions (email, is_admin, access_sales, access_herd) VALUES
+                ('bilalashraf248@gmail.com', true, true, true),
+                ('bilalashrafshk@gmail.com', true, true, true),
+                ('codeex624@gmail.com', false, false, true),
+                ('drsami841@gmail.com', false, false, true),
+                ('fazeel6254@gmail.com', false, false, true),
+                ('hania.waseem2@gmail.com', false, false, true),
+                ('khurramashraf031@gmail.com', false, true, true),
+                ('muhammadashraf2171959@gmail.com', false, true, true),
+                ('saqibs111@gmail.com', false, true, true)
+            ON CONFLICT (email) DO NOTHING;
+
             CREATE TABLE IF NOT EXISTS ba_feed_logs (
                 id SERIAL PRIMARY KEY,
                 date DATE NOT NULL,

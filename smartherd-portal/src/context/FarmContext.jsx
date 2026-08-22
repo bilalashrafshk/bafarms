@@ -173,10 +173,13 @@ export const FarmProvider = ({ children }) => {
         if (!u) return null;
         const email = (u.email || '').toLowerCase().trim();
         const isCorpAdmin = u.role === 'Internal Corporate Staff' || email === 'bilalashrafshk@gmail.com' || email === 'bilalashraf248@gmail.com' || email.endsWith('@bafoods.pk');
+        const defaultPerm = defaultStaffPermissions.find(p => p.email.toLowerCase() === email);
+
         const isAdmin = u.isAdmin !== undefined ? Boolean(u.isAdmin) : isCorpAdmin;
-        const accessSales = u.accessSales !== undefined ? Boolean(u.accessSales) : (isAdmin || true);
-        const accessHerd = u.accessHerd !== undefined ? Boolean(u.accessHerd) : (isAdmin || true);
-        return { ...u, isAdmin, accessSales, accessHerd };
+        const accessSales = defaultPerm ? Boolean(u.accessSales ?? defaultPerm.accessSales) : (u.accessSales !== undefined ? Boolean(u.accessSales) : (isAdmin || true));
+        const accessHerd = defaultPerm ? Boolean(u.accessHerd ?? defaultPerm.accessHerd) : (u.accessHerd !== undefined ? Boolean(u.accessHerd) : (isAdmin || true));
+        const role = isCorpAdmin ? 'Internal Corporate Staff' : (defaultPerm?.role || (u.role && u.role !== 'External Guest/Evaluator' ? u.role : 'Farm Operations Staff'));
+        return { ...u, isAdmin, accessSales, accessHerd, role };
     };
 
     const [staffUser, setStaffUser] = useState(() => {
@@ -1788,7 +1791,7 @@ export const FarmProvider = ({ children }) => {
                     if (data.session) {
                         setStaffUser(prev => {
                             if (!prev) return prev;
-                            const merged = { ...prev, ...data.session, token: prev.token };
+                            const merged = enrichUser({ ...prev, ...data.session, token: prev.token });
                             localStorage.setItem('ba_staff_user', JSON.stringify(merged));
                             return merged;
                         });

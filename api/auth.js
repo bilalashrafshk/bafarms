@@ -40,6 +40,18 @@ const getEmailList = (envVal, fallback) => {
 
 const { Client } = require('pg');
 
+const DEFAULT_STAFF_PERMISSIONS = [
+    { email: 'bilalashraf248@gmail.com', isAdmin: true, accessSales: true, accessHerd: true, role: 'Internal Corporate Staff' },
+    { email: 'bilalashrafshk@gmail.com', isAdmin: true, accessSales: true, accessHerd: true, role: 'Internal Corporate Staff' },
+    { email: 'codeex624@gmail.com', isAdmin: false, accessSales: false, accessHerd: true, role: 'Farm Operations Staff' },
+    { email: 'drsami841@gmail.com', isAdmin: false, accessSales: false, accessHerd: true, role: 'Veterinary Staff' },
+    { email: 'fazeel6254@gmail.com', isAdmin: false, accessSales: false, accessHerd: true, role: 'Farm Operations Staff' },
+    { email: 'hania.waseem2@gmail.com', isAdmin: false, accessSales: false, accessHerd: true, role: 'Farm Operations Staff' },
+    { email: 'khurramashraf031@gmail.com', isAdmin: false, accessSales: true, accessHerd: true, role: 'Internal Corporate Staff' },
+    { email: 'muhammadashraf2171959@gmail.com', isAdmin: false, accessSales: true, accessHerd: true, role: 'Internal Corporate Staff' },
+    { email: 'saqibs111@gmail.com', isAdmin: false, accessSales: true, accessHerd: true, role: 'Internal Corporate Staff' }
+];
+
 // Authoritative server-side authorization check — mirrors (and replaces trust in) the
 // client-side logic that used to live in Login.jsx. Checks domain, env vars, and ba_staff_permissions DB table.
 const verifyAndAuthorizeEmail = async (email) => {
@@ -47,24 +59,42 @@ const verifyAndAuthorizeEmail = async (email) => {
     const adminEmails = getEmailList(process.env.ADMIN_EMAILS || process.env.VITE_ADMIN_EMAILS, ['bilalashrafshk@gmail.com', 'bilalashraf248@gmail.com']);
     const isHardcodedAdmin = adminEmails.includes(cleaned) || cleaned.endsWith('@bafoods.pk');
 
+    const defaultStaff = DEFAULT_STAFF_PERMISSIONS.find(p => p.email.toLowerCase() === cleaned);
+
     const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.bafarms_DATABASE_URL || process.env.bafarms_DATABASE_URL_UNPOOLED;
     if (connectionString) {
         const client = new Client({ connectionString, ssl: { rejectUnauthorized: false } });
         try {
             await client.connect();
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS ba_staff_permissions (
+                    email VARCHAR(150) PRIMARY KEY,
+                    is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+                    access_sales BOOLEAN NOT NULL DEFAULT TRUE,
+                    access_herd BOOLEAN NOT NULL DEFAULT TRUE,
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            `);
             const dbRes = await client.query('SELECT is_admin, access_sales, access_herd FROM ba_staff_permissions WHERE LOWER(email) = $1', [cleaned]);
-            await client.end();
             if (dbRes.rows.length > 0) {
+                await client.end();
                 const row = dbRes.rows[0];
                 const isAdmin = Boolean(row.is_admin || isHardcodedAdmin);
                 return {
                     authorized: true,
-                    role: isAdmin ? 'Internal Corporate Staff' : 'Staff',
+                    role: isAdmin ? 'Internal Corporate Staff' : (defaultStaff?.role || 'Farm Operations Staff'),
                     isAdmin,
                     accessSales: Boolean(row.access_sales || isAdmin),
                     accessHerd: Boolean(row.access_herd || isAdmin)
                 };
             }
+            if (defaultStaff) {
+                await client.query(
+                    'INSERT INTO ba_staff_permissions (email, is_admin, access_sales, access_herd) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO UPDATE SET is_admin = $2, access_sales = $3, access_herd = $4',
+                    [defaultStaff.email, defaultStaff.isAdmin, defaultStaff.accessSales, defaultStaff.accessHerd]
+                );
+            }
+            await client.end();
         } catch (e) {
             console.error('Error checking ba_staff_permissions in auth API:', e);
             try { await client.end(); } catch (_) {}
@@ -81,14 +111,24 @@ const verifyAndAuthorizeEmail = async (email) => {
         };
     }
 
+    if (defaultStaff) {
+        return {
+            authorized: true,
+            role: defaultStaff.role || 'Farm Operations Staff',
+            isAdmin: defaultStaff.isAdmin,
+            accessSales: defaultStaff.accessSales,
+            accessHerd: defaultStaff.accessHerd
+        };
+    }
+
     const allowedEmails = getEmailList(process.env.ALLOWED_EMAILS || process.env.VITE_ALLOWED_EMAILS, []);
     if (allowedEmails.includes(cleaned)) {
         return {
             authorized: true,
-            role: 'External Guest/Evaluator',
+            role: 'Staff',
             isAdmin: false,
             accessSales: true,
-            accessHerd: false
+            accessHerd: true
         };
     }
 
