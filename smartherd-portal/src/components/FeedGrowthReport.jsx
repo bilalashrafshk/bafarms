@@ -280,6 +280,15 @@ export default function FeedGrowthReport() {
                 targetAdg: planRow?.week?.targetAdg ?? null,
                 isBelowFloor: penAdg !== null && penAdg < adgFloor
             };
+        // Rank by weight-gain performance (highest ADG first) rather than pen name, so
+        // the best/worst performing pens surface immediately — same convention as the
+        // Weight Tracker performance report. Pens with no weight data yet sink to the
+        // bottom rather than breaking up the ranked pens.
+        }).sort((a, b) => {
+            if (a.avgAdg === null && b.avgAdg === null) return 0;
+            if (a.avgAdg === null) return 1;
+            if (b.avgAdg === null) return -1;
+            return b.avgAdg - a.avgAdg;
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activePens, feedLogs, weightLogs, dateFrom, dateTo, penFilter, getPenRationRow, adgFloor, rosterCache, manualFeedIssuesInRange, issueCosts]);
