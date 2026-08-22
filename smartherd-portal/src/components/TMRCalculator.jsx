@@ -189,8 +189,13 @@ export default function TMRCalculator() {
 
     // 1. LOCAL UI STATE
     const [animalsCount, setAnimalsCount] = useState(activeHerdCount || 1);
-
     const [isTractorMode, setIsTractorMode] = useState(false);
+
+    // WhatsApp Diet Share State
+    const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
+    const [whatsAppModalPen, setWhatsAppModalPen] = useState('all');
+    const [whatsAppModalSession, setWhatsAppModalSession] = useState('morning');
+    const [copiedToast, setCopiedToast] = useState('');
 
     // 2. QUANTITY MATH — plan-driven only. Ingredient quantities are as-fed kg/head/day
     // straight from the Ration Plan's weekly schedule (no moisture/DM conversion — small
@@ -304,6 +309,128 @@ export default function TMRCalculator() {
             planIngredientRows, extraIngredientRows, availableExtraIngredients,
             displayIngredients, totalDM, totalBatchWeight, totalCostSingle, dietDiffered
         };
+    };
+
+    // Formats a high-clarity, beautifully styled WhatsApp feeding mixing sheet
+    const generateWhatsAppDietText = (options = {}) => {
+        const {
+            targetPen = selectedTMRPen, // 'all' or 'A', 'B', etc.
+            session = 'current' // 'current', 'morning', 'evening', 'full'
+        } = options;
+
+        let sessionLabel = 'Full Day Diet (100%)';
+        let sessionMultiplier = 1.0;
+        let sessionPctText = '100%';
+
+        const mPct = (activeSplitList && activeSplitList[0]) || 50;
+        const ePct = (activeSplitList && activeSplitList[1]) || 50;
+
+        if (session === 'morning') {
+            sessionLabel = `🌅 Morning Feeding (${mPct}%)`;
+            sessionMultiplier = mPct / 100;
+            sessionPctText = `${mPct}%`;
+        } else if (session === 'evening') {
+            sessionLabel = `🌇 Evening Feeding (${ePct}%)`;
+            sessionMultiplier = ePct / 100;
+            sessionPctText = `${ePct}%`;
+        } else if (session === 'full') {
+            sessionLabel = `📅 Full Day Diet (100%)`;
+            sessionMultiplier = 1.0;
+            sessionPctText = `100%`;
+        } else {
+            // current
+            if (activeFeedingIndex === 1) {
+                sessionLabel = `🌅 Morning Feeding (${activeFeedingPct}%)`;
+                sessionMultiplier = activeFeedingPct / 100;
+                sessionPctText = `${activeFeedingPct}%`;
+            } else if (activeFeedingIndex === 2) {
+                sessionLabel = `🌇 Evening Feeding (${activeFeedingPct}%)`;
+                sessionMultiplier = activeFeedingPct / 100;
+                sessionPctText = `${activeFeedingPct}%`;
+            } else if (activeFeedingIndex > 2) {
+                sessionLabel = `⏰ Feeding ${activeFeedingIndex} (${activeFeedingPct}%)`;
+                sessionMultiplier = activeFeedingPct / 100;
+                sessionPctText = `${activeFeedingPct}%`;
+            } else {
+                sessionLabel = `📅 Full Day Diet (100%)`;
+                sessionMultiplier = 1.0;
+                sessionPctText = `100%`;
+            }
+        }
+
+        const lines = [];
+        lines.push(`🐄 *BA FARMS — TMR FEEDING SHEET*`);
+        lines.push(`📅 *Date:* ${formatDate(logDate)}`);
+        lines.push(`⏰ *Schedule:* ${sessionLabel}`);
+        lines.push(``);
+
+        const pensToProcess = (targetPen === 'all' || !targetPen)
+            ? activePens
+            : [targetPen];
+
+        let grandTotalWeight = 0;
+        let grandTotalAnimals = 0;
+
+        pensToProcess.forEach(pId => {
+            const batch = computePenBatch(pId);
+            const planRow = batch.resolvedPlanRow;
+            const headCount = batch.headCount || 0;
+            grandTotalAnimals += headCount;
+
+            const penAnimals = animals.filter(a => String(a.pen) === String(pId) && a.status !== 'Sold' && a.status !== 'Deceased');
+            const avgWt = penAnimals.length > 0
+                ? (penAnimals.reduce((s, a) => s + (parseFloat(a.currentWeight || a.entryWeight || 0)), 0) / penAnimals.length).toFixed(0)
+                : (planRow?.avgWeight ? Math.round(planRow.avgWeight) : null);
+
+            const penSessionWeight = batch.totalBatchWeight * sessionMultiplier;
+            grandTotalWeight += penSessionWeight;
+
+            lines.push(`━━━━━━━━━━━━━━━━━━━━━`);
+            lines.push(`🏷️ *PEN ${pId}* (${headCount} Head${avgWt ? ` | Avg ${avgWt} kg` : ''})`);
+            if (planRow?.planName || planRow?.planKey) {
+                lines.push(`📋 _Plan: ${planRow.planName || planRow.planKey}${planRow.weekNumber ? ` (Wk ${planRow.weekNumber})` : ''}_`);
+            }
+            lines.push(`⚖️ *Session Batch:* *${penSessionWeight.toFixed(1)} kg* (${headCount > 0 ? (penSessionWeight / headCount).toFixed(2) : '0.00'} kg/hd)`);
+            lines.push(`🌾 *Ingredients Mixing List:*`);
+
+            if (batch.displayIngredients && batch.displayIngredients.length > 0) {
+                batch.displayIngredients.forEach(ing => {
+                    const ingBatch = (ing.wetBatch || (ing.wetSingle * headCount)) * sessionMultiplier;
+                    const ingPerHead = (ing.wetSingle || 0) * sessionMultiplier;
+                    lines.push(`  • *${ing.name}:* ${ingBatch.toFixed(1)} kg _(${ingPerHead.toFixed(2)} kg/hd)_`);
+                });
+            } else {
+                lines.push(`  • _No ration formulated for this pen_`);
+            }
+            lines.push(``);
+        });
+
+        if (pensToProcess.length > 1) {
+            lines.push(`━━━━━━━━━━━━━━━━━━━━━`);
+            lines.push(`🚜 *TOTAL FARM MIXER BATCH (${sessionPctText}):* *${grandTotalWeight.toFixed(1)} kg*`);
+            lines.push(`👥 *Total Herd:* ${grandTotalAnimals} Head across ${pensToProcess.length} Pens`);
+            lines.push(`━━━━━━━━━━━━━━━━━━━━━`);
+        }
+
+        lines.push(`_BA Farms Feedlot Precision Management_`);
+
+        return lines.join('\n');
+    };
+
+    const handleShareWhatsApp = (options = {}) => {
+        const text = generateWhatsAppDietText(options);
+        const encoded = encodeURIComponent(text);
+        const url = `https://wa.me/?text=${encoded}`;
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).catch(() => {});
+        }
+
+        setCopiedToast('Diet copied to clipboard & opening WhatsApp...');
+        setTimeout(() => setCopiedToast(''), 4000);
+
+        window.open(url, '_blank');
+        setShowWhatsAppModal(false);
     };
 
     // Headcount-weighted avg plan qty / fed qty per ingredient across a set of
@@ -932,26 +1059,57 @@ export default function TMRCalculator() {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
 
-            {/* Top Navigation Tabs */}
-            <div className="table-filters" style={{ marginBottom: 0 }}>
-                <button
-                    type="button"
-                    className={`filter-btn ${activeTmrTab === 'mixer' ? 'active' : ''}`}
-                    onClick={() => setActiveTmrTab('mixer')}
-                    style={{ fontSize: '0.85rem', padding: '0.4rem 1rem' }}
-                >
-                    <i className="fa-solid fa-calculator" style={{ marginRight: '6px' }}></i>
-                    TMR Batch Mixer & Logger
-                </button>
-                <button
-                    type="button"
-                    className={`filter-btn ${activeTmrTab === 'variance' ? 'active' : ''}`}
-                    onClick={() => setActiveTmrTab('variance')}
-                    style={{ fontSize: '0.85rem', padding: '0.4rem 1rem' }}
-                >
-                    <i className="fa-solid fa-scale-unbalanced-flip" style={{ marginRight: '6px', color: 'var(--primary-green-light)' }}></i>
-                    Plan vs Actual Variance Report
-                </button>
+            {/* Top Navigation Tabs & Quick WhatsApp Share */}
+            <div className="table-filters" style={{ marginBottom: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem' }}>
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    <button
+                        type="button"
+                        className={`filter-btn ${activeTmrTab === 'mixer' ? 'active' : ''}`}
+                        onClick={() => setActiveTmrTab('mixer')}
+                        style={{ fontSize: '0.85rem', padding: '0.4rem 1rem' }}
+                    >
+                        <i className="fa-solid fa-calculator" style={{ marginRight: '6px' }}></i>
+                        TMR Batch Mixer & Logger
+                    </button>
+                    <button
+                        type="button"
+                        className={`filter-btn ${activeTmrTab === 'variance' ? 'active' : ''}`}
+                        onClick={() => setActiveTmrTab('variance')}
+                        style={{ fontSize: '0.85rem', padding: '0.4rem 1rem' }}
+                    >
+                        <i className="fa-solid fa-scale-unbalanced-flip" style={{ marginRight: '6px', color: 'var(--primary-green-light)' }}></i>
+                        Plan vs Actual Variance Report
+                    </button>
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {copiedToast && (
+                        <span style={{ fontSize: '0.75rem', color: 'var(--primary-green-light)', background: 'rgba(74, 222, 128, 0.1)', border: '1px solid rgba(74, 222, 128, 0.3)', padding: '0.25rem 0.6rem', borderRadius: '6px' }}>
+                            <i className="fa-solid fa-circle-check" style={{ marginRight: '4px' }}></i> {copiedToast}
+                        </span>
+                    )}
+                    <button
+                        type="button"
+                        className="btn"
+                        style={{
+                            background: 'hsl(142, 70%, 25%)',
+                            borderColor: 'hsl(142, 70%, 40%)',
+                            color: '#ffffff',
+                            fontWeight: '700',
+                            fontSize: '0.82rem',
+                            padding: '0.35rem 0.85rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: '0 2px 8px rgba(37, 211, 102, 0.2)'
+                        }}
+                        onClick={() => setShowWhatsAppModal(true)}
+                        title="Share mixing sheet pen-wise and session-wise on WhatsApp"
+                    >
+                        <i className="fa-brands fa-whatsapp" style={{ fontSize: '1.1rem', color: '#25D366' }}></i>
+                        Share on WhatsApp
+                    </button>
+                </div>
             </div>
 
             {activeTmrTab === 'variance' ? (
@@ -973,9 +1131,33 @@ export default function TMRCalculator() {
                                     <h3 className="panel-title" style={{ marginBottom: 0 }}>
                                         <i className="fa-solid fa-clipboard-check"></i> Plan-Driven Ration — All Pens (Herd Average)
                                     </h3>
-                                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                                        {allPensResolutions.length} Pens ({allPensTotalHeadCount} head)
-                                    </span>
+                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                        <button
+                                            type="button"
+                                            className="btn btn-sm"
+                                            style={{
+                                                background: 'rgba(37, 211, 102, 0.15)',
+                                                borderColor: 'rgba(37, 211, 102, 0.4)',
+                                                color: '#4ade80',
+                                                fontWeight: '600',
+                                                fontSize: '0.74rem',
+                                                padding: '0.2rem 0.55rem',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '5px'
+                                            }}
+                                            onClick={() => {
+                                                setWhatsAppModalPen('all');
+                                                setShowWhatsAppModal(true);
+                                            }}
+                                            title="Share All Pens Diet on WhatsApp"
+                                        >
+                                            <i className="fa-brands fa-whatsapp" style={{ color: '#25D366' }}></i> Share All Pens Diet
+                                        </button>
+                                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                            {allPensResolutions.length} Pens ({allPensTotalHeadCount} head)
+                                        </span>
+                                    </div>
                                 </div>
 
                                 <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
@@ -1508,7 +1690,27 @@ export default function TMRCalculator() {
                         <div class="glass-panel" style={{ borderTop: '4px solid var(--accent-gold)' }}>
                             <div class="form-header-bar" style={{ marginBottom: '1.2rem', gap: '1rem', flexWrap: 'wrap' }}>
                                 <h3 class="panel-title" style={{ marginBottom: '0' }}><i class="fa-solid fa-scale-balanced"></i> Batch Recipe</h3>
-                                <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                                <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                                    <button
+                                        type="button"
+                                        className="btn"
+                                        style={{
+                                            background: 'rgba(37, 211, 102, 0.15)',
+                                            borderColor: 'rgba(37, 211, 102, 0.4)',
+                                            color: '#4ade80',
+                                            fontWeight: '600',
+                                            fontSize: '0.8rem',
+                                            minHeight: '44px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px'
+                                        }}
+                                        onClick={() => handleShareWhatsApp({ targetPen: selectedTMRPen, session: 'current' })}
+                                        title="1-Click Share Current Batch on WhatsApp"
+                                    >
+                                        <i className="fa-brands fa-whatsapp" style={{ fontSize: '1.1rem', color: '#25D366' }}></i>
+                                        {activeFeedingIndex > 0 ? `Share Feed ${activeFeedingIndex} on WhatsApp` : 'Share on WhatsApp'}
+                                    </button>
                                     <button type="button" class="btn btn-secondary" style={{ minHeight: '44px' }} onClick={openTractorMode} disabled={tractorEligiblePens.length === 0}>
                                         <i class="fa-solid fa-tractor"></i> Tractor Mode
                                     </button>
@@ -2198,6 +2400,214 @@ export default function TMRCalculator() {
                     feedLog={selectedFeedLogDetails}
                     onClose={() => setSelectedFeedLogDetails(null)}
                 />
+            )}
+
+            {/* WhatsApp Diet Sharing Modal */}
+            {showWhatsAppModal && (
+                <div className="modal-backdrop" onClick={() => setShowWhatsAppModal(false)}>
+                    <div
+                        className="modal-content glass-panel"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            maxWidth: '650px',
+                            width: '95%',
+                            maxHeight: '90vh',
+                            overflowY: 'auto',
+                            borderTop: '4px solid #25D366',
+                            padding: '1.4rem'
+                        }}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                <div style={{ background: 'rgba(37, 211, 102, 0.15)', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <i className="fa-brands fa-whatsapp" style={{ fontSize: '1.4rem', color: '#25D366' }}></i>
+                                </div>
+                                <div>
+                                    <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-pure)' }}>Share Diet on WhatsApp</h3>
+                                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                                        1-Click instant feeding & mixing sheet formatted for mobile & WhatsApp
+                                    </span>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => setShowWhatsAppModal(false)}
+                                style={{ borderRadius: '50%', width: '32px', height: '32px', padding: 0 }}
+                            >
+                                <i className="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+
+                        {/* Fast 1-Click Action Buttons */}
+                        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '0.8rem', marginBottom: '1rem' }}>
+                            <span style={{ fontSize: '0.74rem', fontWeight: '700', color: 'var(--accent-gold)', display: 'block', marginBottom: '0.5rem' }}>
+                                ⚡ FAST 1-CLICK ACTIONS:
+                            </span>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.5rem' }}>
+                                <button
+                                    type="button"
+                                    className="btn"
+                                    style={{
+                                        background: 'hsl(142, 70%, 25%)',
+                                        borderColor: 'hsl(142, 70%, 40%)',
+                                        color: '#ffffff',
+                                        fontSize: '0.78rem',
+                                        fontWeight: '700',
+                                        padding: '0.5rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '6px'
+                                    }}
+                                    onClick={() => handleShareWhatsApp({ targetPen: whatsAppModalPen, session: 'morning' })}
+                                >
+                                    <i className="fa-brands fa-whatsapp"></i> 🌅 Morning ({(activeSplitList && activeSplitList[0]) || 50}%)
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn"
+                                    style={{
+                                        background: 'hsl(142, 70%, 20%)',
+                                        borderColor: 'hsl(142, 70%, 35%)',
+                                        color: '#ffffff',
+                                        fontSize: '0.78rem',
+                                        fontWeight: '700',
+                                        padding: '0.5rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '6px'
+                                    }}
+                                    onClick={() => handleShareWhatsApp({ targetPen: whatsAppModalPen, session: 'evening' })}
+                                >
+                                    <i className="fa-brands fa-whatsapp"></i> 🌇 Evening ({(activeSplitList && activeSplitList[1]) || 50}%)
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    style={{
+                                        fontSize: '0.78rem',
+                                        fontWeight: '700',
+                                        padding: '0.5rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '6px'
+                                    }}
+                                    onClick={() => handleShareWhatsApp({ targetPen: whatsAppModalPen, session: 'full' })}
+                                >
+                                    <i className="fa-solid fa-calendar-day"></i> 📅 Full Day (100%)
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Filter Selectors: Pen & Session */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginBottom: '1rem' }}>
+                            <div>
+                                <label style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
+                                    Pen / Herd Scope:
+                                </label>
+                                <select
+                                    className="form-control"
+                                    value={whatsAppModalPen}
+                                    onChange={(e) => setWhatsAppModalPen(e.target.value)}
+                                    style={{ fontSize: '0.82rem' }}
+                                >
+                                    <option value="all">🌐 All Active Pens ({allPensTotalHeadCount} Head)</option>
+                                    {activePens.map(p => (
+                                        <option key={p} value={p}>🏷️ Pen {p}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
+                                    Feeding Session:
+                                </label>
+                                <select
+                                    className="form-control"
+                                    value={whatsAppModalSession}
+                                    onChange={(e) => setWhatsAppModalSession(e.target.value)}
+                                    style={{ fontSize: '0.82rem' }}
+                                >
+                                    <option value="morning">🌅 Morning Feeding ({(activeSplitList && activeSplitList[0]) || 50}%)</option>
+                                    <option value="evening">🌇 Evening Feeding ({(activeSplitList && activeSplitList[1]) || 50}%)</option>
+                                    <option value="full">📅 Full Day Diet (100%)</option>
+                                    <option value="current">🎯 Currently Selected Session</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Live Formatted WhatsApp Message Preview */}
+                        <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                                <span style={{ fontSize: '0.74rem', fontWeight: '600', color: 'var(--text-muted)' }}>
+                                    <i className="fa-solid fa-eye" style={{ marginRight: '4px' }}></i> Message Preview:
+                                </span>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ fontSize: '0.72rem', padding: '0.15rem 0.5rem' }}
+                                    onClick={() => {
+                                        const text = generateWhatsAppDietText({ targetPen: whatsAppModalPen, session: whatsAppModalSession });
+                                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                                            navigator.clipboard.writeText(text);
+                                            setCopiedToast('Preview copied to clipboard!');
+                                            setTimeout(() => setCopiedToast(''), 3000);
+                                        }
+                                    }}
+                                >
+                                    <i className="fa-solid fa-copy"></i> Copy Text
+                                </button>
+                            </div>
+                            <pre
+                                style={{
+                                    background: 'rgba(0, 0, 0, 0.4)',
+                                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                                    borderRadius: '8px',
+                                    padding: '0.8rem',
+                                    fontSize: '0.78rem',
+                                    fontFamily: 'monospace',
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-word',
+                                    maxHeight: '220px',
+                                    overflowY: 'auto',
+                                    color: '#e2e8f0',
+                                    lineHeight: '1.4'
+                                }}
+                            >
+                                {generateWhatsAppDietText({ targetPen: whatsAppModalPen, session: whatsAppModalSession })}
+                            </pre>
+                        </div>
+
+                        {/* Bottom Actions */}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', marginTop: '1.2rem', paddingTop: '0.8rem', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => setShowWhatsAppModal(false)}
+                            >
+                                Close
+                            </button>
+                            <button
+                                type="button"
+                                className="btn"
+                                style={{
+                                    background: '#25D366',
+                                    color: '#000000',
+                                    fontWeight: '800',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                                onClick={() => handleShareWhatsApp({ targetPen: whatsAppModalPen, session: whatsAppModalSession })}
+                            >
+                                <i className="fa-brands fa-whatsapp" style={{ fontSize: '1.1rem' }}></i>
+                                Open & Send on WhatsApp
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
         </div>
