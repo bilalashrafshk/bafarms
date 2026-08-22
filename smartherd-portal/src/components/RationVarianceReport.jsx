@@ -23,6 +23,8 @@ export default function RationVarianceReport() {
     const [dateTo, setDateTo] = useState(todayPKT());
     const [expandedRowKeys, setExpandedRowKeys] = useState(new Set());
     const [searchQuery, setSearchQuery] = useState('');
+    const [breakdownByPen, setBreakdownByPen] = useState(true);
+    const [showPenSummary, setShowPenSummary] = useState(true);
 
     // Unique pens present in logs
     const uniquePens = useMemo(() => {
@@ -138,13 +140,13 @@ export default function RationVarianceReport() {
             let penScope = f.pen;
 
             if (viewMode === 'daily') {
-                if (selectedPen === 'ALL') {
+                if (selectedPen === 'ALL' && !breakdownByPen) {
                     groupKey = `${f.date}__ALL_PENS`;
                     groupTitle = 'All Pens (Overall Farm Total)';
                     penScope = 'ALL';
                 } else {
                     groupKey = `${f.date}__${f.pen}`;
-                    groupTitle = `Pen ${f.pen}`;
+                    groupTitle = f.pen === 'ALL' ? 'All Pens' : `Pen ${f.pen}`;
                     penScope = f.pen;
                 }
             } else {
@@ -422,6 +424,98 @@ export default function RationVarianceReport() {
         };
     }, [varianceRows]);
 
+    // Compute pen-by-pen summary comparison for the current date window
+    const penSummaries = useMemo(() => {
+        const pensList = uniquePens.filter(p => p !== 'ALL');
+        const map = new Map();
+        pensList.forEach(p => {
+            map.set(p, {
+                pen: p,
+                headCount: 0,
+                feedingsCount: 0,
+                exactCount: 0,
+                totalPlannedWeight: 0,
+                totalActualWeight: 0,
+                totalPlannedCost: 0,
+                totalActualCost: 0,
+                omissionsCount: 0
+            });
+        });
+
+        const inWindowLogs = (feedLogs || []).filter(f => {
+            if (!f.date) return false;
+            const d = f.date;
+            if (dateFrom && d < dateFrom) return false;
+            if (dateTo && d > dateTo) return false;
+            return true;
+        });
+
+        inWindowLogs.forEach(f => {
+            const p = f.pen;
+            if (!p || p === 'ALL' || !map.has(p)) return;
+            const stats = map.get(p);
+            stats.feedingsCount += 1;
+            stats.headCount = Math.max(stats.headCount, f.animalCount || 0);
+
+            const rawIngs = Array.isArray(f.ingredients) ? f.ingredients : (typeof f.ingredients === 'string' ? JSON.parse(f.ingredients || '[]') : []);
+            const logAnimals = f.animalCount || 1;
+
+            let logPlannedWt = 0;
+            let logActualWt = 0;
+            let logPlannedCost = 0;
+            let logActualCost = 0;
+            let hasOmission = false;
+
+            rawIngs.forEach(ing => {
+                const price = parseFloat(ing.price || ing.rate || 0);
+                const actualPerHead = parseFloat(ing.wetSingle || ing.qtyKg || 0);
+                const plannedPerHead = ing.plannedQtyKg !== undefined && ing.plannedQtyKg !== null ? parseFloat(ing.plannedQtyKg) : actualPerHead;
+
+                const actualTotal = ing.wetBatch !== undefined && ing.wetBatch !== null ? parseFloat(ing.wetBatch) : (actualPerHead * logAnimals);
+                const plannedTotal = plannedPerHead * logAnimals;
+
+                logActualWt += actualTotal;
+                logPlannedWt += plannedTotal;
+                logActualCost += actualTotal * price;
+                logPlannedCost += plannedTotal * price;
+
+                if (plannedTotal > 0.01 && actualTotal <= 0.001) hasOmission = true;
+            });
+
+            stats.totalPlannedWeight += logPlannedWt;
+            stats.totalActualWeight += logActualWt;
+            stats.totalPlannedCost += logPlannedCost;
+            stats.totalActualCost += logActualCost;
+            if (hasOmission) stats.omissionsCount += 1;
+
+            const diff = Math.abs(logActualWt - logPlannedWt);
+            if (diff < 0.5 || (logPlannedWt > 0 && (diff / logPlannedWt) < 0.02)) {
+                stats.exactCount += 1;
+            }
+        });
+
+        return Array.from(map.values()).map(s => {
+            const diffWeight = s.totalActualWeight - s.totalPlannedWeight;
+            const diffPct = s.totalPlannedWeight > 0.001 ? (diffWeight / s.totalPlannedWeight) * 100 : 0;
+            const diffCost = s.totalActualCost - s.totalPlannedCost;
+            const compliancePct = s.feedingsCount > 0 ? Math.round((s.exactCount / s.feedingsCount) * 100) : 100;
+            const activeAnimalsInPen = animals.filter(a => String(a.pen) === String(s.pen) && a.status !== 'Sold' && a.status !== 'Deceased');
+            const headCount = activeAnimalsInPen.length || s.headCount;
+
+            const penPlan = pens.find(p => String(p.id) === String(s.pen));
+
+            return {
+                ...s,
+                headCount,
+                diffWeight,
+                diffPct,
+                diffCost,
+                compliancePct,
+                planName: penPlan?.name || penPlan?.planKey || `Pen ${s.pen}`
+            };
+        });
+    }, [feedLogs, dateFrom, dateTo, uniquePens, animals, pens]);
+
     // CSV Export
     const exportCSV = () => {
         if (varianceRows.length === 0) {
@@ -477,12 +571,21 @@ export default function RationVarianceReport() {
                         Multi-date compliance audit, ingredient deviations, omitted micro-nutrients & financial variance
                     </p>
                 </div>
-                <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
-                    <button className="btn btn-secondary" onClick={exportCSV} title="Export CSV for Excel">
+                <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button
+                        className={`btn ${showPenMatrix ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setShowPenMatrix(prev => !prev)}
+                        style={{ fontSize: '0.8rem' }}
+                        title="Toggle Pen Comparison Matrix"
+                    >
+                        <i className="fa-solid fa-table-columns"></i> {showPenMatrix ? 'Hide Pen Matrix' : 'Pen-Wise Matrix'}
+                    </button>
+                    <button className="btn btn-secondary" onClick={exportCSV} title="Export CSV for Excel" style={{ fontSize: '0.8rem' }}>
                         <i className="fa-solid fa-file-csv"></i> Export CSV
                     </button>
                     <button
                         className="btn btn-secondary"
+                        style={{ fontSize: '0.8rem' }}
                         onClick={() => {
                             if (expandedRowKeys.size === varianceRows.length) collapseAll();
                             else expandAll();
@@ -493,6 +596,152 @@ export default function RationVarianceReport() {
                     </button>
                 </div>
             </div>
+
+            {/* Quick Pen-Select Pill Header */}
+            <div className="glass-panel" style={{ padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.6rem', borderLeft: '4px solid var(--primary-green-light)' }}>
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--text-muted)', marginRight: '0.2rem' }}>
+                        <i className="fa-solid fa-layer-group" style={{ color: 'var(--primary-green-light)', marginRight: '4px' }}></i> Pen Scope:
+                    </span>
+                    <button
+                        type="button"
+                        className={`filter-btn ${selectedPen === 'ALL' ? 'active' : ''}`}
+                        onClick={() => setSelectedPen('ALL')}
+                        style={{ fontSize: '0.76rem', padding: '0.25rem 0.75rem' }}
+                    >
+                        🌐 All Pens ({animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased').length} Head)
+                    </button>
+                    {uniquePens.map(p => {
+                        const penHeadCount = animals.filter(a => String(a.pen) === String(p) && a.status !== 'Sold' && a.status !== 'Deceased').length;
+                        return (
+                            <button
+                                key={p}
+                                type="button"
+                                className={`filter-btn ${selectedPen === p ? 'active' : ''}`}
+                                onClick={() => setSelectedPen(p)}
+                                style={{ fontSize: '0.76rem', padding: '0.25rem 0.75rem' }}
+                            >
+                                🏷️ Pen {p} ({penHeadCount} Head)
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {selectedPen === 'ALL' && viewMode === 'daily' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Daily Rows:</span>
+                        <button
+                            type="button"
+                            className={`btn btn-sm ${breakdownByPen ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setBreakdownByPen(true)}
+                            style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}
+                        >
+                            <i className="fa-solid fa-table-cells"></i> Pen-by-Pen
+                        </button>
+                        <button
+                            type="button"
+                            className={`btn btn-sm ${!breakdownByPen ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setBreakdownByPen(false)}
+                            style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}
+                        >
+                            <i className="fa-solid fa-globe"></i> Farm Consolidated
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* Pen-by-Pen Comparative Performance Matrix (Side-by-side cards) */}
+            {showPenMatrix && penSummaries.length > 0 && (
+                <div className="glass-panel" style={{ padding: '1rem', borderTop: '3px solid var(--accent-gold)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                        <div>
+                            <h3 className="panel-title" style={{ margin: 0, fontSize: '0.92rem' }}>
+                                <i className="fa-solid fa-chart-pie" style={{ color: 'var(--accent-gold)', marginRight: '6px' }}></i>
+                                Pen-Wise Plan vs Actual Comparison Matrix
+                            </h3>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                Period: {formatDate(dateFrom)} ➔ {formatDate(dateTo)} • Side-by-side pen compliance & intake variance
+                            </span>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.8rem' }}>
+                        {penSummaries.map(ps => {
+                            const isSelected = selectedPen === ps.pen;
+                            const isOver = ps.diffWeight > 0.5;
+                            const isUnder = ps.diffWeight < -0.5;
+                            const statusColor = ps.compliancePct >= 90 ? 'var(--primary-green-light)' : ps.compliancePct >= 70 ? 'hsl(43,90%,53%)' : 'hsl(0,75%,65%)';
+
+                            return (
+                                <div
+                                    key={ps.pen}
+                                    style={{
+                                        background: isSelected ? 'rgba(74, 222, 128, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+                                        border: isSelected ? '1.5px solid var(--primary-green-light)' : '1px solid rgba(255, 255, 255, 0.08)',
+                                        borderRadius: '8px',
+                                        padding: '0.85rem',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '0.5rem',
+                                        position: 'relative'
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                            <span style={{ fontWeight: '800', fontSize: '1rem', color: 'var(--text-pure)' }}>
+                                                Pen {ps.pen}
+                                            </span>
+                                            <span style={{ fontSize: '0.72rem', color: 'var(--accent-gold)', background: 'rgba(255,193,7,0.1)', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: '600' }}>
+                                                {ps.headCount} Head
+                                            </span>
+                                        </div>
+                                        <span style={{ fontSize: '0.72rem', fontWeight: '700', color: statusColor }}>
+                                            {ps.compliancePct}% On Plan
+                                        </span>
+                                    </div>
+
+                                    {/* Weight Variance */}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.35rem' }}>
+                                        <span style={{ color: 'var(--text-muted)' }}>Fed / Planned:</span>
+                                        <span>
+                                            <strong>{ps.totalActualWeight.toFixed(0)} kg</strong>
+                                            <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}> / {ps.totalPlannedWeight.toFixed(0)} kg</span>
+                                        </span>
+                                    </div>
+
+                                    {/* Net Delta */}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.35rem' }}>
+                                        <span style={{ color: 'var(--text-muted)' }}>Variance:</span>
+                                        <span style={{ fontWeight: '700', color: Math.abs(ps.diffPct) <= 2 ? 'var(--primary-green-light)' : isOver ? 'hsl(43,90%,53%)' : 'hsl(0,75%,65%)' }}>
+                                            {ps.diffWeight > 0 ? '+' : ''}{ps.diffWeight.toFixed(1)} kg ({ps.diffPct > 0 ? '+' : ''}{ps.diffPct.toFixed(1)}%)
+                                        </span>
+                                    </div>
+
+                                    {/* Cost Impact */}
+                                    {isSuperAdmin && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.35rem' }}>
+                                            <span style={{ color: 'var(--text-muted)' }}>Cost Delta:</span>
+                                            <span style={{ fontWeight: '700', color: ps.diffCost > 0 ? 'hsl(43,90%,53%)' : 'var(--primary-green-light)' }}>
+                                                {ps.diffCost > 0 ? '+' : ''}{Math.round(ps.diffCost).toLocaleString()} PKR
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {/* Action Button */}
+                                    <button
+                                        type="button"
+                                        className={`btn btn-sm ${isSelected ? 'btn-primary' : 'btn-secondary'}`}
+                                        onClick={() => setSelectedPen(ps.pen)}
+                                        style={{ marginTop: '0.2rem', fontSize: '0.72rem', padding: '0.2rem 0.5rem', width: '100%' }}
+                                    >
+                                        {isSelected ? '✓ Currently Viewing' : `Filter to Pen ${ps.pen}`}
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
             {/* Filter Panel */}
             <div className="glass-panel" style={{ padding: '1rem' }}>
@@ -521,7 +770,7 @@ export default function RationVarianceReport() {
                         </div>
                     </div>
 
-                    {/* Pen Scope Filter */}
+                    {/* Pen Scope Filter Dropdown */}
                     <div className="form-group" style={{ marginBottom: 0 }}>
                         <label style={{ fontSize: '0.75rem', fontWeight: '600' }}>Pen / Scope Selection</label>
                         <select
