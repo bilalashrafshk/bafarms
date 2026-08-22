@@ -500,6 +500,11 @@ export default function HerdRegistry() {
 
     // Overall purchase average = total purchase cost / total gross (entry) weight, across the current view
     const totalPurchaseCost = filteredAnimals.reduce((sum, a) => sum + (a.purchasePrice || 0), 0);
+    const totalMandiBase = filteredAnimals.reduce((sum, a) => sum + (a.mandiPrice || 0), 0);
+    const totalMandiTax = filteredAnimals.reduce((sum, a) => sum + (a.mandiTax || 0), 0);
+    const totalCarriage = filteredAnimals.reduce((sum, a) => sum + (a.carriage || 0), 0);
+    const totalMiscExpense = filteredAnimals.reduce((sum, a) => sum + (a.miscExpense || 0), 0);
+    const totalAcquisitionExp = totalMandiTax + totalCarriage + totalMiscExpense;
     const totalGrossWeight = filteredAnimals.reduce((sum, a) => sum + (a.entryWeight || 0), 0);
     const avgCostPerKg = totalGrossWeight > 0 ? totalPurchaseCost / totalGrossWeight : 0;
 
@@ -929,8 +934,8 @@ export default function HerdRegistry() {
                 <button className={`filter-btn ${filterStatus === 'Sold' ? 'active' : ''}`} onClick={() => setFilterStatus('Sold')}>Sold ({animals.filter(a => a.status === 'Sold').length})</button>
             </div>
 
-            {/* Average purchase price per kg of gross (entry) weight, across the current view */}
-            <div className="dashboard-grid" style={{ marginBottom: '1rem' }}>
+            {/* Average purchase price and acquisition expenses overview */}
+            <div className="dashboard-grid" style={{ marginBottom: '1rem', gridTemplateColumns: totalAcquisitionExp > 0 ? 'repeat(auto-fit, minmax(280px, 1fr))' : '1fr' }}>
                 <div className="glass-panel stat-box">
                     <div className="stat-header">
                         <h3>Avg Purchase Price / Gross Weight</h3>
@@ -941,6 +946,25 @@ export default function HerdRegistry() {
                         <i className="fa-solid fa-cow"></i> {totalPurchaseCost.toLocaleString()} PKR ÷ {totalGrossWeight.toLocaleString()} kg across {filteredAnimals.length} animal{filteredAnimals.length === 1 ? '' : 's'}
                     </span>
                 </div>
+
+                {totalAcquisitionExp > 0 && (
+                    <div className="glass-panel stat-box">
+                        <div className="stat-header">
+                            <h3>Acquisition Expense Breakdown</h3>
+                            <div className="stat-icon"><i className="fa-solid fa-receipt"></i></div>
+                        </div>
+                        <div className="stat-val" style={{ fontSize: '1.4rem', color: 'hsl(43,90%,53%)' }}>
+                            {totalAcquisitionExp.toLocaleString()} <small style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>PKR total expenses</small>
+                        </div>
+                        <span className="stat-lbl" style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', fontSize: '0.72rem' }}>
+                            <span>Tax: <strong>{totalMandiTax.toLocaleString()}</strong> PKR</span>
+                            <span>·</span>
+                            <span>Freight: <strong>{totalCarriage.toLocaleString()}</strong> PKR</span>
+                            <span>·</span>
+                            <span>Misc: <strong>{totalMiscExpense.toLocaleString()}</strong> PKR</span>
+                        </span>
+                    </div>
+                )}
             </div>
 
             {/* Main Ledger Table */}
@@ -1007,20 +1031,21 @@ export default function HerdRegistry() {
                                     );
                                 })()}
                                 <td>
-                                    <div style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{animal.purchasePrice.toLocaleString()}</div>
-                                    {(animal.mandiPrice || animal.mandiTax || animal.carriage || animal.miscExpense) && (
-                                        <div 
-                                            style={{ fontSize: '0.68rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', cursor: 'help' }} 
-                                            title={`Mandi Base: ${animal.mandiPrice ? animal.mandiPrice.toLocaleString() : '—'} PKR | Tax: ${animal.mandiTax ? animal.mandiTax.toLocaleString() : '0'} PKR | Carriage: ${animal.carriage ? animal.carriage.toLocaleString() : '0'} PKR | Misc: ${animal.miscExpense ? animal.miscExpense.toLocaleString() : '0'} PKR`}
-                                        >
-                                            {animal.mandiPrice ? `Base: ${animal.mandiPrice.toLocaleString()}` : ''}
+                                    <div style={{ fontWeight: '700', color: 'var(--text-pure)', fontSize: '0.88rem' }}>
+                                        {animal.purchasePrice ? animal.purchasePrice.toLocaleString() : '—'} <small style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>PKR</small>
+                                    </div>
+                                    {animal.mandiPrice ? (
+                                        <div style={{ marginTop: '0.2rem', display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '0.67rem' }}>
+                                            <div style={{ color: 'rgba(255,255,255,0.65)' }}>
+                                                Base: <strong style={{ color: 'var(--text-pure)' }}>{animal.mandiPrice.toLocaleString()}</strong>
+                                            </div>
                                             {((animal.mandiTax || 0) + (animal.carriage || 0) + (animal.miscExpense || 0)) > 0 ? (
-                                                <span style={{ color: 'hsl(43,90%,53%)' }}>
-                                                    {animal.mandiPrice ? ' + ' : ''}Exp: {((animal.mandiTax || 0) + (animal.carriage || 0) + (animal.miscExpense || 0)).toLocaleString()}
-                                                </span>
+                                                <div style={{ color: 'hsl(43,90%,53%)', whiteSpace: 'nowrap', lineHeight: '1.2' }} title={`Mandi Tax: ${animal.mandiTax ? animal.mandiTax.toLocaleString() : 0} PKR | Carriage: ${animal.carriage ? animal.carriage.toLocaleString() : 0} PKR | Misc: ${animal.miscExpense ? animal.miscExpense.toLocaleString() : 0} PKR`}>
+                                                    Tax: {animal.mandiTax ? Math.round(animal.mandiTax).toLocaleString() : '0'} · Carr: {animal.carriage ? Math.round(animal.carriage).toLocaleString() : '0'} · Misc: {animal.miscExpense ? Math.round(animal.miscExpense).toLocaleString() : '0'}
+                                                </div>
                                             ) : null}
                                         </div>
-                                    )}
+                                    ) : null}
                                 </td>
                                 <td style={{ color: 'var(--text-muted)' }}>
                                     <div style={{ color: 'var(--text-pure)', fontWeight: '600' }}>{animal.entryWeight ? `${Math.round(animal.purchasePrice / animal.entryWeight).toLocaleString()} /kg` : '—'}</div>
