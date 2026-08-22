@@ -1661,9 +1661,11 @@ export const FarmProvider = ({ children }) => {
         try {
             const headers = {
                 'Content-Type': 'application/json',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
                 ...(staffUserRef.current?.token ? { Authorization: `Bearer ${staffUserRef.current.token}` } : {})
             };
-            const res = await fetch('/api/farm', { headers });
+            const res = await fetch(`/api/farm?_t=${Date.now()}`, { headers, cache: 'no-store' });
             const data = await res.json();
 
                 if (data.success) {
@@ -3430,6 +3432,8 @@ export const FarmProvider = ({ children }) => {
             addMeatCut,
             updateMeatCut,
             deleteMeatCut,
+            fetchFarmData,
+            refetchData: fetchFarmData,
             addAnimal,
             logWeight,
             addTreatment,
