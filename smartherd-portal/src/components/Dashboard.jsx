@@ -208,6 +208,14 @@ export default function Dashboard({ onNavigate }) {
     // was nothing to feed) through yesterday, flagging any day with no feed log for
     // that pen. Today isn't flagged — there's still time left in the day to log it.
     // Includes the registration/cycle-start day itself in the walk.
+    //
+    // Also flags HALF-missed days: a split feeding (Morning/Evening, or Morning/
+    // Afternoon/Evening) where at least one session was logged but not all of them
+    // (e.g. Morning done, Evening never logged). Mirrors the session-gap detection
+    // in api/farm.js's checkMissedFeeds(), computed client-side here so it shows up
+    // immediately in this Action Required list rather than only in the Activity Feed
+    // after the server's 30-min throttled check runs.
+    const SESSION_LABELS = { 2: ['Morning', 'Evening'], 3: ['Morning', 'Afternoon', 'Evening'] };
     const missedFeedings = [];
     (pens || []).forEach(pen => {
         const penAnimals = animals.filter(a => a.pen === pen.id && a.status !== 'Sold' && a.status !== 'Deceased');
@@ -222,8 +230,21 @@ export default function Dashboard({ onNavigate }) {
         const start = parseDateOnly(startDateStr);
         for (let d = new Date(start); d < today; d.setUTCDate(d.getUTCDate() + 1)) {
             const dateStr = d.toISOString().split('T')[0];
-            const logged = feedLogs.some(f => f.pen === pen.id && f.date === dateStr);
-            if (!logged) missedFeedings.push({ pen, date: dateStr });
+            const dayLogs = feedLogs.filter(f => f.pen === pen.id && f.date === dateStr);
+            if (dayLogs.length === 0) {
+                missedFeedings.push({ pen, date: dateStr, half: false });
+                continue;
+            }
+            const numFeedings = Math.max(...dayLogs.map(f => f.numFeedings || 1));
+            const loggedPct = dayLogs.reduce((sum, f) => sum + (f.feedingPct !== undefined && f.feedingPct !== null ? f.feedingPct : 100), 0);
+            if (numFeedings <= 1 || loggedPct >= 99.5) continue; // single full-day log, or fully covered split
+            const loggedIndexes = new Set(dayLogs.map(f => f.feedingIndex || 0));
+            const labels = SESSION_LABELS[numFeedings] || [];
+            const missing = [];
+            for (let i = 1; i <= numFeedings; i++) {
+                if (!loggedIndexes.has(i)) missing.push(labels[i - 1] || `Feeding ${i}`);
+            }
+            if (missing.length > 0) missedFeedings.push({ pen, date: dateStr, half: true, missing, loggedPct });
         }
     });
 
@@ -249,8 +270,10 @@ export default function Dashboard({ onNavigate }) {
         })),
         ...missedFeedings.map(m => ({
             type: 'missed-feed',
-            msg: `Pen ${m.pen.id} — Missed feeding`,
-            desc: `No feed logged for ${formatDate(m.date)}`,
+            msg: m.half ? `Pen ${m.pen.id} — Missed ${m.missing.join('/')} feeding` : `Pen ${m.pen.id} — Missed feeding`,
+            desc: m.half
+                ? `Only ${Math.round(m.loggedPct)}% logged for ${formatDate(m.date)} (missing: ${m.missing.join(', ')})`
+                : `No feed logged for ${formatDate(m.date)}`,
             color: 'hsl(0,75%,55%)',
             icon: 'fa-bowl-food',
             action: { label: 'Log Feed', tab: 'tmr' }

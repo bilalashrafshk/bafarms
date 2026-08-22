@@ -44,6 +44,12 @@ export function buildLots(itemId, opening, purchases) {
 // most recent lot at its rate and allowed to go negative — consistent with closing
 // stock already going negative elsewhere when issues exceed what's on hand, and more
 // honest than silently costing the shortfall at zero.
+//
+// Edge case: if the item has NO lots at all yet (no opening stock, no purchases —
+// e.g. a premix consumed in a TMR log before its first production batch was ever
+// run), there's nothing to draw from or price against, so `unpriced: true` is
+// returned alongside a $0 cost/rate — callers should surface this rather than let a
+// $0-priced issue quietly understate cost.
 export function allocateFifo(lots, qty, pinnedLotId) {
     let need = qty;
     const breakdown = [];
@@ -70,5 +76,6 @@ export function allocateFifo(lots, qty, pinnedLotId) {
     }
 
     const cost = breakdown.reduce((sum, b) => sum + b.qty * b.rate, 0);
-    return { breakdown, cost, rate: qty > 0 ? cost / qty : 0 };
+    const unpriced = qty > 0 && lots.length === 0;
+    return { breakdown, cost, rate: qty > 0 ? cost / qty : 0, unpriced };
 }

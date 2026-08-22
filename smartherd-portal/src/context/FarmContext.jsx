@@ -1248,11 +1248,13 @@ export const FarmProvider = ({ children }) => {
 
             let consumptionValue = 0;
             let issuedQty = 0;
+            let hasUnpricedIssue = false;
             issues.forEach(issue => {
-                const { cost, rate } = allocateFifo(lots, issue.quantity, issue.lotId);
-                issueCosts[issue.id] = { cost, rate };
+                const { cost, rate, unpriced } = allocateFifo(lots, issue.quantity, issue.lotId);
+                issueCosts[issue.id] = { cost, rate, unpriced };
                 consumptionValue += cost;
                 issuedQty += issue.quantity;
+                if (unpriced) hasUnpricedIssue = true;
             });
 
             const closingQty = lots.reduce((sum, l) => sum + l.remaining, 0);
@@ -1260,7 +1262,7 @@ export const FarmProvider = ({ children }) => {
             const avgRate = closingQty > 0.0001 ? closingValue / closingQty : (lots[lots.length - 1]?.rate || 0);
 
             byItem[item.id] = {
-                lots, closingQty, closingValue, avgRate, consumptionValue, issuedQty,
+                lots, closingQty, closingValue, avgRate, consumptionValue, issuedQty, hasUnpricedIssue,
                 openingQty: opening.qty, openingValue: opening.value
             };
         });
@@ -1290,7 +1292,8 @@ export const FarmProvider = ({ children }) => {
                 avgRate: v?.avgRate || 0,
                 consumptionValue: v?.consumptionValue || 0,
                 closingQty: v?.closingQty || 0,
-                closingValue: v?.closingValue || 0
+                closingValue: v?.closingValue || 0,
+                hasUnpricedIssue: v?.hasUnpricedIssue || false
             };
         });
     };
@@ -1934,6 +1937,22 @@ export const FarmProvider = ({ children }) => {
 
         // 2. Queue database transaction durably
         persistMutation('LOG_TREATMENT', { animalId: parseInt(animalId), date, type, medicine, dosage, withholding: parseInt(withholding) || 0, protocolTaskId: protocolTaskId || null, stockIssueId: stockIssueId || null, createdBy: currentUser });
+
+        // 3. Auto-flag the animal as Sick for ad-hoc medicine treatments (everything
+        // except Vaccination-type entries, matched the same way Dashboard.jsx splits
+        // vaccine vs. medicine cost). Scheduled quarantine-protocol doses (Deworming,
+        // routine Injury shots, etc. — protocolTaskId set) are excluded on purpose:
+        // those are logged for every quarantined animal on intake day regardless of
+        // health, so auto-flagging on them would mark nearly the whole herd Sick.
+        // Animals already Sick/Sold/Deceased are left alone (no-op status churn / no
+        // reviving a closed-out animal).
+        const isVaccine = (type || '').toLowerCase().includes('vaccin');
+        if (!isVaccine && !protocolTaskId) {
+            const animal = animals.find(a => a.id === parseInt(animalId));
+            if (animal && animal.status !== 'Sick' && animal.status !== 'Sold' && animal.status !== 'Deceased') {
+                transitionAnimalStatus(animalId, 'Sick');
+            }
+        }
     };
 
     const transitionAnimalStatus = async (animalId, nextStatus) => {

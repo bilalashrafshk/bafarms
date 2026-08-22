@@ -904,6 +904,9 @@ export default function FeedStock() {
                                                 ) : (
                                                     <span style={{ color: 'var(--text-muted)' }}>—</span>
                                                 )}
+                                                {row.hasUnpricedIssue && (
+                                                    <i class="fa-solid fa-circle-exclamation" style={{ color: 'hsl(0,75%,65%)', marginLeft: '0.35rem', fontSize: '0.75rem' }} title="Some issues for this item were logged before any opening stock or purchase existed — those were costed at 0 PKR. Check for a missing purchase entry or backdated issue."></i>
+                                                )}
                                             </td>
                                             <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                                                 <strong style={{ color: 'var(--accent-gold)', fontSize: '0.88rem' }}>
@@ -967,6 +970,11 @@ export default function FeedStock() {
                         {ledger.some(l => l.closingQty < 0) && (
                             <p style={{ fontSize: '0.76rem', color: 'hsl(0,75%,65%)', marginTop: '0.8rem', marginBottom: 0 }}>
                                 <i class="fa-solid fa-triangle-exclamation"></i> One or more items show negative closing stock — issues exceed opening stock + purchases logged. Check for a missing purchase entry or an incorrect opening balance.
+                            </p>
+                        )}
+                        {ledger.some(l => l.hasUnpricedIssue) && (
+                            <p style={{ fontSize: '0.76rem', color: 'hsl(0,75%,65%)', marginTop: '0.4rem', marginBottom: 0 }}>
+                                <i class="fa-solid fa-circle-exclamation"></i> One or more items (flagged <i class="fa-solid fa-circle-exclamation" style={{ fontSize: '0.68rem' }}></i> in the Rate column) had stock issued before any opening balance or purchase was ever recorded — those issues were costed at 0 PKR. This commonly happens for a premix/batch item fed before its first production batch was logged.
                             </p>
                         )}
                     </div>
