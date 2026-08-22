@@ -87,11 +87,16 @@ export default function TMRCalculator() {
     // Ration Plan schedule itself, so schedule edits never rewrite past days)
     const [logDate, setLogDate] = useState(todayPKT());
     const [logTime, setLogTime] = useState(getCurrentTimeHHMM);
+    const isFutureDate = logDate > todayPKT();
+
+    const adjustLogDateByDays = (days) => {
+        const d = new Date(logDate);
+        d.setDate(d.getDate() + days);
+        setLogDate(d.toISOString().split('T')[0]);
+    };
 
     // Diet Preview — a read-only "peek" at what a pen was/will be fed on any date,
-    // deliberately decoupled from `logDate` (which drives the actual batch + feed log
-    // and is capped at today). This lets staff check yesterday's diet or next week's
-    // upcoming diet without ever risking logging feed against a future date.
+    // decoupled from `logDate`.
     const [peekDate, setPeekDate] = useState(todayPKT());
     // Which pens' ingredient breakdown is expanded in the Diet Preview panel — collapsed
     // by default so the panel shows one summary line per pen instead of dumping every
@@ -717,6 +722,10 @@ export default function TMRCalculator() {
     // when "All" is selected.
     const logBatchForPen = (penId, batch, headCount, skipConfirm = false) => {
         if (!batch.isPlanDriven) return;
+        if (logDate > todayPKT()) {
+            alert(`⚠️ Advance feeding forecast cannot be logged into the permanent feed ledger before its actual date (${formatDate(logDate)}).\n\nYou can preview the formulation and share it on WhatsApp in advance.`);
+            return;
+        }
         const resolvedPlanRow = batch.resolvedPlanRow;
         const isV2 = resolvedPlanRow.system === 'v2';
         const stageNote = isV2
@@ -1829,14 +1838,14 @@ export default function TMRCalculator() {
                                 )}
                             </div>
 
-                            {/* Batch Sizing and Filter bar inline */}
-                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', background: 'rgba(0, 0, 0, 0.15)', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)', marginBottom: '1.2rem', flexWrap: 'wrap' }}>
+                            {/* Batch Sizing, Date Navigation, and Pen Filter Bar */}
+                            <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', background: 'rgba(0, 0, 0, 0.15)', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)', marginBottom: '1.2rem', flexWrap: 'wrap', justifyContent: 'space-between' }}>
                                 {activePens.length > 0 && (
-                                    <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', flexWrap: 'wrap', flex: 1 }}>
+                                    <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', flexWrap: 'wrap' }}>
                                         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Pen:</span>
                                         <button
                                             type="button"
-                                            class={`filter-btn ${selectedTMRPen === 'all' ? 'active' : ''}`}
+                                            className={`filter-btn ${selectedTMRPen === 'all' ? 'active' : ''}`}
                                             style={{ fontSize: '0.7rem', minHeight: '26px', padding: '0.15rem 0.5rem' }}
                                             onClick={() => setSelectedTMRPen('all')}
                                         >All ({activeHerdCount})</button>
@@ -1847,36 +1856,126 @@ export default function TMRCalculator() {
                                                 <button
                                                     key={p}
                                                     type="button"
-                                                    class={`filter-btn ${selectedTMRPen === p ? 'active' : ''}`}
+                                                    className={`filter-btn ${selectedTMRPen === p ? 'active' : ''}`}
                                                     style={{ fontSize: '0.7rem', minHeight: '26px', padding: '0.15rem 0.5rem' }}
                                                     onClick={() => setSelectedTMRPen(p)}
                                                     title={hasPlan ? 'Has a Ration Plan assigned — selecting this pen auto-fills the batch' : 'No Ration Plan assigned — assign one under Ration Plans to feed this pen'}
                                                 >Pen {p} ({penCount}){hasPlan && ' \u2713'}</button>
                                             );
                                         })}
-                                        {activePens.some(p => pens.some(pc => pc.id === p && pc.rationPlanId)) && (
-                                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginLeft: '0.2rem' }}>
-                                                ({'\u2713'} = has a Ration Plan — auto-fills the batch below)
-                                            </span>
-                                        )}
                                     </div>
                                 )}
-                                <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Calves:</span>
-                                    <input
-                                        type="number"
-                                        class="form-control"
-                                        style={{ width: '70px', minHeight: '28px', height: '28px', padding: '0.15rem 0.4rem', fontSize: '0.82rem' }}
-                                        value={animalsCount}
-                                        onChange={(e) => setAnimalsCount(Math.max(1, parseInt(e.target.value) || 1))}
-                                    />
+
+                                {/* Date Navigator & Quick Jump Bar */}
+                                <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Date:</span>
+                                    <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm"
+                                            style={{ padding: '0.15rem 0.4rem', fontSize: '0.72rem', minHeight: '26px', height: '26px' }}
+                                            onClick={() => adjustLogDateByDays(-1)}
+                                            title="Previous Day"
+                                        >
+                                            ◀
+                                        </button>
+                                        <input
+                                            type="date"
+                                            className="form-control"
+                                            style={{ width: '125px', minHeight: '26px', height: '26px', padding: '0.1rem 0.4rem', fontSize: '0.78rem' }}
+                                            value={logDate}
+                                            onChange={(e) => setLogDate(e.target.value)}
+                                        />
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm"
+                                            style={{ padding: '0.15rem 0.4rem', fontSize: '0.72rem', minHeight: '26px', height: '26px' }}
+                                            onClick={() => adjustLogDateByDays(1)}
+                                            title="Next Day (Advance Forecast)"
+                                        >
+                                            ▶
+                                        </button>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className={`btn btn-sm ${logDate === todayPKT() ? 'btn-primary' : 'btn-secondary'}`}
+                                        style={{ padding: '0.15rem 0.45rem', fontSize: '0.72rem', minHeight: '26px', height: '26px' }}
+                                        onClick={() => setLogDate(todayPKT())}
+                                    >
+                                        Today
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary btn-sm"
+                                        style={{ padding: '0.15rem 0.45rem', fontSize: '0.72rem', minHeight: '26px', height: '26px', color: isFutureDate ? '#60a5fa' : 'inherit' }}
+                                        onClick={() => adjustLogDateByDays(7)}
+                                        title="Advance 7 Days (Future Forecast)"
+                                    >
+                                        +7d ⏩
+                                    </button>
+                                    <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', marginLeft: '0.4rem' }}>
+                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Calves:</span>
+                                        <input
+                                            type="number"
+                                            className="form-control"
+                                            style={{ width: '65px', minHeight: '26px', height: '26px', padding: '0.15rem 0.4rem', fontSize: '0.8rem' }}
+                                            value={animalsCount}
+                                            onChange={(e) => setAnimalsCount(Math.max(1, parseInt(e.target.value) || 1))}
+                                        />
+                                    </div>
                                 </div>
                             </div>
 
+                            {/* Advance Forecast Warning / Indicator Banner */}
+                            {isFutureDate && (
+                                <div style={{
+                                    background: 'rgba(59, 130, 246, 0.12)',
+                                    border: '1px solid rgba(59, 130, 246, 0.35)',
+                                    borderRadius: '8px',
+                                    padding: '0.65rem 0.9rem',
+                                    marginBottom: '1rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: '0.8rem',
+                                    flexWrap: 'wrap'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+                                        <i className="fa-solid fa-wand-magic-sparkles" style={{ color: '#60a5fa', fontSize: '1.1rem' }}></i>
+                                        <div>
+                                            <strong style={{ fontSize: '0.82rem', color: '#93c5fd', display: 'block' }}>
+                                                Advance Diet Forecast Active — {formatDate(logDate)}
+                                            </strong>
+                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                                Previewing future projected intake and ration formulation. Logging is disabled until this date.
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm"
+                                            onClick={() => setLogDate(todayPKT())}
+                                            style={{ fontSize: '0.74rem', padding: '0.2rem 0.6rem' }}
+                                        >
+                                            <i className="fa-solid fa-calendar-day"></i> Jump to Today
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn btn-sm"
+                                            style={{ background: '#25D366', color: '#000000', fontWeight: '700', fontSize: '0.74rem', padding: '0.2rem 0.6rem' }}
+                                            onClick={() => handleShareWhatsApp({ targetPen: selectedTMRPen, session: 'current' })}
+                                        >
+                                            <i className="fa-brands fa-whatsapp"></i> Share Forecast
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
                             {isPlanDriven ? (
                                 <>
-                                    <div class="table-wrapper" style={{ marginBottom: '1.2rem' }}>
-                                        <table class="data-table">
+                                    <div className="table-wrapper" style={{ marginBottom: '1.2rem' }}>
+                                        <table className="data-table">
                                             <thead>
                                                 <tr>
                                                     <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
@@ -1937,26 +2036,48 @@ export default function TMRCalculator() {
                                     <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.2rem', marginTop: '1.2rem' }}>
                                         <input
                                             type="date"
-                                            class="form-control"
+                                            className="form-control"
                                             style={{ width: '135px', minHeight: '34px', height: '34px', padding: '0.2rem 0.5rem', fontSize: '0.82rem' }}
                                             value={logDate}
-                                            max={todayPKT()}
                                             onChange={(e) => setLogDate(e.target.value)}
                                         />
                                         <input
                                             type="time"
-                                            class="form-control"
+                                            className="form-control"
                                             style={{ width: '110px', minHeight: '34px', height: '34px', padding: '0.2rem 0.5rem', fontSize: '0.82rem' }}
                                             value={logTime}
                                             onChange={(e) => setLogTime(e.target.value)}
                                             title="Exact Feeding Administration Time"
                                         />
-                                        <button type="button" class="btn btn-primary btn-sm" onClick={handleLogFeed}>
-                                            <i class="fa-solid fa-clipboard-check"></i> Log This Feeding (Pen {selectedTMRPen})
+                                        <button
+                                            type="button"
+                                            className={`btn btn-sm ${isFutureDate ? 'btn-secondary' : 'btn-primary'}`}
+                                            onClick={handleLogFeed}
+                                            disabled={isFutureDate}
+                                            title={isFutureDate ? `Cannot log feed for a future date (${formatDate(logDate)}). Advance formulation is for planning & WhatsApp preview only.` : `Log this feeding for Pen ${selectedTMRPen}`}
+                                            style={isFutureDate ? { opacity: 0.65, cursor: 'not-allowed' } : {}}
+                                        >
+                                            {isFutureDate ? (
+                                                <>
+                                                    <i className="fa-solid fa-lock" style={{ marginRight: '5px' }}></i>
+                                                    Advance Preview (Logging Disabled)
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <i className="fa-solid fa-clipboard-check"></i>
+                                                    Log This Feeding (Pen {selectedTMRPen})
+                                                </>
+                                            )}
                                         </button>
-                                        {logSaved && (
+                                        {isFutureDate && (
+                                            <span style={{ fontSize: '0.76rem', color: '#60a5fa', fontWeight: '500' }}>
+                                                <i className="fa-solid fa-circle-info" style={{ marginRight: '4px' }}></i>
+                                                Advance forecast active. You can share this diet on WhatsApp.
+                                            </span>
+                                        )}
+                                        {logSaved && !isFutureDate && (
                                             <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
-                                                <i class="fa-solid fa-circle-check"></i> Feed logged for {formatDate(logDate)}.
+                                                <i className="fa-solid fa-circle-check"></i> Feed logged for {formatDate(logDate)}.
                                             </span>
                                         )}
                                     </div>
@@ -1975,9 +2096,9 @@ export default function TMRCalculator() {
                                         {allPensMismatch && !allPensConfirmedMismatch && (
                                             <div style={{ background: 'rgba(220, 53, 69, 0.1)', border: '1px solid rgba(220, 53, 69, 0.35)', borderRadius: '8px', padding: '1rem 1.2rem', marginBottom: '1.2rem' }}>
                                                 <div style={{ fontWeight: '700', color: 'hsl(0,75%,70%)', marginBottom: '0.5rem' }}>
-                                                    <i class="fa-solid fa-triangle-exclamation"></i> Pens don't share the same forage type / feeding phase
+                                                    <i className="fa-solid fa-triangle-exclamation"></i> Pens don't share the same forage type / feeding phase
                                                 </div>
-                                                <button type="button" class="btn btn-secondary btn-sm" onClick={() => setAllPensConfirmedMismatch(true)}>
+                                                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAllPensConfirmedMismatch(true)}>
                                                     Average Anyway
                                                 </button>
                                             </div>
@@ -1985,8 +2106,8 @@ export default function TMRCalculator() {
 
                                         {allPensAggregateIngredients.length > 0 && (
                                             <>
-                                                <div class="table-wrapper" style={{ marginBottom: '1.2rem' }}>
-                                                    <table class="data-table">
+                                                <div className="table-wrapper" style={{ marginBottom: '1.2rem' }}>
+                                                    <table className="data-table">
                                                         <thead>
                                                             <tr>
                                                                 <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
@@ -2039,26 +2160,48 @@ export default function TMRCalculator() {
                                                 <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.2rem', marginTop: '1.2rem' }}>
                                                     <input
                                                         type="date"
-                                                        class="form-control"
+                                                        className="form-control"
                                                         style={{ width: '135px', minHeight: '34px', height: '34px', padding: '0.2rem 0.5rem', fontSize: '0.82rem' }}
                                                         value={logDate}
-                                                        max={todayPKT()}
                                                         onChange={(e) => setLogDate(e.target.value)}
                                                     />
                                                     <input
                                                         type="time"
-                                                        class="form-control"
+                                                        className="form-control"
                                                         style={{ width: '110px', minHeight: '34px', height: '34px', padding: '0.2rem 0.5rem', fontSize: '0.82rem' }}
                                                         value={logTime}
                                                         onChange={(e) => setLogTime(e.target.value)}
                                                         title="Exact Feeding Administration Time"
                                                     />
-                                                    <button type="button" class="btn btn-primary btn-sm" onClick={handleLogAllPensFromAllView}>
-                                                        <i class="fa-solid fa-clipboard-check"></i> Log This Feeding — {allPensResolutions.length} Pen{allPensResolutions.length === 1 ? '' : 's'}
+                                                    <button
+                                                        type="button"
+                                                        className={`btn btn-sm ${isFutureDate ? 'btn-secondary' : 'btn-primary'}`}
+                                                        onClick={handleLogAllPensFromAllView}
+                                                        disabled={isFutureDate}
+                                                        title={isFutureDate ? `Cannot log feed for a future date (${formatDate(logDate)}). Advance formulation is for planning & WhatsApp preview only.` : `Log this feeding across ${allPensResolutions.length} pens`}
+                                                        style={isFutureDate ? { opacity: 0.65, cursor: 'not-allowed' } : {}}
+                                                    >
+                                                        {isFutureDate ? (
+                                                            <>
+                                                                <i className="fa-solid fa-lock" style={{ marginRight: '5px' }}></i>
+                                                                Advance Preview (Logging Disabled)
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <i className="fa-solid fa-clipboard-check"></i>
+                                                                Log This Feeding — {allPensResolutions.length} Pen{allPensResolutions.length === 1 ? '' : 's'}
+                                                            </>
+                                                        )}
                                                     </button>
-                                                    {logSaved && (
+                                                    {isFutureDate && (
+                                                        <span style={{ fontSize: '0.76rem', color: '#60a5fa', fontWeight: '500' }}>
+                                                            <i className="fa-solid fa-circle-info" style={{ marginRight: '4px' }}></i>
+                                                            Advance forecast active. You can share this diet on WhatsApp.
+                                                        </span>
+                                                    )}
+                                                    {logSaved && !isFutureDate && (
                                                         <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
-                                                            <i class="fa-solid fa-circle-check"></i> Feed logged for {formatDate(logDate)}.
+                                                            <i className="fa-solid fa-circle-check"></i> Feed logged for {formatDate(logDate)}.
                                                         </span>
                                                     )}
                                                 </div>
@@ -2085,29 +2228,56 @@ export default function TMRCalculator() {
                             <div class="tractor-logo-icon"><i class="fa-solid fa-tractor"></i></div>
                             <h2>Tractor Mixing Screen</h2>
 
-                            <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '0.8rem' }}>
-                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Feeding Date & Time:</span>
-                                <input
-                                    type="date"
-                                    class="form-control"
-                                    style={{ width: '135px', minHeight: '34px', height: '34px', padding: '0.2rem 0.5rem', fontSize: '0.82rem' }}
-                                    value={logDate}
-                                    max={todayPKT()}
-                                    onChange={(e) => setLogDate(e.target.value)}
-                                />
+                            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '0.8rem' }}>
+                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Date & Time:</span>
+                                <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary btn-sm"
+                                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.72rem', minHeight: '34px', height: '34px' }}
+                                        onClick={() => adjustLogDateByDays(-1)}
+                                        title="Previous Day"
+                                    >
+                                        ◀
+                                    </button>
+                                    <input
+                                        type="date"
+                                        className="form-control"
+                                        style={{ width: '135px', minHeight: '34px', height: '34px', padding: '0.2rem 0.5rem', fontSize: '0.82rem' }}
+                                        value={logDate}
+                                        onChange={(e) => setLogDate(e.target.value)}
+                                    />
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary btn-sm"
+                                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.72rem', minHeight: '34px', height: '34px' }}
+                                        onClick={() => adjustLogDateByDays(1)}
+                                        title="Next Day"
+                                    >
+                                        ▶
+                                    </button>
+                                </div>
+                                <button
+                                    type="button"
+                                    className={`btn btn-sm ${logDate === todayPKT() ? 'btn-primary' : 'btn-secondary'}`}
+                                    style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', minHeight: '34px', height: '34px' }}
+                                    onClick={() => setLogDate(todayPKT())}
+                                >
+                                    Today
+                                </button>
                                 <input
                                     type="time"
-                                    class="form-control"
+                                    className="form-control"
                                     style={{ width: '110px', minHeight: '34px', height: '34px', padding: '0.2rem 0.5rem', fontSize: '0.82rem' }}
                                     value={logTime}
                                     onChange={(e) => setLogTime(e.target.value)}
                                     title="Exact Feeding Administration Time"
                                 />
-                                <button type="button" class="btn btn-secondary btn-sm" onClick={() => setTractorSelectedPens(tractorEligiblePens)} disabled={tractorSelectedPens.length === tractorEligiblePens.length}>
-                                    <i class="fa-solid fa-check-double"></i> Select All ({tractorEligiblePens.length})
+                                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTractorSelectedPens(tractorEligiblePens)} disabled={tractorSelectedPens.length === tractorEligiblePens.length}>
+                                    <i className="fa-solid fa-check-double"></i> Select All ({tractorEligiblePens.length})
                                 </button>
                                 {tractorSelectedPens.length > 0 && (
-                                    <button type="button" class="btn btn-secondary btn-sm" onClick={() => setTractorSelectedPens([])}>
+                                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTractorSelectedPens([])}>
                                         Clear
                                     </button>
                                 )}
@@ -2294,16 +2464,32 @@ export default function TMRCalculator() {
                                     <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.6rem' }}>
                                         <button
                                             type="button"
-                                            class="btn btn-primary"
-                                            style={{ minHeight: '48px' }}
+                                            className="btn btn-primary"
+                                            style={{ minHeight: '48px', ...(isFutureDate ? { opacity: 0.65, cursor: 'not-allowed', background: '#475569', borderColor: '#64748b' } : {}) }}
                                             onClick={handleLogAllPens}
-                                            disabled={tractorMismatch && !tractorConfirmedMismatch}
+                                            disabled={(tractorMismatch && !tractorConfirmedMismatch) || isFutureDate}
+                                            title={isFutureDate ? `Cannot log feed for a future date (${formatDate(logDate)}). Advance formulation is for planning & WhatsApp preview only.` : `Log this feeding across ${tractorPenResolutions.length} pens`}
                                         >
-                                            <i class="fa-solid fa-clipboard-check"></i> Log This Feeding — {tractorPenResolutions.length} Pen{tractorPenResolutions.length === 1 ? '' : 's'}
+                                            {isFutureDate ? (
+                                                <>
+                                                    <i className="fa-solid fa-lock" style={{ marginRight: '6px' }}></i>
+                                                    Advance Preview (Logging Disabled for {formatDate(logDate)})
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <i className="fa-solid fa-clipboard-check"></i> Log This Feeding — {tractorPenResolutions.length} Pen{tractorPenResolutions.length === 1 ? '' : 's'}
+                                                </>
+                                            )}
                                         </button>
-                                        {logSaved && (
+                                        {isFutureDate && (
+                                            <span style={{ fontSize: '0.76rem', color: '#60a5fa', fontWeight: '500' }}>
+                                                <i className="fa-solid fa-circle-info" style={{ marginRight: '4px' }}></i>
+                                                Advance forecast active. You can share this diet on WhatsApp.
+                                            </span>
+                                        )}
+                                        {logSaved && !isFutureDate && (
                                             <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
-                                                <i class="fa-solid fa-circle-check"></i> Feed logged for {formatDate(logDate)} across {tractorPenResolutions.length} pen{tractorPenResolutions.length === 1 ? '' : 's'}.
+                                                <i className="fa-solid fa-circle-check"></i> Feed logged for {formatDate(logDate)} across {tractorPenResolutions.length} pen{tractorPenResolutions.length === 1 ? '' : 's'}.
                                             </span>
                                         )}
                                     </div>
