@@ -509,6 +509,38 @@ async function ensureColumns(client) {
     `);
 }
 
+// Bump this whenever ensureTables()/ensureColumns() gain a new statement. It's the actual
+// gate on whether a cold start needs to run schema migrations at all — see
+// ensureSchemaVersion() below for why this replaces re-running ~9 round trips of
+// CREATE/ALTER IF NOT EXISTS checks on every single cold start.
+const CURRENT_SCHEMA_VERSION = 1;
+
+// Real migration-version gate (the industry-standard pattern: a schema_migrations-style
+// table tracked in the DB itself, like Rails/Django/Flyway/Prisma use), instead of relying
+// only on the in-memory `schemaEnsured` flag. That flag resets on every cold start, so
+// without this, a cold container still unconditionally re-ran the full ensureTables +
+// ensureColumns bootstrap (~9 round trips even after batching) before serving a single
+// row of real data — on every cold start, forever, even though 99% of the time nothing
+// had changed since the last deploy.
+//
+// This checks a single persisted version number instead: if the DB is already at
+// CURRENT_SCHEMA_VERSION, the whole migration bootstrap is skipped and the cold start pays
+// only the 2 round trips below. Migrations only actually run again when a deploy bumps
+// CURRENT_SCHEMA_VERSION (a genuine new column/table was added), exactly like a real
+// migration runner — just gated at request time instead of a separate deploy step, since
+// this project has no CI/CD pipeline with DB access to run one.
+async function ensureSchemaVersion(client) {
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS ba_schema_version (
+            id INTEGER PRIMARY KEY DEFAULT 1,
+            version INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT INTO ba_schema_version (id, version) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;
+    `);
+    const { rows } = await client.query('SELECT version FROM ba_schema_version WHERE id = 1');
+    return rows[0].version;
+}
+
 // Self-healing database provision: creates tables and inserts baseline seeds on first boot
 async function ensureTables(client) {
     const res = await client.query(`
@@ -1175,14 +1207,12 @@ const SALES_ACTIONS = new Set([
 const ADMIN_ONLY_ACTIONS = new Set(['RESET_DATABASE', 'UPDATE_STAFF_PERMISSIONS', 'DELETE_STAFF_PERMISSIONS', 'APPROVE_PENDING_CHANGE', 'REJECT_PENDING_CHANGE']);
 
 // Insert 6 default meat cuts if ba_meat_cuts is empty
-// Schema-migration idempotency checks (ensureTables/ensureColumns/ensureDefaultCuts)
-// only ever need to run once per Postgres schema version, but every request was
-// re-running all ~28 "IF NOT EXISTS" statements sequentially before doing any real
-// work — each one a full network round trip to Neon, adding seconds to every single
-// request (GET and POST alike) for no benefit after the first successful run. This
-// module-scoped flag persists across warm invocations of the same serverless
-// container (the standard way to cache setup work in a Vercel/Lambda function), so
-// migrations only actually run again after a cold start (i.e. after a new deploy).
+// Skips the whole ensureDefaultCuts/reconcile bootstrap pass on warm invocations of the
+// same serverless container (the standard way to cache setup work in a Vercel/Lambda
+// function). On a cold start this flag resets, but the actual expensive part — schema
+// migrations — is now separately gated by CURRENT_SCHEMA_VERSION/ensureSchemaVersion
+// above, so a cold start only re-runs ensureTables/ensureColumns when the persisted DB
+// version is genuinely behind, not on every single cold start.
 let schemaEnsured = false;
 
 // Throttle for checkMissedFeeds — same warm-container caching idea as schemaEnsured,
@@ -1394,11 +1424,17 @@ module.exports = async (req, res) => {
     try {
         await client.connect();
 
-        // 1. Trigger database provisioning on-demand if tables do not exist — only
-        // once per warm container (see schemaEnsured above), not on every request.
+        // 1. Trigger database provisioning on-demand if tables/columns are missing — gated
+        // on both the in-memory schemaEnsured flag (skips entirely on warm invocations) and
+        // the persisted schema version (skips the expensive ensureTables/ensureColumns pass
+        // on a cold start too, once the DB is already caught up — see ensureSchemaVersion).
         if (!schemaEnsured) {
-            await ensureTables(client);
-            await ensureColumns(client);
+            const dbSchemaVersion = await ensureSchemaVersion(client);
+            if (dbSchemaVersion < CURRENT_SCHEMA_VERSION) {
+                await ensureTables(client);
+                await ensureColumns(client);
+                await client.query('UPDATE ba_schema_version SET version = $1 WHERE id = 1', [CURRENT_SCHEMA_VERSION]);
+            }
             await ensureDefaultCuts(client);
             await reconcileOrphanedFeedStockIssues(client);
             schemaEnsured = true;
