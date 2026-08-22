@@ -312,6 +312,7 @@ export default function TMRCalculator() {
     };
 
     // Formats a high-clarity, beautifully styled WhatsApp feeding mixing sheet
+    // Formats a high-clarity, clean, 100% reliable WhatsApp feeding sheet
     const generateWhatsAppDietText = (options = {}) => {
         const {
             targetPen = selectedTMRPen, // 'all' or 'A', 'B', etc.
@@ -320,54 +321,44 @@ export default function TMRCalculator() {
 
         let sessionLabel = 'Full Day Diet (100%)';
         let sessionMultiplier = 1.0;
-        let sessionPctText = '100%';
         let isFullDayWithSplits = false;
 
         const mPct = (activeSplitList && activeSplitList[0]) || 50;
         const ePct = (activeSplitList && activeSplitList[1]) || 50;
 
         if (session === 'morning') {
-            sessionLabel = `🌅 Morning Feeding (${mPct}% Split)`;
+            sessionLabel = `Morning Feeding (${mPct}% Split)`;
             sessionMultiplier = mPct / 100;
-            sessionPctText = `${mPct}%`;
         } else if (session === 'evening') {
-            sessionLabel = `🌇 Evening Feeding (${ePct}% Split)`;
+            sessionLabel = `Evening Feeding (${ePct}% Split)`;
             sessionMultiplier = ePct / 100;
-            sessionPctText = `${ePct}%`;
         } else if (session === 'full') {
-            sessionLabel = `📅 Full Day Complete Diet (100%)`;
+            sessionLabel = `Full Day Complete Diet (100%)`;
             sessionMultiplier = 1.0;
-            sessionPctText = `100%`;
             isFullDayWithSplits = numFeedings > 1;
         } else {
             // current
             if (activeFeedingIndex === 1) {
-                sessionLabel = `🌅 Morning Feeding (${activeFeedingPct}% Split)`;
+                sessionLabel = `Morning Feeding (${activeFeedingPct}% Split)`;
                 sessionMultiplier = activeFeedingPct / 100;
-                sessionPctText = `${activeFeedingPct}%`;
             } else if (activeFeedingIndex === 2) {
-                sessionLabel = `🌇 Evening Feeding (${activeFeedingPct}% Split)`;
+                sessionLabel = `Evening Feeding (${activeFeedingPct}% Split)`;
                 sessionMultiplier = activeFeedingPct / 100;
-                sessionPctText = `${activeFeedingPct}%`;
             } else if (activeFeedingIndex > 2) {
-                sessionLabel = `⏰ Feeding ${activeFeedingIndex} (${activeFeedingPct}% Split)`;
+                sessionLabel = `Feeding ${activeFeedingIndex} (${activeFeedingPct}% Split)`;
                 sessionMultiplier = activeFeedingPct / 100;
-                sessionPctText = `${activeFeedingPct}%`;
             } else {
-                sessionLabel = `📅 Full Day Complete Diet (100%)`;
+                sessionLabel = `Full Day Complete Diet (100%)`;
                 sessionMultiplier = 1.0;
-                sessionPctText = `100%`;
                 isFullDayWithSplits = numFeedings > 1;
             }
         }
 
         const lines = [];
+        lines.push(`*BA FARMS — TMR MIXING SHEET*`);
+        lines.push(`Date: ${formatDate(logDate)}`);
+        lines.push(`Shift: ${sessionLabel}`);
         lines.push(`========================================`);
-        lines.push(`🌾 *BA FARMS — TMR MIXING SHEET* 🌾`);
-        lines.push(`========================================`);
-        lines.push(`📅 *Date:* ${formatDate(logDate)}`);
-        lines.push(`⏰ *Shift / Schedule:* ${sessionLabel}`);
-        lines.push(``);
 
         const pensToProcess = (targetPen === 'all' || !targetPen)
             ? activePens
@@ -398,23 +389,23 @@ export default function TMRCalculator() {
             grandTotalMorning += penMorningWeight;
             grandTotalEvening += penEveningWeight;
 
-            lines.push(`----------------------------------------`);
-            lines.push(`📍 *PEN ${pId}*`);
-            lines.push(`👥 *Herd:* ${headCount} Head${avgWt ? `  |  *Avg Weight:* ${avgWt} kg` : ''}`);
+            lines.push(``);
+            lines.push(`*PEN ${pId}*`);
+            lines.push(`Herd: ${headCount} Head${avgWt ? ` | Avg Weight: ${avgWt} kg` : ''}`);
             if (planRow?.planName || planRow?.planKey) {
-                lines.push(`📋 *Plan:* ${planRow.planName || planRow.planKey}${planRow.weekNumber ? ` (Week ${planRow.weekNumber})` : ''}`);
+                lines.push(`Plan: ${planRow.planName || planRow.planKey}${planRow.weekNumber ? ` (Week ${planRow.weekNumber})` : ''}`);
             }
 
             if (isFullDayWithSplits) {
-                lines.push(`⚖️ *Full Day Target:* *${penFullDayWeight.toFixed(1)} kg* (${headCount > 0 ? (penFullDayWeight / headCount).toFixed(2) : '0.00'} kg/hd)`);
-                lines.push(`   ↳ 🌅 Morning (${mPct}%): *${penMorningWeight.toFixed(1)} kg*`);
-                lines.push(`   ↳ 🌇 Evening (${ePct}%): *${penEveningWeight.toFixed(1)} kg*`);
+                lines.push(`*Full Day Target: ${penFullDayWeight.toFixed(1)} kg* (${headCount > 0 ? (penFullDayWeight / headCount).toFixed(2) : '0.00'} kg/hd)`);
+                lines.push(`  > Morning (${mPct}%): *${penMorningWeight.toFixed(1)} kg*`);
+                lines.push(`  > Evening (${ePct}%): *${penEveningWeight.toFixed(1)} kg*`);
             } else {
-                lines.push(`🎯 *TARGET BATCH:* *${penSessionWeight.toFixed(1)} kg* (${headCount > 0 ? (penSessionWeight / headCount).toFixed(2) : '0.00'} kg/hd)`);
+                lines.push(`*TARGET BATCH: ${penSessionWeight.toFixed(1)} kg* (${headCount > 0 ? (penSessionWeight / headCount).toFixed(2) : '0.00'} kg/hd)`);
             }
 
             lines.push(`----------------------------------------`);
-            lines.push(`*MIXING INGREDIENTS BREAKDOWN:*`);
+            lines.push(`*INGREDIENTS BREAKDOWN:*`);
 
             if (batch.displayIngredients && batch.displayIngredients.length > 0) {
                 batch.displayIngredients.forEach(ing => {
@@ -425,33 +416,35 @@ export default function TMRCalculator() {
                     if (isFullDayWithSplits) {
                         const ingM = ingFullBatch * (mPct / 100);
                         const ingE = ingFullBatch * (ePct / 100);
-                        lines.push(`🔹 *${ing.name}:* *${ingFullBatch.toFixed(1)} kg* total _(${(ing.wetSingle || 0).toFixed(2)} kg/hd)_`);
-                        lines.push(`   ↳ 🌅 Morning: *${ingM.toFixed(1)} kg*  |  🌇 Evening: *${ingE.toFixed(1)} kg*`);
+                        lines.push(`* ${ing.name}: *${ingFullBatch.toFixed(1)} kg* total (${(ing.wetSingle || 0).toFixed(2)} kg/hd)`);
+                        lines.push(`  - Morning: ${ingM.toFixed(1)} kg | Evening: ${ingE.toFixed(1)} kg`);
                     } else {
-                        lines.push(`🔹 *${ing.name}:* *${ingSessionBatch.toFixed(1)} kg*  _(${ingPerHead.toFixed(2)} kg/hd)_`);
+                        lines.push(`* ${ing.name}: *${ingSessionBatch.toFixed(1)} kg* (${ingPerHead.toFixed(2)} kg/hd)`);
                     }
                 });
             } else {
-                lines.push(`  • _No ration formulated for this pen_`);
+                lines.push(`- No ration formulated for this pen`);
             }
-            lines.push(``);
+            lines.push(`----------------------------------------`);
         });
 
         if (pensToProcess.length > 1) {
+            lines.push(``);
             lines.push(`========================================`);
             if (isFullDayWithSplits) {
-                lines.push(`🚜 *WHOLE-FARM BATCH TOTALS:*`);
-                lines.push(`🌅 *Morning Mixer Total (${mPct}%):* *${grandTotalMorning.toFixed(1)} kg*`);
-                lines.push(`🌇 *Evening Mixer Total (${ePct}%):* *${grandTotalEvening.toFixed(1)} kg*`);
-                lines.push(`📅 *Full Day Total (100%):* *${grandTotalWeight.toFixed(1)} kg*`);
+                lines.push(`*WHOLE-FARM BATCH TOTALS (${grandTotalAnimals} Head):*`);
+                lines.push(`* Morning Mixer (${mPct}%): *${grandTotalMorning.toFixed(1)} kg*`);
+                lines.push(`* Evening Mixer (${ePct}%): *${grandTotalEvening.toFixed(1)} kg*`);
+                lines.push(`* Full Day Total (100%): *${grandTotalWeight.toFixed(1)} kg*`);
             } else {
-                lines.push(`🚜 *WHOLE-FARM MIXER BATCH (${sessionPctText}):* *${grandTotalWeight.toFixed(1)} kg*`);
+                lines.push(`*TOTAL FARM MIXER BATCH: ${grandTotalWeight.toFixed(1)} kg*`);
+                lines.push(`Total Herd: ${grandTotalAnimals} Head across ${pensToProcess.length} Pens`);
             }
-            lines.push(`👥 *Total Animals:* ${grandTotalAnimals} Head across ${pensToProcess.length} Pens`);
             lines.push(`========================================`);
         }
 
-        lines.push(`✅ _Please zero/tare the mixer scale before loading._`);
+        lines.push(``);
+        lines.push(`Note: Please zero/tare the mixer scale before loading.`);
         lines.push(`_BA Farms Feedlot Precision Management_`);
 
         return lines.join('\n');
@@ -459,9 +452,7 @@ export default function TMRCalculator() {
 
     const handleShareWhatsApp = (options = {}) => {
         const text = generateWhatsAppDietText(options);
-        const encoded = encodeURIComponent(text);
-        const url = `https://wa.me/?text=${encoded}`;
-
+        
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text).catch(() => {});
         }
@@ -469,6 +460,8 @@ export default function TMRCalculator() {
         setCopiedToast('Diet copied to clipboard & opening WhatsApp...');
         setTimeout(() => setCopiedToast(''), 4000);
 
+        const encoded = encodeURIComponent(text);
+        const url = `https://api.whatsapp.com/send?text=${encoded}`;
         window.open(url, '_blank');
         setShowWhatsAppModal(false);
     };
