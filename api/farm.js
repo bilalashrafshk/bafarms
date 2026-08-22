@@ -1502,8 +1502,7 @@ module.exports = async (req, res) => {
                 client.query('SELECT * FROM ba_meat_cuts ORDER BY created_at ASC'),
                 canSales ? client.query('SELECT * FROM ba_export_enquiries ORDER BY created_at DESC') : EMPTY,
                 canSales ? client.query('SELECT * FROM ba_quotations ORDER BY id DESC') : EMPTY,
-                canSales ? client.query('SELECT * FROM ba_spec_sheets ORDER BY doc_ref DESC') : EMPTY,
-                (isStaff && perms && perms.isAdmin) ? client.query('SELECT email, is_admin, access_sales, access_herd FROM ba_staff_permissions ORDER BY email ASC') : EMPTY,
+                isStaff ? client.query('SELECT email, is_admin, access_sales, access_herd FROM ba_staff_permissions ORDER BY is_admin DESC, email ASC') : EMPTY,
                 // Super-admin's review queue: every open request from any staff member,
                 // regardless of who's logged in — this is what the login-triggered
                 // approval popup is built from. animal_rfid/animal_breed are read

@@ -168,20 +168,18 @@ export const FarmProvider = ({ children }) => {
     // (re-)login, not every few minutes just because the token string rotated.
     const [sessionEpoch, setSessionEpoch] = useState(0);
     // Admin-only roster of per-user Sales/Herd access (populated from GET when the
-    // logged-in user is an admin; empty for everyone else).
-    const [staffPermissions, setStaffPermissions] = useState([]);
+    // logged-in user is an admin; backed by localStorage cache).
+    const [staffPermissions, setStaffPermissions] = useState(() => loadStoredData('ba_staff_permissions', []));
     // Super-admin's live review queue of staged sensitive-field edits/deletes from
-    // non-admin staff (populated from GET when the logged-in user is an admin; empty
-    // for everyone else). Drives the login-triggered approval popup.
-    const [pendingApprovals, setPendingApprovals] = useState([]);
+    // non-admin staff (drives the login-triggered approval popup).
+    const [pendingApprovals, setPendingApprovals] = useState(() => loadStoredData('ba_pending_approvals', []));
     // A non-admin staff member's own request history (any status) — lets them see
     // whether their sensitive edit/delete request is still pending, was approved, or
     // was rejected (and why).
-    const [myRequests, setMyRequests] = useState([]);
+    const [myRequests, setMyRequests] = useState(() => loadStoredData('ba_my_requests', []));
     // Super-admin's all-time approval history (any status, up to 500 most recent) —
-    // backs the searchable Approvals audit tab in Settings, distinct from the live
-    // pendingApprovals queue which only ever holds open requests.
-    const [allApprovals, setAllApprovals] = useState([]);
+    // backs the searchable Approvals audit tab in Settings.
+    const [allApprovals, setAllApprovals] = useState(() => loadStoredData('ba_all_approvals', []));
 
     const handleLoginSuccess = (userSession) => {
         localStorage.setItem('ba_staff_logged_in', 'true');
@@ -1689,25 +1687,31 @@ export const FarmProvider = ({ children }) => {
                         setSessionExpired(true);
                     }
 
-                    const setIfChanged = (setter, newValue) => {
+                    const setIfChanged = (setter, newValue, storageKey = null) => {
                         if (newValue === undefined || newValue === null) return;
-                        setter(prev => (JSON.stringify(prev) === JSON.stringify(newValue)) ? prev : newValue);
+                        setter(prev => {
+                            if (JSON.stringify(prev) === JSON.stringify(newValue)) return prev;
+                            if (storageKey) {
+                                try { localStorage.setItem(storageKey, JSON.stringify(newValue)); } catch (_) {}
+                            }
+                            return newValue;
+                        });
                     };
 
-                    setIfChanged(setAnimals, data.animals);
-                    if (data.meatCuts) setIfChanged(setMeatCuts, data.meatCuts);
+                    setIfChanged(setAnimals, data.animals, 'ba_animals');
+                    if (data.meatCuts) setIfChanged(setMeatCuts, data.meatCuts, 'ba_meat_cuts');
 
                     const hasHerdAccess = !!(data.session && data.session.accessHerd);
                     if (hasHerdAccess) {
-                        setIfChanged(setWeightLogs, data.weightLogs);
-                        setIfChanged(setTreatments, data.treatments);
-                        if (data.events) setIfChanged(setEvents, data.events);
-                        if (data.feedLogs) setIfChanged(setFeedLogs, data.feedLogs);
-                        if (data.rationPlans) setIfChanged(setRationPlans, data.rationPlans);
-                        if (data.pens) setIfChanged(setPens, data.pens);
-                        if (data.rationPlansV2) setIfChanged(setRationPlansV2, data.rationPlansV2);
-                        if (data.rationRows) setIfChanged(setRationRows, data.rationRows);
-                        if (data.rationRowItems) setIfChanged(setRationRowItems, data.rationRowItems);
+                        setIfChanged(setWeightLogs, data.weightLogs, 'ba_weights');
+                        setIfChanged(setTreatments, data.treatments, 'ba_treatments');
+                        if (data.events) setIfChanged(setEvents, data.events, 'ba_events');
+                        if (data.feedLogs) setIfChanged(setFeedLogs, data.feedLogs, 'ba_feed_logs');
+                        if (data.rationPlans) setIfChanged(setRationPlans, data.rationPlans, 'ba_ration_plans');
+                        if (data.pens) setIfChanged(setPens, data.pens, 'ba_pens');
+                        if (data.rationPlansV2) setIfChanged(setRationPlansV2, data.rationPlansV2, 'ba_ration_plans_v2');
+                        if (data.rationRows) setIfChanged(setRationRows, data.rationRows, 'ba_ration_rows');
+                        if (data.rationRowItems) setIfChanged(setRationRowItems, data.rationRowItems, 'ba_ration_row_items');
 
                         if (data.rationPlans && data.rationPlans.length === 0) {
                             setRationPlans([defaultBaselineRationPlan]);
@@ -1716,17 +1720,17 @@ export const FarmProvider = ({ children }) => {
 
                         if (data.settings) {
                             const s = data.settings;
-                            if (s.breeds_config) setIfChanged(setBreedsConfig, s.breeds_config);
-                            if (s.med_categories) setIfChanged(setMedCategories, s.med_categories);
-                            if (s.system_params) setIfChanged(setSystemParams, s.system_params);
-                            if (s.quarantine_protocols) setIfChanged(setQuarantineProtocols, s.quarantine_protocols);
+                            if (s.breeds_config) setIfChanged(setBreedsConfig, s.breeds_config, 'ba_breeds_config');
+                            if (s.med_categories) setIfChanged(setMedCategories, s.med_categories, 'ba_med_categories');
+                            if (s.system_params) setIfChanged(setSystemParams, s.system_params, 'ba_system_params');
+                            if (s.quarantine_protocols) setIfChanged(setQuarantineProtocols, s.quarantine_protocols, 'ba_quarantine_protocols');
                             if (s.feed_ingredients) setIfChanged(setFeedIngredients, s.feed_ingredients);
-                            if (s.feed_stock_items) setIfChanged(setFeedStockItems, s.feed_stock_items);
-                            if (s.feed_opening_stock) setIfChanged(setFeedOpeningStock, s.feed_opening_stock);
-                            if (s.mineral_split_ratio !== undefined) setIfChanged(setMineralSplitRatioState, s.mineral_split_ratio);
-                            if (s.premix_types) setIfChanged(setPremixTypes, s.premix_types);
-                            if (s.premix_formulas) setIfChanged(setPremixFormulas, s.premix_formulas);
-                            if (s.premix_batches) setIfChanged(setPremixBatches, s.premix_batches);
+                            if (s.feed_stock_items) setIfChanged(setFeedStockItems, s.feed_stock_items, 'ba_feed_stock_items');
+                            if (s.feed_opening_stock) setIfChanged(setFeedOpeningStock, s.feed_opening_stock, 'ba_feed_opening_stock');
+                            if (s.mineral_split_ratio !== undefined) setIfChanged(setMineralSplitRatioState, s.mineral_split_ratio, 'ba_mineral_split_ratio');
+                            if (s.premix_types) setIfChanged(setPremixTypes, s.premix_types, 'ba_premix_types');
+                            if (s.premix_formulas) setIfChanged(setPremixFormulas, s.premix_formulas, 'ba_premix_formulas');
+                            if (s.premix_batches) setIfChanged(setPremixBatches, s.premix_batches, 'ba_premix_batches');
                         }
                         const currentMyRequests = data.myRequests || [];
                         if (data.feedPurchases) {
@@ -1754,10 +1758,10 @@ export const FarmProvider = ({ children }) => {
 
                     const hasSalesAccess = !!(data.session && data.session.accessSales);
                     if (hasSalesAccess) {
-                        if (data.orders) setIfChanged(setOrders, data.orders);
-                        if (data.enquiries) setIfChanged(setEnquiries, data.enquiries);
-                        if (data.quotations) setIfChanged(setQuotations, data.quotations);
-                        if (data.specSheets) setIfChanged(setSpecSheets, data.specSheets);
+                        if (data.orders) setIfChanged(setOrders, data.orders, 'ba_orders');
+                        if (data.enquiries) setIfChanged(setEnquiries, data.enquiries, 'ba_export_enquiries');
+                        if (data.quotations) setIfChanged(setQuotations, data.quotations, 'ba_quotations');
+                        if (data.specSheets) setIfChanged(setSpecSheets, data.specSheets, 'ba_spec_sheets');
                     }
 
                     if (data.session) {
@@ -1768,10 +1772,10 @@ export const FarmProvider = ({ children }) => {
                             return merged;
                         });
                     }
-                    setIfChanged(setStaffPermissions, data.staffPermissions || []);
-                    setIfChanged(setPendingApprovals, data.pendingApprovals || []);
-                    setIfChanged(setMyRequests, data.myRequests || []);
-                    setIfChanged(setAllApprovals, data.allApprovals || []);
+                    setIfChanged(setStaffPermissions, data.staffPermissions || [], 'ba_staff_permissions');
+                    setIfChanged(setPendingApprovals, data.pendingApprovals || [], 'ba_pending_approvals');
+                    setIfChanged(setMyRequests, data.myRequests || [], 'ba_my_requests');
+                    setIfChanged(setAllApprovals, data.allApprovals || [], 'ba_all_approvals');
                 } else if (data.unconfigured) {
                     setDbUnconfigured(true);
                     console.warn("Neon Database connection string unconfigured. Utilizing offline localStorage backup.");
