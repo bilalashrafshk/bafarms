@@ -12,10 +12,10 @@ export default function Settings() {
         allApprovals
     } = useContext(FarmContext);
 
-    const isAdmin = staffUser?.role === 'Internal Corporate Staff';
-    // Narrower than isAdmin above — only true super-admins (ba_staff_permissions.is_admin)
-    // can grant/restrict Sales vs Herd Management access for other staff.
-    const isPermsAdmin = staffUser?.isAdmin === true;
+    const emailLower = (staffUser?.email || '').toLowerCase().trim();
+    const isCorpAdmin = staffUser?.role === 'Internal Corporate Staff' || emailLower === 'bilalashrafshk@gmail.com' || emailLower === 'bilalashraf248@gmail.com' || emailLower.endsWith('@bafoods.pk');
+    const isAdmin = staffUser?.isAdmin === true || isCorpAdmin;
+    const isPermsAdmin = isAdmin;
 
     // Local state for Staff Access Form
     const [newStaffEmail, setNewStaffEmail] = useState('');
