@@ -1408,10 +1408,6 @@ module.exports = async (req, res) => {
 
         // ─── GET ENDPOINT: LOAD FULL DATABASE STATE ───
         if (req.method === 'GET') {
-            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-            res.setHeader('Pragma', 'no-cache');
-            res.setHeader('Expires', '0');
-
             // Format date objects to clean strings (YYYY-MM-DD). `pg` parses DATE
             // columns into a JS Date built from LOCAL Y/M/D components (not UTC) —
             // going through `.toISOString()` re-reads those same components via UTC

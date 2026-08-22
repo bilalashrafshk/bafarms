@@ -171,12 +171,30 @@ export default function HerdRegistry() {
     };
 
     const exportCSV = () => {
-        const headers = ['#,RFID,Previous Tags,Breed,Entry Date,Entry Weight (kg),Current Weight (kg),Total Gain (kg),Purchase Cost (PKR),Cost per KG (PKR),Source,Pen,Status'];
-        const rows = sortedAnimals.map((a, idx) =>
-            [idx + 1, a.rfid, (a.previousTags && a.previousTags.length > 0) ? a.previousTags.join(';') : '', a.breed, formatDate(a.entryDate), a.entryWeight, a.currentWeight,
-             (a.currentWeight - a.entryWeight).toFixed(1), a.purchasePrice,
-             a.entryWeight ? (a.purchasePrice / a.entryWeight).toFixed(0) : '', a.source || '', a.pen || '', a.status].join(',')
-        );
+        const headers = ['#,RFID,Previous Tags,Breed,Entry Date,Mandi Weight (kg),Entry Weight (kg),Transit Shrink (kg),Transit Shrink (%),Current Weight (kg),Total Gain (kg),Mandi Price (PKR),Purchase Cost (PKR),Cost per KG (PKR),Source,Pen,Status'];
+        const rows = sortedAnimals.map((a, idx) => {
+            const shrinkKg = a.mandiWeight ? (a.mandiWeight - a.entryWeight).toFixed(1) : '';
+            const shrinkPct = (a.mandiWeight && a.mandiWeight > 0) ? (((a.mandiWeight - a.entryWeight) / a.mandiWeight) * 100).toFixed(2) : '';
+            return [
+                idx + 1,
+                a.rfid,
+                (a.previousTags && a.previousTags.length > 0) ? a.previousTags.join(';') : '',
+                a.breed,
+                formatDate(a.entryDate),
+                a.mandiWeight || '',
+                a.entryWeight,
+                shrinkKg,
+                shrinkPct,
+                a.currentWeight,
+                (a.currentWeight - a.entryWeight).toFixed(1),
+                a.mandiPrice || '',
+                a.purchasePrice,
+                a.entryWeight ? (a.purchasePrice / a.entryWeight).toFixed(0) : '',
+                a.source || '',
+                a.pen || '',
+                a.status
+            ].join(',');
+        });
         const csv = [...headers, ...rows].join('\n');
         const blob = new Blob([csv], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
@@ -190,6 +208,7 @@ export default function HerdRegistry() {
     const exportPDF = () => {
         const totalCost = filteredAnimals.reduce((sum, a) => sum + (a.purchasePrice || 0), 0);
         const totalWeight = filteredAnimals.reduce((sum, a) => sum + (a.entryWeight || 0), 0);
+        const totalMandiWeight = filteredAnimals.reduce((sum, a) => sum + (a.mandiWeight || 0), 0);
         const avgPerKg = totalWeight > 0 ? totalCost / totalWeight : 0;
 
         const doc = new jsPDF({ orientation: 'landscape' });
@@ -199,28 +218,47 @@ export default function HerdRegistry() {
         doc.setFontSize(10);
         doc.setTextColor(100);
         const filterNote = activeFilterCount > 0 || search || filterStatus !== 'All' ? ' (Filtered View)' : '';
-        doc.text(`Generated ${formatDate(todayPKT())} · ${filteredAnimals.length} animal${filteredAnimals.length === 1 ? '' : 's'}${filterNote} · Avg Purchase Price/Gross Weight: ${Math.round(avgPerKg).toLocaleString()} PKR/kg`, 14, 21);
+        doc.text(`Generated ${formatDate(todayPKT())} · ${filteredAnimals.length} animal${filteredAnimals.length === 1 ? '' : 's'}${filterNote} · Avg Landed Cost: ${Math.round(avgPerKg).toLocaleString()} PKR/kg`, 14, 21);
 
         autoTable(doc, {
             startY: 27,
-            head: [['#', 'Tag', 'Breed', 'Entry Date', 'Entry Wt (kg)', 'Current Wt (kg)', 'Gain (kg)', 'Cost (PKR)', 'Cost/kg (PKR)', 'Source', 'Pen', 'Status']],
-            body: sortedAnimals.map((a, idx) => [
-                idx + 1,
-                (a.previousTags && a.previousTags.length > 0) ? `${a.rfid} (prev: ${a.previousTags.join(', ')})` : a.rfid,
-                a.breed,
-                formatDate(a.entryDate),
-                a.entryWeight,
-                a.currentWeight,
-                (a.currentWeight - a.entryWeight).toFixed(1),
-                a.purchasePrice.toLocaleString(),
-                a.entryWeight ? Math.round(a.purchasePrice / a.entryWeight).toLocaleString() : '—',
-                a.source || '—',
-                a.pen || '—',
-                a.status
-            ]),
-            foot: [['', '', '', '', totalWeight.toLocaleString(), '', '', totalCost.toLocaleString(), Math.round(avgPerKg).toLocaleString(), '', '', 'TOTAL / AVG']],
-            styles: { fontSize: 8 },
-            headStyles: { fillColor: [25, 90, 60] },
+            head: [['#', 'Tag', 'Breed', 'Entry Date', 'Mandi Wt', 'Entry Wt', 'Transit Shrink', 'Latest Wt', 'Gain', 'Cost (PKR)', 'Cost/kg', 'Pen', 'Status']],
+            body: sortedAnimals.map((a, idx) => {
+                const shrinkKg = a.mandiWeight ? (a.mandiWeight - a.entryWeight) : null;
+                const shrinkPct = (a.mandiWeight && a.mandiWeight > 0) ? ((shrinkKg / a.mandiWeight) * 100) : null;
+                const shrinkStr = shrinkKg !== null ? `-${shrinkKg.toFixed(1)}kg (-${shrinkPct.toFixed(1)}%)` : '—';
+                const gain = (a.currentWeight - a.entryWeight);
+
+                return [
+                    idx + 1,
+                    (a.previousTags && a.previousTags.length > 0) ? `${a.rfid} (prev: ${a.previousTags.join(', ')})` : a.rfid,
+                    a.breed,
+                    formatDate(a.entryDate),
+                    a.mandiWeight ? `${a.mandiWeight} kg` : '—',
+                    `${a.entryWeight} kg`,
+                    shrinkStr,
+                    `${a.currentWeight} kg`,
+                    `${gain > 0 ? '+' : ''}${gain.toFixed(1)} kg`,
+                    a.purchasePrice.toLocaleString(),
+                    a.entryWeight ? `${Math.round(a.purchasePrice / a.entryWeight).toLocaleString()} /kg` : '—',
+                    a.pen || '—',
+                    a.status
+                ];
+            }),
+            foot: [[
+                '', '', '', '',
+                totalMandiWeight > 0 ? `${totalMandiWeight.toLocaleString()} kg` : '',
+                `${totalWeight.toLocaleString()} kg`,
+                '',
+                '',
+                '',
+                totalCost.toLocaleString(),
+                `${Math.round(avgPerKg).toLocaleString()} /kg`,
+                '',
+                'TOTAL / AVG'
+            ]],
+            styles: { fontSize: 7.5, cellPadding: 2 },
+            headStyles: { fillColor: [25, 90, 60], fontStyle: 'bold' },
             footStyles: { fillColor: [230, 230, 230], textColor: 20, fontStyle: 'bold' }
         });
 

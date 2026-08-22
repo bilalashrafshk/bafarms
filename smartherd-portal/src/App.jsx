@@ -28,7 +28,7 @@ function AppContent() {
         animals, logWeight, addTreatment, addAnimal, transitionAnimalStatus, fetchLoading, dbUnconfigured,
         isLoggedIn, staffUser, handleLoginSuccess, handleLogout, breedsConfig, medCategories, systemParams, quarantineProtocols,
         enquiries, pendingMutations, failedMutations, isSyncing, retryFailedMutation, dismissFailedMutation, sessionExpired,
-        pendingApprovals, approvePendingChange, rejectPendingChange, feedStockItems, fetchFarmData
+        pendingApprovals, approvePendingChange, rejectPendingChange, feedStockItems
     } = useContext(FarmContext);
 
     const isSuperAdmin = staffUser?.isAdmin === true;
@@ -367,12 +367,7 @@ function AppContent() {
                                 <span>Syncing...</span>
                             </div>
                         ) : !dbUnconfigured && (
-                            <div
-                                className="farm-badge"
-                                style={{ borderColor: 'rgba(25, 135, 84, 0.25)', color: 'var(--primary-green-light)', cursor: 'pointer' }}
-                                title="Operational databases fully synchronized in real-time with Neon Postgres cloud. Click to re-sync."
-                                onClick={() => fetchFarmData({ silent: false })}
-                            >
+                            <div className="farm-badge" style={{ borderColor: 'rgba(25, 135, 84, 0.25)', color: 'var(--primary-green-light)' }} title="Operational databases fully synchronized in real-time with Neon Postgres cloud.">
                                 <i className="fa-solid fa-database"></i>
                                 <span>Database: Live</span>
                             </div>
