@@ -24,7 +24,7 @@ export default function RationVarianceReport() {
     const [expandedRowKeys, setExpandedRowKeys] = useState(new Set());
     const [searchQuery, setSearchQuery] = useState('');
     const [breakdownByPen, setBreakdownByPen] = useState(true);
-    const [showPenSummary, setShowPenSummary] = useState(true);
+    const [showPenMatrix, setShowPenMatrix] = useState(true);
 
     // Unique pens present in logs
     const uniquePens = useMemo(() => {
