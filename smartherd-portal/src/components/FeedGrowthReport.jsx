@@ -41,7 +41,6 @@ export default function FeedGrowthReport() {
     const [dateFrom, setDateFrom] = useState(defaultFrom);
     const [dateTo, setDateTo] = useState(todayStr);
     const [penFilter, setPenFilter] = useState('ALL'); // 'ALL' = whole herd, or a specific pen id
-    const [feedLogFilter, setFeedLogFilter] = useState('all'); // 'all' | 'logged' | 'missed'
 
     const inRange = (d) => d >= dateFrom && d <= dateTo;
 
@@ -443,63 +442,13 @@ export default function FeedGrowthReport() {
             )}
 
             {/* Day-by-day feed log within range */}
-            <div className="glass-panel">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem', marginBottom: '1rem' }}>
-                    <h3 className="panel-title" style={{ margin: 0 }}>
-                        <i className="fa-solid fa-calendar-days"></i> Daily Feed Log
-                    </h3>
-                    <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <button
-                            type="button"
-                            className={`filter-btn ${feedLogFilter === 'all' ? 'active' : ''}`}
-                            style={{ fontSize: '0.74rem', padding: '0.2rem 0.6rem' }}
-                            onClick={() => setFeedLogFilter('all')}
-                        >
-                            All Rows ({filteredFeedLogs.length + manualFeedIssues.length + missedDayRows.length})
-                        </button>
-                        <button
-                            type="button"
-                            className={`filter-btn ${feedLogFilter === 'logged' ? 'active' : ''}`}
-                            style={{ fontSize: '0.74rem', padding: '0.2rem 0.6rem' }}
-                            onClick={() => setFeedLogFilter('logged')}
-                        >
-                            <i className="fa-solid fa-circle-check" style={{ color: 'var(--primary-green-light)', marginRight: '4px' }}></i>
-                            Logged Feedings ({filteredFeedLogs.length + manualFeedIssues.length})
-                        </button>
-                        {missedDayRows.length > 0 && (
-                            <button
-                                type="button"
-                                className={`filter-btn ${feedLogFilter === 'missed' ? 'active' : ''}`}
-                                style={{ fontSize: '0.74rem', padding: '0.2rem 0.6rem', borderColor: feedLogFilter === 'missed' ? 'hsl(0,75%,50%)' : 'rgba(220,53,69,0.3)' }}
-                                onClick={() => setFeedLogFilter('missed')}
-                            >
-                                <i className="fa-solid fa-triangle-exclamation" style={{ color: 'hsl(0,75%,60%)', marginRight: '4px' }}></i>
-                                Unrecorded Days ({missedDayRows.length})
-                            </button>
-                        )}
-                    </div>
-                </div>
-
-                {/* Explanation Banner when Missed Gaps exist */}
-                {missedDayRows.length > 0 && feedLogFilter !== 'logged' && (
-                    <div style={{ background: 'rgba(220, 53, 69, 0.08)', border: '1px solid rgba(220, 53, 69, 0.25)', borderRadius: '8px', padding: '0.65rem 0.9rem', marginBottom: '1rem', fontSize: '0.78rem', color: '#fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.6rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <i className="fa-solid fa-circle-exclamation" style={{ fontSize: '1rem' }}></i>
-                            <span>
-                                <strong>{missedDayRows.length} unrecorded feeding gap(s) detected:</strong> Animals were active in pens on these dates, but staff did not submit a TMR feeding log.
-                            </span>
-                        </div>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                            Showing as 0% Coverage. Switch to "Logged Feedings" to view only logged records.
-                        </span>
-                    </div>
-                )}
-
+            <div class="glass-panel">
+                <h3 class="panel-title"><i class="fa-solid fa-calendar-days"></i> Daily Feed Log</h3>
                 {filteredFeedLogs.length === 0 && missedDayRows.length === 0 && manualFeedIssues.length === 0 ? (
                     <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No feed has been logged in this date range yet. Use "Log This Feeding" on the TMR Calculator to start building history.</p>
                 ) : (
-                    <div className="table-wrapper">
-                        <table className="data-table" style={{ fontSize: '0.85rem' }}>
+                    <div class="table-wrapper">
+                        <table class="data-table" style={{ fontSize: '0.85rem' }}>
                             <thead>
                                 <tr>
                                     <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
@@ -514,9 +463,9 @@ export default function FeedGrowthReport() {
                             </thead>
                             <tbody>
                                 {[
-                                    ...(feedLogFilter !== 'missed' ? filteredFeedLogs.map(log => ({ type: 'logged', date: log.date, pen: log.pen, log })) : []),
-                                    ...(feedLogFilter !== 'missed' ? manualFeedIssues.map(iss => ({ type: 'issue', date: iss.date, pen: iss.pen, issue: iss })) : []),
-                                    ...(feedLogFilter !== 'logged' ? missedDayRows.map(m => ({ type: 'missed', date: m.date, pen: m.pen, missed: m })) : [])
+                                    ...filteredFeedLogs.map(log => ({ type: 'logged', date: log.date, pen: log.pen, log })),
+                                    ...manualFeedIssues.map(iss => ({ type: 'issue', date: iss.date, pen: iss.pen, issue: iss })),
+                                    ...missedDayRows.map(m => ({ type: 'missed', date: m.date, pen: m.pen, missed: m }))
                                 ]
                                     .sort((a, b) => daysBetween(b.date, a.date))
                                     .map((row, idx) => row.type === 'logged' ? (
@@ -550,20 +499,17 @@ export default function FeedGrowthReport() {
                                             </tr>
                                         );
                                     })() : (
-                                        <tr key={`missed__${row.missed.date}__${row.missed.pen}`} style={{ background: 'rgba(220, 53, 69, 0.03)' }}>
+                                        <tr key={`missed__${row.missed.date}__${row.missed.pen}`}>
                                             <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td>{formatDate(row.missed.date)}</td>
                                             <td>{`Pen ${row.missed.pen}`}</td>
-                                            <td style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)', fontStyle: 'italic' }}>
-                                                <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: '4px' }}></i>
-                                                No feed logged (Missed Day)
-                                            </td>
+                                            <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>—</td>
                                             <td>{row.missed.animalCount}</td>
-                                            <td style={{ color: 'var(--text-muted)' }}>—</td>
-                                            <td style={{ color: 'var(--text-muted)' }}>—</td>
+                                            <td>—</td>
+                                            <td>—</td>
                                             <td>
-                                                <span style={{ color: 'hsl(0, 75%, 60%)', fontWeight: 600 }} title="No feed was recorded for this pen on this date in TMR Calculator">
-                                                    0% (Unrecorded)<i className="fa-solid fa-triangle-exclamation" style={{ marginLeft: '0.35rem' }}></i>
+                                                <span style={{ color: 'hsl(0, 75%, 60%)', fontWeight: 600 }} title="No feed logged this day">
+                                                    0%<i class="fa-solid fa-triangle-exclamation" style={{ marginLeft: '0.35rem' }}></i>
                                                 </span>
                                             </td>
                                         </tr>
