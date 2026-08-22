@@ -113,20 +113,9 @@ export default function Dashboard({ onNavigate }) {
     const activeHerdCount = animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased').length || animals.length || 1;
     const medCostPerHead = activeHerdCount > 0 ? (totalMedCost / activeHerdCount) : 0;
 
-    // D2. Sick / Under Treatment — animals currently in the Sick pen, plus anyone else
-    // still mid-withholding from a recent treatment (e.g. a routine vaccination that
-    // never moved them to the Sick pen) but not yet cleared. Deduped since a Sick
-    // animal is very often also mid-withholding.
-    const sickStatsToday = todayAsDate();
+    // D2. Sick — animals currently in the Sick pen only. (Withholding from a routine
+    // treatment doesn't by itself mean an animal is sick, so it's not counted here.)
     const sickCount = animals.filter(a => a.status === 'Sick').length;
-    const sickOrTreatedIds = new Set();
-    animals.forEach(a => {
-        if (a.status === 'Sold' || a.status === 'Deceased') return;
-        if (a.status === 'Sick') { sickOrTreatedIds.add(a.id); return; }
-        const underWithholding = treatments.some(t => t.animalId === a.id && daysBetween(sickStatsToday, t.date) < t.withholding);
-        if (underWithholding) sickOrTreatedIds.add(a.id);
-    });
-    const underTreatmentCount = sickOrTreatedIds.size - sickCount;
 
     // C. Trigger Alerts for Underperforming Calves (ADG < adgAlertThreshold) — "laggers".
     // Membership comes from the shared utils/laggers.js definition so Dashboard, Herd
@@ -487,7 +476,7 @@ export default function Dashboard({ onNavigate }) {
                     </span>
                 </div>
 
-                {/* Sick / Under Treatment */}
+                {/* Sick */}
                 <div class="glass-panel stat-box" style={{ cursor: 'pointer' }} onClick={() => onNavigate && onNavigate('rotation')} title="Click to view Sick Pen">
                     <div class="stat-header">
                         <h3>Sick</h3>
@@ -495,11 +484,11 @@ export default function Dashboard({ onNavigate }) {
                             <i class="fa-solid fa-stethoscope"></i>
                         </div>
                     </div>
-                    <div class="stat-val" style={sickOrTreatedIds.size > 0 ? { color: 'hsl(0,75%,60%)' } : undefined}>
-                        {sickOrTreatedIds.size} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>Calves</small>
+                    <div class="stat-val" style={sickCount > 0 ? { color: 'hsl(0,75%,60%)' } : undefined}>
+                        {sickCount} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>Calves</small>
                     </div>
                     <span class="stat-lbl" style={{ color: 'var(--text-muted)' }}>
-                        <i class="fa-solid fa-bed-pulse"></i> {sickCount} in Sick Pen · {underTreatmentCount} under treatment
+                        <i class="fa-solid fa-bed-pulse"></i> in Sick Pen
                     </span>
                 </div>
 
