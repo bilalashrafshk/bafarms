@@ -328,9 +328,10 @@ async function ensureColumns(client) {
     // since). Nullable/additive — existing rows are unaffected.
     await client.query(`ALTER TABLE ba_events ADD COLUMN IF NOT EXISTS from_pen VARCHAR(50)`);
     await client.query(`ALTER TABLE ba_events ADD COLUMN IF NOT EXISTS to_pen VARCHAR(50)`);
-    await client.query(`ALTER TABLE ba_events ADD COLUMN IF NOT EXISTS created_by VARCHAR(150)`);
     await client.query(`ALTER TABLE ba_weights ADD COLUMN IF NOT EXISTS created_by VARCHAR(150)`);
     await client.query(`ALTER TABLE ba_treatments ADD COLUMN IF NOT EXISTS created_by VARCHAR(150)`);
+    await client.query(`ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS mandi_price NUMERIC`);
+    await client.query(`ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS mandi_weight NUMERIC`);
 
     // Approval queue for sensitive herd changes made by non-super-admin staff: edits to
     // an animal's purchase price / entry (gross) weight, and any animal deletion, are
@@ -1532,7 +1533,9 @@ module.exports = async (req, res) => {
                 price: row.price ? parseFloat(row.price) : null,
                 desc: row.description || null,
                 images: row.images ? JSON.parse(row.images) : null,
-                previousTags: row.previous_tags ? (typeof row.previous_tags === 'string' ? (row.previous_tags.startsWith('[') ? JSON.parse(row.previous_tags) : [row.previous_tags]) : row.previous_tags) : []
+                previousTags: row.previous_tags ? (typeof row.previous_tags === 'string' ? (row.previous_tags.startsWith('[') ? JSON.parse(row.previous_tags) : [row.previous_tags]) : row.previous_tags) : [],
+                mandiPrice: row.mandi_price ? parseFloat(row.mandi_price) : null,
+                mandiWeight: row.mandi_weight ? parseFloat(row.mandi_weight) : null
             }));
 
             const weightLogs = weightsRes.rows.map(row => ({
@@ -1869,15 +1872,17 @@ module.exports = async (req, res) => {
             }
 
             if (action === 'ADD_ANIMAL') {
-                const { rfid, breed, entryDate, entryWeight, targetWeight, purchasePrice, source, status, pen, price, desc, images } = payload;
+                const { rfid, breed, entryDate, entryWeight, targetWeight, purchasePrice, source, status, pen, price, desc, images, mandiPrice, mandiWeight } = payload;
 
                 const animalRes = await client.query(`
-                    INSERT INTO ba_animals (rfid, breed, entry_date, entry_weight, current_weight, target_weight, purchase_price, source, status, pen, price, description, images)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                    INSERT INTO ba_animals (rfid, breed, entry_date, entry_weight, current_weight, target_weight, purchase_price, source, status, pen, price, description, images, mandi_price, mandi_weight)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                     RETURNING *
                 `, [
                     rfid, breed, entryDate, entryWeight, entryWeight, targetWeight, purchasePrice, source, status, pen || null,
-                    price || null, desc || null, images ? JSON.stringify(images) : null
+                    price || null, desc || null, images ? JSON.stringify(images) : null,
+                    mandiPrice ? parseFloat(mandiPrice) : null,
+                    mandiWeight ? parseFloat(mandiWeight) : null
                 ]);
 
                 const animal = animalRes.rows[0];
@@ -2020,6 +2025,8 @@ module.exports = async (req, res) => {
                 const finalPrice = price !== undefined ? (price || null) : current.price;
                 const finalDesc = desc !== undefined ? (desc || null) : current.description;
                 const finalImages = images !== undefined ? images : current.images;
+                const finalMandiPrice = mandiPrice !== undefined ? (mandiPrice ? parseFloat(mandiPrice) : null) : (current.mandi_price ? parseFloat(current.mandi_price) : null);
+                const finalMandiWeight = mandiWeight !== undefined ? (mandiWeight ? parseFloat(mandiWeight) : null) : (current.mandi_weight ? parseFloat(current.mandi_weight) : null);
 
                 const entryWeightChanged = finalEntryWeight !== parseFloat(current.entry_weight);
                 const purchasePriceChanged = finalPurchasePrice !== parseFloat(current.purchase_price);
@@ -2072,9 +2079,9 @@ module.exports = async (req, res) => {
 
                     await client.query(`
                         UPDATE ba_animals
-                        SET rfid = $1, breed = $2, entry_date = $3, target_weight = $4, source = $5, status = $6, pen = $7, price = $8, description = $9, images = $10, previous_tags = $11
-                        WHERE id = $12
-                    `, [finalRfid, finalBreed, finalEntryDate, finalTargetWeight, finalSource, finalStatus, finalPen, finalPrice, finalDesc, finalImages ? JSON.stringify(finalImages) : null, finalPreviousTags, id]);
+                        SET rfid = $1, breed = $2, entry_date = $3, target_weight = $4, source = $5, status = $6, pen = $7, price = $8, description = $9, images = $10, previous_tags = $11, mandi_price = $12, mandi_weight = $13
+                        WHERE id = $14
+                    `, [finalRfid, finalBreed, finalEntryDate, finalTargetWeight, finalSource, finalStatus, finalPen, finalPrice, finalDesc, finalImages ? JSON.stringify(finalImages) : null, finalPreviousTags, finalMandiPrice, finalMandiWeight, id]);
 
                     if (penChanged) {
                         await refreshPenCache(client, oldPen);
@@ -2097,11 +2104,11 @@ module.exports = async (req, res) => {
 
                 await client.query(`
                     UPDATE ba_animals
-                    SET rfid = $1, breed = $2, entry_date = $3, entry_weight = $4, target_weight = $5, purchase_price = $6, source = $7, status = $8, pen = $9, price = $10, description = $11, images = $12, previous_tags = $13
-                    WHERE id = $14
+                    SET rfid = $1, breed = $2, entry_date = $3, entry_weight = $4, target_weight = $5, purchase_price = $6, source = $7, status = $8, pen = $9, price = $10, description = $11, images = $12, previous_tags = $13, mandi_price = $14, mandi_weight = $15
+                    WHERE id = $16
                 `, [
                     finalRfid, finalBreed, finalEntryDate, finalEntryWeight, finalTargetWeight, finalPurchasePrice, finalSource, finalStatus, finalPen,
-                    finalPrice, finalDesc, finalImages ? JSON.stringify(finalImages) : null, finalPreviousTags,
+                    finalPrice, finalDesc, finalImages ? JSON.stringify(finalImages) : null, finalPreviousTags, finalMandiPrice, finalMandiWeight,
                     id
                 ]);
 

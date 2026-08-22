@@ -1789,7 +1789,9 @@ export const FarmProvider = ({ children }) => {
             purchasePrice: parseFloat(newAnimal.purchasePrice) || 150000,
             source: newAnimal.source || 'Local Mandi',
             status: newAnimal.status || 'Quarantined',
-            pen: newAnimal.pen || null
+            pen: newAnimal.pen || null,
+            mandiPrice: newAnimal.mandiPrice ? parseFloat(newAnimal.mandiPrice) : null,
+            mandiWeight: newAnimal.mandiWeight ? parseFloat(newAnimal.mandiWeight) : null
         };
 
         // 1. Sync UI locally immediately for zero-lag response

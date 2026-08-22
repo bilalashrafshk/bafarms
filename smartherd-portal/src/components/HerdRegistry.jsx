@@ -65,6 +65,8 @@ export default function HerdRegistry() {
     const [targetWeight, setTargetWeight] = useState('');
     const [entryDate, setEntryDate] = useState('');
     const [pen, setPen] = useState('');
+    const [mandiPrice, setMandiPrice] = useState('');
+    const [mandiWeight, setMandiWeight] = useState('');
     // When true, the Breed field is a free-text input instead of the preset dropdown —
     // lets staff register an animal with a breed that isn't in the configured list yet.
     const [customBreedMode, setCustomBreedMode] = useState(false);
@@ -232,6 +234,8 @@ export default function HerdRegistry() {
         setCustomBreedMode(false);
         setEntryWeight('');
         setPurchasePrice('');
+        setMandiPrice('');
+        setMandiWeight('');
         setSource('');
         setStatus('Quarantined');
         setTargetWeight('');
@@ -250,6 +254,8 @@ export default function HerdRegistry() {
         setCustomBreedMode(!breedsConfig.some(b => b.name === animal.breed));
         setEntryWeight(animal.entryWeight);
         setPurchasePrice(animal.purchasePrice);
+        setMandiPrice(animal.mandiPrice ? String(animal.mandiPrice) : '');
+        setMandiWeight(animal.mandiWeight ? String(animal.mandiWeight) : '');
         setSource(animal.source);
         setStatus(animal.status);
         setTargetWeight(animal.targetWeight || '');
@@ -287,7 +293,9 @@ export default function HerdRegistry() {
             status,
             targetWeight: parseFloat(targetWeight) || defaultTarget,
             entryDate,
-            pen: pen || null
+            pen: pen || null,
+            mandiPrice: mandiPrice ? parseFloat(mandiPrice) : null,
+            mandiWeight: mandiWeight ? parseFloat(mandiWeight) : null
         };
 
         if (editingAnimal) {
@@ -313,6 +321,8 @@ export default function HerdRegistry() {
         setCustomBreedMode(false);
         setEntryWeight('');
         setPurchasePrice('');
+        setMandiPrice('');
+        setMandiWeight('');
         setSource('');
         setStatus('Quarantined');
         setTargetWeight('');
@@ -907,7 +917,14 @@ export default function HerdRegistry() {
                                 </td>
                                 <td>{animal.breed}</td>
                                 <td style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{animal.entryDate ? formatDate(animal.entryDate) : '—'}</td>
-                                <td>{animal.entryWeight} kg</td>
+                                <td>
+                                    <div>{animal.entryWeight} kg</div>
+                                    {animal.mandiWeight && (
+                                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }} title={`Mandi: ${animal.mandiWeight} kg | Loss: -${(animal.mandiWeight - animal.entryWeight).toFixed(1)} kg (${(((animal.mandiWeight - animal.entryWeight) / animal.mandiWeight) * 100).toFixed(1)}% transit shrink)`}>
+                                            Mandi: {animal.mandiWeight}kg <span style={{ color: 'hsl(43,90%,53%)' }}>(-{(((animal.mandiWeight - animal.entryWeight) / animal.mandiWeight) * 100).toFixed(1)}%)</span>
+                                        </div>
+                                    )}
+                                </td>
                                 <td><strong>{animal.currentWeight} kg</strong></td>
                                 {(() => {
                                     const gain = parseFloat((animal.currentWeight - animal.entryWeight).toFixed(1));
@@ -917,9 +934,21 @@ export default function HerdRegistry() {
                                         </td>
                                     );
                                 })()}
-                                <td>{animal.purchasePrice.toLocaleString()}</td>
+                                <td>
+                                    <div>{animal.purchasePrice.toLocaleString()}</div>
+                                    {animal.mandiPrice && (
+                                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }} title={`Mandi Price: PKR ${animal.mandiPrice.toLocaleString()}`}>
+                                            Mandi: {animal.mandiPrice.toLocaleString()}
+                                        </div>
+                                    )}
+                                </td>
                                 <td style={{ color: 'var(--text-muted)' }}>
-                                    {animal.entryWeight ? `${Math.round(animal.purchasePrice / animal.entryWeight).toLocaleString()} /kg` : '—'}
+                                    <div>{animal.entryWeight ? `${Math.round(animal.purchasePrice / animal.entryWeight).toLocaleString()} /kg` : '—'}</div>
+                                    {animal.mandiPrice && animal.mandiWeight && (
+                                        <div style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.45)', whiteSpace: 'nowrap' }} title={`Mandi Rate: ${Math.round(animal.mandiPrice / animal.mandiWeight)} PKR/kg`}>
+                                            Mandi: {Math.round(animal.mandiPrice / animal.mandiWeight)} /kg
+                                        </div>
+                                    )}
                                 </td>
                                 <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '600' }}>
                                     {animal.pen ? <span style={{ color: 'var(--accent-gold)' }}>{animal.pen}</span> : <span style={{ opacity: 0.4 }}>—</span>}
@@ -1090,7 +1119,7 @@ export default function HerdRegistry() {
                                 </div>
 
                                 {/* Row 3: Status, Entry Date, Pen */}
-                                <div class="form-grid-3" style={{ marginBottom: '0.5rem' }}>
+                                <div class="form-grid-3" style={{ marginBottom: '0.8rem' }}>
                                     <div class="form-group" style={{ marginBottom: 0 }}>
                                         <label>Status</label>
                                         <select class="form-control" value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -1108,6 +1137,28 @@ export default function HerdRegistry() {
                                     <div class="form-group" style={{ marginBottom: 0 }}>
                                         <label>Pen / Lot</label>
                                         <input type="text" class="form-control" placeholder="e.g. A, B, 1" value={pen} onChange={(e) => setPen(e.target.value)} />
+                                    </div>
+                                </div>
+
+                                {/* Row 4: Mandi Purchase & Transit Shrinkage (Optional) */}
+                                <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.07)', borderRadius: '8px', padding: '0.6rem 0.8rem', marginBottom: '0.5rem' }}>
+                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span><i class="fa-solid fa-truck-ramp-box" style={{ marginRight: '0.35rem' }}></i> Mandi Purchase & Transit Shrinkage (Optional)</span>
+                                        {mandiWeight && entryWeight && parseFloat(mandiWeight) > 0 && (
+                                            <span style={{ color: (parseFloat(mandiWeight) - parseFloat(entryWeight)) >= 0 ? 'var(--accent-gold)' : 'hsl(0,75%,60%)' }}>
+                                                Shrink: -{(parseFloat(mandiWeight) - parseFloat(entryWeight)).toFixed(1)} kg ({(((parseFloat(mandiWeight) - parseFloat(entryWeight)) / parseFloat(mandiWeight)) * 100).toFixed(1)}%)
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div class="form-grid-row">
+                                        <div class="form-group" style={{ marginBottom: 0 }}>
+                                            <label style={{ fontSize: '0.75rem' }}>Mandi Weight (kg)</label>
+                                            <input type="number" step="0.1" class="form-control" placeholder="Mandi scale wt" value={mandiWeight} onChange={(e) => setMandiWeight(e.target.value)} />
+                                        </div>
+                                        <div class="form-group" style={{ marginBottom: 0 }}>
+                                            <label style={{ fontSize: '0.75rem' }}>Mandi Price (PKR)</label>
+                                            <input type="number" class="form-control" placeholder="Mandi purchase price" value={mandiPrice} onChange={(e) => setMandiPrice(e.target.value)} />
+                                        </div>
                                     </div>
                                 </div>
                             </div>
