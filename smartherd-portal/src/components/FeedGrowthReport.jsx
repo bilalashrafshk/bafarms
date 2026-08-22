@@ -60,6 +60,7 @@ export default function FeedGrowthReport() {
     // issue has no "reference/recipe price" the way a TMR log does.
     const manualFeedIssuesInRange = useMemo(() => {
         return feedStockIssues.filter(i => {
+            if (i.pen === 'PRODUCTION') return false; // Premix manufacturing batches are converted to Wanda
             const item = feedStockItems.find(it => it.id === i.itemId);
             if ((item?.category || 'feed') !== 'feed') return false;
             return inRange(i.date);

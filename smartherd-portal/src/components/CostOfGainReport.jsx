@@ -120,6 +120,7 @@ export default function CostOfGainReport() {
 
     const feedIssuesInRange = useMemo(() =>
         feedStockIssues.filter(i => {
+            if (i.pen === 'PRODUCTION') return false; // Premix manufacturing batches are converted to Wanda
             const item = feedStockItems.find(it => it.id === i.itemId);
             return (item?.category || 'feed') === 'feed' && inRange(i.date);
         }),
