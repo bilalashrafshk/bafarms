@@ -208,20 +208,29 @@ export default function HerdRegistry() {
     const exportPDF = () => {
         const totalCost = filteredAnimals.reduce((sum, a) => sum + (a.purchasePrice || 0), 0);
         const totalWeight = filteredAnimals.reduce((sum, a) => sum + (a.entryWeight || 0), 0);
-        const totalMandiWeight = filteredAnimals.reduce((sum, a) => sum + (a.mandiWeight || 0), 0);
+        const totalCurrentWeight = filteredAnimals.reduce((sum, a) => sum + (a.currentWeight || 0), 0);
+        const totalGain = totalCurrentWeight - totalWeight;
         const avgPerKg = totalWeight > 0 ? totalCost / totalWeight : 0;
+
+        const mandiAnimals = filteredAnimals.filter(a => a.mandiWeight && a.mandiWeight > 0);
+        const totalMandiWeight = mandiAnimals.reduce((sum, a) => sum + a.mandiWeight, 0);
+        const totalEntryWeightForMandi = mandiAnimals.reduce((sum, a) => sum + a.entryWeight, 0);
+        const totalShrinkKg = totalMandiWeight - totalEntryWeightForMandi;
+        const totalShrinkPct = totalMandiWeight > 0 ? ((totalShrinkKg / totalMandiWeight) * 100) : 0;
+        const shrinkSummaryStr = totalMandiWeight > 0 ? `-${totalShrinkKg.toFixed(1)}kg (-${totalShrinkPct.toFixed(2)}%)` : '—';
 
         const doc = new jsPDF({ orientation: 'landscape' });
 
         doc.setFontSize(16);
         doc.text('BA Farms — Herd Registry', 14, 15);
-        doc.setFontSize(10);
+        doc.setFontSize(9.5);
         doc.setTextColor(100);
         const filterNote = activeFilterCount > 0 || search || filterStatus !== 'All' ? ' (Filtered View)' : '';
-        doc.text(`Generated ${formatDate(todayPKT())} · ${filteredAnimals.length} animal${filteredAnimals.length === 1 ? '' : 's'}${filterNote} · Avg Landed Cost: ${Math.round(avgPerKg).toLocaleString()} PKR/kg`, 14, 21);
+        const shrinkHeaderNote = totalMandiWeight > 0 ? ` · Transit Shrink: -${totalShrinkKg.toFixed(1)} kg (-${totalShrinkPct.toFixed(2)}%)` : '';
+        doc.text(`Generated ${formatDate(todayPKT())} · ${filteredAnimals.length} animal${filteredAnimals.length === 1 ? '' : 's'}${filterNote} · Avg Landed Cost: ${Math.round(avgPerKg).toLocaleString()} PKR/kg${shrinkHeaderNote}`, 14, 21);
 
         autoTable(doc, {
-            startY: 27,
+            startY: 26,
             head: [['#', 'Tag', 'Breed', 'Entry Date', 'Mandi Wt', 'Entry Wt', 'Transit Shrink', 'Latest Wt', 'Gain', 'Cost (PKR)', 'Cost/kg', 'Pen', 'Status']],
             body: sortedAnimals.map((a, idx) => {
                 const shrinkKg = a.mandiWeight ? (a.mandiWeight - a.entryWeight) : null;
@@ -247,11 +256,11 @@ export default function HerdRegistry() {
             }),
             foot: [[
                 '', '', '', '',
-                totalMandiWeight > 0 ? `${totalMandiWeight.toLocaleString()} kg` : '',
-                `${totalWeight.toLocaleString()} kg`,
-                '',
-                '',
-                '',
+                totalMandiWeight > 0 ? `${totalMandiWeight.toFixed(1)} kg` : '',
+                `${totalWeight.toFixed(1)} kg`,
+                shrinkSummaryStr,
+                `${totalCurrentWeight.toFixed(1)} kg`,
+                `${totalGain > 0 ? '+' : ''}${totalGain.toFixed(1)} kg`,
                 totalCost.toLocaleString(),
                 `${Math.round(avgPerKg).toLocaleString()} /kg`,
                 '',
