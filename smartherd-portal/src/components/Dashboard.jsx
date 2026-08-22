@@ -2,7 +2,7 @@ import React, { useContext } from 'react';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 import { todayAsDate, parseDateOnly, daysBetween } from '../utils/dateOnly';
-import { getLaggerIds } from '../utils/laggers';
+import { getLaggerIds, getSpecialFocusIds } from '../utils/laggers';
 
 export default function Dashboard({ onNavigate }) {
     const {
@@ -121,6 +121,7 @@ export default function Dashboard({ onNavigate }) {
     // Membership comes from the shared utils/laggers.js definition so Dashboard, Herd
     // Ledger, Weight Tracker, and Rotation Planner all flag exactly the same animals.
     const laggerIds = getLaggerIds(animals, weightLogs, systemParams);
+    const specialFocusIds = getSpecialFocusIds(animals, weightLogs, systemParams);
     const alertCalves = [];
     animals.forEach(animal => {
         if (!laggerIds.has(animal.id)) return;
@@ -492,19 +493,35 @@ export default function Dashboard({ onNavigate }) {
                     </span>
                 </div>
 
-                {/* Special Attention / Laggers */}
+                {/* Special Attention / Laggers (severe: ADG < 0.5 kg/day) */}
                 <div class="glass-panel stat-box" style={{ cursor: 'pointer' }} onClick={() => onNavigate && onNavigate('weights')} title="Click to view Weight Tracker">
                     <div class="stat-header">
                         <h3>Special Attention</h3>
-                        <div class="stat-icon" style={{ background: 'rgba(255,193,7,0.1)', borderColor: 'rgba(255,193,7,0.25)', color: 'hsl(45,90%,55%)' }}>
+                        <div class="stat-icon" style={{ background: 'rgba(220,53,69,0.1)', borderColor: 'rgba(220,53,69,0.25)', color: 'hsl(0,75%,60%)' }}>
                             <i class="fa-solid fa-triangle-exclamation"></i>
                         </div>
                     </div>
-                    <div class="stat-val" style={laggerIds.size > 0 ? { color: 'hsl(45,90%,50%)' } : undefined}>
+                    <div class="stat-val" style={laggerIds.size > 0 ? { color: 'hsl(0,75%,60%)' } : undefined}>
                         {laggerIds.size} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>Laggers</small>
                     </div>
                     <span class="stat-lbl" style={{ color: 'var(--text-muted)' }}>
-                        <i class="fa-solid fa-arrow-trend-down"></i> ADG below {(Number(systemParams.adgAlertThreshold ?? 1.0) || 0).toFixed(1)} kg/day target
+                        <i class="fa-solid fa-arrow-trend-down"></i> ADG below 0.5 kg/day (Poor Doer)
+                    </span>
+                </div>
+
+                {/* Special Focus — below target but not yet a severe Lagger */}
+                <div class="glass-panel stat-box" style={{ cursor: 'pointer' }} onClick={() => onNavigate && onNavigate('weights')} title="Click to view Weight Tracker">
+                    <div class="stat-header">
+                        <h3>Special Focus</h3>
+                        <div class="stat-icon" style={{ background: 'rgba(255,193,7,0.1)', borderColor: 'rgba(255,193,7,0.25)', color: 'hsl(45,90%,55%)' }}>
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                        </div>
+                    </div>
+                    <div class="stat-val" style={specialFocusIds.size > 0 ? { color: 'hsl(45,90%,50%)' } : undefined}>
+                        {specialFocusIds.size} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>Calves</small>
+                    </div>
+                    <span class="stat-lbl" style={{ color: 'var(--text-muted)' }}>
+                        <i class="fa-solid fa-arrow-trend-down"></i> ADG 0.5–{(Number(systemParams.adgAlertThreshold ?? 1.0) || 0).toFixed(1)} kg/day
                     </span>
                 </div>
 
