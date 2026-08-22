@@ -156,6 +156,7 @@ const defaultBaselineRationPlan = {
 
 export const FarmProvider = ({ children }) => {
     // Auth States
+    const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('ba_staff_logged_in') === 'true');
     const enrichUser = (u) => {
         if (!u) return null;
         const email = (u.email || '').toLowerCase().trim();
