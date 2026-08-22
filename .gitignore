@@ -4,3 +4,5 @@ node_modules
 .env.local
 .DS_Store
 dist
+upcoming.json
+*service_account*.json

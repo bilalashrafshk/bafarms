@@ -43,7 +43,7 @@ export default function Dashboard({ onNavigate }) {
         if (isPreBaselineFeedDate(i.date)) return false;
         if (i.pen === 'PRODUCTION') return false; // Premix manufacturing batches are converted to Wanda, not direct cattle feeding
         const item = (feedStockItems || []).find(it => it.id === i.itemId);
-        return item ? (item.category === 'feed') : false;
+        return item?.category === 'feed';
     });
 
     const issueCostsMap = getFeedStockIssueCosts ? getFeedStockIssueCosts() : {};

@@ -869,7 +869,12 @@ export const FarmProvider = ({ children }) => {
                 }
             }
         });
-        return list;
+        return list.map(item => {
+            if (item.category) return item;
+            const norm = (item.name || item.id || '').toLowerCase();
+            const isMed = norm.includes('inj') || norm.includes('spray') || norm.includes('syring') || norm.includes('needle') || norm.includes('panacort') || norm.includes('famila') || norm.includes('enro') || norm.includes('dexa') || norm.includes('oxfa') || norm.includes('ivotec') || norm.includes('tincture') || norm.includes('pulmovac') || norm.includes('fmd') || norm.includes('bandage') || norm.includes('thermometer');
+            return { ...item, category: isMed ? 'medicine' : 'feed' };
+        });
     }, [feedStockItems, myRequests, pendingApprovals]);
 
     // Effective feed purchases including pending additions and excluding pending deletions,
