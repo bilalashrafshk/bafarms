@@ -187,8 +187,24 @@ async function sendOrderEmail(details) {
     return { sent: true };
 }
 
-// Add sale columns to ba_animals if they don't exist yet (safe to run on every request)
+// Add sale columns to ba_animals if they don't exist yet (safe to run on every request).
+//
+// This only ever actually runs once per warm container (see the `schemaEnsured` guard
+// around the caller), but a cold container pays for it inline on whatever request
+// happens to land first — and every one of the ~30 ALTER/CREATE statements below used to
+// be its own separately-awaited `client.query()` call, each paying a full network round
+// trip to Neon before the next was even sent, before any real data was fetched. That's
+// the exact anti-pattern the GET endpoint's data queries were later fixed to avoid (see
+// the Promise.all comment further down) — just never applied here. Grouped into a
+// handful of multi-statement calls instead (same technique `ensureTables` already uses
+// for its CREATE TABLE batch): each group is still just as idempotent/additive as
+// before, this only cuts how many round trips a cold start has to pay for one-time
+// schema bootstrapping. Statement order within a group is preserved (Postgres runs a
+// multi-statement query text sequentially), so anything that depends on an earlier
+// statement in the same group (a FK referencing a table just created, an UPDATE reading
+// a column just added) still runs after it, same as before.
 async function ensureColumns(client) {
+    // Group 1 — standalone column adds with no cross-table dependencies.
     await client.query(`
         ALTER TABLE ba_animals
             ADD COLUMN IF NOT EXISTS sale_price NUMERIC DEFAULT NULL,
@@ -200,64 +216,41 @@ async function ensureColumns(client) {
             ADD COLUMN IF NOT EXISTS price NUMERIC DEFAULT NULL,
             ADD COLUMN IF NOT EXISTS description TEXT DEFAULT NULL,
             ADD COLUMN IF NOT EXISTS images TEXT DEFAULT NULL,
-            ADD COLUMN IF NOT EXISTS previous_tags TEXT DEFAULT '[]'
-    `);
+            ADD COLUMN IF NOT EXISTS previous_tags TEXT DEFAULT '[]';
 
-    // Links a logged treatment back to the specific quarantine-protocol checklist step
-    // it fulfills (e.g. distinguishing the FMD day-1 dose from the FMD day-7 booster,
-    // which otherwise share the same type/medicine and were being conflated). NULL for
-    // treatments logged manually outside of a protocol checklist.
-    await client.query(`
+        -- Links a logged treatment back to the specific quarantine-protocol checklist step
+        -- it fulfills (e.g. distinguishing the FMD day-1 dose from the FMD day-7 booster,
+        -- which otherwise share the same type/medicine and were being conflated). NULL for
+        -- treatments logged manually outside of a protocol checklist.
+        -- Also links a treatment back to the feed-stock issue (ba_feed_stock_issues, same
+        -- category-agnostic FIFO stock system used for feed) that recorded its cost.
         ALTER TABLE ba_treatments
-            ADD COLUMN IF NOT EXISTS protocol_task_id VARCHAR(50) DEFAULT NULL
-    `);
+            ADD COLUMN IF NOT EXISTS protocol_task_id VARCHAR(50) DEFAULT NULL,
+            ADD COLUMN IF NOT EXISTS stock_issue_id VARCHAR(50) DEFAULT NULL;
 
-    // Links a logged treatment back to the feed-stock issue (ba_feed_stock_issues, same
-    // category-agnostic FIFO stock system used for feed) that recorded its cost — a draw
-    // from existing medicine stock, or a backfilled same-transaction purchase+issue for a
-    // medicine not yet in stock. NULL for treatments logged with no costed stock draw.
-    await client.query(`
-        ALTER TABLE ba_treatments
-            ADD COLUMN IF NOT EXISTS stock_issue_id VARCHAR(50) DEFAULT NULL
-    `);
-
-    // Per-plan ingredient price overrides (PKR/kg) — procurement cost is set per Ration
-    // Plan, not globally, since different plans/scenarios can assume different sourcing
-    // costs. Missing/unset ingredient ids in this map fall back to the global feed
-    // ingredient price (used by the "All Pens" manual TMR recipe with no plan attached).
-    await client.query(`
+        -- Per-plan ingredient price overrides (PKR/kg), and a day 1-7 adaptation table
+        -- separate from the weight-indexed steady-state rows in \`weeks\`.
         ALTER TABLE ba_ration_plans
-            ADD COLUMN IF NOT EXISTS ingredient_prices JSONB DEFAULT '{}'
-    `);
-
-    // Day 1-7 adaptation table, separate from the weight-indexed steady-state rows in
-    // `weeks`. Percentage-based (e.g. Wanda fed at X% of whatever the pen's current
-    // weight bracket calls for) rather than absolute kg, and tagged per forage_type
-    // (chari/silage) so a plan can carry adaptation rows for either or both. Empty/absent
-    // means the plan has no adaptation table yet and falls back to the legacy per-week
-    // scheduleMode/dailyIngredients behavior.
-    await client.query(`
-        ALTER TABLE ba_ration_plans
+            ADD COLUMN IF NOT EXISTS ingredient_prices JSONB DEFAULT '{}',
             ADD COLUMN IF NOT EXISTS adaptation JSONB DEFAULT '[]',
-            ADD COLUMN IF NOT EXISTS wanda_stock_item_id VARCHAR(100) DEFAULT NULL
-    `);
+            ADD COLUMN IF NOT EXISTS wanda_stock_item_id VARCHAR(100) DEFAULT NULL;
 
-    // Pens switch between forage sources (e.g. run chari while silage ferments, then
-    // switch), and staff track an expected exit date for scheduling. Neither affects
-    // ration lookup unless the plan actually has rows tagged for that forage_type.
-    await client.query(`
+        -- Pens switch between forage sources (e.g. run chari while silage ferments, then
+        -- switch), and staff track an expected exit date for scheduling.
         ALTER TABLE ba_pens
             ADD COLUMN IF NOT EXISTS forage_type VARCHAR(20) DEFAULT 'silage',
-            ADD COLUMN IF NOT EXISTS expected_exit_date DATE DEFAULT NULL
+            ADD COLUMN IF NOT EXISTS expected_exit_date DATE DEFAULT NULL;
     `);
 
-    // --- Normalized, CSV-imported ration system (RATION_SYSTEM_SPEC.md) ---
+    // Group 2 — --- Normalized, CSV-imported ration system (RATION_SYSTEM_SPEC.md) ---
     // Absolute kg/head/day only — this is the deliberate replacement for the
     // percentage-based `ba_ration_plans.weeks`/`adaptation` JSONB blobs above, which
     // is what caused three real pens at meaningfully different weights to be fed an
     // identical ration (the plan never re-resolved per-pen against that pen's own
     // projected weight). New pens/plans use these tables exclusively; old plans and
     // any pen still pointed at one keep working untouched (no dual-write, no drop).
+    // ba_pens.plan_id (added last in this group) FKs into ba_ration_plans_v2, so that
+    // table must be created earlier in this same batch — it is.
     await client.query(`
         CREATE TABLE IF NOT EXISTS ba_ration_plans_v2 (
             id VARCHAR(80) PRIMARY KEY,
@@ -270,9 +263,8 @@ async function ensureColumns(client) {
             created_by VARCHAR(100),
             created_at TIMESTAMP DEFAULT NOW(),
             UNIQUE(plan_key, version)
-        )
-    `);
-    await client.query(`
+        );
+
         CREATE TABLE IF NOT EXISTS ba_ration_rows (
             id SERIAL PRIMARY KEY,
             plan_id VARCHAR(80) REFERENCES ba_ration_plans_v2(id) ON DELETE CASCADE,
@@ -283,34 +275,31 @@ async function ensureColumns(client) {
             wt_max NUMERIC NOT NULL,
             target_adg NUMERIC NOT NULL,
             est_cost_per_head_per_day NUMERIC
-        )
-    `);
-    await client.query(`
+        );
+
         CREATE INDEX IF NOT EXISTS idx_ration_rows_lookup
-            ON ba_ration_rows (plan_id, forage_type, phase, day_no, wt_min, wt_max)
-    `);
-    await client.query(`
+            ON ba_ration_rows (plan_id, forage_type, phase, day_no, wt_min, wt_max);
+
         CREATE TABLE IF NOT EXISTS ba_ration_row_items (
             id SERIAL PRIMARY KEY,
             row_id INTEGER REFERENCES ba_ration_rows(id) ON DELETE CASCADE,
             ingredient_id VARCHAR(100) NOT NULL,
             qty_kg_per_head_per_day NUMERIC NOT NULL
-        )
-    `);
-    // `plan_id` here points at ba_ration_plans_v2 (new system). The pre-existing
-    // `ration_plan_id` FK to the old ba_ration_plans is left as-is for pens not yet
-    // migrated. Cached weight/ADG fields let the resolution engine project a pen's
-    // current weight without re-scanning ba_weights on every lookup; both are kept
-    // in sync by LOG_WEIGHT and by SAVE_PEN's initial assignment.
-    await client.query(`
+        );
+
+        -- \`plan_id\` here points at ba_ration_plans_v2 (new system). The pre-existing
+        -- \`ration_plan_id\` FK to the old ba_ration_plans is left as-is for pens not yet
+        -- migrated. Cached weight/ADG fields let the resolution engine project a pen's
+        -- current weight without re-scanning ba_weights on every lookup; both are kept
+        -- in sync by LOG_WEIGHT and by SAVE_PEN's initial assignment.
         ALTER TABLE ba_pens
             ADD COLUMN IF NOT EXISTS plan_id VARCHAR(80) REFERENCES ba_ration_plans_v2(id) ON DELETE SET NULL,
             ADD COLUMN IF NOT EXISTS last_actual_weight_kg NUMERIC,
             ADD COLUMN IF NOT EXISTS last_weigh_date DATE,
-            ADD COLUMN IF NOT EXISTS current_target_adg NUMERIC
+            ADD COLUMN IF NOT EXISTS current_target_adg NUMERIC;
     `);
 
-    // Event log table — safe CREATE IF NOT EXISTS
+    // Group 3 — event log table plus a batch of small, unrelated column adds.
     await client.query(`
         CREATE TABLE IF NOT EXISTS ba_events (
             id SERIAL PRIMARY KEY,
@@ -319,41 +308,45 @@ async function ensureColumns(client) {
             event_type VARCHAR(50) NOT NULL,
             note TEXT,
             created_at TIMESTAMP DEFAULT NOW()
-        )
-    `);
-    // from_pen/to_pen let 'registered' and 'pen_transfer' events double as a dated
-    // pen-membership ledger, so historical feed logs and ration lookups can answer
-    // "who was actually in this pen on that date" instead of trusting today's live
-    // roster (which wrongly includes animals bought in later, or drops ones sold
-    // since). Nullable/additive — existing rows are unaffected.
-    await client.query(`ALTER TABLE ba_events ADD COLUMN IF NOT EXISTS from_pen VARCHAR(50)`);
-    await client.query(`ALTER TABLE ba_events ADD COLUMN IF NOT EXISTS to_pen VARCHAR(50)`);
-    await client.query(`ALTER TABLE ba_weights ADD COLUMN IF NOT EXISTS created_by VARCHAR(150)`);
-    await client.query(`ALTER TABLE ba_treatments ADD COLUMN IF NOT EXISTS created_by VARCHAR(150)`);
-    // Free-text reason/diagnosis/remarks for the treatment (e.g. "Coughing", "Off-feed",
-    // "Leg injury") — previously there was nowhere to record *why* an animal was treated,
-    // only what medicine/dosage was given. Nullable/additive, existing rows unaffected.
-    await client.query(`ALTER TABLE ba_treatments ADD COLUMN IF NOT EXISTS notes TEXT`);
-    await client.query(`ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS mandi_price NUMERIC`);
-    await client.query(`ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS mandi_weight NUMERIC`);
-    await client.query(`ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS mandi_tax NUMERIC`);
-    await client.query(`ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS carriage NUMERIC`);
-    await client.query(`ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS misc_expense NUMERIC`);
+        );
 
-    // Approval queue for sensitive herd changes made by non-super-admin staff: edits to
-    // an animal's purchase price / entry (gross) weight, and any animal deletion, are
-    // staged here instead of writing straight to ba_animals — a super admin (is_admin=true)
-    // must approve or reject before the change/delete actually lands. `payload` holds the
-    // proposed new field values (UPDATE_ANIMAL) or is NULL (DELETE_ANIMAL, the whole row is
-    // already captured in previous_snapshot). Reusing the SAME action names as the direct
-    // mutations (UPDATE_ANIMAL/DELETE_ANIMAL) rather than inventing separate request actions
-    // keeps this enforced server-side regardless of what the client sends.
+        -- from_pen/to_pen let 'registered' and 'pen_transfer' events double as a dated
+        -- pen-membership ledger, so historical feed logs and ration lookups can answer
+        -- "who was actually in this pen on that date" instead of trusting today's live
+        -- roster (which wrongly includes animals bought in later, or drops ones sold
+        -- since). Nullable/additive — existing rows are unaffected.
+        ALTER TABLE ba_events ADD COLUMN IF NOT EXISTS from_pen VARCHAR(50);
+        ALTER TABLE ba_events ADD COLUMN IF NOT EXISTS to_pen VARCHAR(50);
+        ALTER TABLE ba_weights ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+        ALTER TABLE ba_treatments ADD COLUMN IF NOT EXISTS created_by VARCHAR(150);
+        -- Free-text reason/diagnosis/remarks for the treatment (e.g. "Coughing", "Off-feed",
+        -- "Leg injury") — previously there was nowhere to record *why* an animal was treated,
+        -- only what medicine/dosage was given. Nullable/additive, existing rows unaffected.
+        ALTER TABLE ba_treatments ADD COLUMN IF NOT EXISTS notes TEXT;
+        ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS mandi_price NUMERIC;
+        ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS mandi_weight NUMERIC;
+        ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS mandi_tax NUMERIC;
+        ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS carriage NUMERIC;
+        ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS misc_expense NUMERIC;
+    `);
+
+    // Group 4 — Approval queue for sensitive herd changes made by non-super-admin staff:
+    // edits to an animal's purchase price / entry (gross) weight, and any animal
+    // deletion, are staged here instead of writing straight to ba_animals — a super
+    // admin (is_admin=true) must approve or reject before the change/delete actually
+    // lands. `payload` holds the proposed new field values (UPDATE_ANIMAL) or is NULL
+    // (DELETE_ANIMAL, the whole row is already captured in previous_snapshot). Reusing
+    // the SAME action names as the direct mutations (UPDATE_ANIMAL/DELETE_ANIMAL) rather
+    // than inventing separate request actions keeps this enforced server-side regardless
+    // of what the client sends.
     // animal_id is deliberately NOT a foreign key here (unlike ba_events): an approved
     // deletion request needs its own row to survive as a permanent audit record even
     // after the animal it referred to is gone from ba_animals. animal_rfid/animal_breed
     // are captured at request time for the same reason — a live join to ba_animals
     // would go blank the moment the animal is deleted, erasing exactly the detail an
-    // audit trail exists to preserve.
+    // audit trail exists to preserve. The self-heal ALTER below drops the cascading FK
+    // (so approval history survives an approved delete) and backfills the newer columns
+    // for a table created before this schema settled.
     await client.query(`
         CREATE TABLE IF NOT EXISTS ba_pending_approvals (
             id SERIAL PRIMARY KEY,
@@ -369,48 +362,46 @@ async function ensureColumns(client) {
             reviewed_by VARCHAR(150),
             reviewed_at TIMESTAMP,
             review_note TEXT
-        )
-    `);
-    // Self-heal a table created before this schema settled: drop the cascading FK
-    // (so approval history survives an approved delete) and backfill the new columns.
-    await client.query(`
+        );
+
         ALTER TABLE ba_pending_approvals DROP CONSTRAINT IF EXISTS ba_pending_approvals_animal_id_fkey;
         ALTER TABLE ba_pending_approvals ADD COLUMN IF NOT EXISTS animal_rfid VARCHAR(50);
         ALTER TABLE ba_pending_approvals ADD COLUMN IF NOT EXISTS animal_breed VARCHAR(60);
     `);
-    // Explicit flag for a feed log where what was actually fed (overridden quantities
-    // or a substituted/added ingredient) diverged from the pen's Ration Plan that day —
-    // set by TMR's "Log This Feeding". Kept as a real column (not just parsed out of
-    // `notes`) so Feed Stock's Issues by Pen and any other view can flag it directly.
+
+    // Group 5 — feed log split-feeding tracking + its one-time backfill + constraint
+    // swap. Each step depends on the columns/data the previous step in this group
+    // added, so order is preserved within the single batch.
     await client.query(`
+        -- Explicit flag for a feed log where what was actually fed (overridden quantities
+        -- or a substituted/added ingredient) diverged from the pen's Ration Plan that day —
+        -- set by TMR's "Log This Feeding". Kept as a real column (not just parsed out of
+        -- \`notes\`) so Feed Stock's Issues by Pen and any other view can flag it directly.
         ALTER TABLE ba_feed_logs ADD COLUMN IF NOT EXISTS diet_differed BOOLEAN NOT NULL DEFAULT FALSE;
-    `);
-    // Split-feeding tracking: a pen can be fed 1 (Full Day), 2 (Morning/Evening), or 3
-    // (Morning/Afternoon/Evening) times a day (TMR's "Feeding N of M" split, which used
-    // to only be encoded as free text in `notes`). Each feeding is now its own row, keyed
-    // by feeding_index (0 = Full Day / legacy single log, 1-3 = which feeding of the
-    // split), so a later feeding no longer overwrites an earlier one from the same day —
-    // needed so the Feed & Growth Report can tell a fully-fed day apart from a day where
-    // e.g. only the morning feed was ever logged and the evening feed was missed.
-    await client.query(`
+
+        -- Split-feeding tracking: a pen can be fed 1 (Full Day), 2 (Morning/Evening), or 3
+        -- (Morning/Afternoon/Evening) times a day (TMR's "Feeding N of M" split, which used
+        -- to only be encoded as free text in \`notes\`). Each feeding is now its own row, keyed
+        -- by feeding_index (0 = Full Day / legacy single log, 1-3 = which feeding of the
+        -- split), so a later feeding no longer overwrites an earlier one from the same day —
+        -- needed so the Feed & Growth Report can tell a fully-fed day apart from a day where
+        -- e.g. only the morning feed was ever logged and the evening feed was missed.
         ALTER TABLE ba_feed_logs ADD COLUMN IF NOT EXISTS feeding_index INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE ba_feed_logs ADD COLUMN IF NOT EXISTS num_feedings INTEGER NOT NULL DEFAULT 1;
         ALTER TABLE ba_feed_logs ADD COLUMN IF NOT EXISTS feeding_pct NUMERIC NOT NULL DEFAULT 100;
         ALTER TABLE ba_feed_logs ADD COLUMN IF NOT EXISTS feeding_time TEXT;
-    `);
-    // Backfill pre-existing rows from the "FEEDING N OF M (P%)" marker TMR already wrote
-    // into `notes` for split feedings — one-time (guarded by num_feedings = 1, the column
-    // default, so it never re-parses a row that's already been backfilled or explicitly set).
-    await client.query(`
+
+        -- Backfill pre-existing rows from the "FEEDING N OF M (P%)" marker TMR already wrote
+        -- into \`notes\` for split feedings — one-time (guarded by num_feedings = 1, the column
+        -- default, so it never re-parses a row that's already been backfilled or explicitly set).
         UPDATE ba_feed_logs
         SET feeding_index = (regexp_match(notes, 'FEEDING (\\d+) OF (\\d+) \\((\\d+)%\\)'))[1]::int,
             num_feedings = (regexp_match(notes, 'FEEDING (\\d+) OF (\\d+) \\((\\d+)%\\)'))[2]::int,
             feeding_pct = (regexp_match(notes, 'FEEDING (\\d+) OF (\\d+) \\((\\d+)%\\)'))[3]::numeric
         WHERE num_feedings = 1 AND notes ~ 'FEEDING \\d+ OF \\d+ \\(\\d+%\\)';
-    `);
-    // The old UNIQUE(date, pen) constraint would silently let a second feeding of the
-    // same day overwrite the first — swap it for one that also keys on feeding_index.
-    await client.query(`
+
+        -- The old UNIQUE(date, pen) constraint would silently let a second feeding of the
+        -- same day overwrite the first — swap it for one that also keys on feeding_index.
         DO $$
         BEGIN
             IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ba_feed_logs_date_pen_key') THEN
@@ -421,31 +412,31 @@ async function ensureColumns(client) {
             END IF;
         END $$;
     `);
-    // Optional pin to a specific purchase lot (or 'opening' for opening stock) an issue
-    // should draw from — set when a "Log a Batch" / manual Issue lot picker is used to
-    // override the default FIFO (oldest lot first) draw. NULL means "auto/FIFO".
-    await client.query(`
-        ALTER TABLE ba_feed_stock_issues ADD COLUMN IF NOT EXISTS lot_id VARCHAR(50);
-    `);
 
-    // Denormalize the item's real name/unit onto each purchase/issue row at the moment
-    // it's recorded, instead of relying purely on a live join against the feed_stock_items
-    // master list (which could silently be missing/out of sync, e.g. for issues, whose
-    // approval path never used to sync it at all) — so Feed Stock / Store Ledger rows
-    // never fall back to showing the internal "item_<timestamp>" id as the product name.
+    // Group 6 — feed purchase/issue denormalized item_name/item_unit + their one-time
+    // backfills. The backfill UPDATEs read item_name, so they must run after the ALTER
+    // that adds it — same batch, same order, guaranteed.
     await client.query(`
+        -- Optional pin to a specific purchase lot (or 'opening' for opening stock) an issue
+        -- should draw from — set when a "Log a Batch" / manual Issue lot picker is used to
+        -- override the default FIFO (oldest lot first) draw. NULL means "auto/FIFO".
+        ALTER TABLE ba_feed_stock_issues ADD COLUMN IF NOT EXISTS lot_id VARCHAR(50);
+
+        -- Denormalize the item's real name/unit onto each purchase/issue row at the moment
+        -- it's recorded, instead of relying purely on a live join against the feed_stock_items
+        -- master list (which could silently be missing/out of sync, e.g. for issues, whose
+        -- approval path never used to sync it at all) — so Feed Stock / Store Ledger rows
+        -- never fall back to showing the internal "item_<timestamp>" id as the product name.
         ALTER TABLE ba_feed_purchases ADD COLUMN IF NOT EXISTS item_name VARCHAR(150);
         ALTER TABLE ba_feed_purchases ADD COLUMN IF NOT EXISTS item_unit VARCHAR(20);
         ALTER TABLE ba_feed_stock_issues ADD COLUMN IF NOT EXISTS item_name VARCHAR(150);
         ALTER TABLE ba_feed_stock_issues ADD COLUMN IF NOT EXISTS item_unit VARCHAR(20);
-    `);
 
-    // One-time self-heal for rows saved before item_name existed (or before the
-    // ADD_FEED_STOCK_ISSUE approval path synced names at all): recover the real name from
-    // the archived approval payload — ba_pending_approvals keeps approved rows forever —
-    // or, failing that, from whatever's currently in the feed_stock_items master list.
-    // Both queries are idempotent (WHERE item_name IS NULL), safe to run on every boot.
-    await client.query(`
+        -- One-time self-heal for rows saved before item_name existed (or before the
+        -- ADD_FEED_STOCK_ISSUE approval path synced names at all): recover the real name from
+        -- the archived approval payload — ba_pending_approvals keeps approved rows forever —
+        -- or, failing that, from whatever's currently in the feed_stock_items master list.
+        -- All four queries are idempotent (WHERE item_name IS NULL), safe to run on every boot.
         UPDATE ba_feed_purchases fp
         SET item_name = sub.name, item_unit = COALESCE(sub.unit, fp.item_unit)
         FROM (
@@ -460,9 +451,8 @@ async function ensureColumns(client) {
                 AND payload->>'itemName' NOT LIKE 'item\_%'
             ORDER BY payload->>'id', reviewed_at DESC
         ) sub
-        WHERE fp.id = sub.purchase_id AND fp.item_name IS NULL
-    `);
-    await client.query(`
+        WHERE fp.id = sub.purchase_id AND fp.item_name IS NULL;
+
         UPDATE ba_feed_stock_issues fi
         SET item_name = sub.name, item_unit = COALESCE(sub.unit, fi.item_unit)
         FROM (
@@ -477,9 +467,8 @@ async function ensureColumns(client) {
                 AND payload->>'itemName' NOT LIKE 'item\_%'
             ORDER BY payload->>'id', reviewed_at DESC
         ) sub
-        WHERE fi.id = sub.issue_id AND fi.item_name IS NULL
-    `);
-    await client.query(`
+        WHERE fi.id = sub.issue_id AND fi.item_name IS NULL;
+
         UPDATE ba_feed_purchases fp
         SET item_name = items.item ->> 'name', item_unit = COALESCE(items.item ->> 'unit', fp.item_unit)
         FROM (
@@ -489,9 +478,8 @@ async function ensureColumns(client) {
         WHERE fp.item_name IS NULL
             AND fp.item_id = items.item ->> 'id'
             AND items.item ->> 'name' IS NOT NULL
-            AND items.item ->> 'name' NOT LIKE 'item\_%'
-    `);
-    await client.query(`
+            AND items.item ->> 'name' NOT LIKE 'item\_%';
+
         UPDATE ba_feed_stock_issues fi
         SET item_name = items.item ->> 'name', item_unit = COALESCE(items.item ->> 'unit', fi.item_unit)
         FROM (
@@ -501,13 +489,13 @@ async function ensureColumns(client) {
         WHERE fi.item_name IS NULL
             AND fi.item_id = items.item ->> 'id'
             AND items.item ->> 'name' IS NOT NULL
-            AND items.item ->> 'name' NOT LIKE 'item\_%'
+            AND items.item ->> 'name' NOT LIKE 'item\_%';
     `);
 
-    // Operating overhead ledger (salaries, electricity, rent, misc) — separate from the
-    // feed/medicine stock system since these are pure dated expenses with no quantity/FIFO
-    // costing. Feeds the unified Cost of Gain report as a per-day-in-herd shared cost, same
-    // spirit as head-days feed cost allocation.
+    // Group 7 — Operating overhead ledger (salaries, electricity, rent, misc) — separate
+    // from the feed/medicine stock system since these are pure dated expenses with no
+    // quantity/FIFO costing. Feeds the unified Cost of Gain report as a per-day-in-herd
+    // shared cost, same spirit as head-days feed cost allocation.
     await client.query(`
         CREATE TABLE IF NOT EXISTS ba_overhead_expenses (
             id VARCHAR(50) PRIMARY KEY,
