@@ -69,27 +69,36 @@ export default function Dashboard({ onNavigate }) {
         ? parseFloat((validAdgLogs.reduce((sum, log) => sum + log.adg, 0) / validAdgLogs.length).toFixed(2))
         : null;
 
-    // B2. Weigh-in-to-weigh-in coverage windows, per animal — each animal's consecutive
-    // weight logs (prevLog -> log) bound the exact interval its adg was measured over,
-    // mirroring FarmContext.logWeight/recalcWeightChain's own prevLog pairing. Used below
-    // to "lock" Cost/kg Gain's feed-cost numerator to only the days that actually fall
-    // inside a measured interval — otherwise feeding less today (before it's been
-    // re-weighed) silently drags down the feed-cost average while avgHerdAdg hasn't
-    // moved to match, making the ratio read artificially cheap.
-    const measuredIntervals = [];
+    // B2. Weigh-in-to-weigh-in coverage windows, per animal, grouped by that animal's
+    // (current) pen — each animal's consecutive weight logs (prevLog -> log) bound the
+    // exact interval its adg was measured over, mirroring FarmContext.logWeight's own
+    // prevLog pairing. Grouped by pen (not just a flat global date mask) because feed
+    // logs are pen-scoped batches: a pen with zero weighed animals must NOT have its
+    // feed cost counted as "measured" just because some other pen's animals happened to
+    // be re-weighed on an overlapping date — that's still an unweighed, unmeasured feed
+    // cost for that pen's own herd. Whole-herd ("ALL" pen) joint-feeding logs are the one
+    // exception: those genuinely feed every animal in one batch, so they're measured
+    // against the union of every pen's intervals instead of one pen's alone.
+    const intervalsByPen = new Map();
+    const allIntervals = [];
     (animals || []).forEach(a => {
         const logs = (weightLogs || [])
             .filter(w => w.animalId === a.id && !isCorruptedWeighDate(w.date))
             .sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
         for (let i = 1; i < logs.length; i++) {
-            measuredIntervals.push({ start: logs[i - 1].date, end: logs[i].date });
+            const iv = { start: logs[i - 1].date, end: logs[i].date };
+            allIntervals.push(iv);
+            if (!intervalsByPen.has(a.pen)) intervalsByPen.set(a.pen, []);
+            intervalsByPen.get(a.pen).push(iv);
         }
     });
-    const isDateMeasured = d => measuredIntervals.some(iv => d > iv.start && d <= iv.end);
+    const isDateMeasuredInPen = (d, pen) => (intervalsByPen.get(pen) || []).some(iv => d > iv.start && d <= iv.end);
+    const isDateMeasuredGlobal = d => allIntervals.some(iv => d > iv.start && d <= iv.end);
+    const isLogMeasured = (dateStr, pen) => pen === 'ALL' ? isDateMeasuredGlobal(dateStr) : isDateMeasuredInPen(dateStr, pen);
 
-    const measuredFeedLogs = validFeedLogs.filter(f => isDateMeasured(f.date));
+    const measuredFeedLogs = validFeedLogs.filter(f => isLogMeasured(f.date, f.pen));
     const measuredManualIssueCost = manualFeedIssues
-        .filter(i => isDateMeasured(i.date))
+        .filter(i => isLogMeasured(i.date, i.pen))
         .reduce((sum, iss) => sum + (issueCostsMap[iss.id]?.cost || 0), 0);
     const measuredLoggedFeedCost = measuredFeedLogs.reduce((sum, f) => sum + (f.totalCost || 0), 0) + measuredManualIssueCost;
     const measuredTmrAnimalDays = measuredFeedLogs.reduce((sum, f) => {
