@@ -582,7 +582,7 @@ export default function Dashboard({ onNavigate }) {
     const targetY = hasChartData ? 170 - ((TARGET_ADG - adgMin) / (adgMax - adgMin)) * 140 : null;
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, minHeight: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%', paddingBottom: '1.5rem' }}>
 
             {/* Top Stat widgets */}
             <div class="dashboard-grid">
