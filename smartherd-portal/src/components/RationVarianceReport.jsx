@@ -27,6 +27,7 @@ export default function RationVarianceReport() {
     const [searchQuery, setSearchQuery] = useState('');
     const [breakdownByPen, setBreakdownByPen] = useState(true);
     const [showPenMatrix, setShowPenMatrix] = useState(true);
+    const [showItemBreakdown, setShowItemBreakdown] = useState(true);
 
     // Unique pens present in logs
     const uniquePens = useMemo(() => {
@@ -584,6 +585,78 @@ export default function RationVarianceReport() {
         });
     }, [feedLogs, dateFrom, dateTo, uniquePens, animals, pens]);
 
+    // Item-wise over/under-feeding, broken down by pen — answers "which ingredient was
+    // over/under-fed, by how much, in which pen" directly (the ledger/pen-matrix above
+    // only show blended totals per feeding/pen, not per ingredient). Always scans every
+    // pen regardless of the selectedPen filter (same convention as penSummaries) since
+    // the whole point is to compare pens side-by-side per item.
+    const itemPenSummaries = useMemo(() => {
+        const itemMap = new Map(); // name -> { name, price, plannedTotalKg, actualTotalKg, plannedCostTotal, actualCostTotal, byPen: Map(pen -> {...}) }
+
+        const inWindowLogs = (feedLogs || []).filter(f => {
+            if (!f.date) return false;
+            if (dateFrom && f.date < dateFrom) return false;
+            if (dateTo && f.date > dateTo) return false;
+            return true;
+        });
+
+        inWindowLogs.forEach(f => {
+            const pen = f.pen || 'ALL';
+            const rawIngs = Array.isArray(f.ingredients) ? f.ingredients : (typeof f.ingredients === 'string' ? JSON.parse(f.ingredients || '[]') : []);
+            const logAnimals = f.animalCount || 1;
+
+            rawIngs.forEach(ing => {
+                const name = ing.name || ing.id;
+                if (!name) return;
+                const price = parseFloat(ing.price || ing.rate || 0);
+                const actualPerHead = parseFloat(ing.wetSingle || ing.qtyKg || 0);
+                const plannedPerHead = ing.plannedQtyKg !== undefined && ing.plannedQtyKg !== null ? parseFloat(ing.plannedQtyKg) : actualPerHead;
+                const actualTotal = ing.wetBatch !== undefined && ing.wetBatch !== null ? parseFloat(ing.wetBatch) : (actualPerHead * logAnimals);
+                const plannedTotal = plannedPerHead * logAnimals;
+
+                if (!itemMap.has(name)) {
+                    itemMap.set(name, { name, price: 0, plannedTotalKg: 0, actualTotalKg: 0, plannedCostTotal: 0, actualCostTotal: 0, byPen: new Map() });
+                }
+                const item = itemMap.get(name);
+                item.price = Math.max(item.price, price);
+                item.plannedTotalKg += plannedTotal;
+                item.actualTotalKg += actualTotal;
+                item.plannedCostTotal += plannedTotal * price;
+                item.actualCostTotal += actualTotal * price;
+
+                if (!item.byPen.has(pen)) {
+                    item.byPen.set(pen, { pen, plannedTotalKg: 0, actualTotalKg: 0, plannedCostTotal: 0, actualCostTotal: 0 });
+                }
+                const penEntry = item.byPen.get(pen);
+                penEntry.plannedTotalKg += plannedTotal;
+                penEntry.actualTotalKg += actualTotal;
+                penEntry.plannedCostTotal += plannedTotal * price;
+                penEntry.actualCostTotal += actualTotal * price;
+            });
+        });
+
+        const withDeltas = (plannedTotalKg, actualTotalKg, plannedCostTotal, actualCostTotal) => {
+            const diffKg = actualTotalKg - plannedTotalKg;
+            const diffPct = plannedTotalKg > 0.001 ? (diffKg / plannedTotalKg) * 100 : (actualTotalKg > 0.001 ? 100 : 0);
+            const diffCost = actualCostTotal - plannedCostTotal;
+            const isOmitted = plannedTotalKg > 0.01 && actualTotalKg <= 0.001;
+            const isExtra = plannedTotalKg <= 0.001 && actualTotalKg > 0.01;
+            return { diffKg, diffPct, diffCost, isOmitted, isExtra };
+        };
+
+        return Array.from(itemMap.values()).map(item => {
+            const byPen = Array.from(item.byPen.values())
+                .map(p => ({ ...p, ...withDeltas(p.plannedTotalKg, p.actualTotalKg, p.plannedCostTotal, p.actualCostTotal) }))
+                .sort((a, b) => Math.abs(b.diffKg) - Math.abs(a.diffKg));
+
+            return {
+                ...item,
+                ...withDeltas(item.plannedTotalKg, item.actualTotalKg, item.plannedCostTotal, item.actualCostTotal),
+                byPen
+            };
+        }).sort((a, b) => Math.abs(b.diffKg) - Math.abs(a.diffKg));
+    }, [feedLogs, dateFrom, dateTo]);
+
     // CSV Export
     const exportCSV = () => {
         if (varianceRows.length === 0) {
@@ -701,6 +774,48 @@ export default function RationVarianceReport() {
             });
         }
 
+        // Item-Wise Over/Under-Feeding Breakdown, by Pen
+        if (itemPenSummaries.length > 0) {
+            const itemBody = [];
+            itemPenSummaries.forEach(item => {
+                const statusLabel = item.isOmitted ? 'OMITTED' : item.isExtra ? 'EXTRA ADDED' : Math.abs(item.diffPct) <= 2.0 ? 'ON TARGET' : item.diffKg > 0 ? 'OVERFED' : 'UNDERFED';
+                itemBody.push([
+                    item.name,
+                    'All Pens (Total)',
+                    item.plannedTotalKg.toFixed(1),
+                    item.actualTotalKg.toFixed(1),
+                    `${item.diffKg > 0 ? '+' : ''}${item.diffKg.toFixed(1)} kg (${item.isOmitted ? '-100' : `${item.diffPct > 0 ? '+' : ''}${item.diffPct.toFixed(1)}`}%)`,
+                    ...(isSuperAdmin ? [`${item.diffCost > 0 ? '+' : ''}${Math.round(item.diffCost).toLocaleString()} PKR`] : []),
+                    statusLabel
+                ]);
+                item.byPen.forEach(p => {
+                    const pStatusLabel = p.isOmitted ? 'Omitted' : p.isExtra ? 'Extra' : Math.abs(p.diffPct) <= 2.0 ? 'On Target' : p.diffKg > 0 ? 'Overfed' : 'Underfed';
+                    itemBody.push([
+                        '',
+                        p.pen === 'ALL' ? 'All Pens (Joint Feeding)' : `Pen ${p.pen}`,
+                        p.plannedTotalKg.toFixed(1),
+                        p.actualTotalKg.toFixed(1),
+                        `${p.diffKg > 0 ? '+' : ''}${p.diffKg.toFixed(1)} kg (${p.isOmitted ? '-100' : `${p.diffPct > 0 ? '+' : ''}${p.diffPct.toFixed(1)}`}%)`,
+                        ...(isSuperAdmin ? [`${p.diffCost > 0 ? '+' : ''}${Math.round(p.diffCost).toLocaleString()} PKR`] : []),
+                        pStatusLabel
+                    ]);
+                });
+            });
+
+            autoTable(doc, {
+                startY: doc.lastAutoTable.finalY + 6,
+                head: [['ITEM', 'PEN', 'PLANNED (KG)', 'ACTUAL (KG)', 'VARIANCE', ...(isSuperAdmin ? ['COST IMPACT'] : []), 'STATUS']],
+                body: itemBody,
+                styles: { fontSize: 7.5, cellPadding: 2, valign: 'middle' },
+                headStyles: { fillColor: [30, 70, 130], textColor: 255, fontStyle: 'bold', fontSize: 7 },
+                didParseCell: (data) => {
+                    if (data.section === 'body' && !data.row.raw[0]) {
+                        data.cell.styles.textColor = [110, 110, 110];
+                    }
+                }
+            });
+        }
+
         // Feeding Ledger Table
         autoTable(doc, {
             startY: doc.lastAutoTable.finalY + 6,
@@ -770,6 +885,14 @@ export default function RationVarianceReport() {
                         title="Toggle Pen Comparison Matrix"
                     >
                         <i className="fa-solid fa-table-columns"></i> {showPenMatrix ? 'Hide Pen Matrix' : 'Pen-Wise Matrix'}
+                    </button>
+                    <button
+                        className={`btn ${showItemBreakdown ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setShowItemBreakdown(prev => !prev)}
+                        style={{ fontSize: '0.8rem' }}
+                        title="Toggle Item-Wise Over/Under-Feeding Breakdown"
+                    >
+                        <i className="fa-solid fa-wheat-awn"></i> {showItemBreakdown ? 'Hide Item Breakdown' : 'Item Breakdown'}
                     </button>
                     <button className="btn btn-secondary" onClick={exportCSV} title="Export CSV for Excel" style={{ fontSize: '0.8rem' }}>
                         <i className="fa-solid fa-file-csv"></i> Export CSV
@@ -949,6 +1072,107 @@ export default function RationVarianceReport() {
                                 </div>
                             );
                         })}
+                    </div>
+                </div>
+            )}
+
+            {/* Item-Wise Over/Under-Feeding Breakdown, by Pen */}
+            {showItemBreakdown && itemPenSummaries.length > 0 && (
+                <div className="glass-panel" style={{ padding: '1rem', borderTop: '3px solid #6ea8fe' }}>
+                    <div style={{ marginBottom: '0.8rem' }}>
+                        <h3 className="panel-title" style={{ margin: 0, fontSize: '0.92rem' }}>
+                            <i className="fa-solid fa-wheat-awn" style={{ color: '#6ea8fe', marginRight: '6px' }}></i>
+                            Item-Wise Over/Under-Feeding — by Pen
+                        </h3>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            Period: {formatDate(dateFrom)} ➔ {formatDate(dateTo)} • Each ingredient's total planned vs actual, then split per pen so you can see exactly which pen over/under-fed which item
+                        </span>
+                    </div>
+
+                    <div className="table-wrapper">
+                        <table className="data-table" style={{ fontSize: '0.82rem' }}>
+                            <thead>
+                                <tr>
+                                    <th>ITEM</th>
+                                    <th>PEN</th>
+                                    <th>PLANNED (KG)</th>
+                                    <th>ACTUAL FED (KG)</th>
+                                    <th>VARIANCE</th>
+                                    {isSuperAdmin && <th>COST IMPACT</th>}
+                                    <th style={{ textAlign: 'center' }}>STATUS</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {itemPenSummaries.map((item) => (
+                                    <React.Fragment key={item.name}>
+                                        {/* Overall total row for this item, across all pens */}
+                                        <tr style={{ background: 'rgba(110,168,254,0.06)' }}>
+                                            <td style={{ fontWeight: '800', color: 'var(--text-pure)' }}>{item.name}</td>
+                                            <td style={{ fontWeight: '700', color: 'var(--text-muted)' }}>All Pens (Total)</td>
+                                            <td>{item.plannedTotalKg.toFixed(1)} kg</td>
+                                            <td><strong>{item.actualTotalKg.toFixed(1)} kg</strong></td>
+                                            <td style={{
+                                                fontWeight: '700',
+                                                color: item.isOmitted ? 'hsl(0,75%,65%)' : item.diffKg > 0.01 ? 'var(--accent-gold)' : item.diffKg < -0.01 ? 'hsl(0,75%,65%)' : 'var(--primary-green-light)'
+                                            }}>
+                                                {item.diffKg > 0 ? '+' : ''}{item.diffKg.toFixed(1)} kg ({item.isOmitted ? '-100' : `${item.diffPct > 0 ? '+' : ''}${item.diffPct.toFixed(1)}`}%)
+                                            </td>
+                                            {isSuperAdmin && (
+                                                <td style={{
+                                                    fontWeight: '700',
+                                                    color: item.diffCost > 0 ? 'hsl(43,90%,53%)' : item.diffCost < 0 ? 'hsl(0,75%,65%)' : 'var(--text-muted)'
+                                                }}>
+                                                    {item.diffCost > 0 ? '+' : ''}{Math.round(item.diffCost).toLocaleString()} PKR
+                                                </td>
+                                            )}
+                                            <td style={{ textAlign: 'center' }}>
+                                                {item.isOmitted ? (
+                                                    <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: '3px', background: 'rgba(220,53,69,0.15)', color: 'hsl(0,75%,65%)', fontWeight: '700' }}>🔴 Omitted</span>
+                                                ) : item.isExtra ? (
+                                                    <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: '3px', background: 'rgba(13,110,253,0.15)', color: '#6ea8fe', fontWeight: '700' }}>🔵 Extra Added</span>
+                                                ) : Math.abs(item.diffPct) <= 2.0 ? (
+                                                    <span style={{ fontSize: '0.7rem', color: 'var(--primary-green-light)' }}>🟢 On Target</span>
+                                                ) : (
+                                                    <span style={{ fontSize: '0.7rem', color: item.diffKg > 0 ? 'var(--accent-gold)' : 'hsl(0,75%,65%)' }}>{item.diffKg > 0 ? '▲ Overfed' : '▼ Underfed'}</span>
+                                                )}
+                                            </td>
+                                        </tr>
+
+                                        {/* Per-pen split for this item */}
+                                        {item.byPen.map(p => (
+                                            <tr key={`${item.name}__${p.pen}`} style={{ background: p.isOmitted ? 'rgba(220,53,69,0.03)' : 'transparent' }}>
+                                                <td></td>
+                                                <td style={{ color: 'var(--text-muted)' }}>{p.pen === 'ALL' ? 'All Pens (Joint Feeding)' : `Pen ${p.pen}`}</td>
+                                                <td>{p.plannedTotalKg.toFixed(1)} kg</td>
+                                                <td>{p.actualTotalKg.toFixed(1)} kg</td>
+                                                <td style={{
+                                                    fontWeight: '600',
+                                                    color: p.isOmitted ? 'hsl(0,75%,65%)' : p.diffKg > 0.01 ? 'var(--accent-gold)' : p.diffKg < -0.01 ? 'hsl(0,75%,65%)' : 'var(--primary-green-light)'
+                                                }}>
+                                                    {p.diffKg > 0 ? '+' : ''}{p.diffKg.toFixed(1)} kg ({p.isOmitted ? '-100' : `${p.diffPct > 0 ? '+' : ''}${p.diffPct.toFixed(1)}`}%)
+                                                </td>
+                                                {isSuperAdmin && (
+                                                    <td style={{ color: p.diffCost > 0 ? 'hsl(43,90%,53%)' : p.diffCost < 0 ? 'hsl(0,75%,65%)' : 'var(--text-muted)' }}>
+                                                        {p.diffCost > 0 ? '+' : ''}{Math.round(p.diffCost).toLocaleString()} PKR
+                                                    </td>
+                                                )}
+                                                <td style={{ textAlign: 'center' }}>
+                                                    {p.isOmitted ? (
+                                                        <span style={{ fontSize: '0.68rem', color: 'hsl(0,75%,65%)' }}>Omitted</span>
+                                                    ) : p.isExtra ? (
+                                                        <span style={{ fontSize: '0.68rem', color: '#6ea8fe' }}>Extra</span>
+                                                    ) : Math.abs(p.diffPct) <= 2.0 ? (
+                                                        <span style={{ fontSize: '0.68rem', color: 'var(--primary-green-light)' }}>On Target</span>
+                                                    ) : (
+                                                        <span style={{ fontSize: '0.68rem', color: p.diffKg > 0 ? 'var(--accent-gold)' : 'hsl(0,75%,65%)' }}>{p.diffKg > 0 ? 'Overfed' : 'Underfed'}</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </React.Fragment>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             )}
