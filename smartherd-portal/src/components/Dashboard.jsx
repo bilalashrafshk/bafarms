@@ -189,7 +189,13 @@ export default function Dashboard({ onNavigate }) {
         for (let i = 1; i < logs.length; i++) {
             const prevLog = logs[i - 1];
             const currLog = logs[i];
-            if (prevLog.weight == null || currLog.weight == null) continue;
+            const prevWeight = Number(prevLog.weight);
+            const currWeight = Number(currLog.weight);
+            // One malformed/missing weight (e.g. an un-synced local draft, or a legacy
+            // entry-weight gap) must never poison the running herd-wide total via NaN —
+            // skip just this one interval instead of silently zeroing the whole stat.
+            if (!Number.isFinite(prevWeight) || !Number.isFinite(currWeight)) continue;
+            if (!parseDateOnly(prevLog.date) || !parseDateOnly(currLog.date)) continue;
 
             const wStart = addDaysStr(prevLog.date, 1);
             const wEnd = currLog.date;
@@ -200,7 +206,7 @@ export default function Dashboard({ onNavigate }) {
             // credit it as free.
             if (isPreBaselineFeedDate(wStart)) continue;
 
-            const gainKg = currLog.weight - prevLog.weight;
+            const gainKg = currWeight - prevWeight;
 
             let costShare = 0;
             clippedSegments(animalId, wStart, wEnd).forEach(seg => {
