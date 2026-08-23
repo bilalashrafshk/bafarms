@@ -1,4 +1,6 @@
 import React, { useContext, useState, useMemo } from 'react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 import { todayPKT, parseDateOnly } from '../utils/dateOnly';
@@ -362,6 +364,16 @@ export default function RationVarianceReport() {
     }, [feedLogs, dateFrom, dateTo, selectedPen, viewMode, complianceFilter, searchQuery, pens]);
 
     // Top KPI Summary Metrics across current filtered view
+    //
+    // Adherence Score: a graduated, weight-averaged "how close to plan" metric,
+    // replacing the old strict binary "exact match" count (which treated a feeding
+    // 2% over target the same as one 80% over target). Each feeding's deviation
+    // (|actual - planned| / planned, capped at 100%) is subtracted from 100 and
+    // averaged across feedings weighted by planned kg, so large feedings influence
+    // the score more than small top-dressed ones. netBiasPct keeps the *signed*
+    // average deviation so a systematic over/under-feeding trend is visible even
+    // when it's masked by a healthy-looking absolute-deviation average (e.g. some
+    // days over, some under, cancelling out).
     const kpiMetrics = useMemo(() => {
         const count = varianceRows.length;
         if (count === 0) {
@@ -370,8 +382,14 @@ export default function RationVarianceReport() {
                 exactCount: 0,
                 minorCount: 0,
                 majorCount: 0,
-                omissionCount: 0,
+                totalOmissions: 0,
                 compliancePct: 100,
+                avgAdherencePct: 100,
+                avgAbsDeviationPct: 0,
+                netBiasPct: 0,
+                onTargetCount: 0,
+                overFedCount: 0,
+                underFedCount: 0,
                 totalPlannedWeight: 0,
                 totalActualWeight: 0,
                 netWeightDiff: 0,
@@ -390,6 +408,12 @@ export default function RationVarianceReport() {
         let totalActualWeight = 0;
         let totalPlannedCost = 0;
         let totalActualCost = 0;
+        let sumAbsDevWeighted = 0;
+        let sumSignedDevWeighted = 0;
+        let weightForAvg = 0;
+        let onTargetCount = 0;
+        let overFedCount = 0;
+        let underFedCount = 0;
 
         varianceRows.forEach(r => {
             if (r.status === 'exact') exactCount += 1;
@@ -400,9 +424,21 @@ export default function RationVarianceReport() {
             totalActualWeight += r.totalActualWeight;
             totalPlannedCost += r.totalPlannedCost;
             totalActualCost += r.totalActualCost;
+
+            const w = r.totalPlannedWeight > 0.001 ? r.totalPlannedWeight : 0;
+            sumAbsDevWeighted += Math.min(Math.abs(r.netWeightDiffPct), 100) * w;
+            sumSignedDevWeighted += r.netWeightDiffPct * w;
+            weightForAvg += w;
+
+            if (Math.abs(r.netWeightDiffPct) < 2.0) onTargetCount += 1;
+            else if (r.netWeightDiffPct >= 2.0) overFedCount += 1;
+            else underFedCount += 1;
         });
 
         const compliancePct = Math.round((exactCount / count) * 100);
+        const avgAbsDeviationPct = weightForAvg > 0 ? sumAbsDevWeighted / weightForAvg : 0;
+        const avgAdherencePct = Math.max(0, 100 - avgAbsDeviationPct);
+        const netBiasPct = weightForAvg > 0 ? sumSignedDevWeighted / weightForAvg : 0;
         const netWeightDiff = totalActualWeight - totalPlannedWeight;
         const netWeightDiffPct = totalPlannedWeight > 0.001 ? (netWeightDiff / totalPlannedWeight) * 100 : 0;
         const netCostDiff = totalActualCost - totalPlannedCost;
@@ -414,6 +450,12 @@ export default function RationVarianceReport() {
             majorCount,
             totalOmissions,
             compliancePct,
+            avgAdherencePct,
+            avgAbsDeviationPct,
+            netBiasPct,
+            onTargetCount,
+            overFedCount,
+            underFedCount,
             totalPlannedWeight,
             totalActualWeight,
             netWeightDiff,
@@ -438,7 +480,13 @@ export default function RationVarianceReport() {
                 totalActualWeight: 0,
                 totalPlannedCost: 0,
                 totalActualCost: 0,
-                omissionsCount: 0
+                omissionsCount: 0,
+                sumAbsDevWeighted: 0,
+                sumSignedDevWeighted: 0,
+                weightForAvg: 0,
+                onTargetCount: 0,
+                overFedCount: 0,
+                underFedCount: 0
             });
         });
 
@@ -492,6 +540,20 @@ export default function RationVarianceReport() {
             if (diff < 0.5 || (logPlannedWt > 0 && (diff / logPlannedWt) < 0.02)) {
                 stats.exactCount += 1;
             }
+
+            // Same weighted-adherence math as the overall kpiMetrics, scoped to this
+            // pen only — lets each pen card show "how close to plan" as a graduated
+            // score instead of just the strict exact-match compliancePct.
+            const logDiffPct = logPlannedWt > 0.001
+                ? ((logActualWt - logPlannedWt) / logPlannedWt) * 100
+                : (logActualWt > 0.001 ? 100 : 0);
+            const w = logPlannedWt > 0.001 ? logPlannedWt : 0;
+            stats.sumAbsDevWeighted += Math.min(Math.abs(logDiffPct), 100) * w;
+            stats.sumSignedDevWeighted += logDiffPct * w;
+            stats.weightForAvg += w;
+            if (Math.abs(logDiffPct) < 2.0) stats.onTargetCount += 1;
+            else if (logDiffPct >= 2.0) stats.overFedCount += 1;
+            else stats.underFedCount += 1;
         });
 
         return Array.from(map.values()).map(s => {
@@ -499,6 +561,9 @@ export default function RationVarianceReport() {
             const diffPct = s.totalPlannedWeight > 0.001 ? (diffWeight / s.totalPlannedWeight) * 100 : 0;
             const diffCost = s.totalActualCost - s.totalPlannedCost;
             const compliancePct = s.feedingsCount > 0 ? Math.round((s.exactCount / s.feedingsCount) * 100) : 100;
+            const avgAbsDeviationPct = s.weightForAvg > 0 ? s.sumAbsDevWeighted / s.weightForAvg : 0;
+            const avgAdherencePct = s.feedingsCount > 0 ? Math.max(0, 100 - avgAbsDeviationPct) : 100;
+            const netBiasPct = s.weightForAvg > 0 ? s.sumSignedDevWeighted / s.weightForAvg : 0;
             const activeAnimalsInPen = animals.filter(a => String(a.pen) === String(s.pen) && a.status !== 'Sold' && a.status !== 'Deceased');
             const headCount = activeAnimalsInPen.length || s.headCount;
 
@@ -511,6 +576,9 @@ export default function RationVarianceReport() {
                 diffPct,
                 diffCost,
                 compliancePct,
+                avgAdherencePct,
+                avgAbsDeviationPct,
+                netBiasPct,
                 planName: penPlan?.name || penPlan?.planKey || `Pen ${s.pen}`
             };
         });
@@ -557,6 +625,129 @@ export default function RationVarianceReport() {
         document.body.removeChild(link);
     };
 
+    // Shareable PDF export — brand header, executive KPI strip (incl. the graduated
+    // Adherence Score), pen-wise "how close to plan" breakdown, and the full
+    // feeding-ledger table with per-row variance & compliance status. Follows the
+    // same jsPDF + autoTable pattern used by WeightTracker's Export PDF.
+    const exportReportPDF = () => {
+        if (varianceRows.length === 0) {
+            alert('No variance data available to export.');
+            return;
+        }
+
+        const doc = new jsPDF({ orientation: 'landscape' });
+
+        // Brand Header
+        doc.setFillColor(20, 60, 40);
+        doc.rect(0, 0, doc.internal.pageSize.width, 18, 'F');
+        doc.setFontSize(14);
+        doc.setTextColor(255, 255, 255);
+        doc.setFont(undefined, 'bold');
+        doc.text('BA FARMS · RATION PLAN VS ACTUAL VARIANCE REPORT', 14, 12);
+
+        doc.setFontSize(9);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(220, 240, 230);
+        doc.text(
+            `Period: ${formatDate(dateFrom)} - ${formatDate(dateTo)}   |   Scope: ${selectedPen === 'ALL' ? 'All Pens' : 'Pen ' + selectedPen}   |   Generated: ${formatDate(todayPKT())}`,
+            doc.internal.pageSize.width - 14, 12, { align: 'right' }
+        );
+
+        // Executive KPI Summary Strip
+        const biasLabel = kpiMetrics.netBiasPct > 0.05
+            ? `Over-fed ${kpiMetrics.netBiasPct.toFixed(1)}%`
+            : kpiMetrics.netBiasPct < -0.05
+            ? `Under-fed ${Math.abs(kpiMetrics.netBiasPct).toFixed(1)}%`
+            : 'Balanced';
+
+        autoTable(doc, {
+            startY: 23,
+            head: [['ADHERENCE SCORE', 'AVG DEVIATION', 'NET BIAS', 'WEIGHT VARIANCE', 'COST VARIANCE', 'OMITTED NUTRIENTS']],
+            body: [[
+                `${kpiMetrics.avgAdherencePct.toFixed(1)}%`,
+                `±${kpiMetrics.avgAbsDeviationPct.toFixed(1)}%`,
+                biasLabel,
+                `${kpiMetrics.netWeightDiff > 0 ? '+' : ''}${kpiMetrics.netWeightDiff.toFixed(1)} kg (${kpiMetrics.netWeightDiffPct > 0 ? '+' : ''}${kpiMetrics.netWeightDiffPct.toFixed(1)}%)`,
+                isSuperAdmin ? `${kpiMetrics.netCostDiff > 0 ? '+' : ''}${Math.round(kpiMetrics.netCostDiff).toLocaleString()} PKR` : 'N/A',
+                `${kpiMetrics.totalOmissions} instances`
+            ]],
+            styles: { fontSize: 8.5, cellPadding: 3, fontStyle: 'bold' },
+            headStyles: { fillColor: [35, 45, 40], textColor: [240, 240, 240], fontSize: 7.5 },
+            bodyStyles: { fillColor: [245, 248, 246], textColor: [30, 40, 35] },
+            theme: 'grid'
+        });
+
+        // Pen-Wise Adherence Breakdown
+        if (penSummaries.length > 0) {
+            autoTable(doc, {
+                startY: doc.lastAutoTable.finalY + 6,
+                head: [['PEN', 'HEAD', 'FEEDINGS', 'FED / PLANNED (KG)', 'VARIANCE', 'ADHERENCE', 'AVG DEVIATION', 'NET BIAS', 'ON-TARGET', 'OVER-FED', 'UNDER-FED']],
+                body: penSummaries.map(ps => [
+                    `Pen ${ps.pen}`,
+                    ps.headCount,
+                    ps.feedingsCount,
+                    `${ps.totalActualWeight.toFixed(0)} / ${ps.totalPlannedWeight.toFixed(0)}`,
+                    `${ps.diffWeight > 0 ? '+' : ''}${ps.diffWeight.toFixed(1)} kg (${ps.diffPct > 0 ? '+' : ''}${ps.diffPct.toFixed(1)}%)`,
+                    `${ps.avgAdherencePct.toFixed(0)}%`,
+                    `±${ps.avgAbsDeviationPct.toFixed(1)}%`,
+                    ps.netBiasPct > 0.05 ? `+${ps.netBiasPct.toFixed(1)}% over` : ps.netBiasPct < -0.05 ? `-${Math.abs(ps.netBiasPct).toFixed(1)}% under` : 'Balanced',
+                    ps.onTargetCount,
+                    ps.overFedCount,
+                    ps.underFedCount
+                ]),
+                styles: { fontSize: 7.5, cellPadding: 2.2, valign: 'middle' },
+                headStyles: { fillColor: [150, 105, 10], textColor: 255, fontStyle: 'bold', fontSize: 7 },
+                theme: 'grid'
+            });
+        }
+
+        // Feeding Ledger Table
+        autoTable(doc, {
+            startY: doc.lastAutoTable.finalY + 6,
+            head: [['#', 'DATE', 'PEN', 'ANIMALS', 'PLANNED (KG)', 'ACTUAL (KG)', 'VARIANCE', 'ADHERENCE', ...(isSuperAdmin ? ['COST VARIANCE'] : []), 'STATUS']],
+            body: varianceRows.map((r, idx) => {
+                const rowAdherence = Math.max(0, 100 - Math.min(Math.abs(r.netWeightDiffPct), 100));
+                return [
+                    idx + 1,
+                    formatDate(r.date),
+                    r.penTitle,
+                    r.maxAnimalCount,
+                    r.totalPlannedWeight.toFixed(1),
+                    r.totalActualWeight.toFixed(1),
+                    `${r.netWeightDiff > 0 ? '+' : ''}${r.netWeightDiff.toFixed(1)} kg (${r.netWeightDiffPct > 0 ? '+' : ''}${r.netWeightDiffPct.toFixed(1)}%)`,
+                    `${rowAdherence.toFixed(0)}%`,
+                    ...(isSuperAdmin ? [`${r.netCostDiff > 0 ? '+' : ''}${Math.round(r.netCostDiff).toLocaleString()} PKR`] : []),
+                    r.status.toUpperCase()
+                ];
+            }),
+            styles: { fontSize: 7.5, cellPadding: 2, valign: 'middle' },
+            headStyles: { fillColor: [25, 90, 60], textColor: 255, fontStyle: 'bold', fontSize: 7 },
+            didParseCell: (data) => {
+                if (data.section === 'body') {
+                    const row = varianceRows[data.row.index];
+                    if (!row) return;
+                    const statusColIdx = isSuperAdmin ? 8 : 7;
+                    if (data.column.index === statusColIdx) {
+                        if (row.status === 'exact') data.cell.styles.textColor = [15, 120, 50];
+                        else if (row.status === 'minor') data.cell.styles.textColor = [150, 105, 10];
+                        else data.cell.styles.textColor = [190, 40, 40];
+                        data.cell.styles.fontStyle = 'bold';
+                    }
+                }
+            },
+            didDrawPage: () => {
+                doc.setFontSize(7);
+                doc.setTextColor(140, 140, 140);
+                doc.text(
+                    `BA Farms · Confidential Ration Compliance Report · Page ${doc.internal.getNumberOfPages()}`,
+                    14, doc.internal.pageSize.height - 6
+                );
+            }
+        });
+
+        doc.save(`BA_Farms_Ration_Variance_Report_${dateFrom}_to_${dateTo}.pdf`);
+    };
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
             
@@ -582,6 +773,9 @@ export default function RationVarianceReport() {
                     </button>
                     <button className="btn btn-secondary" onClick={exportCSV} title="Export CSV for Excel" style={{ fontSize: '0.8rem' }}>
                         <i className="fa-solid fa-file-csv"></i> Export CSV
+                    </button>
+                    <button className="btn btn-secondary" onClick={exportReportPDF} title="Export a shareable PDF report" style={{ fontSize: '0.8rem' }}>
+                        <i className="fa-solid fa-file-pdf"></i> Export PDF
                     </button>
                     <button
                         className="btn btn-secondary"
@@ -670,7 +864,7 @@ export default function RationVarianceReport() {
                             const isSelected = selectedPen === ps.pen;
                             const isOver = ps.diffWeight > 0.5;
                             const isUnder = ps.diffWeight < -0.5;
-                            const statusColor = ps.compliancePct >= 90 ? 'var(--primary-green-light)' : ps.compliancePct >= 70 ? 'hsl(43,90%,53%)' : 'hsl(0,75%,65%)';
+                            const statusColor = ps.avgAdherencePct >= 90 ? 'var(--primary-green-light)' : ps.avgAdherencePct >= 75 ? 'hsl(43,90%,53%)' : 'hsl(0,75%,65%)';
 
                             return (
                                 <div
@@ -696,7 +890,7 @@ export default function RationVarianceReport() {
                                             </span>
                                         </div>
                                         <span style={{ fontSize: '0.72rem', fontWeight: '700', color: statusColor }}>
-                                            {ps.compliancePct}% On Plan
+                                            {ps.avgAdherencePct.toFixed(0)}% Adherence
                                         </span>
                                     </div>
 
@@ -715,6 +909,22 @@ export default function RationVarianceReport() {
                                         <span style={{ fontWeight: '700', color: Math.abs(ps.diffPct) <= 2 ? 'var(--primary-green-light)' : isOver ? 'hsl(43,90%,53%)' : 'hsl(0,75%,65%)' }}>
                                             {ps.diffWeight > 0 ? '+' : ''}{ps.diffWeight.toFixed(1)} kg ({ps.diffPct > 0 ? '+' : ''}{ps.diffPct.toFixed(1)}%)
                                         </span>
+                                    </div>
+
+                                    {/* How close to plan, graduated (avg absolute deviation + directional bias + banded breakdown) */}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.35rem' }}>
+                                        <span style={{ color: 'var(--text-muted)' }}>Avg Deviation:</span>
+                                        <span style={{ fontWeight: '700', color: statusColor }}>
+                                            ±{ps.avgAbsDeviationPct.toFixed(1)}%
+                                            <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem', fontWeight: '500' }}>
+                                                {' '}({ps.netBiasPct > 0.05 ? `net over-fed ${ps.netBiasPct.toFixed(1)}%` : ps.netBiasPct < -0.05 ? `net under-fed ${Math.abs(ps.netBiasPct).toFixed(1)}%` : 'balanced'})
+                                            </span>
+                                        </span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                        <span>{ps.onTargetCount} on-target</span>
+                                        <span style={{ color: 'hsl(43,90%,53%)' }}>{ps.overFedCount} over-fed</span>
+                                        <span style={{ color: 'hsl(0,75%,65%)' }}>{ps.underFedCount} under-fed</span>
                                     </div>
 
                                     {/* Cost Impact */}
@@ -871,17 +1081,22 @@ export default function RationVarianceReport() {
             {/* KPI Summary Overview Cards */}
             <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.8rem' }}>
                 
-                {/* 1. Compliance Rate */}
-                <div className="glass-panel stat-box">
+                {/* 1. Adherence Score — weight-averaged "how close to plan", not a strict exact-match count */}
+                <div className="glass-panel stat-box" title="100 minus the planned-weight-weighted average absolute deviation of each feeding from its ration plan. More versatile than a strict exact-match count: a feeding 5% over target pulls the score down a little, one 80% over target pulls it down a lot.">
                     <div className="stat-header">
-                        <h3>Plan Compliance Rate</h3>
+                        <h3>Ration Adherence Score</h3>
                         <div className="stat-icon"><i className="fa-solid fa-circle-check"></i></div>
                     </div>
-                    <div className="stat-val" style={{ color: kpiMetrics.compliancePct >= 80 ? 'var(--primary-green-light)' : 'hsl(43,90%,53%)' }}>
-                        {kpiMetrics.compliancePct}%
+                    <div className="stat-val" style={{ color: kpiMetrics.avgAdherencePct >= 90 ? 'var(--primary-green-light)' : kpiMetrics.avgAdherencePct >= 75 ? 'hsl(43,90%,53%)' : 'hsl(0,75%,65%)' }}>
+                        {kpiMetrics.avgAdherencePct.toFixed(1)}%
                     </div>
                     <span className="stat-lbl">
-                        {kpiMetrics.exactCount} of {kpiMetrics.totalFeedings} feedings 100% on target
+                        Avg deviation ±{kpiMetrics.avgAbsDeviationPct.toFixed(1)}%
+                        {' '}({kpiMetrics.netBiasPct > 0.05 ? `net over-fed ${kpiMetrics.netBiasPct.toFixed(1)}%` : kpiMetrics.netBiasPct < -0.05 ? `net under-fed ${Math.abs(kpiMetrics.netBiasPct).toFixed(1)}%` : 'balanced'})
+                    </span>
+                    <span className="stat-lbl" style={{ display: 'block', marginTop: '0.2rem', fontSize: '0.7rem' }}>
+                        {kpiMetrics.onTargetCount} on-target · {kpiMetrics.overFedCount} over-fed · {kpiMetrics.underFedCount} under-fed
+                        {' '}<span style={{ opacity: 0.7 }}>({kpiMetrics.exactCount} exact match of {kpiMetrics.totalFeedings})</span>
                     </span>
                 </div>
 
