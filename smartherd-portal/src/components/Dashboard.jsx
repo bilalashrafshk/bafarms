@@ -540,6 +540,189 @@ export default function Dashboard({ onNavigate }) {
         ? weightTasks
         : movementTasks;
 
+    // H. UPCOMING OPERATIONS & WEIGHING SCHEDULE (Next 7-14 Days)
+    const [calendarHorizon, setCalendarHorizon] = useState(14);
+    const [calendarFilter, setCalendarFilter] = useState('all');
+    const [expandedDays, setExpandedDays] = useState(new Set());
+
+    const toggleDayExpanded = dateStr => {
+        setExpandedDays(prev => {
+            const next = new Set(prev);
+            if (next.has(dateStr)) next.delete(dateStr);
+            else next.add(dateStr);
+            return next;
+        });
+    };
+
+    // 1. Upcoming Weigh-ins (Next projected weigh date per active calf)
+    const upcomingWeighList = [];
+    (animals || []).forEach(a => {
+        if (a.status === 'Sold' || a.status === 'Deceased') return;
+        const animalLogs = (weightLogs || [])
+            .filter(w => w.animalId === a.id && !isCorruptedWeighDate(w.date))
+            .sort((x, y) => (x.date < y.date ? 1 : -1));
+        const lastDate = animalLogs.length > 0 ? animalLogs[0].date : a.entryDate;
+        if (!lastDate) return;
+        const nextDate = addDaysStr(lastDate, WEIGH_INTERVAL_DAYS);
+        if (!nextDate) return;
+        const daysUntil = daysBetween(parseDateOnly(nextDate), today);
+        if (daysUntil >= 0 && daysUntil <= calendarHorizon) {
+            upcomingWeighList.push({
+                animal: a,
+                date: nextDate,
+                daysUntil,
+                pen: a.pen || 'Unassigned',
+                lastDate,
+                lastWeight: animalLogs.length > 0 ? animalLogs[0].weight : a.initialWeight
+            });
+        }
+    });
+
+    // 2. Upcoming Quarantine Protocol Milestones
+    const upcomingVaccineList = [];
+    (animals || []).filter(a => a.status === 'Quarantined').forEach(a => {
+        if (!a.entryDate) return;
+        (quarantineProtocols || []).forEach(task => {
+            if (isProtocolTaskDone(a, task)) return;
+            const targetDate = addDaysStr(a.entryDate, (task.dueDay || 1) - 1);
+            if (!targetDate) return;
+            const daysUntil = daysBetween(parseDateOnly(targetDate), today);
+            if (daysUntil >= 0 && daysUntil <= calendarHorizon) {
+                upcomingVaccineList.push({
+                    animal: a,
+                    task,
+                    date: targetDate,
+                    daysUntil,
+                    pen: a.pen || 'Quarantine Pen'
+                });
+            }
+        });
+    });
+
+    // 3. Upcoming Quarantine Graduations (Exit Quarantine -> Fattening)
+    const upcomingQuarantineExits = [];
+    const QUARANTINE_DAYS = systemParams.quarantineDays ?? 14;
+    (animals || []).filter(a => a.status === 'Quarantined').forEach(a => {
+        if (!a.entryDate) return;
+        const exitDate = addDaysStr(a.entryDate, QUARANTINE_DAYS);
+        if (!exitDate) return;
+        const daysUntil = daysBetween(parseDateOnly(exitDate), today);
+        if (daysUntil >= 0 && daysUntil <= calendarHorizon) {
+            upcomingQuarantineExits.push({
+                animal: a,
+                date: exitDate,
+                daysUntil,
+                pen: a.pen || 'Quarantine Pen'
+            });
+        }
+    });
+
+    // Aggregate into daily buckets
+    const calendarDaysMap = new Map();
+    const addCalendarEvent = (dateStr, eventObj) => {
+        if (!calendarDaysMap.has(dateStr)) {
+            calendarDaysMap.set(dateStr, []);
+        }
+        calendarDaysMap.get(dateStr).push(eventObj);
+    };
+
+    if (calendarFilter === 'all' || calendarFilter === 'weigh') {
+        const weighByDatePen = new Map();
+        upcomingWeighList.forEach(item => {
+            const key = `${item.date}__${item.pen}`;
+            if (!weighByDatePen.has(key)) {
+                weighByDatePen.set(key, { date: item.date, pen: item.pen, daysUntil: item.daysUntil, animals: [] });
+            }
+            weighByDatePen.get(key).animals.push(item.animal);
+        });
+        weighByDatePen.forEach(group => {
+            addCalendarEvent(group.date, {
+                type: 'weigh',
+                date: group.date,
+                daysUntil: group.daysUntil,
+                title: `Pen ${group.pen} — Weigh-in Due`,
+                subtitle: `${group.animals.length} ${group.animals.length === 1 ? 'calf' : 'calves'} scheduled for 14-day weigh-in`,
+                count: group.animals.length,
+                pen: group.pen,
+                animals: group.animals,
+                icon: 'fa-scale-balanced',
+                badgeColor: 'warning',
+                action: { label: 'Log Weights', tab: 'weights' }
+            });
+        });
+    }
+
+    if (calendarFilter === 'all' || calendarFilter === 'vaccine') {
+        const vaccByDateTask = new Map();
+        upcomingVaccineList.forEach(item => {
+            const key = `${item.date}__${item.task.id}`;
+            if (!vaccByDateTask.has(key)) {
+                vaccByDateTask.set(key, { date: item.date, task: item.task, daysUntil: item.daysUntil, animals: [] });
+            }
+            vaccByDateTask.get(key).animals.push(item.animal);
+        });
+        vaccByDateTask.forEach(group => {
+            addCalendarEvent(group.date, {
+                type: 'vaccine',
+                date: group.date,
+                daysUntil: group.daysUntil,
+                title: `${group.task.label} Protocol (Day ${group.task.dueDay})`,
+                subtitle: `${group.task.medicine || group.task.type} (${group.task.dosage || 'Standard dose'}) · ${group.animals.length} ${group.animals.length === 1 ? 'calf' : 'calves'}`,
+                count: group.animals.length,
+                animals: group.animals,
+                icon: 'fa-syringe',
+                badgeColor: 'danger',
+                action: { label: 'Log Treatment', tab: 'vet' }
+            });
+        });
+    }
+
+    if (calendarFilter === 'all' || calendarFilter === 'quarantine') {
+        const exitsByDatePen = new Map();
+        upcomingQuarantineExits.forEach(item => {
+            const key = `${item.date}__${item.pen}`;
+            if (!exitsByDatePen.has(key)) {
+                exitsByDatePen.set(key, { date: item.date, pen: item.pen, daysUntil: item.daysUntil, animals: [] });
+            }
+            exitsByDatePen.get(key).animals.push(item.animal);
+        });
+        exitsByDatePen.forEach(group => {
+            addCalendarEvent(group.date, {
+                type: 'quarantine',
+                date: group.date,
+                daysUntil: group.daysUntil,
+                title: `Pen ${group.pen} — Quarantine Cleared`,
+                subtitle: `${group.animals.length} ${group.animals.length === 1 ? 'calf' : 'calves'} completing 14-day quarantine · Ready for Fattening`,
+                count: group.animals.length,
+                pen: group.pen,
+                animals: group.animals,
+                icon: 'fa-shield-virus',
+                badgeColor: 'info',
+                action: { label: 'Move to Fattening', tab: 'rotation' }
+            });
+        });
+    }
+
+    const sortedCalendarDays = Array.from(calendarDaysMap.keys())
+        .sort((a, b) => (a < b ? -1 : 1))
+        .map(dateStr => {
+            const events = calendarDaysMap.get(dateStr);
+            const diff = daysBetween(parseDateOnly(dateStr), today);
+            let relativeLabel = `In ${diff} days`;
+            if (diff === 0) relativeLabel = 'Today';
+            else if (diff === 1) relativeLabel = 'Tomorrow';
+
+            return {
+                dateStr,
+                diff,
+                relativeLabel,
+                formattedDate: formatDate(dateStr),
+                events
+            };
+        });
+
+    const totalUpcomingEventsCount = upcomingWeighList.length + upcomingVaccineList.length + upcomingQuarantineExits.length;
+
     const adgByDate = (() => {
         if (!weightLogs || weightLogs.length === 0) return [];
         const groups = {};
@@ -964,6 +1147,154 @@ export default function Dashboard({ onNavigate }) {
                     </div>
                 </div>
 
+            </div>
+
+            {/* Upcoming Operations & Weighing Schedule Calendar (Next 7-14 Days) */}
+            <div className="glass-panel upcoming-calendar-panel">
+                <div className="calendar-panel-header">
+                    <div className="calendar-title-group">
+                        <h3 className="panel-title" style={{ margin: 0 }}>
+                            <i className="fa-solid fa-calendar-days" style={{ color: 'var(--accent-gold)' }}></i> Upcoming Operations Schedule
+                        </h3>
+                        <span className="calendar-count-badge">
+                            {totalUpcomingEventsCount} {totalUpcomingEventsCount === 1 ? 'event' : 'events'} ahead
+                        </span>
+                    </div>
+
+                    <div className="calendar-header-controls">
+                        {/* Filter Pills */}
+                        <div className="calendar-filter-group">
+                            <button
+                                type="button"
+                                className={`calendar-filter-btn ${calendarFilter === 'all' ? 'active' : ''}`}
+                                onClick={() => setCalendarFilter('all')}
+                            >
+                                All ({upcomingWeighList.length + upcomingVaccineList.length + upcomingQuarantineExits.length})
+                            </button>
+                            <button
+                                type="button"
+                                className={`calendar-filter-btn ${calendarFilter === 'weigh' ? 'active' : ''}`}
+                                onClick={() => setCalendarFilter('weigh')}
+                            >
+                                <i className="fa-solid fa-scale-balanced"></i> Weigh-ins ({upcomingWeighList.length})
+                            </button>
+                            <button
+                                type="button"
+                                className={`calendar-filter-btn ${calendarFilter === 'vaccine' ? 'active' : ''}`}
+                                onClick={() => setCalendarFilter('vaccine')}
+                            >
+                                <i className="fa-solid fa-syringe"></i> Vaccines ({upcomingVaccineList.length})
+                            </button>
+                            <button
+                                type="button"
+                                className={`calendar-filter-btn ${calendarFilter === 'quarantine' ? 'active' : ''}`}
+                                onClick={() => setCalendarFilter('quarantine')}
+                            >
+                                <i className="fa-solid fa-shield-virus"></i> Quarantine ({upcomingQuarantineExits.length})
+                            </button>
+                        </div>
+
+                        {/* Horizon Selector (7d vs 14d) */}
+                        <div className="calendar-horizon-toggle">
+                            <button
+                                type="button"
+                                className={`horizon-btn ${calendarHorizon === 7 ? 'active' : ''}`}
+                                onClick={() => setCalendarHorizon(7)}
+                            >
+                                7 Days
+                            </button>
+                            <button
+                                type="button"
+                                className={`horizon-btn ${calendarHorizon === 14 ? 'active' : ''}`}
+                                onClick={() => setCalendarHorizon(14)}
+                            >
+                                14 Days
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Calendar timeline days grid */}
+                {sortedCalendarDays.length > 0 ? (
+                    <div className="calendar-timeline-grid">
+                        {sortedCalendarDays.map(day => {
+                            const isExpanded = expandedDays.has(day.dateStr);
+                            return (
+                                <div
+                                    key={day.dateStr}
+                                    className={`calendar-day-card ${day.diff === 0 ? 'today' : day.diff === 1 ? 'tomorrow' : ''}`}
+                                >
+                                    <div
+                                        className="calendar-day-header"
+                                        onClick={() => toggleDayExpanded(day.dateStr)}
+                                        title="Click to expand/collapse animal roster"
+                                    >
+                                        <div className="calendar-day-date-info">
+                                            <span className="calendar-day-relative">{day.relativeLabel}</span>
+                                            <span className="calendar-day-exact">{day.formattedDate}</span>
+                                        </div>
+                                        <div className="calendar-day-meta">
+                                            <span className="calendar-events-pill">
+                                                {day.events.reduce((sum, ev) => sum + ev.count, 0)} {day.events.reduce((sum, ev) => sum + ev.count, 0) === 1 ? 'calf' : 'calves'}
+                                            </span>
+                                            <i className={`fa-solid ${isExpanded ? 'fa-chevron-up' : 'fa-chevron-down'}`} style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}></i>
+                                        </div>
+                                    </div>
+
+                                    <div className="calendar-day-events-list">
+                                        {day.events.map((ev, evIdx) => (
+                                            <div key={evIdx} className={`calendar-event-item ${ev.badgeColor}`}>
+                                                <div className="calendar-event-icon">
+                                                    <i className={`fa-solid ${ev.icon}`}></i>
+                                                </div>
+                                                <div className="calendar-event-body">
+                                                    <div className="calendar-event-title-row">
+                                                        <span className="calendar-event-title">{ev.title}</span>
+                                                        <span className={`calendar-event-count-badge ${ev.badgeColor}`}>
+                                                            {ev.count} {ev.count === 1 ? 'calf' : 'calves'}
+                                                        </span>
+                                                    </div>
+                                                    <span className="calendar-event-sub">{ev.subtitle}</span>
+
+                                                    {/* Expandable RFID Tag List */}
+                                                    {isExpanded && ev.animals && ev.animals.length > 0 && (
+                                                        <div className="calendar-roster-tags">
+                                                            {ev.animals.map(a => (
+                                                                <span key={a.id || a.rfid} className="calendar-roster-chip">
+                                                                    <i className="fa-solid fa-tag" style={{ fontSize: '0.6rem' }}></i> {a.rfid}
+                                                                    {a.currentWeight ? ` (${a.currentWeight}kg)` : ''}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                {ev.action && (
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-secondary calendar-event-action-btn"
+                                                        onClick={() => onNavigate && onNavigate(ev.action.tab)}
+                                                    >
+                                                        {ev.action.label}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="calendar-empty-state">
+                        <i className="fa-solid fa-calendar-check" style={{ fontSize: '2rem', color: 'var(--primary-green-light)', marginBottom: '0.4rem' }}></i>
+                        <span style={{ fontFamily: 'var(--font-heading)', fontWeight: '600', color: 'var(--text-pure)', fontSize: '0.95rem' }}>
+                            All Clear Ahead
+                        </span>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            No operations or weigh-ins scheduled for the next {calendarHorizon} days matching this filter.
+                        </span>
+                    </div>
+                )}
             </div>
 
         </div>
