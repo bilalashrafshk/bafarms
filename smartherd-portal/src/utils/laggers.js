@@ -15,12 +15,12 @@
 // (first-ever weigh-in, no prior baseline to compare against), are excluded rather than
 // treated as a false positive.
 
-// One-off corrupted intake window exclusion (pre-08-Aug-2026 corrupted entry
-// baseline) — same exclusion Dashboard's ADG trend/alerts already apply.
-const isCorruptedWeighDate = (d) => {
+// One-off corrupted intake window exclusion (pre-08-Aug-2026 uncalibrated intake
+// scale entries and 08-Aug derivative ADG calculated from them).
+const isCorruptedAdgDate = (d) => {
     if (!d) return false;
     const str = String(d);
-    return str.startsWith('2026-07-29') || str.startsWith('2026-08-08');
+    return str.startsWith('2026-07-29') || str.startsWith('2026-08-02') || str.startsWith('2026-08-08');
 };
 
 const SEVERE_ADG_THRESHOLD = 0.5;
@@ -28,7 +28,7 @@ const SEVERE_ADG_THRESHOLD = 0.5;
 // Most recently logged ADG for an animal, or null if there's no usable baseline yet.
 function latestAdg(animalId, weightLogs) {
     const logs = (weightLogs || [])
-        .filter(w => w.animalId === animalId && !isCorruptedWeighDate(w.date))
+        .filter(w => w.animalId === animalId && !isCorruptedAdgDate(w.date))
         .sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : 0));
     if (logs.length === 0 || logs[0].adg === 0) return null;
     return logs[0].adg;

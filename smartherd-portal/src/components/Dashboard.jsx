@@ -13,14 +13,17 @@ export default function Dashboard({ onNavigate }) {
 
     // 1. DYNAMIC CALCULATIONS
 
-    // One-off corrupted intake window exclusion (pre-08-Aug-2026 corrupted entry baseline).
-    // All feed logs, manual stock issues, and weigh-in gains from 08-Aug-2026 onwards are
-    // synchronized to the exact same valid operational window.
+    // One-off corrupted intake window exclusion (pre-08-Aug-2026 uncalibrated intake scale entries).
+    // 08-Aug-2026 is the valid baseline starting weight across the herd.
     const isCorruptedWeighDate = d => {
         if (!d) return false;
         const str = String(d);
-        return str.startsWith('2026-07-29') || str.startsWith('2026-08-08');
+        return str.startsWith('2026-07-29') || str.startsWith('2026-08-02');
     };
+
+    // ADG recorded on 08-Aug was calculated against uncalibrated intake weights, so its
+    // derivative ADG rate is excluded from herd ADG averaging, but its actual weight is valid.
+    const isCorruptedAdgDate = d => isCorruptedWeighDate(d) || (d && String(d).startsWith('2026-08-08'));
 
     const isPreBaselineFeedDate = d => {
         if (!d) return false;
@@ -62,9 +65,9 @@ export default function Dashboard({ onNavigate }) {
         : null;
 
     // B. Herd Average ADG — overall average across all valid weight logs across time,
-    // excluding the one-off corrupted weigh-in (29-07-2026 / 08-08-2026 interval).
+    // excluding the one-off corrupted intake window (pre-08-Aug-2026 interval).
     // All subsequent weigh-ins will be accumulated and averaged together normally.
-    const validAdgLogs = (weightLogs || []).filter(w => w.adg !== 0 && !isCorruptedWeighDate(w.date));
+    const validAdgLogs = (weightLogs || []).filter(w => w.adg !== 0 && !isCorruptedAdgDate(w.date));
     const avgHerdAdg = validAdgLogs.length > 0
         ? parseFloat((validAdgLogs.reduce((sum, log) => sum + log.adg, 0) / validAdgLogs.length).toFixed(2))
         : null;
@@ -726,7 +729,7 @@ export default function Dashboard({ onNavigate }) {
     const adgByDate = (() => {
         if (!weightLogs || weightLogs.length === 0) return [];
         const groups = {};
-        weightLogs.filter(w => w.adg !== 0 && !isCorruptedWeighDate(w.date)).forEach(w => {
+        weightLogs.filter(w => w.adg !== 0 && !isCorruptedAdgDate(w.date)).forEach(w => {
             if (!groups[w.date]) groups[w.date] = { sum: 0, count: 0 };
             groups[w.date].sum += w.adg;
             groups[w.date].count += 1;
