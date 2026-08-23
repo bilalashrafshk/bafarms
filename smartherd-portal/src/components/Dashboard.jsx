@@ -1,14 +1,14 @@
 import React, { useContext } from 'react';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
-import { todayAsDate, parseDateOnly, daysBetween } from '../utils/dateOnly';
+import { todayAsDate, todayPKT, parseDateOnly, daysBetween } from '../utils/dateOnly';
 import { getLaggerIds, getSpecialFocusIds } from '../utils/laggers';
 
 export default function Dashboard({ onNavigate }) {
     const {
         animals, weightLogs, treatments, feedLogs, transitionAnimalStatus,
         systemParams, orders, pens, quarantineProtocols, feedStockIssues,
-        feedStockItems, feedPurchases, getFeedStockIssueCosts, getPenRosterAsOf
+        feedStockItems, feedPurchases, getFeedStockIssueCosts, getPenRosterAsOf, events
     } = useContext(FarmContext);
 
     // 1. DYNAMIC CALCULATIONS
@@ -69,9 +69,163 @@ export default function Dashboard({ onNavigate }) {
         ? parseFloat((validAdgLogs.reduce((sum, log) => sum + log.adg, 0) / validAdgLogs.length).toFixed(2))
         : null;
 
-    // A2. Actual Cost per kg Gained = actual logged feed cost/day ÷ actual herd ADG.
-    // Requires both real feeding logs and real weight logs; null otherwise.
-    const costPerKgGain = (dailyCostPerAnimal !== null && avgHerdAdg && avgHerdAdg > 0) ? dailyCostPerAnimal / avgHerdAdg : null;
+    // A2. Actual Cost per kg Gained — rebuilt at RFID/animal level, the way a feedlot
+    // actually closes out cost-of-gain: for every animal with ≥2 weight logs, each
+    // consecutive pair of logs is its own "closeout interval" — actual kg gained is the
+    // real weight delta between the two weigh-ins (not an extrapolated ADG × days
+    // estimate), and the feed cost charged to that interval is that animal's pro-rata
+    // head-day share of the pen's actual feed spend during that exact date window (feed
+    // is fed per-pen in TMR batches, not individually metered, so head-days is the
+    // standard way to split a shared pen cost across the animals that were actually
+    // present). The blended rate is Σ(cost across every animal-interval) ÷ Σ(gain across
+    // every animal-interval) — not an average of each animal's own $/kg ratio — so one
+    // noisy/low-gain animal can't dominate the herd number the way a simple average would.
+    // Animals with 0 or 1 usable weight logs contribute nothing (no closeable interval).
+    // Reuses the exact same pen-residency/head-days reconstruction CostOfGainReport.jsx
+    // already uses (registered/pen_transfer event replay), just re-applied per animal
+    // interval instead of one fixed report-wide date range.
+    const addDaysStr = (dateStr, n) => {
+        const d = parseDateOnly(dateStr);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().split('T')[0];
+    };
+
+    const segmentsByAnimal = useMemo(() => {
+        const map = new Map();
+        const todayStr = todayPKT();
+        (animals || []).forEach(animal => {
+            const penEvents = (events || [])
+                .filter(e => e.animalId === animal.id && (e.eventType === 'registered' || e.eventType === 'pen_transfer') && e.toPen)
+                .sort((a, b) => daysBetween(parseDateOnly(a.date), parseDateOnly(b.date)) || (a.id - b.id));
+            const exitEvent = (events || []).find(e => e.animalId === animal.id && (e.eventType === 'sold' || e.eventType === 'deceased'));
+            const exitDate = exitEvent ? exitEvent.date : todayStr;
+
+            const segments = penEvents.length > 0
+                ? penEvents.map((ev, i) => ({
+                    pen: ev.toPen,
+                    start: ev.date,
+                    end: i + 1 < penEvents.length ? penEvents[i + 1].date : exitDate
+                }))
+                : [{ pen: animal.pen, start: animal.entryDate || exitDate, end: exitDate }];
+            map.set(animal.id, segments);
+        });
+        return map;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [animals, events]);
+
+    // Days a single animal spent in `pen` within [wStart, wEnd] (inclusive both ends).
+    const daysInPenWindow = (animalId, pen, wStart, wEnd) => {
+        const segs = segmentsByAnimal.get(animalId) || [];
+        let total = 0;
+        segs.forEach(seg => {
+            if (seg.pen !== pen) return;
+            const start = seg.start > wStart ? seg.start : wStart;
+            const end = seg.end < wEnd ? seg.end : wEnd;
+            if (start > end) return;
+            total += daysBetween(end, start) + 1;
+        });
+        return total;
+    };
+
+    // Every pen-segment (possibly more than one, if the animal was transferred) a single
+    // animal actually occupied within [wStart, wEnd], clipped to that window.
+    const clippedSegments = (animalId, wStart, wEnd) => {
+        const segs = segmentsByAnimal.get(animalId) || [];
+        const out = [];
+        segs.forEach(seg => {
+            const start = seg.start > wStart ? seg.start : wStart;
+            const end = seg.end < wEnd ? seg.end : wEnd;
+            if (start > end) return;
+            out.push({ pen: seg.pen, start, end });
+        });
+        return out;
+    };
+
+    // Total herd head-days (every animal, every pen) within [wStart, wEnd].
+    const totalHerdHeadDaysWindow = (wStart, wEnd) => {
+        let total = 0;
+        segmentsByAnimal.forEach((segs) => {
+            segs.forEach(seg => {
+                const start = seg.start > wStart ? seg.start : wStart;
+                const end = seg.end < wEnd ? seg.end : wEnd;
+                if (start > end) return;
+                total += daysBetween(end, start) + 1;
+            });
+        });
+        return total;
+    };
+
+    // Total head-days ALL animals spent specifically in `pen` within [wStart, wEnd].
+    const totalHeadDaysInPenWindow = (pen, wStart, wEnd) => {
+        let total = 0;
+        segmentsByAnimal.forEach((_segs, animalId) => {
+            total += daysInPenWindow(animalId, pen, wStart, wEnd);
+        });
+        return total;
+    };
+
+    const feedCostInWindow = (pen, wStart, wEnd) =>
+        validFeedLogs
+            .filter(f => f.pen === pen && f.date >= wStart && f.date <= wEnd)
+            .reduce((sum, f) => sum + (f.totalCost || 0), 0)
+        + manualFeedIssues
+            .filter(i => i.pen === pen && i.date >= wStart && i.date <= wEnd)
+            .reduce((sum, iss) => sum + (issueCostsMap[iss.id]?.cost || 0), 0);
+
+    let totalMeasuredFeedCost = 0;
+    let totalMeasuredGainKg = 0;
+
+    const weightLogsByAnimal = new Map();
+    (weightLogs || []).forEach(w => {
+        if (isCorruptedWeighDate(w.date)) return;
+        if (!weightLogsByAnimal.has(w.animalId)) weightLogsByAnimal.set(w.animalId, []);
+        weightLogsByAnimal.get(w.animalId).push(w);
+    });
+
+    weightLogsByAnimal.forEach((logs, animalId) => {
+        if (logs.length < 2) return;
+        logs.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+        for (let i = 1; i < logs.length; i++) {
+            const prevLog = logs[i - 1];
+            const currLog = logs[i];
+            if (prevLog.weight == null || currLog.weight == null) continue;
+
+            const wStart = addDaysStr(prevLog.date, 1);
+            const wEnd = currLog.date;
+            if (wStart > wEnd) continue; // same-day re-weigh, no closeable window
+            // Interval opens before the valid feed-cost baseline (validFeedLogs/manualFeedIssues
+            // are baseline-filtered) — real gain happened, but no cost data can exist for the
+            // window, so counting the gain here would understate the rate. Skip rather than
+            // credit it as free.
+            if (isPreBaselineFeedDate(wStart)) continue;
+
+            const gainKg = currLog.weight - prevLog.weight;
+
+            let costShare = 0;
+            clippedSegments(animalId, wStart, wEnd).forEach(seg => {
+                const segDays = daysBetween(seg.end, seg.start) + 1;
+                const penCost = feedCostInWindow(seg.pen, seg.start, seg.end);
+                const penHeadDays = totalHeadDaysInPenWindow(seg.pen, seg.start, seg.end);
+                if (penHeadDays > 0) costShare += penCost * (segDays / penHeadDays);
+            });
+
+            const allCost = validFeedLogs
+                .filter(f => f.pen === 'ALL' && f.date >= wStart && f.date <= wEnd)
+                .reduce((sum, f) => sum + (f.totalCost || 0), 0)
+                + manualFeedIssues
+                    .filter(i => i.pen === 'ALL' && i.date >= wStart && i.date <= wEnd)
+                    .reduce((sum, iss) => sum + (issueCostsMap[iss.id]?.cost || 0), 0);
+            const animalDaysInWindow = daysBetween(wEnd, wStart) + 1;
+            const herdDaysInWindow = totalHerdHeadDaysWindow(wStart, wEnd);
+            if (herdDaysInWindow > 0) costShare += allCost * (animalDaysInWindow / herdDaysInWindow);
+
+            totalMeasuredFeedCost += costShare;
+            totalMeasuredGainKg += gainKg;
+        }
+    });
+
+    const costPerKgGain = totalMeasuredGainKg > 0 ? totalMeasuredFeedCost / totalMeasuredGainKg : null;
 
     // D. Medical & Vaccine Cost per Head (Combined Med Cost)
     // Computes total actual medication, vaccination, and deworming expenses allocated across active herd.
@@ -458,7 +612,7 @@ export default function Dashboard({ onNavigate }) {
                     <div class="stat-val">
                         {costPerKgGain !== null ? Math.round(costPerKgGain) : '—'} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR/kg</small>
                     </div>
-                    <span class="stat-lbl" style={{ color: 'var(--text-muted)' }}>{costPerKgGain !== null ? 'Logged feed cost ÷ actual ADG' : 'Needs feeding + weight logs'}</span>
+                    <span class="stat-lbl" style={{ color: 'var(--text-muted)' }}>{costPerKgGain !== null ? 'Per-animal feed cost ÷ actual weigh-in gain' : 'Needs feeding + weight logs'}</span>
                 </div>
 
                 {/* Med & Vaccine Cost per Head */}
