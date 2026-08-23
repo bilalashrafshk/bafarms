@@ -642,6 +642,7 @@ export default function TMRCalculator() {
 
     // Daily feed-log state
     const [logSaved, setLogSaved] = useState(false);
+    const [pendingApprovalToast, setPendingApprovalToast] = useState(false);
 
     // Rations are only ever set by a Ration Plan (managed under Ration Plans, not
     // here). This page's job is strictly to feed today's plan-driven batch and
@@ -724,7 +725,7 @@ export default function TMRCalculator() {
     // schedule itself, so later schedule edits never alter this day's history. Shared
     // by the single selected-pen "Log This Feeding" button and each pen's own button
     // when "All" is selected.
-    const logBatchForPen = (penId, batch, headCount, skipConfirm = false) => {
+    const logBatchForPen = async (penId, batch, headCount, skipConfirm = false) => {
         if (!batch.isPlanDriven) return;
         if (logDate > todayPKT()) {
             alert(`⚠️ Advance feeding forecast cannot be logged into the permanent feed ledger before its actual date (${formatDate(logDate)}).\n\nYou can preview the formulation and share it on WhatsApp in advance.`);
@@ -772,7 +773,7 @@ export default function TMRCalculator() {
             }
         }
 
-        logFeed({
+        const res = await logFeed({
             date: logDate,
             pen: penId,
             animalCount: headCount,
@@ -798,8 +799,15 @@ export default function TMRCalculator() {
             feedingTime: logTime || getCurrentTimeHHMM(),
             notes
         });
-        setLogSaved(true);
-        setTimeout(() => setLogSaved(false), 2500);
+
+        if (res?.pending) {
+            setPendingApprovalToast(true);
+            setTimeout(() => setPendingApprovalToast(false), 4000);
+        } else {
+            setLogSaved(true);
+            setTimeout(() => setLogSaved(false), 2500);
+        }
+        return res;
     };
 
     const checkPenFeedConflict = (logs, date, penId, targetFeedingIdx, targetPct) => {
@@ -836,7 +844,7 @@ export default function TMRCalculator() {
         return null;
     };
 
-    const handleLogFeed = () => logBatchForPen(selectedTMRPen, selectedBatch, animalsCount);
+    const handleLogFeed = async () => logBatchForPen(selectedTMRPen, selectedBatch, animalsCount);
 
     const stageNoteFor = (resolved) => resolved.system === 'v2'
         ? `${resolved.plan.name} v${resolved.plan.version}, bracket ${resolved.bracketMin}-${resolved.bracketMax}kg${resolved.phase === 'ADAPTATION' ? `, Adaptation Day ${resolved.dayNo}` : ', Steady State'}`
@@ -873,7 +881,7 @@ export default function TMRCalculator() {
         });
     };
 
-    const handleLogAllPens = () => {
+    const handleLogAllPens = async () => {
         if (tractorPenResolutions.length === 0) return;
         if (tractorMismatch && !tractorConfirmedMismatch) return;
 
@@ -892,14 +900,21 @@ export default function TMRCalculator() {
             }
         }
 
-        tractorSelectedPens.forEach(penId => {
+        let hasPending = false;
+        for (const penId of tractorSelectedPens) {
             const batch = computePenBatch(penId);
             if (batch.isPlanDriven) {
-                logBatchForPen(penId, batch, batch.headCount, true);
+                const res = await logBatchForPen(penId, batch, batch.headCount, true);
+                if (res?.pending) hasPending = true;
             }
-        });
-        setLogSaved(true);
-        setTimeout(() => setLogSaved(false), 2500);
+        }
+        if (hasPending) {
+            setPendingApprovalToast(true);
+            setTimeout(() => setPendingApprovalToast(false), 4000);
+        } else {
+            setLogSaved(true);
+            setTimeout(() => setLogSaved(false), 2500);
+        }
     };
 
     // ─── "ALL" PENS AGGREGATE (average diet across the whole herd) ───
@@ -999,12 +1014,21 @@ export default function TMRCalculator() {
 
     // Logs every pen with a resolved plan as its own feed-log record — same per-pen
     // provenance as "Feed All Pens", preserving all overrides and custom added ingredients.
-    const handleLogAllPensFromAllView = () => {
+    const handleLogAllPensFromAllView = async () => {
         if (allPensResolutions.length === 0) return;
         if (allPensMismatch && !allPensConfirmedMismatch) return;
-        allPensResolutions.forEach(({ penId, batch }) => logBatchForPen(penId, batch, batch.headCount));
-        setLogSaved(true);
-        setTimeout(() => setLogSaved(false), 2500);
+        let hasPending = false;
+        for (const { penId, batch } of allPensResolutions) {
+            const res = await logBatchForPen(penId, batch, batch.headCount);
+            if (res?.pending) hasPending = true;
+        }
+        if (hasPending) {
+            setPendingApprovalToast(true);
+            setTimeout(() => setPendingApprovalToast(false), 4000);
+        } else {
+            setLogSaved(true);
+            setTimeout(() => setLogSaved(false), 2500);
+        }
     };
 
     const sortedFeedLogs = [...feedLogs].sort((a, b) => daysBetween(b.date, a.date));
@@ -2081,7 +2105,12 @@ export default function TMRCalculator() {
                                                 Advance forecast active. You can share this diet on WhatsApp.
                                             </span>
                                         )}
-                                        {logSaved && !isFutureDate && (
+                                        {pendingApprovalToast && !isFutureDate && (
+                                            <span style={{ fontSize: '0.82rem', color: 'var(--accent-gold)', fontWeight: '600' }}>
+                                                <i className="fa-solid fa-clock-rotate-left"></i> Overwrite request submitted for Super Admin approval.
+                                            </span>
+                                        )}
+                                        {logSaved && !isFutureDate && !pendingApprovalToast && (
                                             <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
                                                 <i className="fa-solid fa-circle-check"></i> Feed logged for {formatDate(logDate)}.
                                             </span>
@@ -2205,7 +2234,12 @@ export default function TMRCalculator() {
                                                             Advance forecast active. You can share this diet on WhatsApp.
                                                         </span>
                                                     )}
-                                                    {logSaved && !isFutureDate && (
+                                                    {pendingApprovalToast && !isFutureDate && (
+                                                        <span style={{ fontSize: '0.82rem', color: 'var(--accent-gold)', fontWeight: '600' }}>
+                                                            <i className="fa-solid fa-clock-rotate-left"></i> Overwrite request submitted for Super Admin approval.
+                                                        </span>
+                                                    )}
+                                                    {logSaved && !isFutureDate && !pendingApprovalToast && (
                                                         <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
                                                             <i className="fa-solid fa-circle-check"></i> Feed logged for {formatDate(logDate)}.
                                                         </span>
@@ -2493,7 +2527,12 @@ export default function TMRCalculator() {
                                                 Advance forecast active. You can share this diet on WhatsApp.
                                             </span>
                                         )}
-                                        {logSaved && !isFutureDate && (
+                                        {pendingApprovalToast && !isFutureDate && (
+                                            <span style={{ fontSize: '0.82rem', color: 'var(--accent-gold)', fontWeight: '600' }}>
+                                                <i className="fa-solid fa-clock-rotate-left"></i> Overwrite request submitted for Super Admin approval.
+                                            </span>
+                                        )}
+                                        {logSaved && !isFutureDate && !pendingApprovalToast && (
                                             <span style={{ fontSize: '0.82rem', color: 'var(--primary-green-light)', fontWeight: '600' }}>
                                                 <i className="fa-solid fa-circle-check"></i> Feed logged for {formatDate(logDate)} across {tractorPenResolutions.length} pen{tractorPenResolutions.length === 1 ? '' : 's'}.
                                             </span>

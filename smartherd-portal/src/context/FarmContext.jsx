@@ -2358,6 +2358,25 @@ export const FarmProvider = ({ children }) => {
             } else if (approval.action === 'UPDATE_RATION_PLAN_V2') {
                 const changes = approval.payload || {};
                 setRationPlansV2(prev => prev.map(p => (p.id === changes.id ? { ...p, ...changes } : p)));
+            } else if (approval.action === 'OVERWRITE_FEED_LOG') {
+                const changes = approval.payload || {};
+                const targetPen = changes.pen || 'ALL';
+                const targetIdx = changes.feedingIndex || 0;
+                setFeedLogs(prev => {
+                    const exists = prev.some(f => f.date === changes.date && String(f.pen) === String(targetPen) && (f.feedingIndex || 0) === targetIdx);
+                    return exists
+                        ? prev.map(f => (f.date === changes.date && String(f.pen) === String(targetPen) && (f.feedingIndex || 0) === targetIdx) ? { ...f, ...changes } : f)
+                        : [...prev, { ...changes, id: `${changes.date}__${targetPen}__${targetIdx}` }];
+                });
+            } else if (approval.action === 'DELETE_FEED_LOG') {
+                const changes = approval.payload || {};
+                const targetPen = changes.pen || 'ALL';
+                const targetIdx = changes.feedingIndex;
+                setFeedLogs(prev => prev.filter(f => !(
+                    f.date === changes.date &&
+                    String(f.pen) === String(targetPen) &&
+                    (targetIdx === undefined || targetIdx === null || (f.feedingIndex || 0) === targetIdx)
+                )));
             }
 
             setPendingApprovals(prev => prev.filter(p => p.id !== approval.id));
@@ -2385,6 +2404,13 @@ export const FarmProvider = ({ children }) => {
             return { success: false, error: 'Network error — rejection was not recorded. Please try again.' };
         }
     };
+
+    const handleNonAdminApprovalRequest = async (action, payload) => {
+        persistMutation(action, payload);
+        setTimeout(refreshApprovals, 250);
+        return { success: true, pending: true };
+    };
+    const handleNonAdminDelete = handleNonAdminApprovalRequest;
 
     const deleteWeightLog = async (logId) => {
         setWeightLogs(prev => prev.filter(w => w.id !== logId));

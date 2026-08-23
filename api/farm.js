@@ -2248,10 +2248,10 @@ module.exports = async (req, res) => {
                         await client.query('DELETE FROM ba_feed_logs WHERE date = $1 AND pen = $2 AND feeding_index = $3', [changes.date, changes.pen || 'ALL', changes.feedingIndex]);
                     }
                 } else if (approval.action === 'OVERWRITE_FEED_LOG') {
-                    const { date, pen, animalCount, ingredients, totalDmKg, totalBatchKg, totalCost, costPerAnimal, notes, dietDiffered, feedingIndex, numFeedings, feedingPct } = changes;
+                    const { date, pen, animalCount, ingredients, totalDmKg, totalBatchKg, totalCost, costPerAnimal, notes, dietDiffered, feedingIndex, numFeedings, feedingPct, feedingTime } = changes;
                     await client.query(`
-                        INSERT INTO ba_feed_logs (date, pen, animal_count, ingredients, total_dm_kg, total_batch_kg, total_cost, cost_per_animal, notes, diet_differed, feeding_index, num_feedings, feeding_pct, created_by, created_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+                        INSERT INTO ba_feed_logs (date, pen, animal_count, ingredients, total_dm_kg, total_batch_kg, total_cost, cost_per_animal, notes, diet_differed, feeding_index, num_feedings, feeding_pct, feeding_time, created_by, created_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
                         ON CONFLICT (date, pen, feeding_index) DO UPDATE SET
                             animal_count = EXCLUDED.animal_count,
                             ingredients = EXCLUDED.ingredients,
@@ -2263,13 +2263,14 @@ module.exports = async (req, res) => {
                             diet_differed = EXCLUDED.diet_differed,
                             num_feedings = EXCLUDED.num_feedings,
                             feeding_pct = EXCLUDED.feeding_pct,
+                            feeding_time = EXCLUDED.feeding_time,
                             created_by = EXCLUDED.created_by,
                             created_at = NOW()
                     `, [
                         date, pen || 'ALL', animalCount || 0, JSON.stringify(ingredients || []),
                         totalDmKg || 0, totalBatchKg || 0, totalCost || 0, costPerAnimal || 0,
                         notes || null, !!dietDiffered, feedingIndex || 0, numFeedings || 1, feedingPct || 100,
-                        approval.requested_by
+                        feedingTime || null, approval.requested_by
                     ]);
                 } else if (approval.action === 'DELETE_RATION_PLAN') {
                     await client.query('UPDATE ba_pens SET ration_plan_id = NULL WHERE ration_plan_id = $1', [changes.id]);
