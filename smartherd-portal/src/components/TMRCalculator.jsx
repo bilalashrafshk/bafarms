@@ -102,6 +102,10 @@ export default function TMRCalculator() {
     // by default so the panel shows one summary line per pen instead of dumping every
     // ingredient for every pen on screen at once (too much info, especially on mobile).
     const [selectedFeedLogDetails, setSelectedFeedLogDetails] = useState(null);
+    // Recent Feed History starts capped at 10 rows so the page doesn't load with a huge
+    // table; "Show older logs" below extends this in pages of 25 so older entries stay
+    // reachable without needing to leave the TMR Calculator for the Feed & Growth Report.
+    const [feedHistoryLimit, setFeedHistoryLimit] = useState(10);
 
     const parseFeedingSession = (log) => {
         if (!log) return 'Full Day (100%)';
@@ -1003,7 +1007,9 @@ export default function TMRCalculator() {
         setTimeout(() => setLogSaved(false), 2500);
     };
 
-    const recentFeedLogs = [...feedLogs].sort((a, b) => daysBetween(b.date, a.date)).slice(0, 10);
+    const sortedFeedLogs = [...feedLogs].sort((a, b) => daysBetween(b.date, a.date));
+    const recentFeedLogs = sortedFeedLogs.slice(0, feedHistoryLimit);
+    const hasOlderFeedLogs = sortedFeedLogs.length > recentFeedLogs.length;
 
     // ─── DIET PREVIEW (peek) ───
     // Read-only lookup of what a pen's diet was/will be on any date — completely
@@ -2608,6 +2614,26 @@ export default function TMRCalculator() {
                                     </tbody>
                                 </table>
                             </div>
+                            {(hasOlderFeedLogs || feedHistoryLimit > 10) && (
+                                <div style={{ display: 'flex', justifyContent: 'center', gap: '0.6rem', marginTop: '0.8rem' }}>
+                                    {hasOlderFeedLogs && (
+                                        <button
+                                            class="btn btn-sm btn-secondary"
+                                            onClick={() => setFeedHistoryLimit(n => n + 25)}
+                                        >
+                                            <i class="fa-solid fa-clock-rotate-left"></i> Show Older Logs ({sortedFeedLogs.length - recentFeedLogs.length} more)
+                                        </button>
+                                    )}
+                                    {feedHistoryLimit > 10 && (
+                                        <button
+                                            class="btn btn-sm btn-secondary"
+                                            onClick={() => setFeedHistoryLimit(10)}
+                                        >
+                                            <i class="fa-solid fa-angles-up"></i> Show Less
+                                        </button>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
                 </>
