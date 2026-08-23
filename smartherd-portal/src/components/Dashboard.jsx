@@ -1,4 +1,4 @@
-import React, { useContext, useMemo } from 'react';
+import React, { useState, useContext, useMemo } from 'react';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 import { todayAsDate, todayPKT, parseDateOnly, daysBetween } from '../utils/dateOnly';
@@ -420,85 +420,119 @@ export default function Dashboard({ onNavigate }) {
         return spreadPct > 20 ? { penId: pen.id, spreadPct } : null;
     }).filter(Boolean);
 
-    const taskItems = [
-        ...widePenSpreads.map(p => ({
-            type: 'weight-spread',
-            msg: `Pen ${p.penId} — Weight spread too wide`,
-            desc: `${(Number(p.spreadPct) || 0).toFixed(0)}% spread — re-sort at intake, bracket match and batch feed sheet won't stay accurate`,
-            color: 'hsl(0,75%,55%)',
-            icon: 'fa-scale-unbalanced',
-            action: { label: 'Re-sort Pen', tab: 'rationPlans' }
-        })),
-        ...missedFeedings.map(m => ({
-            type: 'missed-feed',
-            msg: m.half ? `Pen ${m.pen.id} — Missed ${m.missing.join('/')} feeding` : `Pen ${m.pen.id} — Missed feeding`,
-            desc: m.half
-                ? `Only ${Math.round(m.loggedPct)}% logged for ${formatDate(m.date)} (missing: ${m.missing.join(', ')})`
-                : `No feed logged for ${formatDate(m.date)}`,
-            color: 'hsl(0,75%,55%)',
-            icon: 'fa-bowl-food',
-            action: { label: 'Log Feed', tab: 'tmr' }
-        })),
-        ...pendingVaccines.map(v => ({
-            type: 'vaccine',
-            rfid: v.animal.rfid,
-            msg: `${v.animal.rfid} — ${v.task.label} due`,
-            desc: v.overdueDays > 0 ? `Day ${v.task.dueDay} protocol · ${v.overdueDays}d overdue` : `Day ${v.task.dueDay} protocol · due today`,
-            color: 'hsl(0,75%,55%)',
-            icon: 'fa-syringe',
-            action: { label: 'Log Treatment', tab: 'vet' }
-        })),
+    // CRITICAL OPERATIONAL ALERTS (Top Collapsible Banner)
+    // 1. Sick calves untreated for >7 days (immediate vet intervention needed)
+    // 2. Missed / half-missed feeding sessions (feed compliance failure)
+    // 3. Wide pen weight spreads >20% (ration bracket distortion)
+    const criticalAlerts = [
         ...sickUntreated.map(a => ({
             type: 'sick',
-            rfid: a.rfid,
-            animalId: a.id,
-            msg: `${a.rfid} — Sick, no treatment logged`,
-            desc: 'Needs vet attention',
-            color: 'hsl(0,75%,55%)',
+            title: `${a.rfid} — Sick, No Treatment Logged`,
+            desc: `Calf in Sick pen with no treatment in 7+ days — requires immediate veterinary attention`,
+            badge: 'Urgent Vet Care',
+            badgeColor: 'danger',
             icon: 'fa-stethoscope',
             action: { label: 'Log Treatment', tab: 'vet' }
         })),
-        ...alertCalves.map(c => ({
-            type: 'adg',
-            rfid: c.rfid,
-            msg: `${c.rfid} — Low gain`,
-            desc: `ADG ${c.adg} kg/d — below ${(Number(systemParams.adgAlertThreshold ?? 1.0) || 0).toFixed(1)} target`,
-            color: 'hsl(0,75%,55%)',
-            icon: 'fa-arrow-trend-down',
-            action: null
+        ...missedFeedings.map(m => ({
+            type: 'missed-feed',
+            title: m.half ? `Pen ${m.pen.id} — Missed ${m.missing.join('/')} Feeding` : `Pen ${m.pen.id} — Missed Entire Feed Day`,
+            desc: m.half
+                ? `Only ${Math.round(m.loggedPct)}% logged for ${formatDate(m.date)} (missing: ${m.missing.join(', ')})`
+                : `No feed recorded for ${formatDate(m.date)}`,
+            badge: m.half ? 'Incomplete Feed' : 'Missed Feed',
+            badgeColor: 'danger',
+            icon: 'fa-bowl-food',
+            action: { label: 'Log Feed', tab: 'tmr' }
         })),
+        ...widePenSpreads.map(p => ({
+            type: 'weight-spread',
+            title: `Pen ${p.penId} — Weight Spread Too Wide (${(Number(p.spreadPct) || 0).toFixed(0)}%)`,
+            desc: `Spread exceeds 20% limit — re-sort calves to prevent TMR bracket & batch feed sheet inaccuracy`,
+            badge: 'Pen Uniformity',
+            badgeColor: 'warning',
+            icon: 'fa-scale-unbalanced',
+            action: { label: 'Re-sort Pen', tab: 'rationPlans' }
+        }))
+    ];
 
+    // OPERATIONS TASKS (Right-Hand Segmented Panel)
+    // Tab 1: Vaccines & Protocols
+    const vaccineTasks = pendingVaccines.map(v => ({
+        type: 'vaccine',
+        rfid: v.animal.rfid,
+        animalId: v.animal.id,
+        msg: `${v.animal.rfid} — ${v.task.label} Due`,
+        desc: v.overdueDays > 0 ? `Day ${v.task.dueDay} protocol (${v.task.medicine || v.task.type}) · ${v.overdueDays}d overdue` : `Day ${v.task.dueDay} protocol (${v.task.medicine || v.task.type}) · Due today`,
+        tag: v.overdueDays > 0 ? `${v.overdueDays}d overdue` : 'Due today',
+        tagDanger: v.overdueDays > 0,
+        color: 'hsl(0,75%,55%)',
+        icon: 'fa-syringe',
+        action: { label: 'Log Treatment', tab: 'vet' }
+    }));
+
+    // Tab 2: Weigh-ins & Growth Gain (Overdue Weigh-ins + Low Gain Laggers)
+    const weightTasks = [
         ...overdueWeighing.map(a => ({
-            type: 'weigh',
+            type: 'overdue-weigh',
             rfid: a.rfid,
             animalId: a.id,
-            msg: `${a.rfid} — Overdue weigh-in`,
-            desc: 'Last weighed >14 days ago',
+            msg: `${a.rfid} — Overdue Weigh-in`,
+            desc: `Pen ${a.pen || '—'} · Last weighed >${WEIGH_INTERVAL_DAYS} days ago`,
+            tag: 'Overdue',
+            tagDanger: true,
             color: 'var(--accent-gold)',
             icon: 'fa-weight-scale',
             action: { label: 'Log Weight', tab: 'weights' }
         })),
+        ...alertCalves.map(c => ({
+            type: 'adg-lagger',
+            rfid: c.rfid,
+            msg: `${c.rfid} — Low Growth Gain`,
+            desc: `${c.breed || 'Calf'} · ADG ${c.adg} kg/d (below ${(Number(systemParams.adgAlertThreshold ?? 1.0) || 0).toFixed(1)} kg/d target)`,
+            tag: 'Lagger',
+            tagDanger: false,
+            color: 'hsl(45,90%,55%)',
+            icon: 'fa-arrow-trend-down',
+            action: { label: 'View Weights', tab: 'weights' }
+        }))
+    ];
+
+    // Tab 3: Movements & Dispatch
+    const movementTasks = [
         ...quarantineReady.map(a => ({
-            type: 'quarantine',
+            type: 'quarantine-clear',
             rfid: a.rfid,
             animalId: a.id,
-            msg: `${a.rfid} — Quarantine cleared`,
-            desc: `${daysBetween(today, a.entryDate)}d in quarantine`,
+            msg: `${a.rfid} — Quarantine Cleared`,
+            desc: `${daysBetween(today, a.entryDate)}d completed in Quarantine · Ready for Fattening`,
+            tag: 'Ready to Move',
+            tagDanger: false,
             color: 'hsl(200,70%,60%)',
             icon: 'fa-shield-virus',
             action: { label: '→ Fattening', inline: true }
         })),
         ...marketReady.map(a => ({
-            type: 'market',
+            type: 'market-ready',
             rfid: a.rfid,
             animalId: a.id,
-            msg: `${a.rfid} — Ready for sale`,
-            desc: `${a.currentWeight}kg / ${a.targetWeight}kg target — withholding clear`,
+            msg: `${a.rfid} — Ready for Market Sale`,
+            desc: `${a.currentWeight}kg / ${a.targetWeight}kg target · Medical withholding clear`,
+            tag: 'Target Met',
+            tagDanger: false,
             color: 'var(--primary-green-light)',
             icon: 'fa-award',
             action: { label: 'Dispatch', tab: 'rotation' }
-        })),
+        }))
     ];
+
+    const [activeTaskTab, setActiveTaskTab] = useState('vaccines');
+
+    const activeTaskItems = activeTaskTab === 'vaccines'
+        ? vaccineTasks
+        : activeTaskTab === 'weights'
+        ? weightTasks
+        : movementTasks;
 
     const adgByDate = (() => {
         if (!weightLogs || weightLogs.length === 0) return [];
@@ -711,6 +745,44 @@ export default function Dashboard({ onNavigate }) {
                 </div>
             )}
 
+            {/* Critical Operational Alerts Banner (Only renders when active alerts exist) */}
+            {criticalAlerts.length > 0 && (
+                <div className="dashboard-critical-banner glass-panel">
+                    <div className="critical-banner-header">
+                        <div className="critical-banner-title">
+                            <i className="fa-solid fa-triangle-exclamation" style={{ color: 'hsl(0,75%,60%)' }}></i>
+                            <span>Critical Operational Attention Required</span>
+                        </div>
+                        <span className="critical-banner-badge">{criticalAlerts.length} {criticalAlerts.length === 1 ? 'Issue' : 'Issues'}</span>
+                    </div>
+                    <div className="critical-alerts-grid">
+                        {criticalAlerts.map((alert, idx) => (
+                            <div key={idx} className={`critical-alert-card ${alert.badgeColor}`}>
+                                <div className="critical-alert-icon">
+                                    <i className={`fa-solid ${alert.icon}`}></i>
+                                </div>
+                                <div className="critical-alert-body">
+                                    <div className="critical-alert-top">
+                                        <span className="critical-alert-name">{alert.title}</span>
+                                        <span className={`critical-badge-pill ${alert.badgeColor}`}>{alert.badge}</span>
+                                    </div>
+                                    <div className="critical-alert-desc">{alert.desc}</div>
+                                </div>
+                                {alert.action && (
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary critical-action-btn"
+                                        onClick={() => onNavigate && onNavigate(alert.action.tab)}
+                                    >
+                                        {alert.action.label} <i className="fa-solid fa-arrow-right" style={{ fontSize: '0.7rem' }}></i>
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Bottom Section splits */}
             <div class="dashboard-bottom-grid">
 
@@ -761,42 +833,126 @@ export default function Dashboard({ onNavigate }) {
                     )}
                 </div>
 
-                {/* Unified Tasks Panel */}
+                {/* Segmented Operations Tasks Panel */}
                 <div class="glass-panel" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                    <h3 class="panel-title" style={{ flexShrink: 0 }}>
-                        <i class="fa-solid fa-list-check"></i> Today's Tasks
-                        {taskItems.length > 0 && <span style={{ marginLeft: 'auto', background: 'rgba(220,53,69,0.15)', color: 'hsl(0,75%,60%)', borderRadius: '50px', padding: '0.1rem 0.55rem', fontSize: '0.78rem', fontWeight: '700' }}>{taskItems.length}</span>}
-                    </h3>
+                    <div className="task-panel-header">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <h3 className="panel-title" style={{ margin: 0 }}>
+                                <i className="fa-solid fa-list-check"></i> Operations Tasks
+                            </h3>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600' }}>
+                                {vaccineTasks.length + weightTasks.length + movementTasks.length} active
+                            </span>
+                        </div>
+                        <div className="task-tabs-nav">
+                            <button
+                                type="button"
+                                className={`task-tab-btn ${activeTaskTab === 'vaccines' ? 'active' : ''}`}
+                                onClick={() => setActiveTaskTab('vaccines')}
+                            >
+                                <i className="fa-solid fa-syringe"></i>
+                                <span>Vaccines</span>
+                                {vaccineTasks.length > 0 && (
+                                    <span className="task-tab-count danger">{vaccineTasks.length}</span>
+                                )}
+                            </button>
+                            <button
+                                type="button"
+                                className={`task-tab-btn ${activeTaskTab === 'weights' ? 'active' : ''}`}
+                                onClick={() => setActiveTaskTab('weights')}
+                            >
+                                <i className="fa-solid fa-scale-balanced"></i>
+                                <span>Weigh-ins</span>
+                                {weightTasks.length > 0 && (
+                                    <span className="task-tab-count warning">{weightTasks.length}</span>
+                                )}
+                            </button>
+                            <button
+                                type="button"
+                                className={`task-tab-btn ${activeTaskTab === 'movements' ? 'active' : ''}`}
+                                onClick={() => setActiveTaskTab('movements')}
+                            >
+                                <i className="fa-solid fa-arrows-split-up-and-left"></i>
+                                <span>Movements</span>
+                                {movementTasks.length > 0 && (
+                                    <span className="task-tab-count success">{movementTasks.length}</span>
+                                )}
+                            </button>
+                        </div>
+                    </div>
 
-                    <div class="alarms-list">
-                        {taskItems.map((item, idx) => (
-                            <div key={idx} class={`alarm-card ${item.type === 'sick' || item.type === 'adg' || item.type === 'vaccine' || item.type === 'missed-feed' || item.type === 'weight-spread' ? 'danger' : item.type === 'market' ? '' : 'warning'}`}
-                                style={item.type === 'market' ? { borderLeft: '4px solid var(--primary-green-light)', background: 'rgba(25,135,84,0.02)' } : item.type === 'quarantine' ? { borderLeft: '4px solid hsl(200,70%,60%)', background: 'rgba(0,120,200,0.02)' } : {}}>
-                                <div class="alarm-icon"><i class={`fa-solid ${item.icon}`} style={{ color: item.color }}></i></div>
-                                <div class="alarm-text" style={{ flex: 1, minWidth: 0 }}>
-                                    <span class="alarm-msg" style={{ color: 'var(--text-pure)' }}>{item.msg}</span>
-                                    <span class="alarm-desc">{item.desc}</span>
+                    <div className="alarms-list" style={{ marginTop: '0.6rem' }}>
+                        {activeTaskItems.map((item, idx) => (
+                            <div
+                                key={idx}
+                                className={`alarm-card ${item.type.includes('vaccine') || item.type.includes('overdue') ? 'danger' : item.type === 'market-ready' ? '' : 'warning'}`}
+                                style={
+                                    item.type === 'market-ready'
+                                        ? { borderLeft: '4px solid var(--primary-green-light)', background: 'rgba(25,135,84,0.02)' }
+                                        : item.type === 'quarantine-clear'
+                                        ? { borderLeft: '4px solid hsl(200,70%,60%)', background: 'rgba(0,120,200,0.02)' }
+                                        : {}
+                                }
+                            >
+                                <div className="alarm-icon">
+                                    <i className={`fa-solid ${item.icon}`} style={{ color: item.color }}></i>
+                                </div>
+                                <div className="alarm-text" style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                        <span className="alarm-msg" style={{ color: 'var(--text-pure)' }}>{item.msg}</span>
+                                        {item.tag && (
+                                            <span
+                                                style={{
+                                                    fontSize: '0.68rem',
+                                                    padding: '0.05rem 0.4rem',
+                                                    borderRadius: '4px',
+                                                    fontWeight: '600',
+                                                    background: item.tagDanger ? 'rgba(220,53,69,0.15)' : 'rgba(255,255,255,0.08)',
+                                                    color: item.tagDanger ? 'hsl(0,75%,65%)' : 'var(--text-muted)'
+                                                }}
+                                            >
+                                                {item.tag}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <span className="alarm-desc">{item.desc}</span>
                                 </div>
                                 {item.action && item.action.inline && (
-                                    <button class="btn btn-secondary" style={{ minHeight: '28px', padding: '0.15rem 0.5rem', fontSize: '0.72rem', flexShrink: 0, borderColor: 'rgba(0,150,200,0.3)', color: 'hsl(200,70%,60%)' }}
-                                        onClick={() => transitionAnimalStatus(item.animalId, 'Fattening')}>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        style={{ minHeight: '28px', padding: '0.15rem 0.5rem', fontSize: '0.72rem', flexShrink: 0, borderColor: 'rgba(0,150,200,0.3)', color: 'hsl(200,70%,60%)' }}
+                                        onClick={() => transitionAnimalStatus(item.animalId, 'Fattening')}
+                                    >
                                         → Fattening
                                     </button>
                                 )}
                                 {item.action && item.action.tab && (
-                                    <button class="btn btn-secondary" style={{ minHeight: '28px', padding: '0.15rem 0.5rem', fontSize: '0.72rem', flexShrink: 0 }}
-                                        onClick={() => onNavigate && onNavigate(item.action.tab)}>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        style={{ minHeight: '28px', padding: '0.15rem 0.5rem', fontSize: '0.72rem', flexShrink: 0 }}
+                                        onClick={() => onNavigate && onNavigate(item.action.tab)}
+                                    >
                                         {item.action.label}
                                     </button>
                                 )}
                             </div>
                         ))}
 
-                        {taskItems.length === 0 && (
+                        {activeTaskItems.length === 0 && (
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: '0.4rem', minHeight: '120px', color: 'var(--text-muted)' }}>
-                                <i class="fa-solid fa-circle-check" style={{ fontSize: '1.8rem', color: 'var(--primary-green-light)' }}></i>
-                                <span style={{ fontFamily: 'var(--font-heading)', fontWeight: '600', color: 'var(--text-pure)', fontSize: '0.92rem' }}>All Clear</span>
-                                <span style={{ fontSize: '0.78rem' }}>No tasks across the herd.</span>
+                                <i className="fa-solid fa-circle-check" style={{ fontSize: '1.8rem', color: 'var(--primary-green-light)' }}></i>
+                                <span style={{ fontFamily: 'var(--font-heading)', fontWeight: '600', color: 'var(--text-pure)', fontSize: '0.92rem' }}>
+                                    {activeTaskTab === 'vaccines' && 'Vaccines Up to Date'}
+                                    {activeTaskTab === 'weights' && 'Weigh-ins On Track'}
+                                    {activeTaskTab === 'movements' && 'No Pending Movements'}
+                                </span>
+                                <span style={{ fontSize: '0.78rem' }}>
+                                    {activeTaskTab === 'vaccines' && 'No overdue or due protocol treatments in quarantine.'}
+                                    {activeTaskTab === 'weights' && 'All active calves weighed within interval and gaining.'}
+                                    {activeTaskTab === 'movements' && 'No calves awaiting quarantine transition or market dispatch.'}
+                                </span>
                             </div>
                         )}
                     </div>
