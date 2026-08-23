@@ -409,7 +409,7 @@ export default function RotationPlanner() {
                         <button type="button" className="btn btn-secondary btn-sm" style={{ minHeight: '34px' }} disabled={!bulkTargetPen} onClick={handleApplyBulkPen}>
                             Apply Pen
                         </button>
-                        {activeTab === 'quarantine' && (
+                        {(activeTab === 'quarantine' || activeTab === 'fattening') && (
                             <>
                                 <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '600', marginLeft: '0.4rem' }}>Or Log Task:</span>
                                 <select className="form-control" style={{ width: '180px', minHeight: '34px', padding: '0.2rem 0.6rem', fontSize: '0.82rem' }} value={bulkTaskId} onChange={e => setBulkTaskId(e.target.value)}>
@@ -522,59 +522,84 @@ export default function RotationPlanner() {
                                     <th style={headStyle}>Weight</th>
                                     <th style={headStyle}>Target</th>
                                     <th style={headStyle}>Progress</th>
+                                    {quarantineProtocols.map(t => (
+                                        <th key={t.id} style={{ ...headStyle, textAlign: 'center' }}>
+                                            {t.label}
+                                            <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: '400', textTransform: 'none', letterSpacing: 0 }}>
+                                                Day {t.dueDay}
+                                            </div>
+                                        </th>
+                                    ))}
+                                    <th style={{ ...headStyle, textAlign: 'center' }}>Done</th>
                                     <th style={headStyle}>Med Lock</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {fF.map((c, idx) => (
-                                    <tr key={c.id}>
-                                        <td style={{ ...cellStyle, color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
-                                        <td style={{ ...cellStyle, textAlign: 'center' }}>
-                                            <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => toggleSelect(c.id)} />
-                                        </td>
-                                        <td style={{ ...cellStyle, fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                                                <span>{c.rfid}</span>
-                                                {laggerIds.has(c.id) && (
-                                                    <span
-                                                        style={{
-                                                            fontSize: '0.68rem',
-                                                            padding: '1px 5px',
-                                                            borderRadius: '4px',
-                                                            background: 'rgba(255,193,7,0.12)',
-                                                            color: 'hsl(45,90%,55%)',
-                                                            fontWeight: '600',
-                                                            border: '1px solid rgba(255,193,7,0.3)'
-                                                        }}
-                                                        title="Special Attention: ADG below herd alert threshold"
-                                                    >
-                                                        <i class="fa-solid fa-triangle-exclamation"></i> Lagger
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </td>
-                                        <td style={cellStyle}>{c.breed}</td>
-                                        <td style={cellStyle}>{c.pen ? <span style={{ color: 'var(--accent-gold)', fontWeight: '600' }}>{c.pen}</span> : <span style={{ opacity: 0.3 }}>—</span>}</td>
-                                        <td style={cellStyle}>{c.dof}d</td>
-                                        <td style={{ ...cellStyle, fontWeight: '700', color: 'var(--text-pure)' }}>{c.currentWeight} kg</td>
-                                        <td style={cellStyle}>{c.targetWeight} kg</td>
-                                        <td style={cellStyle}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                <div style={{ flex: 1, height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
-                                                    <div style={{ height: '100%', width: `${c.weightPercent}%`, background: 'var(--primary-green-light)', borderRadius: '4px' }}></div>
+                                {fF.map((c, idx) => {
+                                    const doneCount = quarantineProtocols.filter(t => isTaskDone(c, t)).length;
+                                    return (
+                                        <tr key={c.id}>
+                                            <td style={{ ...cellStyle, color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
+                                            <td style={{ ...cellStyle, textAlign: 'center' }}>
+                                                <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => toggleSelect(c.id)} />
+                                            </td>
+                                            <td style={{ ...cellStyle, fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                                    <span>{c.rfid}</span>
+                                                    {laggerIds.has(c.id) && (
+                                                        <span
+                                                            style={{
+                                                                fontSize: '0.68rem',
+                                                                padding: '1px 5px',
+                                                                borderRadius: '4px',
+                                                                background: 'rgba(255,193,7,0.12)',
+                                                                color: 'hsl(45,90%,55%)',
+                                                                fontWeight: '600',
+                                                                border: '1px solid rgba(255,193,7,0.3)'
+                                                            }}
+                                                            title="Special Attention: ADG below herd alert threshold"
+                                                        >
+                                                            <i class="fa-solid fa-triangle-exclamation"></i> Lagger
+                                                        </span>
+                                                    )}
                                                 </div>
-                                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', minWidth: '32px' }}>{Math.round(c.weightPercent)}%</span>
-                                            </div>
-                                        </td>
-                                        <td style={cellStyle}>
-                                            {c.withholdingDays > 0
-                                                ? <span style={{ color: 'hsl(0,75%,55%)', fontWeight: '700', fontSize: '0.78rem' }}><i class="fa-solid fa-ban" style={{ marginRight: '0.3rem' }}></i>{c.withholdingDays}d</span>
-                                                : <span style={{ color: 'var(--primary-green-light)', fontSize: '0.78rem' }}><i class="fa-solid fa-circle-check"></i></span>
-                                            }
-                                        </td>
-                                    </tr>
-                                ))}
-                                {fF.length === 0 && <tr><td colSpan={10} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>No fattening animals match criteria.</td></tr>}
+                                            </td>
+                                            <td style={cellStyle}>{c.breed}</td>
+                                            <td style={cellStyle}>{c.pen ? <span style={{ color: 'var(--accent-gold)', fontWeight: '600' }}>{c.pen}</span> : <span style={{ opacity: 0.3 }}>—</span>}</td>
+                                            <td style={cellStyle}>{c.dof}d</td>
+                                            <td style={{ ...cellStyle, fontWeight: '700', color: 'var(--text-pure)' }}>{c.currentWeight} kg</td>
+                                            <td style={cellStyle}>{c.targetWeight} kg</td>
+                                            <td style={cellStyle}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                    <div style={{ flex: 1, height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
+                                                        <div style={{ height: '100%', width: `${c.weightPercent}%`, background: 'var(--primary-green-light)', borderRadius: '4px' }}></div>
+                                                    </div>
+                                                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', minWidth: '32px' }}>{Math.round(c.weightPercent)}%</span>
+                                                </div>
+                                            </td>
+                                            {quarantineProtocols.map(task => {
+                                                const done = isTaskDone(c, task);
+                                                const key = `${c.id}-${task.id}`;
+                                                return (
+                                                    <td key={task.id} style={{ ...cellStyle, textAlign: 'center' }}>
+                                                        {done
+                                                            ? <i class="fa-solid fa-circle-check" style={{ color: 'var(--primary-green-light)', cursor: 'pointer' }} title="Logged by mistake? Click to undo." onClick={() => undoProtocolTask(c, task)}></i>
+                                                            : <button class="btn btn-secondary" style={{ minHeight: '24px', padding: '0.05rem 0.4rem', fontSize: '0.68rem', borderColor: 'rgba(255,193,7,0.3)', color: 'var(--accent-gold)' }} onClick={() => logProtocolTask(c, task)} disabled={loggingTask === key}>{loggingTask === key ? '…' : 'Log'}</button>
+                                                        }
+                                                    </td>
+                                                );
+                                            })}
+                                            <td style={{ ...cellStyle, textAlign: 'center', fontFamily: 'var(--font-heading)', fontWeight: '700', color: doneCount === quarantineProtocols.length ? 'var(--primary-green-light)' : 'var(--text-muted)' }}>{doneCount}/{quarantineProtocols.length}</td>
+                                            <td style={cellStyle}>
+                                                {c.withholdingDays > 0
+                                                    ? <span style={{ color: 'hsl(0,75%,55%)', fontWeight: '700', fontSize: '0.78rem' }}><i class="fa-solid fa-ban" style={{ marginRight: '0.3rem' }}></i>{c.withholdingDays}d</span>
+                                                    : <span style={{ color: 'var(--primary-green-light)', fontSize: '0.78rem' }}><i class="fa-solid fa-circle-check"></i></span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                                {fF.length === 0 && <tr><td colSpan={11 + quarantineProtocols.length} style={{ ...cellStyle, textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>No fattening animals match criteria.</td></tr>}
                             </tbody>
                         </table>
                     </div>
