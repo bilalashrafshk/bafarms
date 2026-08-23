@@ -69,9 +69,41 @@ export default function Dashboard({ onNavigate }) {
         ? parseFloat((validAdgLogs.reduce((sum, log) => sum + log.adg, 0) / validAdgLogs.length).toFixed(2))
         : null;
 
-    // A2. Actual Cost per kg Gained = actual logged feed cost/day ÷ actual herd ADG.
-    // Requires both real feeding logs and real weight logs; null otherwise.
-    const costPerKgGain = (dailyCostPerAnimal !== null && avgHerdAdg && avgHerdAdg > 0) ? dailyCostPerAnimal / avgHerdAdg : null;
+    // B2. Weigh-in-to-weigh-in coverage windows, per animal — each animal's consecutive
+    // weight logs (prevLog -> log) bound the exact interval its adg was measured over,
+    // mirroring FarmContext.logWeight/recalcWeightChain's own prevLog pairing. Used below
+    // to "lock" Cost/kg Gain's feed-cost numerator to only the days that actually fall
+    // inside a measured interval — otherwise feeding less today (before it's been
+    // re-weighed) silently drags down the feed-cost average while avgHerdAdg hasn't
+    // moved to match, making the ratio read artificially cheap.
+    const measuredIntervals = [];
+    (animals || []).forEach(a => {
+        const logs = (weightLogs || [])
+            .filter(w => w.animalId === a.id && !isCorruptedWeighDate(w.date))
+            .sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
+        for (let i = 1; i < logs.length; i++) {
+            measuredIntervals.push({ start: logs[i - 1].date, end: logs[i].date });
+        }
+    });
+    const isDateMeasured = d => measuredIntervals.some(iv => d > iv.start && d <= iv.end);
+
+    const measuredFeedLogs = validFeedLogs.filter(f => isDateMeasured(f.date));
+    const measuredManualIssueCost = manualFeedIssues
+        .filter(i => isDateMeasured(i.date))
+        .reduce((sum, iss) => sum + (issueCostsMap[iss.id]?.cost || 0), 0);
+    const measuredLoggedFeedCost = measuredFeedLogs.reduce((sum, f) => sum + (f.totalCost || 0), 0) + measuredManualIssueCost;
+    const measuredTmrAnimalDays = measuredFeedLogs.reduce((sum, f) => {
+        const scale = ((f.feedingPct !== undefined && f.feedingPct !== null) ? f.feedingPct : 100) / 100;
+        return sum + (f.animalCount || 0) * scale;
+    }, 0);
+    const measuredDailyCostPerAnimal = measuredTmrAnimalDays > 0
+        ? measuredLoggedFeedCost / measuredTmrAnimalDays
+        : null;
+
+    // A2. Actual Cost per kg Gained = feed cost/day (locked to weigh-in-measured
+    // intervals only, see B2) ÷ actual herd ADG. Requires both real feeding logs
+    // inside a measured window and real weight logs; null otherwise.
+    const costPerKgGain = (measuredDailyCostPerAnimal !== null && avgHerdAdg && avgHerdAdg > 0) ? measuredDailyCostPerAnimal / avgHerdAdg : null;
 
     // D. Medical & Vaccine Cost per Head (Combined Med Cost)
     // Computes total actual medication, vaccination, and deworming expenses allocated across active herd.
@@ -458,7 +490,7 @@ export default function Dashboard({ onNavigate }) {
                     <div class="stat-val">
                         {costPerKgGain !== null ? Math.round(costPerKgGain) : '—'} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR/kg</small>
                     </div>
-                    <span class="stat-lbl" style={{ color: 'var(--text-muted)' }}>{costPerKgGain !== null ? 'Logged feed cost ÷ actual ADG' : 'Needs feeding + weight logs'}</span>
+                    <span class="stat-lbl" style={{ color: 'var(--text-muted)' }}>{costPerKgGain !== null ? 'Feed cost (weigh-in windows only) ÷ actual ADG' : 'Needs feeding + weight logs'}</span>
                 </div>
 
                 {/* Med & Vaccine Cost per Head */}
