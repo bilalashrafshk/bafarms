@@ -377,6 +377,13 @@ export const FarmProvider = ({ children }) => {
     // queue (and its retry/offline machinery) on a real network failure, or when
     // there's already queued work ahead of it — sending straight through in that
     // case could land out of order relative to what's still waiting to flush.
+    // Returns the real { res, data } from a completed direct round trip so callers
+    // that need to know the actual server outcome (e.g. logFeed(), which must not
+    // report success on a write the server silently redirected into the approval
+    // queue) can inspect it. Returns null when the mutation was queued instead of
+    // sent immediately (offline, mid-flight network error, or already queued behind
+    // other work) — existing fire-and-forget callers simply ignore the return value,
+    // so this is backward compatible.
     const persistMutation = async (action, payload) => {
         const item = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, action, payload, createdAt: Date.now() };
 
@@ -394,12 +401,13 @@ export const FarmProvider = ({ children }) => {
                     setSessionExpired(true);
                     setPendingMutations(prev => [...prev, item]);
                     setTimeout(flushQueue, 0);
+                    return null;
                 } else if (!res.ok || data.success === false) {
                     setFailedMutations(prev => [...prev, { ...item, error: data.error || `HTTP ${res.status}`, failedAt: Date.now() }]);
                 } else {
                     setSessionExpired(false);
                 }
-                return;
+                return { res, data };
             } catch (err) {
                 // Network error mid-flight — fall through and queue it durably below.
             } finally {
@@ -410,6 +418,7 @@ export const FarmProvider = ({ children }) => {
         setPendingMutations(prev => [...prev, item]);
         // Let the pendingRef-sync effect commit before we read it in flushQueue.
         setTimeout(flushQueue, 0);
+        return null;
     };
 
     const retryFailedMutation = (id) => {
@@ -2564,23 +2573,49 @@ export const FarmProvider = ({ children }) => {
         };
 
         const isAdmin = staffUserRef.current?.isAdmin === true;
-        const exists = feedLogs.some(f => f.date === date && String(f.pen) === String(pen) && (f.feedingIndex || 0) === feedingIndex);
-
-        if (!isAdmin && exists) {
-            return await handleNonAdminDelete('OVERWRITE_FEED_LOG', record);
-        }
-
-        // 1. Sync UI locally immediately (upsert by date+pen+feedingIndex)
-        setFeedLogs(prev => {
+        const upsertLocal = () => setFeedLogs(prev => {
             const isLocalExists = prev.some(f => f.date === date && String(f.pen) === String(pen) && (f.feedingIndex || 0) === feedingIndex);
             return isLocalExists
                 ? prev.map(f => (f.date === date && String(f.pen) === String(pen) && (f.feedingIndex || 0) === feedingIndex) ? { ...f, ...record } : f)
                 : [...prev, record];
         });
 
-        // 2. Queue DB transaction durably
-        persistMutation('LOG_FEED', record);
-        return { success: true };
+        if (isAdmin) {
+            // Admins bypass the approval gate entirely — safe to update the UI
+            // optimistically and fire the write in the background as before.
+            upsertLocal();
+            persistMutation('LOG_FEED', record);
+            return { success: true };
+        }
+
+        // Non-admins: the server is the only reliable source of truth for whether
+        // this date+pen+feedingIndex slot already has a log — the local feedLogs
+        // cache can be stale (another device/session logged it since this tab last
+        // synced), so a client-side-only "does it already exist" check can silently
+        // let an overwrite slip past the approval gate: the UI would optimistically
+        // show "saved" while the server actually redirected the write into
+        // ba_pending_approvals and left ba_feed_logs untouched. Always await the
+        // real round trip and only touch local state once we know what the server
+        // actually did with it.
+        const result = await persistMutation('LOG_FEED', record);
+
+        if (!result) {
+            // Offline, or a network error mid-flight — durably queued, will retry
+            // automatically. Don't claim it's saved; the existing "Pending"/"Sync
+            // Issues" header badge already surfaces this state to the user.
+            return { success: true, queued: true };
+        }
+
+        const { res, data } = result;
+        if (data?.pending) {
+            setTimeout(refreshApprovals, 250);
+            return { success: true, pending: true };
+        }
+        if (res.ok && data?.success !== false) {
+            upsertLocal();
+            return { success: true };
+        }
+        return { success: false, error: data?.error || `HTTP ${res.status}` };
     };
 
     const deleteFeedLog = async (date, pen, feedingIndex) => {

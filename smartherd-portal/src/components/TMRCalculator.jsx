@@ -642,6 +642,10 @@ export default function TMRCalculator() {
 
     // Daily feed-log state
     const [logSaved, setLogSaved] = useState(false);
+    // Shown instead of logSaved when a non-admin's log actually got redirected into
+    // the approval queue (existing slot, needs a Super Admin's sign-off) rather than
+    // saved directly — logFeed()'s return value is the only reliable signal for this,
+    // since the request can look identical to a normal save from the UI's perspective.
     const [pendingApprovalToast, setPendingApprovalToast] = useState(false);
 
     // Rations are only ever set by a Ration Plan (managed under Ration Plans, not
