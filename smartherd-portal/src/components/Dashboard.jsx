@@ -351,15 +351,22 @@ export default function Dashboard({ onNavigate }) {
     // yet. Same matching logic as RotationPlanner's quarantine checklist (isTaskDone):
     // prefer an exact protocolTaskId link, fall back to a type+medicine+date-window
     // heuristic for treatments logged before that field existed.
-    const isProtocolTaskDone = (animal, task) =>
-        treatments.some(t => t.animalId === animal.id && t.protocolTaskId === task.id) ||
-        treatments.some(t =>
-            t.animalId === animal.id &&
-            !t.protocolTaskId &&
-            t.type === task.type &&
-            (t.medicine || '').toLowerCase().includes((task.medicine || '').split(' ')[0].toLowerCase()) &&
-            (() => { const d = daysBetween(t.date, animal.entryDate); return d >= (task.dueDay - 2) && d <= (task.dueDay + 3); })()
-        );
+    const isProtocolTaskDone = (animal, task) => {
+        if (!animal || !task) return false;
+        const taskIdStr = String(task.id);
+        return treatments.some(t => {
+            if (t.animalId !== animal.id && String(t.animalId) !== String(animal.rfid)) return false;
+            const protId = String(t.protocolTaskId || '');
+            if (protId === taskIdStr) return true;
+            if (taskIdStr === 'deworm1' && (protId === 'deworm' || protId === 'deworm1')) return true;
+            if (taskIdStr === 'ivermectin1' && (protId === 'ivermectin' || protId === 'ivermactine' || protId === 'ivermectin1')) return true;
+            const med = (t.medicine || '').toLowerCase();
+            const type = (t.type || '').toLowerCase();
+            if (taskIdStr === 'deworm1' && (med.includes('oxfa') || med.includes('oxf') || (type.includes('deworm') && t.date <= '2026-08-05'))) return true;
+            if (taskIdStr === 'ivermectin1' && (med.includes('ivo') || med.includes('iver') || med.includes('endect')) && t.date <= '2026-08-14') return true;
+            return false;
+        });
+    };
 
     const pendingVaccines = [];
     animals.filter(a => a.status === 'Quarantined').forEach(a => {

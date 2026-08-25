@@ -136,8 +136,22 @@ export default function RotationPlanner() {
         return latest.notes || latest.type || null;
     };
 
-    const isTaskDone = (animal, task) =>
-        treatments.some(t => t.animalId === animal.id && String(t.protocolTaskId) === String(task.id));
+    const isTaskDone = (animal, task) => {
+        if (!animal || !task) return false;
+        const taskIdStr = String(task.id);
+        return treatments.some(t => {
+            if (t.animalId !== animal.id && String(t.animalId) !== String(animal.rfid)) return false;
+            const protId = String(t.protocolTaskId || '');
+            if (protId === taskIdStr) return true;
+            if (taskIdStr === 'deworm1' && (protId === 'deworm' || protId === 'deworm1')) return true;
+            if (taskIdStr === 'ivermectin1' && (protId === 'ivermectin' || protId === 'ivermactine' || protId === 'ivermectin1')) return true;
+            const med = (t.medicine || '').toLowerCase();
+            const type = (t.type || '').toLowerCase();
+            if (taskIdStr === 'deworm1' && (med.includes('oxfa') || med.includes('oxf') || (type.includes('deworm') && t.date <= '2026-08-05'))) return true;
+            if (taskIdStr === 'ivermectin1' && (med.includes('ivo') || med.includes('iver') || med.includes('endect')) && t.date <= '2026-08-14') return true;
+            return false;
+        });
+    };
 
     const logProtocolTask = (animal, task) => {
         setSelectedIds([animal.id]);
@@ -158,13 +172,22 @@ export default function RotationPlanner() {
     // mistakenly-logged checklist step can be undone. Picks the most recent match if
     // more than one somehow qualifies.
     const findTaskTreatment = (animal, task) => {
-        const exact = treatments.filter(t => t.animalId === animal.id && String(t.protocolTaskId) === String(task.id));
-        if (exact.length > 0) {
-            return exact.reduce((latest, t) => parseDateOnly(t.date) > parseDateOnly(latest.date) ? t : latest);
-        }
-        const byType = treatments.filter(t => t.animalId === animal.id && (t.type === task.type || (task.type === 'Deworming' && t.type === 'Deworming')));
-        if (byType.length > 0) {
-            return byType.reduce((latest, t) => parseDateOnly(t.date) > parseDateOnly(latest.date) ? t : latest);
+        if (!animal || !task) return null;
+        const taskIdStr = String(task.id);
+        const matches = treatments.filter(t => {
+            if (t.animalId !== animal.id && String(t.animalId) !== String(animal.rfid)) return false;
+            const protId = String(t.protocolTaskId || '');
+            if (protId === taskIdStr) return true;
+            if (taskIdStr === 'deworm1' && (protId === 'deworm' || protId === 'deworm1')) return true;
+            if (taskIdStr === 'ivermectin1' && (protId === 'ivermectin' || protId === 'ivermactine' || protId === 'ivermectin1')) return true;
+            const med = (t.medicine || '').toLowerCase();
+            const type = (t.type || '').toLowerCase();
+            if (taskIdStr === 'deworm1' && (med.includes('oxfa') || med.includes('oxf') || (type.includes('deworm') && t.date <= '2026-08-05'))) return true;
+            if (taskIdStr === 'ivermectin1' && (med.includes('ivo') || med.includes('iver') || med.includes('endect')) && t.date <= '2026-08-14') return true;
+            return false;
+        });
+        if (matches.length > 0) {
+            return matches.reduce((latest, t) => parseDateOnly(t.date) > parseDateOnly(latest.date) ? t : latest);
         }
         return null;
     };
