@@ -222,17 +222,29 @@ export default function FeedStock() {
         return map;
     }, [myRequests]);
 
+    const getItemCategory = (itemId, record) => {
+        const itemObj = feedStockItems.find(i => i.id === itemId);
+        if (itemObj?.category) return itemObj.category;
+        const nm = (record?.itemName || itemObj?.name || itemId || '').toLowerCase();
+        if (nm.includes('needle') || nm.includes('syring') || nm.includes('thermometer') || nm.includes('bandage') || nm.includes('bd ')) return 'supply';
+        if (nm.includes('inj') || nm.includes('ml') || nm.includes('spray') || nm.includes('vac') || nm.includes('oxf') || nm.includes('ive') || nm.includes('fmd') || nm.includes('hs') || nm.includes('panacort') || nm.includes('famila') || nm.includes('amivicom') || nm.includes('endect') || nm.includes('ivot') || nm.includes('disulf') || nm.includes('loxin') || nm.includes('enro') || nm.includes('dexa') || nm.includes('tribrisen') || nm.includes('atropine') || nm.includes('cyanocob') || nm.includes('hepacel') || nm.includes('b complex') || nm.includes('pulmovac') || nm.includes('pydoine') || nm.includes('tinc') || nm.includes('methasolone') || nm.includes('multivorr') || nm.includes('teragen') || nm.includes('xmp')) return 'medicine';
+        return 'feed';
+    };
+
     const filteredPurchases = useMemo(() => {
         const q = purchaseSearch.trim().toLowerCase();
         return effectiveFeedPurchases.filter(p => {
-            const itemObj = feedStockItems.find(i => i.id === p.itemId);
-            const cat = itemObj?.category || 'feed';
-            if (purchaseCategoryFilter !== 'all' && cat !== purchaseCategoryFilter) return false;
+            const cat = getItemCategory(p.itemId, p);
+            if (purchaseCategoryFilter !== 'all') {
+                if (purchaseCategoryFilter === 'feed' && cat !== 'feed') return false;
+                if (purchaseCategoryFilter === 'medicine' && cat !== 'medicine') return false;
+                if ((purchaseCategoryFilter === 'other' || purchaseCategoryFilter === 'supply') && cat !== 'supply' && cat !== 'other') return false;
+            }
 
             if (!q && !inRange(p.date)) return false;
 
             if (q) {
-                const nm = (p.itemName || itemObj?.name || p.itemId || '').toLowerCase();
+                const nm = (p.itemName || feedStockItems.find(i => i.id === p.itemId)?.name || p.itemId || '').toLowerCase();
                 const matches = nm.includes(q) || (p.supplier || '').toLowerCase().includes(q) || (p.notes || '').toLowerCase().includes(q);
                 if (!matches) return false;
             }
@@ -325,16 +337,19 @@ export default function FeedStock() {
             }
 
             // Category filter
-            const itemObj = feedStockItems.find(it => it.id === i.itemId);
-            const cat = itemObj?.category || 'feed';
-            if (issueCategoryFilter !== 'all' && cat !== issueCategoryFilter) return false;
+            const cat = getItemCategory(i.itemId, i);
+            if (issueCategoryFilter !== 'all') {
+                if (issueCategoryFilter === 'feed' && cat !== 'feed') return false;
+                if (issueCategoryFilter === 'medicine' && cat !== 'medicine') return false;
+                if ((issueCategoryFilter === 'other' || issueCategoryFilter === 'supply') && cat !== 'supply' && cat !== 'other') return false;
+            }
 
             // Date filter (active if no text search query)
             if (!q && !inRange(i.date)) return false;
 
             // Text search query
             if (q) {
-                const nm = (i.itemName || itemObj?.name || i.itemId || '').toLowerCase();
+                const nm = (i.itemName || feedStockItems.find(it => it.id === i.itemId)?.name || i.itemId || '').toLowerCase();
                 const matches = nm.includes(q) || (i.pen || '').toLowerCase().includes(q) || (i.notes || '').toLowerCase().includes(q);
                 if (!matches) return false;
             }
@@ -1093,13 +1108,13 @@ export default function FeedStock() {
                                 All ({effectiveFeedPurchases.length})
                             </button>
                             <button type="button" class={`filter-btn ${purchaseCategoryFilter === 'feed' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setPurchaseCategoryFilter('feed')}>
-                                Feed ({effectiveFeedPurchases.filter(p => (feedStockItems.find(i => i.id === p.itemId)?.category || 'feed') === 'feed').length})
+                                Feed ({effectiveFeedPurchases.filter(p => getItemCategory(p.itemId, p) === 'feed').length})
                             </button>
                             <button type="button" class={`filter-btn ${purchaseCategoryFilter === 'medicine' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setPurchaseCategoryFilter('medicine')}>
-                                Medicine ({effectiveFeedPurchases.filter(p => (feedStockItems.find(i => i.id === p.itemId)?.category || 'feed') === 'medicine').length})
+                                Medicine ({effectiveFeedPurchases.filter(p => getItemCategory(p.itemId, p) === 'medicine').length})
                             </button>
-                            <button type="button" class={`filter-btn ${purchaseCategoryFilter === 'other' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setPurchaseCategoryFilter('other')}>
-                                Other ({effectiveFeedPurchases.filter(p => (feedStockItems.find(i => i.id === p.itemId)?.category || 'feed') === 'other').length})
+                            <button type="button" class={`filter-btn ${purchaseCategoryFilter === 'supply' || purchaseCategoryFilter === 'other' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setPurchaseCategoryFilter('supply')}>
+                                Supplies ({effectiveFeedPurchases.filter(p => { const c = getItemCategory(p.itemId, p); return c === 'supply' || c === 'other'; }).length})
                             </button>
                         </div>
                         {purchaseSearch.trim() && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '-0.4rem', marginBottom: '0.8rem' }}><i class="fa-solid fa-circle-info"></i> Searching across all dates — date range is ignored while searching.</div>}
@@ -1130,7 +1145,23 @@ export default function FeedStock() {
                                             <tr key={p.id} style={pending ? { opacity: 0.65 } : undefined}>
                                                 <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                 <td>{formatDate(p.date)}</td>
-                                                <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{itemName(p.itemId, p)}</td>
+                                                <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                                        <span>{itemName(p.itemId, p)}</span>
+                                                        <span style={{
+                                                            fontSize: '0.65rem',
+                                                            padding: '1px 5px',
+                                                            borderRadius: '4px',
+                                                            background: getItemCategory(p.itemId, p) === 'medicine' ? 'rgba(0, 168, 120, 0.15)' : getItemCategory(p.itemId, p) === 'supply' ? 'rgba(54, 162, 235, 0.15)' : 'rgba(255, 193, 7, 0.15)',
+                                                            color: getItemCategory(p.itemId, p) === 'medicine' ? 'var(--primary-green-light)' : getItemCategory(p.itemId, p) === 'supply' ? '#38bdf8' : 'var(--accent-gold)',
+                                                            fontWeight: '600',
+                                                            textTransform: 'uppercase',
+                                                            letterSpacing: '0.4px'
+                                                        }}>
+                                                            {getItemCategory(p.itemId, p)}
+                                                        </span>
+                                                    </div>
+                                                </td>
                                                 <td>{(Number(p.quantity) || 0).toFixed(2)} {unit}</td>
                                                 <td>{(Number(p.rate) || 0).toFixed(2)} PKR/{unit}</td>
                                                 <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(p.quantity * p.rate).toLocaleString()} PKR</strong></td>
@@ -1438,16 +1469,16 @@ export default function FeedStock() {
                             <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
                                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '0.3rem', fontWeight: 600 }}>CATEGORY:</span>
                                 <button type="button" class={`filter-btn ${issueCategoryFilter === 'all' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setIssueCategoryFilter('all')}>
-                                    All
+                                    All ({combinedIssues.length})
                                 </button>
                                 <button type="button" class={`filter-btn ${issueCategoryFilter === 'feed' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setIssueCategoryFilter('feed')}>
-                                    Feed
+                                    Feed ({combinedIssues.filter(i => getItemCategory(i.itemId, i) === 'feed').length})
                                 </button>
                                 <button type="button" class={`filter-btn ${issueCategoryFilter === 'medicine' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setIssueCategoryFilter('medicine')}>
-                                    Medicine
+                                    Medicine ({combinedIssues.filter(i => getItemCategory(i.itemId, i) === 'medicine').length})
                                 </button>
-                                <button type="button" class={`filter-btn ${issueCategoryFilter === 'other' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setIssueCategoryFilter('other')}>
-                                    Other
+                                <button type="button" class={`filter-btn ${issueCategoryFilter === 'supply' || issueCategoryFilter === 'other' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setIssueCategoryFilter('supply')}>
+                                    Supplies ({combinedIssues.filter(i => { const c = getItemCategory(i.itemId, i); return c === 'supply' || c === 'other'; }).length})
                                 </button>
                             </div>
                         </div>
