@@ -245,7 +245,14 @@ export default function Dashboard({ onNavigate }) {
     (treatments || []).forEach(t => {
         let cost = 0;
         if (t.stockIssueId && issueCostsMap[t.stockIssueId]?.cost) {
-            cost = issueCostsMap[t.stockIssueId].cost;
+            const issueCostObj = issueCostsMap[t.stockIssueId];
+            const match = (t.dosage || '').match(/([\d.]+)/);
+            const doseVal = match ? parseFloat(match[1]) : 0;
+            if (doseVal > 0 && issueCostObj.rate > 0 && issueCostObj.cost > (doseVal * issueCostObj.rate * 1.5)) {
+                cost = doseVal * issueCostObj.rate;
+            } else {
+                cost = issueCostObj.cost;
+            }
         } else {
             const rawMed = (t.medicine || '').toLowerCase();
             const matched = (feedStockItems || []).find(i => {

@@ -187,7 +187,13 @@ export default function MedicalLog() {
     // Calculate treatment cost reliably for table display
     const getTreatmentCostDisplay = (t) => {
         if (t.stockIssueId && issueCosts[t.stockIssueId]?.cost) {
-            return `${Math.round(issueCosts[t.stockIssueId].cost).toLocaleString()} PKR`;
+            const issueCostObj = issueCosts[t.stockIssueId];
+            const match = (t.dosage || '').match(/([\d.]+)/);
+            const doseVal = match ? parseFloat(match[1]) : 0;
+            if (doseVal > 0 && issueCostObj.rate > 0 && issueCostObj.cost > (doseVal * issueCostObj.rate * 1.5)) {
+                return `${Math.round(doseVal * issueCostObj.rate).toLocaleString()} PKR`;
+            }
+            return `${Math.round(issueCostObj.cost).toLocaleString()} PKR`;
         }
         // Match medicine name against stock items
         const rawMed = (t.medicine || '').toLowerCase();
