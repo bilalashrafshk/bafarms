@@ -140,7 +140,7 @@ export default function RotationPlanner() {
         if (!animal || !task) return false;
         const taskIdStr = String(task.id);
         return treatments.some(t => {
-            if (t.animalId !== animal.id && String(t.animalId) !== String(animal.rfid)) return false;
+            if (Number(t.animalId) !== Number(animal.id)) return false;
             const protId = String(t.protocolTaskId || '');
             if (protId === taskIdStr) return true;
             if (taskIdStr === 'deworm1' && (protId === 'deworm' || protId === 'deworm1')) return true;
@@ -175,7 +175,7 @@ export default function RotationPlanner() {
         if (!animal || !task) return null;
         const taskIdStr = String(task.id);
         const matches = treatments.filter(t => {
-            if (t.animalId !== animal.id && String(t.animalId) !== String(animal.rfid)) return false;
+            if (Number(t.animalId) !== Number(animal.id)) return false;
             const protId = String(t.protocolTaskId || '');
             if (protId === taskIdStr) return true;
             if (taskIdStr === 'deworm1' && (protId === 'deworm' || protId === 'deworm1')) return true;

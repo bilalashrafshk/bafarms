@@ -361,8 +361,8 @@ export default function Dashboard({ onNavigate }) {
     const isProtocolTaskDone = (animal, task) => {
         if (!animal || !task) return false;
         const taskIdStr = String(task.id);
-        return treatments.some(t => {
-            if (t.animalId !== animal.id && String(t.animalId) !== String(animal.rfid)) return false;
+        return (treatments || []).some(t => {
+            if (Number(t.animalId) !== Number(animal.id)) return false;
             const protId = String(t.protocolTaskId || '');
             if (protId === taskIdStr) return true;
             if (taskIdStr === 'deworm1' && (protId === 'deworm' || protId === 'deworm1')) return true;
