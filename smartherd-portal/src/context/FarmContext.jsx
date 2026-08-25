@@ -1849,6 +1849,15 @@ export const FarmProvider = ({ children }) => {
     // ─── STATE TRANSACTIONS TRIGGER SYNCS ───
 
     const addAnimal = async (newAnimal) => {
+        const cleanRfid = (newAnimal.rfid || '').trim();
+        if (cleanRfid) {
+            const dup = animals.find(a => a.status !== 'Deceased' && (a.rfid || '').trim().toLowerCase() === cleanRfid.toLowerCase());
+            if (dup) {
+                console.error(`Duplicate RFID prevented: "${cleanRfid}" is already on Animal #${dup.id}`);
+                return { success: false, error: `RFID tag "${cleanRfid}" is already assigned to Animal #${dup.id} (Pen ${dup.pen || 'Unassigned'}).` };
+            }
+        }
+
         const id = animals.length > 0 ? Math.max(...animals.map(a => a.id)) + 1 : 1;
 
         const matched = breedsConfig.find(b => b.name === newAnimal.breed);
@@ -1856,7 +1865,7 @@ export const FarmProvider = ({ children }) => {
 
         const animal = {
             id,
-            rfid: newAnimal.rfid || String(id).padStart(3, '0'),
+            rfid: cleanRfid || String(id).padStart(3, '0'),
             breed: newAnimal.breed || 'Sahiwal',
             entryDate: newAnimal.entryDate || todayPKT(),
             entryWeight: parseFloat(newAnimal.entryWeight) || 120,
@@ -2088,6 +2097,15 @@ export const FarmProvider = ({ children }) => {
         const existing = animals.find(a => a.id === updatedAnimal.id);
         const isAdmin = staffUserRef.current?.isAdmin === true;
         const currentUser = staffUserRef.current?.email || staffUserRef.current?.name || null;
+
+        const cleanRfid = (updatedAnimal.rfid || '').trim();
+        if (cleanRfid && existing && cleanRfid.toLowerCase() !== (existing.rfid || '').trim().toLowerCase()) {
+            const dup = animals.find(a => a.id !== updatedAnimal.id && a.status !== 'Deceased' && (a.rfid || '').trim().toLowerCase() === cleanRfid.toLowerCase());
+            if (dup) {
+                console.error(`Duplicate RFID update prevented: "${cleanRfid}" is already on Animal #${dup.id}`);
+                return { success: false, error: `RFID tag "${cleanRfid}" is already assigned to Animal #${dup.id} (Pen ${dup.pen || 'Unassigned'}, ${dup.breed}).` };
+            }
+        }
 
         if (existing && updatedAnimal.pen !== undefined && String(updatedAnimal.pen) !== String(existing.pen)) {
             const fromPen = existing.pen || 'Unassigned';

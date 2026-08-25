@@ -54,6 +54,7 @@ export default function HerdRegistry() {
     const [weightType, setWeightType] = useState('currentWeight'); // 'currentWeight' | 'entryWeight'
     const [gainFilter, setGainFilter] = useState('All'); // 'All' | 'positive' | 'stagnantOrLoss' | 'highGain'
     const [marketReadyFilter, setMarketReadyFilter] = useState('All'); // 'All' | 'ready' | 'inProgress'
+    const [duplicateFilter, setDuplicateFilter] = useState(false); // boolean: show only duplicate RFIDs
     const [showFilterPanel, setShowFilterPanel] = useState(false);
 
     // Deceased modal state
@@ -119,6 +120,24 @@ export default function HerdRegistry() {
         return animals.filter(a => a.entryDate && a.entryDate >= cutoffStr).length;
     }, [animals]);
 
+    // Duplicate RFID tracking across active herd
+    const duplicateRfidsMap = React.useMemo(() => {
+        const counts = {};
+        animals.filter(a => a.status !== 'Deceased').forEach(a => {
+            const tag = (a.rfid || '').trim().toLowerCase();
+            if (tag) counts[tag] = (counts[tag] || 0) + 1;
+        });
+        return counts;
+    }, [animals]);
+
+    const duplicateCount = React.useMemo(() => {
+        return animals.filter(a => {
+            if (a.status === 'Deceased') return false;
+            const tag = (a.rfid || '').trim().toLowerCase();
+            return tag && duplicateRfidsMap[tag] > 1;
+        }).length;
+    }, [animals, duplicateRfidsMap]);
+
     // Active filter count
     const activeFilterCount = (
         (entryDateFrom ? 1 : 0) +
@@ -129,7 +148,8 @@ export default function HerdRegistry() {
         (minWeight !== '' ? 1 : 0) +
         (maxWeight !== '' ? 1 : 0) +
         (gainFilter !== 'All' ? 1 : 0) +
-        (marketReadyFilter !== 'All' ? 1 : 0)
+        (marketReadyFilter !== 'All' ? 1 : 0) +
+        (duplicateFilter ? 1 : 0)
     );
 
     const handleResetFilters = () => {
@@ -144,6 +164,7 @@ export default function HerdRegistry() {
         setMaxWeight('');
         setGainFilter('All');
         setMarketReadyFilter('All');
+        setDuplicateFilter(false);
     };
 
     const applyDatePreset = (preset) => {
@@ -349,6 +370,23 @@ export default function HerdRegistry() {
         e.preventDefault();
         if (!entryWeight || !purchasePrice) return;
 
+        const cleanRfid = (rfid || '').trim();
+        if (!cleanRfid) {
+            setNotice({ type: 'error', text: 'RFID / Ear Tag number is required.' });
+            return;
+        }
+
+        // Duplicate Tag Validation: prevent adding or editing if another active animal shares this RFID
+        const duplicateAnimal = animals.find(a => 
+            (!editingAnimal || a.id !== editingAnimal.id) &&
+            a.status !== 'Deceased' &&
+            String(a.rfid || '').trim().toLowerCase() === cleanRfid.toLowerCase()
+        );
+        if (duplicateAnimal) {
+            alert(`Duplicate Tag Conflict!\n\nRFID / Tag "${cleanRfid}" is already assigned to Animal #${duplicateAnimal.id} in Pen ${duplicateAnimal.pen || 'Unassigned'} (${duplicateAnimal.breed}).\n\nDuplicate tags are not permitted. Please choose a unique Tag ID.`);
+            return;
+        }
+
         const selectedBreedName = (breed || '').trim() || (breedsConfig[0]?.name || 'Sahiwal');
         const matchedBreed = breedsConfig.find(b => b.name.toLowerCase() === selectedBreedName.toLowerCase());
         const defaultTarget = matchedBreed ? matchedBreed.defaultTargetWeight : (parseFloat(targetWeight) || 360);
@@ -500,9 +538,15 @@ export default function HerdRegistry() {
             if (marketReadyFilter === 'ready' && animal.currentWeight < target) return false;
             if (marketReadyFilter === 'inProgress' && animal.currentWeight >= target) return false;
 
+            // Duplicate Tag Filter
+            if (duplicateFilter) {
+                const tag = (animal.rfid || '').trim().toLowerCase();
+                if (!tag || (duplicateRfidsMap[tag] || 0) <= 1) return false;
+            }
+
             return true;
         });
-    }, [animals, search, filterStatus, entryDateFrom, entryDateTo, selectedPen, selectedBreed, selectedMandi, minWeight, maxWeight, weightType, gainFilter, marketReadyFilter]);
+    }, [animals, search, filterStatus, entryDateFrom, entryDateTo, selectedPen, selectedBreed, selectedMandi, minWeight, maxWeight, weightType, gainFilter, marketReadyFilter, duplicateFilter, duplicateRfidsMap]);
 
     // Overall purchase average = total purchase cost / total gross (entry) weight, across the current view
     const totalPurchaseCost = filteredAnimals.reduce((sum, a) => sum + (a.purchasePrice || 0), 0);
@@ -674,6 +718,25 @@ export default function HerdRegistry() {
                 >
                     🆕 Recent Arrivals (30d) ({recentArrivalsCount})
                 </button>
+                {duplicateCount > 0 && (
+                    <button
+                        className={`btn btn-secondary ${duplicateFilter ? 'active' : ''}`}
+                        style={{
+                            fontSize: '0.75rem', padding: '0.2rem 0.6rem', minHeight: '28px',
+                            borderColor: duplicateFilter ? 'rgba(220,53,69,0.8)' : 'rgba(220,53,69,0.35)',
+                            color: 'hsl(0, 85%, 65%)',
+                            background: duplicateFilter ? 'rgba(220,53,69,0.22)' : 'rgba(220,53,69,0.08)',
+                            fontWeight: 600
+                        }}
+                        onClick={() => {
+                            setDuplicateFilter(!duplicateFilter);
+                            if (!duplicateFilter) setShowFilterPanel(true);
+                        }}
+                        title="Filter table to show only animals with duplicate RFIDs"
+                    >
+                        <i className="fa-solid fa-triangle-exclamation"></i> Duplicate Tags ({duplicateCount})
+                    </button>
+                )}
             </div>
 
             {/* Expandable Advanced Feedlot Filter Panel */}
@@ -1008,6 +1071,22 @@ export default function HerdRegistry() {
                                 <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                                         <span>{animal.rfid}</span>
+                                        {duplicateRfidsMap[(animal.rfid || '').trim().toLowerCase()] > 1 && animal.status !== 'Deceased' && (
+                                            <span
+                                                style={{
+                                                    fontSize: '0.65rem',
+                                                    padding: '1px 5px',
+                                                    borderRadius: '4px',
+                                                    background: 'rgba(220,53,69,0.2)',
+                                                    color: 'hsl(0,85%,65%)',
+                                                    border: '1px solid rgba(220,53,69,0.4)',
+                                                    fontWeight: 700
+                                                }}
+                                                title="Multiple active animals share this exact Tag ID!"
+                                            >
+                                                <i className="fa-solid fa-triangle-exclamation"></i> DUP
+                                            </span>
+                                        )}
                                         {animal.previousTags && animal.previousTags.length > 0 && (
                                             <span
                                                 style={{
@@ -1190,8 +1269,22 @@ export default function HerdRegistry() {
                                 {/* Row 1: RFID, Source, Breed */}
                                 <div class="form-grid-3">
                                     <div class="form-group" style={{ marginBottom: 0 }}>
-                                        <label>Tag ID</label>
+                                        <label>Tag ID *</label>
                                         <input type="text" class="form-control" placeholder="e.g. 001, 012" value={rfid} onChange={(e) => setRfid(e.target.value)} required />
+                                        {(() => {
+                                            const clean = (rfid || '').trim().toLowerCase();
+                                            if (!clean) return null;
+                                            const dup = animals.find(a => (!editingAnimal || a.id !== editingAnimal.id) && a.status !== 'Deceased' && (a.rfid || '').trim().toLowerCase() === clean);
+                                            if (dup) {
+                                                return (
+                                                    <div style={{ color: 'hsl(0,85%,65%)', fontSize: '0.72rem', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
+                                                        <i className="fa-solid fa-circle-exclamation"></i>
+                                                        <span>Tag "{rfid.trim()}" is already used by Animal #{dup.id} (Pen {dup.pen || 'Unassigned'}, {dup.breed})</span>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
                                         {editingAnimal?.previousTags && editingAnimal.previousTags.length > 0 && (
                                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
                                                 <i className="fa-solid fa-clock-rotate-left" style={{ marginRight: '3px' }}></i>

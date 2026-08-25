@@ -1925,6 +1925,20 @@ module.exports = async (req, res) => {
             if (action === 'ADD_ANIMAL') {
                 const { rfid, breed, entryDate, entryWeight, targetWeight, purchasePrice, source, status, pen, price, desc, images, mandiPrice, mandiWeight, mandiTax, carriage, miscExpense } = payload;
 
+                if (rfid && String(rfid).trim()) {
+                    const dupCheck = await client.query(
+                        `SELECT id, rfid, pen, breed FROM ba_animals WHERE LOWER(TRIM(rfid)) = LOWER(TRIM($1)) AND status != 'Deceased'`,
+                        [String(rfid).trim()]
+                    );
+                    if (dupCheck.rows.length > 0) {
+                        const dup = dupCheck.rows[0];
+                        return res.status(400).json({
+                            success: false,
+                            error: `Duplicate Tag! RFID "${String(rfid).trim()}" is already assigned to Animal #${dup.id} in Pen ${dup.pen || 'Unassigned'} (${dup.breed}).`
+                        });
+                    }
+                }
+
                 const animalRes = await client.query(`
                     INSERT INTO ba_animals (rfid, breed, entry_date, entry_weight, current_weight, target_weight, purchase_price, source, status, pen, price, description, images, mandi_price, mandi_weight, mandi_tax, carriage, misc_expense)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
@@ -2095,6 +2109,21 @@ module.exports = async (req, res) => {
                 const penChanged = oldPen !== newPen;
 
                 const rfidChanged = Boolean(current.rfid && finalRfid && current.rfid.trim() !== finalRfid.trim());
+
+                if (rfidChanged && finalRfid && String(finalRfid).trim()) {
+                    const dupCheck = await client.query(
+                        `SELECT id, rfid, pen, breed FROM ba_animals WHERE id != $1 AND LOWER(TRIM(rfid)) = LOWER(TRIM($2)) AND status != 'Deceased'`,
+                        [id, String(finalRfid).trim()]
+                    );
+                    if (dupCheck.rows.length > 0) {
+                        const dup = dupCheck.rows[0];
+                        return res.status(400).json({
+                            success: false,
+                            error: `Duplicate Tag! RFID "${String(finalRfid).trim()}" is already assigned to Animal #${dup.id} in Pen ${dup.pen || 'Unassigned'} (${dup.breed}).`
+                        });
+                    }
+                }
+
                 let finalPreviousTags = current.previous_tags;
                 try {
                     let tagsList = current.previous_tags ? (typeof current.previous_tags === 'string' ? JSON.parse(current.previous_tags) : current.previous_tags) : [];
