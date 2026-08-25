@@ -453,6 +453,26 @@ export default function FeedStock() {
         }, 0);
     }, [combinedIssues, dateFrom, dateTo, ledgerCategoryFilter, ledgerSearch, feedStockItems, issueCosts]);
 
+    // Same Ledger-tab-scoped filtering (category pill, item search, date range) applied
+    // to purchases, so this sits consistently alongside Consumption Value above.
+    const totalPurchaseAmount = useMemo(() => {
+        const q = ledgerSearch.trim().toLowerCase();
+        return effectiveFeedPurchases.reduce((sum, p) => {
+            if (!inRange(p.date)) return sum;
+            const cat = getItemCategory(p.itemId, p);
+            if (ledgerCategoryFilter !== 'all') {
+                if (ledgerCategoryFilter === 'feed' && cat !== 'feed') return sum;
+                if (ledgerCategoryFilter === 'medicine' && cat !== 'medicine') return sum;
+                if ((ledgerCategoryFilter === 'other' || ledgerCategoryFilter === 'supply') && cat !== 'supply' && cat !== 'other') return sum;
+            }
+            if (q) {
+                const nm = (p.itemName || feedStockItems.find(it => it.id === p.itemId)?.name || p.itemId || '').toLowerCase();
+                if (!nm.includes(q)) return sum;
+            }
+            return sum + (p.quantity * p.rate);
+        }, 0);
+    }, [effectiveFeedPurchases, dateFrom, dateTo, ledgerCategoryFilter, ledgerSearch, feedStockItems]);
+
     const itemName = (id, rec) => {
         if (rec?.itemName && !rec.itemName.startsWith('item_')) return rec.itemName;
         const found = feedStockItems.find(i => i.id === id);
@@ -703,6 +723,14 @@ export default function FeedStock() {
                             </div>
                             <div class="stat-val">{Math.round(totalConsumptionValue).toLocaleString()} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR</small></div>
                             <span class="stat-lbl">Issues between {dateFrom} and {dateTo}</span>
+                        </div>
+                        <div class="glass-panel stat-box">
+                            <div class="stat-header">
+                                <h3>Total Purchase Amount (range)</h3>
+                                <div class="stat-icon"><i class="fa-solid fa-truck-ramp-box"></i></div>
+                            </div>
+                            <div class="stat-val">{Math.round(totalPurchaseAmount).toLocaleString()} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR</small></div>
+                            <span class="stat-lbl">Purchases between {dateFrom} and {dateTo}</span>
                         </div>
                     </div>
 
