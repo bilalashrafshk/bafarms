@@ -98,8 +98,8 @@ export default function MedicalLog() {
             const name = newMedName.trim();
             const rate = parseFloat(newMedRate);
             const qty = parseFloat(dosageQty) || 0;
-            const validUnits = ['ml', 'kg', 'mun', 'pc'];
-            const unit = validUnits.includes(newMedUnit.toLowerCase()) ? newMedUnit.toLowerCase() : 'pc';
+            const validUnits = ['ml', 'gm', 'kg', 'mun', 'pc', 'can', 'dose'];
+            const unit = validUnits.includes(newMedUnit.toLowerCase()) ? newMedUnit.toLowerCase() : 'ml';
             if (!name || isNaN(rate) || rate < 0 || qty <= 0) {
                 alert('Please enter a medicine name, price/unit, and quantity.');
                 return;
@@ -409,9 +409,12 @@ export default function MedicalLog() {
                                 <div className="form-group" style={{ marginBottom: 0 }}>
                                     <label style={{ fontSize: '0.75rem' }}>Unit *</label>
                                     <select className="form-control" value={newMedUnit} onChange={(e) => setNewMedUnit(e.target.value)}>
-                                        <option value="pc">pc (pieces / bottles)</option>
-                                        <option value="ml">ml (millilitres)</option>
+                                        <option value="ml">ml (millilitres / liquid)</option>
+                                        <option value="gm">gm (grams / powder)</option>
                                         <option value="kg">kg (kilograms)</option>
+                                        <option value="pc">pc (pieces / boluses / ampoules)</option>
+                                        <option value="can">can (spray cans / bottles)</option>
+                                        <option value="dose">dose (doses)</option>
                                         <option value="mun">mun (40 kg)</option>
                                     </select>
                                 </div>

@@ -266,8 +266,8 @@ export default function RotationPlanner() {
                 alert('Enter a name and price per unit for the new medicine.');
                 return;
             }
-            const validUnits = ['ml', 'kg', 'mun', 'pc'];
-            const unit = validUnits.includes(bulkNewMedUnit.toLowerCase()) ? bulkNewMedUnit.toLowerCase() : 'pc';
+            const validUnits = ['ml', 'gm', 'kg', 'mun', 'pc', 'can', 'dose'];
+            const unit = validUnits.includes(bulkNewMedUnit.toLowerCase()) ? bulkNewMedUnit.toLowerCase() : 'ml';
             itemId = addStockTrackedIngredient(name, 'medicine', unit);
             setBulkTaskSubmitting(true);
             await addFeedPurchase({
@@ -885,9 +885,12 @@ export default function RotationPlanner() {
                                         <div class="form-group" style={{ marginBottom: 0 }}>
                                             <label>Unit *</label>
                                             <select class="form-control" value={bulkNewMedUnit} onChange={e => setBulkNewMedUnit(e.target.value)}>
-                                                <option value="pc">pc (pieces / bottles)</option>
-                                                <option value="ml">ml (millilitres)</option>
+                                                <option value="ml">ml (millilitres / liquid)</option>
+                                                <option value="gm">gm (grams / powder)</option>
                                                 <option value="kg">kg (kilograms)</option>
+                                                <option value="pc">pc (pieces / boluses / ampoules)</option>
+                                                <option value="can">can (spray cans / bottles)</option>
+                                                <option value="dose">dose (doses)</option>
                                                 <option value="mun">mun (40 kg)</option>
                                             </select>
                                         </div>

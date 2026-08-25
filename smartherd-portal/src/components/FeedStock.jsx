@@ -90,10 +90,10 @@ export default function FeedStock() {
     const handleAddItem = (e) => {
         e.preventDefault();
         if (!isAdmin || !newItemName.trim()) return;
-        const validMedUnits = ['ml', 'kg', 'mun', 'pc'];
+        const validMedUnits = ['ml', 'gm', 'kg', 'mun', 'pc', 'can', 'dose'];
         let unit = newItemUnit.trim() || 'kg';
         if (newItemCategory === 'medicine') {
-            unit = validMedUnits.includes(unit.toLowerCase()) ? unit.toLowerCase() : 'pc';
+            unit = validMedUnits.includes(unit.toLowerCase()) ? unit.toLowerCase() : 'ml';
         }
         addStockTrackedIngredient(newItemName.trim(), newItemCategory, unit);
         setNewItemName('');
@@ -726,9 +726,12 @@ export default function FeedStock() {
                                         <label style={{ fontSize: '0.75rem' }}>Unit</label>
                                         {newItemCategory === 'medicine' ? (
                                             <select class="form-control" value={newItemUnit} onChange={e => setNewItemUnit(e.target.value)}>
-                                                <option value="pc">pc (pieces / bottles)</option>
-                                                <option value="ml">ml (millilitres)</option>
+                                                <option value="ml">ml (millilitres / liquid)</option>
+                                                <option value="gm">gm (grams / powder)</option>
                                                 <option value="kg">kg (kilograms)</option>
+                                                <option value="pc">pc (pieces / boluses / ampoules)</option>
+                                                <option value="can">can (spray cans / bottles)</option>
+                                                <option value="dose">dose (doses)</option>
                                                 <option value="mun">mun (40 kg)</option>
                                             </select>
                                         ) : (
@@ -1028,9 +1031,12 @@ export default function FeedStock() {
                                             <label>Unit</label>
                                             {pNewItemCategory === 'medicine' ? (
                                                 <select class="form-control" value={pNewItemUnit} onChange={e => setPNewItemUnit(e.target.value)}>
-                                                    <option value="pc">pc (pieces / bottles)</option>
-                                                    <option value="ml">ml (millilitres)</option>
+                                                    <option value="ml">ml (millilitres / liquid)</option>
+                                                    <option value="gm">gm (grams / powder)</option>
                                                     <option value="kg">kg (kilograms)</option>
+                                                    <option value="pc">pc (pieces / boluses / ampoules)</option>
+                                                    <option value="can">can (spray cans / bottles)</option>
+                                                    <option value="dose">dose (doses)</option>
                                                     <option value="mun">mun (40 kg)</option>
                                                 </select>
                                             ) : (
