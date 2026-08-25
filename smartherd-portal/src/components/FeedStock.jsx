@@ -363,9 +363,11 @@ export default function FeedStock() {
     const filteredLedger = useMemo(() => {
         const q = ledgerSearch.trim().toLowerCase();
         return ledger.filter(r => {
+            const cat = getItemCategory(r.item.id, r.item);
             if (ledgerCategoryFilter !== 'all') {
-                const cat = r.item.category || 'feed';
-                if (cat !== ledgerCategoryFilter) return false;
+                if (ledgerCategoryFilter === 'feed' && cat !== 'feed') return false;
+                if (ledgerCategoryFilter === 'medicine' && cat !== 'medicine') return false;
+                if ((ledgerCategoryFilter === 'other' || ledgerCategoryFilter === 'supply') && cat !== 'supply' && cat !== 'other') return false;
             }
             if (q) {
                 const nm = (r.item.name || '').toLowerCase();
@@ -374,8 +376,9 @@ export default function FeedStock() {
             }
             return true;
         });
-    }, [ledger, ledgerCategoryFilter, ledgerSearch]);
+    }, [ledger, ledgerCategoryFilter, ledgerSearch, feedStockItems]);
     const ledgerByItemId = useMemo(() => Object.fromEntries(ledger.map(l => [l.item.id, l])), [ledger]);
+    const filteredStockValue = useMemo(() => filteredLedger.reduce((sum, l) => sum + (l.closingValue || 0), 0), [filteredLedger]);
 
     // FIFO lots per item (each purchase + opening balance, with remaining qty after every
     // issue drawn against it) — feeds the Purchase History "remaining" column and every
@@ -657,11 +660,18 @@ export default function FeedStock() {
                     <div class="dashboard-grid">
                         <div class="glass-panel stat-box">
                             <div class="stat-header">
-                                <h3>Current Stock Value</h3>
+                                <h3>
+                                    {ledgerCategoryFilter === 'all' && !ledgerSearch.trim()
+                                        ? 'Current Stock Value'
+                                        : `Current Stock Value (${ledgerCategoryFilter === 'feed' ? 'Feed' : ledgerCategoryFilter === 'medicine' ? 'Medicine' : ledgerCategoryFilter === 'supply' || ledgerCategoryFilter === 'other' ? 'Supplies' : 'Filtered'})`}
+                                </h3>
                                 <div class="stat-icon"><i class="fa-solid fa-coins"></i></div>
                             </div>
-                            <div class="stat-val">{Math.round(totalStockValue).toLocaleString()} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR</small></div>
-                            <span class="stat-lbl"><i class="fa-solid fa-boxes-stacked"></i> Across {feedStockItems.length} item{feedStockItems.length === 1 ? '' : 's'}, at weighted-avg cost</span>
+                            <div class="stat-val">{Math.round(filteredStockValue).toLocaleString()} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>PKR</small></div>
+                            <span class="stat-lbl">
+                                <i class="fa-solid fa-boxes-stacked"></i> Across {filteredLedger.length} item{filteredLedger.length === 1 ? '' : 's'}
+                                {ledgerCategoryFilter !== 'all' || ledgerSearch.trim() ? ` (filtered from ${ledger.length} total)` : ''}, at weighted-avg cost
+                            </span>
                         </div>
                         <div class="glass-panel stat-box">
                             <div class="stat-header">
@@ -707,13 +717,13 @@ export default function FeedStock() {
                                 All Items ({ledger.length})
                             </button>
                             <button type="button" class={`filter-btn ${ledgerCategoryFilter === 'feed' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setLedgerCategoryFilter('feed')}>
-                                <i class="fa-solid fa-wheat-awn" style={{ marginRight: '0.25rem' }}></i> Feed ({ledger.filter(r => (r.item.category || 'feed') === 'feed').length})
+                                <i class="fa-solid fa-wheat-awn" style={{ marginRight: '0.25rem' }}></i> Feed ({ledger.filter(r => getItemCategory(r.item.id, r.item) === 'feed').length})
                             </button>
                             <button type="button" class={`filter-btn ${ledgerCategoryFilter === 'medicine' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setLedgerCategoryFilter('medicine')}>
-                                <i class="fa-solid fa-prescription-bottle-medical" style={{ marginRight: '0.25rem' }}></i> Medicine ({ledger.filter(r => (r.item.category || 'feed') === 'medicine').length})
+                                <i class="fa-solid fa-prescription-bottle-medical" style={{ marginRight: '0.25rem' }}></i> Medicine ({ledger.filter(r => getItemCategory(r.item.id, r.item) === 'medicine').length})
                             </button>
-                            <button type="button" class={`filter-btn ${ledgerCategoryFilter === 'other' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setLedgerCategoryFilter('other')}>
-                                <i class="fa-solid fa-cubes" style={{ marginRight: '0.25rem' }}></i> Other ({ledger.filter(r => (r.item.category || 'feed') === 'other').length})
+                            <button type="button" class={`filter-btn ${ledgerCategoryFilter === 'supply' || ledgerCategoryFilter === 'other' ? 'active' : ''}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.6rem' }} onClick={() => setLedgerCategoryFilter('supply')}>
+                                <i class="fa-solid fa-cubes" style={{ marginRight: '0.25rem' }}></i> Supplies ({ledger.filter(r => { const c = getItemCategory(r.item.id, r.item); return c === 'supply' || c === 'other'; }).length})
                             </button>
                         </div>
 
