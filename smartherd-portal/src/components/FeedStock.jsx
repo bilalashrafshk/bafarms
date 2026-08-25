@@ -428,7 +428,30 @@ export default function FeedStock() {
     }, [filteredIssues, issueCosts, feedStockItems]);
 
     const totalStockValue = ledger.reduce((sum, l) => sum + l.closingValue, 0);
-    const totalConsumptionValue = filteredIssues.reduce((sum, iss) => sum + (issueCosts[iss.id]?.cost ?? 0), 0);
+    // Scoped independently to the Ledger tab's own category pills / item search / date
+    // range (not the Issues tab's filters, which is what filteredIssues is for) — and
+    // excludes premix production draws (pen 'PRODUCTION'), since those are an internal
+    // transfer from raw-material stock into a premix batch's own stock, not final
+    // consumption. The premix batch itself is later issued to pens, which is where that
+    // value is counted as consumption — including both would double-count it.
+    const totalConsumptionValue = useMemo(() => {
+        const q = ledgerSearch.trim().toLowerCase();
+        return combinedIssues.reduce((sum, i) => {
+            if (i.pen === 'PRODUCTION') return sum;
+            if (!inRange(i.date)) return sum;
+            const cat = getItemCategory(i.itemId, i);
+            if (ledgerCategoryFilter !== 'all') {
+                if (ledgerCategoryFilter === 'feed' && cat !== 'feed') return sum;
+                if (ledgerCategoryFilter === 'medicine' && cat !== 'medicine') return sum;
+                if ((ledgerCategoryFilter === 'other' || ledgerCategoryFilter === 'supply') && cat !== 'supply' && cat !== 'other') return sum;
+            }
+            if (q) {
+                const nm = (i.itemName || feedStockItems.find(it => it.id === i.itemId)?.name || i.itemId || '').toLowerCase();
+                if (!nm.includes(q)) return sum;
+            }
+            return sum + (issueCosts[i.id]?.cost ?? 0);
+        }, 0);
+    }, [combinedIssues, dateFrom, dateTo, ledgerCategoryFilter, ledgerSearch, feedStockItems, issueCosts]);
 
     const itemName = (id, rec) => {
         if (rec?.itemName && !rec.itemName.startsWith('item_')) return rec.itemName;
