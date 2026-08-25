@@ -1297,7 +1297,11 @@ export const FarmProvider = ({ children }) => {
             });
 
             const closingQty = lots.reduce((sum, l) => sum + l.remaining, 0);
-            const closingValue = lots.reduce((sum, l) => sum + l.remaining * l.rate, 0);
+            // Negative closing stock (over-issued items) is valued at 0 rather than a
+            // negative PKR figure — the shortfall's real cost is already charged to the
+            // issue that caused it (see allocateFifo), so the inventory valuation itself
+            // shouldn't go negative.
+            const closingValue = Math.max(0, lots.reduce((sum, l) => sum + l.remaining * l.rate, 0));
             const avgRate = closingQty > 0.0001 ? closingValue / closingQty : (lots[lots.length - 1]?.rate || 0);
 
             byItem[item.id] = {

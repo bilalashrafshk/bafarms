@@ -284,8 +284,8 @@ export default function RotationPlanner() {
             const available = stockQtyOf(itemId);
             const needed = qtyPerAnimal * eligible.length;
             if (available < needed) {
-                alert(`Insufficient stock. Available: ${available}, needed: ${needed} (${qtyPerAnimal} × ${eligible.length} animals). Purchase more first or switch to "New medicine".`);
-                return;
+                const proceed = confirm(`Warning: this will take stock negative. Available: ${available}, needed: ${needed} (${qtyPerAnimal} × ${eligible.length} animals). Issue anyway?`);
+                if (!proceed) return;
             }
             const stockObj = medicineItems.find(i => i.id === itemId);
             if (stockObj) {
