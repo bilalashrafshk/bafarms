@@ -296,10 +296,13 @@ body {
    DASHBOARD WIDGETS
    ========================================== */
 .dashboard-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    display: flex;
+    flex-wrap: wrap;
     gap: 1rem;
     flex-shrink: 0;
+}
+.dashboard-grid .stat-box {
+    flex: 1 1 220px;
 }
 
 .stat-box {
@@ -398,6 +401,20 @@ body {
     width: 100%;
     margin-top: 0.8rem;
     position: relative;
+}
+
+.chart-sparse-state {
+    flex: 1;
+    min-height: 220px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    text-align: center;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 10px;
+    border: 1px dashed rgba(255, 255, 255, 0.08);
 }
 
 .chart-svg {
@@ -573,13 +590,48 @@ body {
     border: 1px solid rgba(220, 53, 69, 0.3);
 }
 
+.alert-pen-group {
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    overflow: hidden;
+    flex-shrink: 0; /* prevents flex-column squeeze/clip inside the scroll list */
+}
+.alert-pen-group-header {
+    padding: 0.6rem 0.9rem;
+    background: rgba(255, 255, 255, 0.02);
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--text-pure);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.alert-pen-group-header small {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+.alert-row {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.6rem 0.9rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.03);
+}
+.alert-row i { font-size: 0.95rem; flex-shrink: 0; width: 16px; text-align: center; }
+.alert-row .alert-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.alert-row .alert-row-title { font-size: 0.85rem; font-weight: 600; color: var(--text-pure); }
+.alert-row .alert-row-desc { font-size: 0.76rem; color: var(--text-muted); }
+
 .critical-alerts-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 0.65rem;
-    max-height: 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    max-height: 300px;
     overflow-y: auto;
-    padding-right: 0.25rem;
+    padding-right: 0.3rem;
 }
 
 .critical-alert-card {
@@ -1517,13 +1569,8 @@ select option {
         padding: 1.2rem 1.5rem 1rem;
     }
 
-    .dashboard-grid {
-        /* minmax(0, 1fr), not bare 1fr — a bare 1fr track has an implicit
-           min-width: auto, so it refuses to shrink below its content's natural
-           width (e.g. a wide table) and blows out the page instead of letting
-           that content's own overflow-x:auto wrapper scroll internally. */
-        grid-template-columns: minmax(0, 1fr);
-        gap: 1.5rem;
+    .dashboard-grid .stat-box {
+        flex-basis: 100%;
     }
 
     .dashboard-bottom-grid, .tmr-grid {
@@ -2800,6 +2847,33 @@ select option {
     color: #000;
     box-shadow: 0 1px 4px rgba(0,0,0,0.4);
 }
+
+.schedule-day-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 0.85rem 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+.schedule-day-label {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+}
+.schedule-day-label strong { font-family: var(--font-heading); font-weight: 700; font-size: 0.85rem; color: var(--accent-gold); }
+.schedule-day-label span { font-size: 0.75rem; color: var(--text-muted); }
+.schedule-event-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+}
+.schedule-event-top { display: flex; align-items: flex-start; gap: 0.7rem; min-width: 0; }
+.schedule-event-top i { font-size: 1rem; width: 18px; text-align: center; flex-shrink: 0; margin-top: 0.15rem; }
+.schedule-event-meta { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding-left: 1.85rem; }
 
 .calendar-timeline-grid {
     display: grid;

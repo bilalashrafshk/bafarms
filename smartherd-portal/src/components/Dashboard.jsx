@@ -465,6 +465,17 @@ export default function Dashboard({ onNavigate }) {
         }))
     ];
 
+    const alertGroups = useMemo(() => {
+        const map = new Map();
+        criticalAlerts.forEach(a => {
+            const m = a.title.match(/^Pen (\w+)/);
+            const key = m ? m[1] : 'General';
+            if (!map.has(key)) map.set(key, []);
+            map.get(key).push(a);
+        });
+        return Array.from(map.entries()).map(([pen, issues]) => ({ pen, issues }));
+    }, [criticalAlerts]);
+
     // OPERATIONS TASKS (Right-Hand Segmented Panel)
     // Tab 1: Vaccines & Protocols
     const vaccineTasks = pendingVaccines.map(v => ({
@@ -546,16 +557,6 @@ export default function Dashboard({ onNavigate }) {
     // H. UPCOMING OPERATIONS & WEIGHING SCHEDULE (Next 7-14 Days)
     const [calendarHorizon, setCalendarHorizon] = useState(14);
     const [calendarFilter, setCalendarFilter] = useState('all');
-    const [expandedDays, setExpandedDays] = useState(new Set());
-
-    const toggleDayExpanded = dateStr => {
-        setExpandedDays(prev => {
-            const next = new Set(prev);
-            if (next.has(dateStr)) next.delete(dateStr);
-            else next.add(dateStr);
-            return next;
-        });
-    };
 
     // 1. Upcoming Weigh-ins (Next projected weigh date per active calf)
     const upcomingWeighList = [];
@@ -739,6 +740,7 @@ export default function Dashboard({ onNavigate }) {
             .sort((a, b) => parseDateOnly(a.date) - parseDateOnly(b.date));
     })();
 
+    const hasEnoughChartData = adgByDate.length >= 3;
     const hasChartData = adgByDate.length > 0;
     let chartPoints = [];
     let adgMin = 0;
@@ -948,27 +950,25 @@ export default function Dashboard({ onNavigate }) {
                         <span className="critical-banner-badge">{criticalAlerts.length} {criticalAlerts.length === 1 ? 'Issue' : 'Issues'}</span>
                     </div>
                     <div className="critical-alerts-grid">
-                        {criticalAlerts.map((alert, idx) => (
-                            <div key={idx} className={`critical-alert-card ${alert.badgeColor}`}>
-                                <div className="critical-alert-icon">
-                                    <i className={`fa-solid ${alert.icon}`}></i>
+                        {alertGroups.map(g => (
+                            <div className="alert-pen-group" key={g.pen}>
+                                <div className="alert-pen-group-header">
+                                    <i className="fa-solid fa-warehouse" style={{ color: 'var(--accent-gold)' }}></i>
+                                    {g.pen === 'General' ? 'General' : `Pen ${g.pen}`}
+                                    <small>— {g.issues.length} {g.issues.length === 1 ? 'issue' : 'issues'}</small>
                                 </div>
-                                <div className="critical-alert-body">
-                                    <div className="critical-alert-top">
-                                        <span className="critical-alert-name">{alert.title}</span>
-                                        <span className={`critical-badge-pill ${alert.badgeColor}`}>{alert.badge}</span>
+                                {g.issues.map((issue, i) => (
+                                    <div className="alert-row" key={i} style={{ borderLeft: `3px solid ${issue.badgeColor === 'danger' ? 'hsl(0,75%,55%)' : 'var(--accent-gold)'}` }}>
+                                        <i className={`fa-solid ${issue.icon}`} style={{ color: issue.badgeColor === 'danger' ? 'hsl(0,75%,60%)' : 'var(--accent-gold)' }}></i>
+                                        <div className="alert-row-body">
+                                            <span className="alert-row-title">{issue.title.replace(/^Pen \w+ — /, '')}</span>
+                                            <span className="alert-row-desc">{issue.desc}</span>
+                                        </div>
+                                        <button className="btn btn-secondary btn-sm" onClick={() => onNavigate && onNavigate(issue.action.tab)}>
+                                            {issue.action.label} <i className="fa-solid fa-arrow-right"></i>
+                                        </button>
                                     </div>
-                                    <div className="critical-alert-desc">{alert.desc}</div>
-                                </div>
-                                {alert.action && (
-                                    <button
-                                        type="button"
-                                        className="btn btn-secondary critical-action-btn"
-                                        onClick={() => onNavigate && onNavigate(alert.action.tab)}
-                                    >
-                                        {alert.action.label} <i className="fa-solid fa-arrow-right" style={{ fontSize: '0.7rem' }}></i>
-                                    </button>
-                                )}
+                                ))}
                             </div>
                         ))}
                     </div>
@@ -985,40 +985,46 @@ export default function Dashboard({ onNavigate }) {
                         <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '500' }}>avg daily gain per weigh session</span>
                     </h3>
 
-                    {!hasChartData ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '200px', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '12px' }}>
-                            <i class="fa-solid fa-chart-area" style={{ fontSize: '2rem', color: 'var(--text-muted)', marginBottom: '0.6rem' }}></i>
-                            <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Log weights on 2+ dates to see trend.</p>
+                    {!hasEnoughChartData ? (
+                        <div className="chart-sparse-state">
+                            <div style={{ fontFamily: 'var(--font-heading)', fontSize: '2.1rem', fontWeight: 800, color: 'var(--accent-gold)' }}>
+                                {avgHerdAdg !== null ? avgHerdAdg : '—'} <small style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>kg/day</small>
+                            </div>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', maxWidth: 280, lineHeight: 1.4 }}>
+                                {adgByDate.length === 0
+                                    ? 'No weigh sessions logged yet.'
+                                    : `Only ${adgByDate.length} weigh session${adgByDate.length > 1 ? 's' : ''} logged so far — the trend line will build in as more come in.`} Target: 1.30 kg/day.
+                            </div>
                         </div>
                     ) : (
-                        <div class="chart-container">
-                            <svg class="chart-svg" viewBox="0 0 500 220" preserveAspectRatio="none">
+                        <div className="chart-container">
+                            <svg className="chart-svg" viewBox="0 0 500 220" preserveAspectRatio="none">
                                 {yGridLines.map((line, idx) => (
-                                    <line key={idx} x1="50" y1={line.y} x2="450" y2={line.y} class="chart-grid-line" />
+                                    <line key={idx} x1="50" y1={line.y} x2="450" y2={line.y} className="chart-grid-line" />
                                 ))}
-                                <line x1="50" y1="20" x2="50" y2="190" class="chart-axis-line" />
-                                <line x1="50" y1="190" x2="480" y2="190" class="chart-axis-line" />
+                                <line x1="50" y1="20" x2="50" y2="190" className="chart-axis-line" />
+                                <line x1="50" y1="190" x2="480" y2="190" className="chart-axis-line" />
 
                                 {/* Target 1.3 kg/day line */}
                                 {targetY !== null && targetY >= 20 && targetY <= 190 && (
                                     <g>
                                         <line x1="50" y1={targetY} x2="450" y2={targetY} stroke="rgba(255,193,7,0.4)" strokeWidth="1.5" strokeDasharray="5 3" />
-                                        <text x="455" y={targetY + 4} class="chart-axis-text" style={{ fill: 'var(--accent-gold)' }}>1.3</text>
+                                        <text x="455" y={targetY + 4} className="chart-axis-text" style={{ fill: 'var(--accent-gold)' }}>1.3</text>
                                     </g>
                                 )}
 
-                                {pathD && <path d={pathD} class="chart-curve" fill="none" />}
+                                {pathD && <path d={pathD} className="chart-curve" fill="none" />}
 
                                 {chartPoints.map((pt, idx) => (
                                     <g key={idx}>
-                                        <circle cx={pt.x} cy={pt.y} r="5.5" class="chart-point" />
-                                        <text x={pt.x} y={pt.y - 10} text-anchor="middle" class="chart-axis-text" style={{ fill: pt.val >= TARGET_ADG ? 'var(--primary-green-light)' : 'hsl(0,75%,60%)' }}>{pt.val}</text>
-                                        <text x={pt.x} y="205" text-anchor="middle" class="chart-axis-text">{pt.label}</text>
+                                        <circle cx={pt.x} cy={pt.y} r="5.5" className="chart-point" />
+                                        <text x={pt.x} y={pt.y - 10} textAnchor="middle" className="chart-axis-text" style={{ fill: pt.val >= TARGET_ADG ? 'var(--primary-green-light)' : 'hsl(0,75%,60%)' }}>{pt.val}</text>
+                                        <text x={pt.x} y="205" textAnchor="middle" className="chart-axis-text">{pt.label}</text>
                                     </g>
                                 ))}
 
                                 {yGridLines.map((line, idx) => (
-                                    <text key={idx} x="44" y={line.y + 4} text-anchor="end" class="chart-axis-text">{line.val}</text>
+                                    <text key={idx} x="44" y={line.y + 4} textAnchor="end" className="chart-axis-text">{line.val}</text>
                                 ))}
                             </svg>
                         </div>
@@ -1217,75 +1223,32 @@ export default function Dashboard({ onNavigate }) {
                     </div>
                 </div>
 
-                {/* Calendar timeline days grid */}
+                {/* Calendar timeline days vertical layout */}
                 {sortedCalendarDays.length > 0 ? (
-                    <div className="calendar-timeline-grid">
-                        {sortedCalendarDays.map(day => {
-                            const isExpanded = expandedDays.has(day.dateStr);
-                            return (
-                                <div
-                                    key={day.dateStr}
-                                    className={`calendar-day-card ${day.diff === 0 ? 'today' : day.diff === 1 ? 'tomorrow' : ''}`}
-                                >
-                                    <div
-                                        className="calendar-day-header"
-                                        onClick={() => toggleDayExpanded(day.dateStr)}
-                                        title="Click to expand/collapse animal roster"
-                                    >
-                                        <div className="calendar-day-date-info">
-                                            <span className="calendar-day-relative">{day.relativeLabel}</span>
-                                            <span className="calendar-day-exact">{day.formattedDate}</span>
-                                        </div>
-                                        <div className="calendar-day-meta">
-                                            <span className="calendar-events-pill">
-                                                {day.events.reduce((sum, ev) => sum + ev.count, 0)} {day.events.reduce((sum, ev) => sum + ev.count, 0) === 1 ? 'calf' : 'calves'}
-                                            </span>
-                                            <i className={`fa-solid ${isExpanded ? 'fa-chevron-up' : 'fa-chevron-down'}`} style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}></i>
-                                        </div>
-                                    </div>
-
-                                    <div className="calendar-day-events-list">
-                                        {day.events.map((ev, evIdx) => (
-                                            <div key={evIdx} className={`calendar-event-item ${ev.badgeColor}`}>
-                                                <div className="calendar-event-icon">
-                                                    <i className={`fa-solid ${ev.icon}`}></i>
-                                                </div>
-                                                <div className="calendar-event-body">
-                                                    <div className="calendar-event-title-row">
-                                                        <span className="calendar-event-title">{ev.title}</span>
-                                                        <span className={`calendar-event-count-badge ${ev.badgeColor}`}>
-                                                            {ev.count} {ev.count === 1 ? 'calf' : 'calves'}
-                                                        </span>
-                                                    </div>
-                                                    <span className="calendar-event-sub">{ev.subtitle}</span>
-
-                                                    {/* Expandable RFID Tag List */}
-                                                    {isExpanded && ev.animals && ev.animals.length > 0 && (
-                                                        <div className="calendar-roster-tags">
-                                                            {ev.animals.map(a => (
-                                                                <span key={a.id || a.rfid} className="calendar-roster-chip">
-                                                                    <i className="fa-solid fa-tag" style={{ fontSize: '0.6rem' }}></i> {a.rfid}
-                                                                    {a.currentWeight ? ` (${a.currentWeight}kg)` : ''}
-                                                                </span>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                {ev.action && (
-                                                    <button
-                                                        type="button"
-                                                        className="btn btn-secondary calendar-event-action-btn"
-                                                        onClick={() => onNavigate && onNavigate(ev.action.tab)}
-                                                    >
-                                                        {ev.action.label}
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        {sortedCalendarDays.map(day => (
+                            <div className="schedule-day-row" key={day.dateStr}>
+                                <div className="schedule-day-label">
+                                    <strong>{day.relativeLabel}</strong>
+                                    <span>{day.formattedDate}</span>
                                 </div>
-                            );
-                        })}
+                                {day.events.map((ev, i) => (
+                                    <div className="schedule-event-card" key={i} style={{ borderLeft: `3px solid ${ev.badgeColor === 'danger' ? 'hsl(0,75%,55%)' : ev.badgeColor === 'info' ? '#38bdf8' : 'var(--accent-gold)'}` }}>
+                                        <div className="schedule-event-top">
+                                            <i className={`fa-solid ${ev.icon}`} style={{ color: ev.badgeColor === 'danger' ? 'hsl(0,75%,60%)' : ev.badgeColor === 'info' ? '#38bdf8' : 'var(--accent-gold)' }}></i>
+                                            <div>
+                                                <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-pure)' }}>{ev.title}</div>
+                                                <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{ev.subtitle}</div>
+                                            </div>
+                                        </div>
+                                        <div className="schedule-event-meta">
+                                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)', padding: '0.15rem 0.55rem', borderRadius: 50 }}>{ev.count} {ev.count === 1 ? 'calf' : 'calves'}</span>
+                                            <button className="btn btn-secondary btn-sm" onClick={() => ev.action.tab && onNavigate && onNavigate(ev.action.tab)}>{ev.action.label}</button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ))}
                     </div>
                 ) : (
                     <div className="calendar-empty-state">
