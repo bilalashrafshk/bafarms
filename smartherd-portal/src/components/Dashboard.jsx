@@ -557,6 +557,7 @@ export default function Dashboard({ onNavigate }) {
     // H. UPCOMING OPERATIONS & WEIGHING SCHEDULE (Next 7-14 Days)
     const [calendarHorizon, setCalendarHorizon] = useState(14);
     const [calendarFilter, setCalendarFilter] = useState('all');
+    const [isCriticalExpanded, setIsCriticalExpanded] = useState(true);
 
     // 1. Upcoming Weigh-ins (Next projected weigh date per active calf)
     const upcomingWeighList = [];
@@ -942,36 +943,48 @@ export default function Dashboard({ onNavigate }) {
             {/* Critical Operational Alerts Banner (Only renders when active alerts exist) */}
             {criticalAlerts.length > 0 && (
                 <div className="dashboard-critical-banner glass-panel">
-                    <div className="critical-banner-header">
+                    <div
+                        className="critical-banner-header"
+                        onClick={() => setIsCriticalExpanded(prev => !prev)}
+                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                        title="Click to collapse/expand critical operational alerts"
+                    >
                         <div className="critical-banner-title">
                             <i className="fa-solid fa-triangle-exclamation" style={{ color: 'hsl(0,75%,60%)' }}></i>
                             <span>Critical Operational Attention Required</span>
                         </div>
-                        <span className="critical-banner-badge">{criticalAlerts.length} {criticalAlerts.length === 1 ? 'Issue' : 'Issues'}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                            <span className="critical-banner-badge">
+                                {alertGroups.length > 1 ? `${alertGroups.length} Pens · ` : ''}{criticalAlerts.length} {criticalAlerts.length === 1 ? 'Issue' : 'Issues'}
+                            </span>
+                            <i className={`fa-solid ${isCriticalExpanded ? 'fa-chevron-up' : 'fa-chevron-down'}`} style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}></i>
+                        </div>
                     </div>
-                    <div className="critical-alerts-grid">
-                        {alertGroups.map(g => (
-                            <div className="alert-pen-group" key={g.pen}>
-                                <div className="alert-pen-group-header">
-                                    <i className="fa-solid fa-warehouse" style={{ color: 'var(--accent-gold)' }}></i>
-                                    {g.pen === 'General' ? 'General' : `Pen ${g.pen}`}
-                                    <small>— {g.issues.length} {g.issues.length === 1 ? 'issue' : 'issues'}</small>
-                                </div>
-                                {g.issues.map((issue, i) => (
-                                    <div className="alert-row" key={i} style={{ borderLeft: `3px solid ${issue.badgeColor === 'danger' ? 'hsl(0,75%,55%)' : 'var(--accent-gold)'}` }}>
-                                        <i className={`fa-solid ${issue.icon}`} style={{ color: issue.badgeColor === 'danger' ? 'hsl(0,75%,60%)' : 'var(--accent-gold)' }}></i>
-                                        <div className="alert-row-body">
-                                            <span className="alert-row-title">{issue.title.replace(/^Pen \w+ — /, '')}</span>
-                                            <span className="alert-row-desc">{issue.desc}</span>
-                                        </div>
-                                        <button className="btn btn-secondary btn-sm" onClick={() => onNavigate && onNavigate(issue.action.tab)}>
-                                            {issue.action.label} <i className="fa-solid fa-arrow-right"></i>
-                                        </button>
+                    {isCriticalExpanded && (
+                        <div className="critical-alerts-grid">
+                            {alertGroups.map(g => (
+                                <div className="alert-pen-group" key={g.pen}>
+                                    <div className="alert-pen-group-header">
+                                        <i className="fa-solid fa-warehouse" style={{ color: 'var(--accent-gold)' }}></i>
+                                        {g.pen === 'General' ? 'General' : `Pen ${g.pen}`}
+                                        <small>— {g.issues.length} {g.issues.length === 1 ? 'issue' : 'issues'}</small>
                                     </div>
-                                ))}
-                            </div>
-                        ))}
-                    </div>
+                                    {g.issues.map((issue, i) => (
+                                        <div className="alert-row" key={i} style={{ borderLeft: `3px solid ${issue.badgeColor === 'danger' ? 'hsl(0,75%,55%)' : 'var(--accent-gold)'}` }}>
+                                            <i className={`fa-solid ${issue.icon}`} style={{ color: issue.badgeColor === 'danger' ? 'hsl(0,75%,60%)' : 'var(--accent-gold)' }}></i>
+                                            <div className="alert-row-body">
+                                                <span className="alert-row-title">{issue.title.replace(/^Pen \w+ — /, '')}</span>
+                                                <span className="alert-row-desc">{issue.desc}</span>
+                                            </div>
+                                            <button className="btn btn-secondary btn-sm" onClick={() => onNavigate && onNavigate(issue.action.tab)}>
+                                                {issue.action.label} <i className="fa-solid fa-arrow-right"></i>
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 

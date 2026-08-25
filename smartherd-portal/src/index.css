@@ -568,6 +568,13 @@ body {
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
+    cursor: pointer;
+    user-select: none;
+    transition: var(--transition-quick);
+}
+
+.critical-banner-header:hover .critical-banner-title {
+    color: #fff;
 }
 
 .critical-banner-title {
@@ -2450,6 +2457,87 @@ select option {
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
+    }
+
+    /* Critical Operational Alerts Banner Mobile Density */
+    .dashboard-critical-banner {
+        padding: 0.55rem 0.7rem !important;
+        gap: 0.4rem !important;
+        margin-bottom: 0.5rem !important;
+    }
+
+    .critical-banner-header {
+        padding-bottom: 0 !important;
+    }
+
+    .critical-banner-title {
+        font-size: 0.8rem !important;
+        gap: 0.4rem !important;
+    }
+
+    .critical-banner-badge {
+        font-size: 0.65rem !important;
+        padding: 0.08rem 0.4rem !important;
+    }
+
+    .critical-alerts-grid {
+        max-height: 180px !important;
+        gap: 0.4rem !important;
+        padding-right: 0.2rem !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    .alert-pen-group {
+        border-radius: 8px !important;
+    }
+
+    .alert-pen-group-header {
+        padding: 0.35rem 0.6rem !important;
+        font-size: 0.76rem !important;
+        gap: 0.35rem !important;
+    }
+
+    .alert-pen-group-header small {
+        font-size: 0.66rem !important;
+    }
+
+    .alert-row {
+        padding: 0.35rem 0.6rem !important;
+        gap: 0.45rem !important;
+    }
+
+    .alert-row i {
+        font-size: 0.8rem !important;
+        width: 14px !important;
+    }
+
+    .alert-row .alert-row-body {
+        gap: 0 !important;
+        min-width: 0 !important;
+    }
+
+    .alert-row .alert-row-title {
+        font-size: 0.76rem !important;
+        line-height: 1.2 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+
+    .alert-row .alert-row-desc {
+        font-size: 0.68rem !important;
+        line-height: 1.15 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+
+    .alert-row .btn {
+        padding: 0.12rem 0.45rem !important;
+        font-size: 0.68rem !important;
+        min-height: 24px !important;
+        white-space: nowrap !important;
+        flex-shrink: 0 !important;
     }
 
     .hide-mobile-col {

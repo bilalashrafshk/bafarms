@@ -37,11 +37,12 @@ const defaultSystemParams = {
 };
 
 const defaultQuarantineProtocols = [
-    { id: 'deworm', label: 'Deworm',      dueDay: 1,  type: 'Deworming',   medicine: 'Ivermectin',   dosage: '5ml',   withholding: 21 },
-    { id: 'fmd1',   label: 'FMD',         dueDay: 1,  type: 'Vaccination', medicine: 'FMD Vaccine',  dosage: '2ml',   withholding: 0  },
-    { id: 'vitb12', label: 'Vit B12',     dueDay: 1,  type: 'Vaccination', medicine: 'Vitamin B12',  dosage: '3ml',   withholding: 0  },
-    { id: 'tick',   label: 'Tick Spray',  dueDay: 1,  type: 'Injury',      medicine: 'Cypermethrin', dosage: 'Spray', withholding: 7  },
-    { id: 'fmd2',   label: 'FMD Boost',   dueDay: 7,  type: 'Vaccination', medicine: 'FMD Vaccine',  dosage: '2ml',   withholding: 0  },
+    { id: 'deworm1',     label: 'Deworm 1',       dueDay: 1,  type: 'Deworming',   medicine: 'Albendazole / Dewormer', dosage: 'Oral', withholding: 14 },
+    { id: 'ivermectin1', label: 'Ivermectin',     dueDay: 1,  type: 'Deworming',   medicine: 'Ivermectin',             dosage: '5ml',  withholding: 21 },
+    { id: 'deworm2',     label: 'Deworm Rep',     dueDay: 14, type: 'Deworming',   medicine: 'Albendazole / Dewormer', dosage: 'Oral', withholding: 14 },
+    { id: 'ivermectin2', label: 'Ivermectin Rep', dueDay: 14, type: 'Deworming',   medicine: 'Ivermectin',             dosage: '5ml',  withholding: 21 },
+    { id: 'fmd',         label: 'FMD',            dueDay: 14, type: 'Vaccination', medicine: 'FMD Vaccine',            dosage: '2ml',  withholding: 0  },
+    { id: 'hs',          label: 'HS',             dueDay: 14, type: 'Vaccination', medicine: 'HS Vaccine',             dosage: '3ml',  withholding: 0  },
 ];
 
 const defaultMeatCuts = [
@@ -548,7 +549,14 @@ export const FarmProvider = ({ children }) => {
     const [breedsConfig, setBreedsConfig] = useState(() => loadStoredData('ba_breeds_config', defaultBreeds));
     const [medCategories, setMedCategories] = useState(() => loadStoredData('ba_med_categories', defaultMedCategories));
     const [systemParams, setSystemParams] = useState(() => loadStoredData('ba_system_params', defaultSystemParams));
-    const [quarantineProtocols, setQuarantineProtocols] = useState(() => loadStoredData('ba_quarantine_protocols', defaultQuarantineProtocols));
+    const [quarantineProtocols, setQuarantineProtocols] = useState(() => {
+        const stored = loadStoredData('ba_quarantine_protocols', defaultQuarantineProtocols);
+        if (Array.isArray(stored) && (stored.some(p => p.id === 'vitb12' || p.id === 'tick' || p.id === 'fmd1' || p.id === 'fmd2') || !stored.some(p => p.id === 'hs'))) {
+            localStorage.setItem('ba_quarantine_protocols', JSON.stringify(defaultQuarantineProtocols));
+            return defaultQuarantineProtocols;
+        }
+        return stored;
+    });
 
     const updateBreedsConfig = (newBreeds) => {
         setBreedsConfig(newBreeds);
@@ -1756,7 +1764,15 @@ export const FarmProvider = ({ children }) => {
                             if (s.breeds_config) setIfChanged(setBreedsConfig, s.breeds_config, 'ba_breeds_config');
                             if (s.med_categories) setIfChanged(setMedCategories, s.med_categories, 'ba_med_categories');
                             if (s.system_params) setIfChanged(setSystemParams, s.system_params, 'ba_system_params');
-                            if (s.quarantine_protocols) setIfChanged(setQuarantineProtocols, s.quarantine_protocols, 'ba_quarantine_protocols');
+                            if (s.quarantine_protocols) {
+                                const sp = s.quarantine_protocols;
+                                if (Array.isArray(sp) && (sp.some(p => p.id === 'vitb12' || p.id === 'tick' || p.id === 'fmd1' || p.id === 'fmd2') || !sp.some(p => p.id === 'hs'))) {
+                                    setIfChanged(setQuarantineProtocols, defaultQuarantineProtocols, 'ba_quarantine_protocols');
+                                    persistMutation('SAVE_SETTINGS', { key: 'quarantine_protocols', value: defaultQuarantineProtocols });
+                                } else {
+                                    setIfChanged(setQuarantineProtocols, sp, 'ba_quarantine_protocols');
+                                }
+                            }
                             if (s.feed_ingredients) setIfChanged(setFeedIngredients, s.feed_ingredients);
                             if (s.feed_stock_items) setIfChanged(setFeedStockItems, s.feed_stock_items, 'ba_feed_stock_items');
                             if (s.feed_opening_stock) setIfChanged(setFeedOpeningStock, s.feed_opening_stock, 'ba_feed_opening_stock');
