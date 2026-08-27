@@ -187,6 +187,29 @@ export default function TMRCalculator() {
         : (parseFloat(activeSplitList[activeFeedingIndex - 1]) || (100 / numFeedings));
     const activeFeedingScale = activeFeedingIndex === 0 ? 1.0 : (activeFeedingPct / 100);
 
+    // Resolves a plan-level per-ingredient feeding restriction ('am'/'pm') to the
+    // feeding slot it's pinned to: 'am' is always the first feeding, 'pm' is always
+    // the last one (whatever numFeedings is), matching the Morning/.../Evening labels
+    // used throughout this page.
+    const getRestrictedFeedingSlot = (restriction, nFeedings) => {
+        if (restriction === 'am') return 1;
+        if (restriction === 'pm') return nFeedings;
+        return null;
+    };
+
+    // Per-ingredient version of `activeFeedingScale`. Identical to the flat scale for
+    // any ingredient with no restriction on its plan (the vast majority — fully
+    // backward compatible with every plan that never sets one). A restricted
+    // ingredient instead gets 100% of its daily amount on its one assigned feeding
+    // and 0% on every other feeding, ignoring that feeding's split percentage —
+    // e.g. potato pinned to "pm" is entirely absent from the morning feeding and
+    // fully present in the evening one, not split 50/50 like the rest of the diet.
+    const getIngredientFeedingScale = (restrictions, ingId, feedIdx, nFeedings, fallbackScale) => {
+        const restriction = restrictions?.[ingId];
+        if (!restriction || restriction === 'any' || feedIdx === 0) return fallbackScale;
+        return feedIdx === getRestrictedFeedingSlot(restriction, nFeedings) ? 1 : 0;
+    };
+
     const handleSplitPctChange = (feedingNumIdx, value) => {
         const val = Math.max(0, Math.min(100, parseFloat(value) || 0));
         setFeedingSplits(prev => {
@@ -313,10 +336,15 @@ export default function TMRCalculator() {
         // Feed Stock's Issues by Pen, so a deviation is never silently invisible later.
         const dietDiffered = planIngredientRows.some(r => r.isOverridden) || extraIngredientRows.length > 0;
 
+        // Optional per-ingredient feeding restrictions carried by the plan itself
+        // ('am'/'pm' — see Ration Plans). Absent on any plan that never sets one.
+        const feedingRestrictions = resolvedPlanRow?.plan?.feedingRestrictions || {};
+
         return {
             resolvedPlanRow, isBlocked, isPlanDriven, headCount,
             planIngredientRows, extraIngredientRows, availableExtraIngredients,
-            displayIngredients, totalDM, totalBatchWeight, totalCostSingle, dietDiffered
+            displayIngredients, totalDM, totalBatchWeight, totalCostSingle, dietDiffered,
+            feedingRestrictions
         };
     };
 
@@ -591,6 +619,11 @@ export default function TMRCalculator() {
         .map(r => ({ ...r, resolved: r.batch.resolvedPlanRow }))
         .filter(r => r.batch.isPlanDriven);
 
+    // True the moment any checked pen's plan pins an ingredient to a single feeding —
+    // gates out "1 Feeding"/"Full Day" below so that ingredient can't get silently
+    // skipped or double-counted by mixing it into an undivided full-day batch.
+    const tractorRestrictedFeedingActive = tractorPenResolutions.some(r => Object.keys(r.batch.feedingRestrictions || {}).length > 0);
+
     const tractorPhaseOf = (resolved) => resolved.system === 'v2' ? resolved.phase : (resolved.usesAdaptationTable ? 'ADAPTATION' : 'STEADY');
     const tractorForageTypes = [...new Set(tractorPenResolutions.map(r => r.resolved.forageType))];
     const tractorPhases = [...new Set(tractorPenResolutions.map(r => tractorPhaseOf(r.resolved)))];
@@ -609,8 +642,9 @@ export default function TMRCalculator() {
             const headCount = batch.headCount || 0;
             batch.displayIngredients.forEach(ing => {
                 const id = ing.id;
-                const batchQty = ing.wetBatch * activeFeedingScale;
-                const cost = ing.costSingle * headCount * activeFeedingScale;
+                const scale = getIngredientFeedingScale(batch.feedingRestrictions, id, activeFeedingIndex, numFeedings, activeFeedingScale);
+                const batchQty = ing.wetBatch * scale;
+                const cost = ing.costSingle * headCount * scale;
                 if (!totals[id]) totals[id] = { id, name: ing.name, wetBatch: 0, cost: 0, isExtra: false, isOverridden: false };
                 totals[id].wetBatch += batchQty;
                 totals[id].cost += cost;
@@ -724,6 +758,19 @@ export default function TMRCalculator() {
     const totalCostSingle = selectedBatch?.totalCostSingle || 0;
     const dietDiffered = selectedBatch?.dietDiffered || false;
 
+    // Per-ingredient feeding scale applied — identical to the flat activeFeedingScale
+    // for everything without a plan-level restriction; a restricted ingredient instead
+    // shows 100% on its one assigned feeding and 0% on every other. Drives the batch
+    // table below so the preview always matches what "Log This Feeding" will save.
+    const scaledDisplayIngredients = displayIngredients.map(ing => {
+        const scale = getIngredientFeedingScale(selectedBatch?.feedingRestrictions, ing.id, activeFeedingIndex, numFeedings, activeFeedingScale);
+        return { ...ing, scaledDmTarget: ing.dmTarget * scale, scaledWetSingle: ing.wetSingle * scale, scaledWetBatch: ing.wetBatch * scale, scaledCostSingle: ing.costSingle * scale };
+    });
+    const scaledTotalDM = scaledDisplayIngredients.reduce((sum, ing) => sum + ing.scaledDmTarget, 0);
+    const scaledTotalWetSingle = scaledDisplayIngredients.reduce((sum, ing) => sum + ing.scaledWetSingle, 0);
+    const scaledTotalBatchWeight = scaledDisplayIngredients.reduce((sum, ing) => sum + ing.scaledWetBatch, 0);
+    const scaledTotalCostSingle = scaledDisplayIngredients.reduce((sum, ing) => sum + ing.scaledCostSingle, 0);
+
     // Snapshots a resolved+edited batch (for the given pen and date) into the immutable
     // feed log — this records what was actually fed, distinct from the Ration Plan
     // schedule itself, so later schedule edits never alter this day's history. Shared
@@ -777,25 +824,34 @@ export default function TMRCalculator() {
             }
         }
 
+        // Per-ingredient scale — identical to activeFeedingScale for anything without a
+        // plan-level feeding restriction; a restricted ingredient instead gets 100% of
+        // its daily amount on its one assigned feeding and 0% on every other, so what
+        // actually gets logged/fed matches the plan regardless of the day's split %.
+        const loggedIngredients = batch.displayIngredients.map(ing => {
+            const scale = getIngredientFeedingScale(batch.feedingRestrictions, ing.id, activeFeedingIndex, numFeedings, activeFeedingScale);
+            return {
+                id: ing.id,
+                name: ing.name,
+                dmTarget: ing.dmTarget * scale,
+                price: ing.price,
+                wetSingle: ing.wetSingle * scale,
+                wetBatch: ing.wetBatch * scale,
+                costSingle: ing.costSingle * scale,
+                plannedQtyKg: ing.planQty * scale
+            };
+        });
+
         const res = await logFeed({
             date: logDate,
             pen: penId,
             animalCount: headCount,
             dietDiffered: batch.dietDiffered,
-            ingredients: batch.displayIngredients.map(ing => ({
-                id: ing.id,
-                name: ing.name,
-                dmTarget: ing.dmTarget * activeFeedingScale,
-                price: ing.price,
-                wetSingle: ing.wetSingle * activeFeedingScale,
-                wetBatch: ing.wetBatch * activeFeedingScale,
-                costSingle: ing.costSingle * activeFeedingScale,
-                plannedQtyKg: ing.planQty * activeFeedingScale
-            })),
-            totalDmKg: batch.totalDM * activeFeedingScale,
-            totalBatchKg: batch.totalBatchWeight * activeFeedingScale,
-            totalCost: batch.totalCostSingle * headCount * activeFeedingScale,
-            costPerAnimal: batch.totalCostSingle * activeFeedingScale,
+            ingredients: loggedIngredients,
+            totalDmKg: loggedIngredients.reduce((sum, ing) => sum + ing.dmTarget, 0),
+            totalBatchKg: loggedIngredients.reduce((sum, ing) => sum + ing.wetBatch, 0),
+            totalCost: loggedIngredients.reduce((sum, ing) => sum + ing.costSingle, 0) * headCount,
+            costPerAnimal: loggedIngredients.reduce((sum, ing) => sum + ing.costSingle, 0),
             createdBy: staffUser?.email || staffUser?.name || null,
             feedingIndex: activeFeedingIndex,
             numFeedings: activeFeedingIndex === 0 ? 1 : numFeedings,
@@ -946,6 +1002,25 @@ export default function TMRCalculator() {
         })
         .filter(r => r.batch.isPlanDriven);
 
+    // Same restriction gate as Tractor Mode, scoped to every active pen instead of
+    // just the ones checked into a tractor batch.
+    const restrictedFeedingActive = allPensResolutions.some(r => Object.keys(r.batch.feedingRestrictions || {}).length > 0);
+    // Whichever gate actually applies to what's currently on screen — every active
+    // pen when "All" is selected, or just the one pen otherwise.
+    const restrictedFeedingActiveForView = selectedTMRPen === 'all'
+        ? restrictedFeedingActive
+        : Object.keys(selectedBatch?.feedingRestrictions || {}).length > 0;
+
+    // A restricted ingredient can only ever be fed correctly split across 2+
+    // feedings — force out of "1 Feeding" / "Full Day" the moment one is in play,
+    // for either the main page or Tractor Mode. Plans that never set a restriction
+    // never trigger this, so normal single/full-day feeding is completely unaffected.
+    useEffect(() => {
+        if (!restrictedFeedingActiveForView && !tractorRestrictedFeedingActive) return;
+        if (numFeedings === 1) setNumFeedings(2);
+        if (activeFeedingIndex === 0) setActiveFeedingIndex(1);
+    }, [restrictedFeedingActiveForView, tractorRestrictedFeedingActive, numFeedings, activeFeedingIndex]);
+
     const allPensForageTypes = [...new Set(allPensResolutions.map(r => r.resolved.forageType))];
     const allPensPhases = [...new Set(allPensResolutions.map(r => tractorPhaseOf(r.resolved)))];
     const allPensMismatch = allPensForageTypes.length > 1 || allPensPhases.length > 1;
@@ -967,8 +1042,9 @@ export default function TMRCalculator() {
             const headCount = batch.headCount || 0;
             batch.displayIngredients.forEach(ing => {
                 const id = ing.id;
-                const batchQty = ing.wetBatch;
-                const cost = ing.costSingle * headCount;
+                const scale = getIngredientFeedingScale(batch.feedingRestrictions, id, activeFeedingIndex, numFeedings, activeFeedingScale);
+                const batchQty = ing.wetBatch * scale;
+                const cost = ing.costSingle * headCount * scale;
                 if (!totals[id]) totals[id] = { id, name: ing.name, wetBatch: 0, cost: 0, isExtra: ing.isExtra, isOverridden: ing.isOverridden };
                 totals[id].wetBatch += batchQty;
                 totals[id].cost += cost;
@@ -1805,7 +1881,9 @@ export default function TMRCalculator() {
                                                 key={n}
                                                 type="button"
                                                 className={`filter-btn ${numFeedings === n ? 'active' : ''}`}
-                                                style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', minHeight: '28px' }}
+                                                style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', minHeight: '28px', opacity: n === 1 && restrictedFeedingActiveForView ? 0.4 : 1, cursor: n === 1 && restrictedFeedingActiveForView ? 'not-allowed' : 'pointer' }}
+                                                disabled={n === 1 && restrictedFeedingActiveForView}
+                                                title={n === 1 && restrictedFeedingActiveForView ? 'This plan restricts an ingredient to a single feeding — at least 2 feedings are required' : undefined}
                                                 onClick={() => {
                                                     setNumFeedings(n);
                                                     setActiveFeedingIndex(0);
@@ -1848,7 +1926,9 @@ export default function TMRCalculator() {
                                         <button
                                             type="button"
                                             className={`filter-btn ${activeFeedingIndex === 0 ? 'active' : ''}`}
-                                            style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', minHeight: '26px' }}
+                                            style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', minHeight: '26px', opacity: restrictedFeedingActiveForView ? 0.4 : 1, cursor: restrictedFeedingActiveForView ? 'not-allowed' : 'pointer' }}
+                                            disabled={restrictedFeedingActiveForView}
+                                            title={restrictedFeedingActiveForView ? 'This plan restricts an ingredient to a single feeding — at least 2 feedings are required' : undefined}
                                             onClick={() => setActiveFeedingIndex(0)}
                                         >
                                             Full Day Total (100%)
@@ -2021,22 +2101,25 @@ export default function TMRCalculator() {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {displayIngredients.map((ing, idx) => (
+                                                {scaledDisplayIngredients.map((ing, idx) => (
                                                     <tr key={ing.id}>
                                                         <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
-                                                        <td><strong>{ing.name}</strong>{ing.isExtra && <span style={{ marginLeft: '0.4rem', fontSize: '0.65rem', color: 'var(--accent-gold)' }}>ADDED</span>}</td>
-                                                        <td>{(ing.dmTarget * activeFeedingScale).toFixed(2)} kg</td>
-                                                        <td>{(ing.wetSingle * activeFeedingScale).toFixed(2)} kg</td>
-                                                        <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{(ing.wetBatch * activeFeedingScale).toFixed(2)} kg</strong></td>
-                                                        {isSuperAdmin && <td>{Math.round(ing.costSingle * animalsCount * activeFeedingScale).toLocaleString()} PKR</td>}
+                                                        <td>
+                                                            <strong>{ing.name}</strong>{ing.isExtra && <span style={{ marginLeft: '0.4rem', fontSize: '0.65rem', color: 'var(--accent-gold)' }}>ADDED</span>}
+                                                            {selectedBatch?.feedingRestrictions?.[ing.id] && <span style={{ marginLeft: '0.4rem', fontSize: '0.65rem', color: 'var(--primary-green-light)' }}>{selectedBatch.feedingRestrictions[ing.id] === 'am' ? 'MORNING ONLY' : 'EVENING ONLY'}</span>}
+                                                        </td>
+                                                        <td>{ing.scaledDmTarget.toFixed(2)} kg</td>
+                                                        <td>{ing.scaledWetSingle.toFixed(2)} kg</td>
+                                                        <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{ing.scaledWetBatch.toFixed(2)} kg</strong></td>
+                                                        {isSuperAdmin && <td>{Math.round(ing.scaledCostSingle * animalsCount).toLocaleString()} PKR</td>}
                                                     </tr>
                                                 ))}
                                                 <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
                                                     <td colSpan="2"><strong>Total Feed Mix</strong></td>
-                                                    <td><strong>{(totalDM * activeFeedingScale).toFixed(2)} kg</strong></td>
-                                                    <td><strong>{(displayIngredients.reduce((sum, ing) => sum + ing.wetSingle, 0) * activeFeedingScale).toFixed(2)} kg</strong></td>
-                                                    <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{(totalBatchWeight * activeFeedingScale).toFixed(2)} kg</strong></td>
-                                                    {isSuperAdmin && <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(totalCostSingle * animalsCount * activeFeedingScale).toLocaleString()} PKR</strong></td>}
+                                                    <td><strong>{scaledTotalDM.toFixed(2)} kg</strong></td>
+                                                    <td><strong>{scaledTotalWetSingle.toFixed(2)} kg</strong></td>
+                                                    <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{scaledTotalBatchWeight.toFixed(2)} kg</strong></td>
+                                                    {isSuperAdmin && <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(scaledTotalCostSingle * animalsCount).toLocaleString()} PKR</strong></td>}
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -2050,12 +2133,12 @@ export default function TMRCalculator() {
                                                 {activeFeedingIndex > 0 ? `Target for Feeding ${activeFeedingIndex} of ${numFeedings} (${activeFeedingPct}%)` : 'Total batch to mix'}
                                             </span>
                                             <strong style={{ fontSize: '1.4rem', color: 'var(--accent-gold)', fontFamily: 'var(--font-heading)' }}>
-                                                {(totalBatchWeight * activeFeedingScale).toFixed(2)} kg
+                                                {scaledTotalBatchWeight.toFixed(2)} kg
                                             </strong>
                                             {isSuperAdmin && (
                                                 <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                                                    Cost: <strong style={{ color: 'var(--accent-gold)' }}>{Math.round(totalCostSingle * animalsCount * activeFeedingScale).toLocaleString()} PKR</strong>
-                                                    {' '}({Math.round(totalCostSingle * activeFeedingScale).toLocaleString()} PKR/head)
+                                                    Cost: <strong style={{ color: 'var(--accent-gold)' }}>{Math.round(scaledTotalCostSingle * animalsCount).toLocaleString()} PKR</strong>
+                                                    {' '}({Math.round(scaledTotalCostSingle).toLocaleString()} PKR/head)
                                                 </span>
                                             )}
                                         </div>
@@ -2161,16 +2244,16 @@ export default function TMRCalculator() {
                                                                 <tr key={ing.id}>
                                                                     <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                                     <td><strong>{ing.name}</strong></td>
-                                                                    <td>{(ing.avgPerHead * activeFeedingScale).toFixed(3)} kg</td>
-                                                                    <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{(ing.wetBatch * activeFeedingScale).toFixed(2)} kg</strong></td>
-                                                                    {isSuperAdmin && <td>{Math.round(ing.cost * activeFeedingScale).toLocaleString()} PKR</td>}
+                                                                    <td>{ing.avgPerHead.toFixed(3)} kg</td>
+                                                                    <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{ing.wetBatch.toFixed(2)} kg</strong></td>
+                                                                    {isSuperAdmin && <td>{Math.round(ing.cost).toLocaleString()} PKR</td>}
                                                                 </tr>
                                                             ))}
                                                             <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
                                                                 <td colSpan="2"><strong>Total Feed Mix</strong></td>
-                                                                <td><strong>{(allPensAggregateIngredients.reduce((sum, i) => sum + i.avgPerHead, 0) * activeFeedingScale).toFixed(3)} kg</strong></td>
-                                                                <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{(allPensTotalBatchWeight * activeFeedingScale).toFixed(2)} kg</strong></td>
-                                                                {isSuperAdmin && <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(allPensTotalCost * activeFeedingScale).toLocaleString()} PKR</strong></td>}
+                                                                <td><strong>{allPensAggregateIngredients.reduce((sum, i) => sum + i.avgPerHead, 0).toFixed(3)} kg</strong></td>
+                                                                <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{allPensTotalBatchWeight.toFixed(2)} kg</strong></td>
+                                                                {isSuperAdmin && <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(allPensTotalCost).toLocaleString()} PKR</strong></td>}
                                                             </tr>
                                                         </tbody>
                                                     </table>
@@ -2182,12 +2265,12 @@ export default function TMRCalculator() {
                                                             {activeFeedingIndex > 0 ? `Target for Feeding ${activeFeedingIndex} of ${numFeedings} (${activeFeedingPct}%)` : 'Total batch to mix'}
                                                         </span>
                                                         <strong style={{ fontSize: '1.4rem', color: 'var(--accent-gold)', fontFamily: 'var(--font-heading)' }}>
-                                                            {(allPensTotalBatchWeight * activeFeedingScale).toFixed(2)} kg
+                                                            {allPensTotalBatchWeight.toFixed(2)} kg
                                                         </strong>
                                                         {isSuperAdmin && (
                                                             <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                                                                Cost: <strong style={{ color: 'var(--accent-gold)' }}>{Math.round(allPensTotalCost * activeFeedingScale).toLocaleString()} PKR</strong>
-                                                                {' '}({Math.round((allPensTotalCost / (allPensTotalHeadCount || 1)) * activeFeedingScale).toLocaleString()} PKR/head)
+                                                                Cost: <strong style={{ color: 'var(--accent-gold)' }}>{Math.round(allPensTotalCost).toLocaleString()} PKR</strong>
+                                                                {' '}({Math.round(allPensTotalCost / (allPensTotalHeadCount || 1)).toLocaleString()} PKR/head)
                                                             </span>
                                                         )}
                                                     </div>
@@ -2393,7 +2476,9 @@ export default function TMRCalculator() {
                                                 key={n}
                                                 type="button"
                                                 className={`filter-btn ${numFeedings === n ? 'active' : ''}`}
-                                                style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', minHeight: '28px' }}
+                                                style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', minHeight: '28px', opacity: n === 1 && tractorRestrictedFeedingActive ? 0.4 : 1, cursor: n === 1 && tractorRestrictedFeedingActive ? 'not-allowed' : 'pointer' }}
+                                                disabled={n === 1 && tractorRestrictedFeedingActive}
+                                                title={n === 1 && tractorRestrictedFeedingActive ? 'A selected pen\'s plan restricts an ingredient to a single feeding — at least 2 feedings are required' : undefined}
                                                 onClick={() => {
                                                     setNumFeedings(n);
                                                     setActiveFeedingIndex(0);
@@ -2436,7 +2521,9 @@ export default function TMRCalculator() {
                                         <button
                                             type="button"
                                             className={`filter-btn ${activeFeedingIndex === 0 ? 'active' : ''}`}
-                                            style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', minHeight: '26px' }}
+                                            style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem', minHeight: '26px', opacity: tractorRestrictedFeedingActive ? 0.4 : 1, cursor: tractorRestrictedFeedingActive ? 'not-allowed' : 'pointer' }}
+                                            disabled={tractorRestrictedFeedingActive}
+                                            title={tractorRestrictedFeedingActive ? 'A selected pen\'s plan restricts an ingredient to a single feeding — at least 2 feedings are required' : undefined}
                                             onClick={() => setActiveFeedingIndex(0)}
                                         >
                                             Full Day Total (100%)

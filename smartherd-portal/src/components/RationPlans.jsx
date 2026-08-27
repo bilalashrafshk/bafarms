@@ -73,6 +73,11 @@ export default function RationPlans() {
     const [formIsDefault, setFormIsDefault] = useState(false);
     const [columnStockMappings, setColumnStockMappings] = useState({});
     const [formIngredientIds, setFormIngredientIds] = useState([]);
+    // Optional per-ingredient feeding restriction: 'am' | 'pm' | absent (unrestricted,
+    // the default — fully backward compatible with every plan saved before this existed).
+    // When set, TMR Calculator forces this ingredient into that single feeding only,
+    // instead of splitting it across the day's feedings like everything else.
+    const [formFeedingRestrictions, setFormFeedingRestrictions] = useState({});
     const [formWeeks, setFormWeeks] = useState([]);
     const [formAdaptation, setFormAdaptation] = useState([]);
     const [addIngredientChoice, setAddIngredientChoice] = useState('');
@@ -469,6 +474,7 @@ export default function RationPlans() {
         setFormIsDefault(false);
         setColumnStockMappings({});
         setFormIngredientIds(defaultIds.length ? defaultIds : stockTrackedIngredients.map(i => i.id));
+        setFormFeedingRestrictions({});
         setFormWeeks([blankWeek(1, defaultIds, null)]);
         setFormAdaptation([]);
     };
@@ -483,6 +489,7 @@ export default function RationPlans() {
         setFormIsDefault(!!plan.isDefault);
         setColumnStockMappings(plan.columnStockMappings || {});
         setFormIngredientIds([...idSet]);
+        setFormFeedingRestrictions({ ...(plan.feedingRestrictions || {}) });
         setFormWeeks((plan.weeks || []).map(w => ({
             ...w,
             forageType: w.forageType || 'silage',
@@ -521,8 +528,29 @@ export default function RationPlans() {
         setIsNewIngredientFormOpen(false);
     };
 
+    // Pins an ingredient to a single feeding ('am'/'pm') or clears it back to unrestricted
+    // ('any') — an opt-in setting per plan, so plans that never touch this behave exactly
+    // as before.
+    const handleIngredientRestrictionChange = (ingId, value) => {
+        setFormFeedingRestrictions(prev => {
+            if (value === 'any') {
+                if (!(ingId in prev)) return prev;
+                const next = { ...prev };
+                delete next[ingId];
+                return next;
+            }
+            return { ...prev, [ingId]: value };
+        });
+    };
+
     const handleRemoveIngredientColumn = (id) => {
         setFormIngredientIds(prev => prev.filter(x => x !== id));
+        setFormFeedingRestrictions(prev => {
+            if (!(id in prev)) return prev;
+            const next = { ...prev };
+            delete next[id];
+            return next;
+        });
         setFormWeeks(prev => prev.map(w => {
             const ing = { ...w.ingredients };
             delete ing[id];
@@ -648,6 +676,7 @@ export default function RationPlans() {
             isDefault: formIsDefault,
             wandaStockItemId,
             columnStockMappings,
+            feedingRestrictions: formFeedingRestrictions,
             weeks,
             adaptation
         });
@@ -1237,6 +1266,17 @@ export default function RationPlans() {
                                                             <button type="button" onClick={() => handleRemoveIngredientColumn(id)} style={{ background: 'none', border: 'none', color: 'hsl(0,75%,60%)', cursor: 'pointer', marginLeft: '0.3rem' }} title="Remove column">
                                                                 <i class="fa-solid fa-xmark"></i>
                                                             </button>
+                                                            <select
+                                                                class="form-control"
+                                                                value={formFeedingRestrictions[id] || 'any'}
+                                                                onChange={e => handleIngredientRestrictionChange(id, e.target.value)}
+                                                                style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.62rem', fontWeight: '400', textTransform: 'none', padding: '0.05rem 0.25rem', minHeight: '20px', height: '20px', width: '100%' }}
+                                                                title="Restrict this ingredient to a single feeding in TMR Calculator (e.g. potato in the evening only)"
+                                                            >
+                                                                <option value="any">Any feeding</option>
+                                                                <option value="am">Morning only</option>
+                                                                <option value="pm">Evening only</option>
+                                                            </select>
                                                         </th>
                                                     );
                                                 })}
