@@ -17,6 +17,7 @@ import Login from './components/Login';
 import Settings from './components/Settings';
 import SalesManager from './components/SalesManager';
 import ListingsManager from './components/ListingsManager';
+import EnquiriesManager from './components/EnquiriesManager';
 import AdminApprovals from './components/AdminApprovals';
 import { formatDate } from './utils/formatDate';
 import { todayPKT } from './utils/dateOnly';
