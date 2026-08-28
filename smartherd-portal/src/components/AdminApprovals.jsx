@@ -20,18 +20,19 @@ export default function AdminApprovals() {
     const [rejectNote, setRejectNote] = useState('');
     const [processingId, setProcessingId] = useState(null);
 
-    // Smart stock item name resolver — resolves raw item IDs (e.g. item_1786264181344)
-    // to human names (e.g. "xuyz", "Silage") using:
-    // 1) Explicit itemName attached to payload/snap
-    // 2) Active feedStockItems array
-    // 3) Other pending SAVE_SETTINGS in the approvals queue (so brand new items created in the same session resolve instantly)
+    // Bulk selection state
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [isBulkRejectModalOpen, setIsBulkRejectModalOpen] = useState(false);
+    const [bulkRejectNote, setBulkRejectNote] = useState('');
+    const [bulkProgress, setBulkProgress] = useState(null); // { current: number, total: number, action: 'approving' | 'rejecting' }
+
+    // Smart stock item name resolver
     const resolveStockItemName = (id, payload, snap) => {
         if (payload?.itemName) return payload.itemName;
         if (snap?.itemName) return snap.itemName;
         const known = (feedStockItems || []).find(i => i.id === id);
         if (known?.name) return known.name;
 
-        // Inspect pending SAVE_SETTINGS for feed_stock_items in pendingApprovals queue
         for (const app of (pendingApprovals || [])) {
             if (app.action === 'SAVE_SETTINGS' && app.payload?.key === 'feed_stock_items' && Array.isArray(app.payload?.value)) {
                 const foundInPending = app.payload.value.find(i => i.id === id);
@@ -56,22 +57,6 @@ export default function AdminApprovals() {
         return 'kg';
     };
 
-    const handleApprove = async (approval) => {
-        setProcessingId(approval.id);
-        const result = await approvePendingChange(approval);
-        setProcessingId(null);
-        if (!result.success) alert(result.error || 'Could not approve request.');
-    };
-
-    const handleReject = async (approvalId) => {
-        setProcessingId(approvalId);
-        const result = await rejectPendingChange(approvalId, rejectNote.trim() || null);
-        setProcessingId(null);
-        setRejectingId(null);
-        setRejectNote('');
-        if (!result.success) alert(result.error || 'Could not reject request.');
-    };
-
     const filteredApprovals = useMemo(() => {
         return (pendingApprovals || []).filter(item => {
             if (actionFilter !== 'ALL') {
@@ -90,10 +75,130 @@ export default function AdminApprovals() {
         });
     }, [pendingApprovals, actionFilter, searchTerm]);
 
+    // Clean up selectedIds if items are no longer pending
+    const currentSelectedIds = useMemo(() => {
+        const pendingIdSet = new Set((pendingApprovals || []).map(p => p.id));
+        return selectedIds.filter(id => pendingIdSet.has(id));
+    }, [selectedIds, pendingApprovals]);
+
+    const isAllFilteredSelected = filteredApprovals.length > 0 && filteredApprovals.every(item => currentSelectedIds.includes(item.id));
+    const isSomeFilteredSelected = filteredApprovals.some(item => currentSelectedIds.includes(item.id)) && !isAllFilteredSelected;
+
+    const handleToggleSelectAll = () => {
+        if (isAllFilteredSelected) {
+            const filteredSet = new Set(filteredApprovals.map(i => i.id));
+            setSelectedIds(prev => prev.filter(id => !filteredSet.has(id)));
+        } else {
+            const filteredSet = new Set(filteredApprovals.map(i => i.id));
+            setSelectedIds(prev => Array.from(new Set([...prev, ...filteredApprovals.map(i => i.id)])));
+        }
+    };
+
+    const handleToggleSelect = (id) => {
+        setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    };
+
+    const handleClearSelection = () => {
+        setSelectedIds([]);
+    };
+
+    const handleApprove = async (approval) => {
+        setProcessingId(approval.id);
+        const result = await approvePendingChange(approval);
+        setProcessingId(null);
+        setSelectedIds(prev => prev.filter(x => x !== approval.id));
+        if (!result.success) alert(result.error || 'Could not approve request.');
+    };
+
+    const handleReject = async (approvalId) => {
+        setProcessingId(approvalId);
+        const result = await rejectPendingChange(approvalId, rejectNote.trim() || null);
+        setProcessingId(null);
+        setRejectingId(null);
+        setRejectNote('');
+        setSelectedIds(prev => prev.filter(x => x !== approvalId));
+        if (!result.success) alert(result.error || 'Could not reject request.');
+    };
+
+    // Bulk Approve
+    const handleBulkApprove = async () => {
+        if (currentSelectedIds.length === 0) return;
+        const confirmMsg = `Are you sure you want to approve ${currentSelectedIds.length} selected request${currentSelectedIds.length === 1 ? '' : 's'}?`;
+        if (!window.confirm(confirmMsg)) return;
+
+        const approvalsToProcess = (pendingApprovals || []).filter(a => currentSelectedIds.includes(a.id));
+        setBulkProgress({ current: 0, total: approvalsToProcess.length, action: 'approving' });
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (let i = 0; i < approvalsToProcess.length; i++) {
+            const app = approvalsToProcess[i];
+            setBulkProgress({ current: i + 1, total: approvalsToProcess.length, action: 'approving' });
+            try {
+                const res = await approvePendingChange(app);
+                if (res.success) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+            } catch (err) {
+                failCount++;
+            }
+        }
+
+        setBulkProgress(null);
+        setSelectedIds([]);
+        if (failCount > 0) {
+            alert(`Bulk Approval complete: ${successCount} approved, ${failCount} failed.`);
+        }
+    };
+
+    // Bulk Reject
+    const handleOpenBulkRejectModal = () => {
+        if (currentSelectedIds.length === 0) return;
+        setBulkRejectNote('');
+        setIsBulkRejectModalOpen(true);
+    };
+
+    const handleConfirmBulkReject = async () => {
+        if (currentSelectedIds.length === 0) return;
+        setIsBulkRejectModalOpen(false);
+
+        const idsToReject = [...currentSelectedIds];
+        const note = bulkRejectNote.trim() || null;
+        setBulkProgress({ current: 0, total: idsToReject.length, action: 'rejecting' });
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (let i = 0; i < idsToReject.length; i++) {
+            const id = idsToReject[i];
+            setBulkProgress({ current: i + 1, total: idsToReject.length, action: 'rejecting' });
+            try {
+                const res = await rejectPendingChange(id, note);
+                if (res.success) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+            } catch (err) {
+                failCount++;
+            }
+        }
+
+        setBulkProgress(null);
+        setBulkRejectNote('');
+        setSelectedIds([]);
+        if (failCount > 0) {
+            alert(`Bulk Rejection complete: ${successCount} rejected, ${failCount} failed.`);
+        }
+    };
+
     if (!isSuperAdmin) {
         return (
-            <div class="glass-panel" style={{ padding: '2rem', textAlign: 'center' }}>
-                <i class="fa-solid fa-lock" style={{ fontSize: '2.5rem', color: 'var(--accent-gold)', marginBottom: '1rem' }}></i>
+            <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center' }}>
+                <i className="fa-solid fa-lock" style={{ fontSize: '2.5rem', color: 'var(--accent-gold)', marginBottom: '1rem' }}></i>
                 <h3>Super Admin Access Restricted</h3>
                 <p style={{ color: 'var(--text-muted)' }}>The staff approval queue is accessible exclusively to Super Admin accounts.</p>
             </div>
@@ -104,10 +209,10 @@ export default function AdminApprovals() {
         <div className="admin-approvals-view" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             
             {/* Header Controls Banner */}
-            <div class="glass-panel" style={{ padding: '1.25rem 1.5rem', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+            <div className="glass-panel" style={{ padding: '1.25rem 1.5rem', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
                     <div style={{ width: '42px', height: '42px', borderRadius: '12px', background: 'rgba(255,193,7,0.15)', border: '1px solid var(--accent-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <i class="fa-solid fa-user-shield" style={{ fontSize: '1.2rem', color: 'var(--accent-gold)' }}></i>
+                        <i className="fa-solid fa-user-shield" style={{ fontSize: '1.2rem', color: 'var(--accent-gold)' }}></i>
                     </div>
                     <div>
                         <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '700', color: 'var(--text-pure)' }}>
@@ -121,10 +226,10 @@ export default function AdminApprovals() {
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                     <div style={{ position: 'relative', width: '220px' }}>
-                        <i class="fa-solid fa-magnifying-glass" style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.8rem' }}></i>
+                        <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.8rem' }}></i>
                         <input
                             type="text"
-                            class="form-control"
+                            className="form-control"
                             placeholder="Search requests..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
@@ -133,7 +238,7 @@ export default function AdminApprovals() {
                     </div>
 
                     <select
-                        class="form-control"
+                        className="form-control"
                         value={actionFilter}
                         onChange={(e) => setActionFilter(e.target.value)}
                         style={{ fontSize: '0.8rem', height: '36px', width: '160px' }}
@@ -152,11 +257,112 @@ export default function AdminApprovals() {
                 </div>
             </div>
 
+            {/* Bulk Actions Toolbar */}
+            {currentSelectedIds.length > 0 && (
+                <div style={{
+                    background: 'linear-gradient(135deg, rgba(255, 193, 7, 0.12) 0%, rgba(33, 37, 41, 0.95) 100%)',
+                    border: '1px solid var(--accent-gold)',
+                    borderRadius: '10px',
+                    padding: '0.85rem 1.25rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '1rem',
+                    flexWrap: 'wrap',
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                        <span style={{
+                            background: 'var(--accent-gold)',
+                            color: '#000',
+                            fontWeight: '800',
+                            fontSize: '0.8rem',
+                            padding: '0.2rem 0.65rem',
+                            borderRadius: '12px'
+                        }}>
+                            {currentSelectedIds.length} Selected
+                        </span>
+                        <span style={{ fontSize: '0.82rem', color: 'var(--text-pure)' }}>
+                            Choose a batch action to apply across all selected requests:
+                        </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                        <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={handleClearSelection}
+                            disabled={!!bulkProgress}
+                            style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
+                        >
+                            <i className="fa-solid fa-xmark"></i> Deselect All
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={handleOpenBulkRejectModal}
+                            disabled={!!bulkProgress}
+                            style={{
+                                fontSize: '0.78rem',
+                                padding: '0.35rem 0.85rem',
+                                color: 'hsl(0, 75%, 65%)',
+                                borderColor: 'rgba(220, 53, 69, 0.5)',
+                                background: 'rgba(220, 53, 69, 0.12)'
+                            }}
+                        >
+                            <i className="fa-solid fa-ban"></i> Bulk Reject ({currentSelectedIds.length})
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            onClick={handleBulkApprove}
+                            disabled={!!bulkProgress}
+                            style={{
+                                fontSize: '0.78rem',
+                                padding: '0.35rem 0.95rem',
+                                fontWeight: '700'
+                            }}
+                        >
+                            <i className="fa-solid fa-check-double"></i> Bulk Approve ({currentSelectedIds.length})
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Bulk Progress Indicator */}
+            {bulkProgress && (
+                <div style={{
+                    background: 'rgba(59, 130, 246, 0.15)',
+                    border: '1px solid rgba(59, 130, 246, 0.4)',
+                    borderRadius: '8px',
+                    padding: '0.75rem 1.25rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '1rem'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <i className="fa-solid fa-spinner fa-spin" style={{ color: '#60a5fa', fontSize: '1rem' }}></i>
+                        <span style={{ fontSize: '0.85rem', color: '#93c5fd', fontWeight: '600' }}>
+                            {bulkProgress.action === 'approving' ? 'Approving' : 'Rejecting'} {bulkProgress.current} of {bulkProgress.total} requests...
+                        </span>
+                    </div>
+                    <div style={{ width: '160px', height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+                        <div style={{
+                            width: `${(bulkProgress.current / bulkProgress.total) * 100}%`,
+                            height: '100%',
+                            background: '#3b82f6',
+                            transition: 'width 0.2s ease'
+                        }}></div>
+                    </div>
+                </div>
+            )}
+
             {/* Approvals Data Table */}
-            <div class="glass-panel" style={{ padding: '1.25rem' }}>
+            <div className="glass-panel" style={{ padding: '1.25rem' }}>
                 {pendingApprovals.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
-                        <i class="fa-solid fa-circle-check" style={{ fontSize: '3rem', color: 'var(--primary-green-light)', marginBottom: '1rem', display: 'block' }}></i>
+                        <i className="fa-solid fa-circle-check" style={{ fontSize: '3rem', color: 'var(--primary-green-light)', marginBottom: '1rem', display: 'block' }}></i>
                         <h4 style={{ color: 'var(--text-pure)', marginBottom: '0.4rem' }}>No Requests Awaiting Approval</h4>
                         <p style={{ fontSize: '0.85rem' }}>All non-admin staff submissions and sensitive edits have been reviewed and approved.</p>
                     </div>
@@ -165,11 +371,21 @@ export default function AdminApprovals() {
                         <p>No pending approvals match your search filter.</p>
                     </div>
                 ) : (
-                    <div class="table-wrapper" style={{ overflowX: 'auto' }}>
-                        <table class="data-table" style={{ fontSize: '0.85rem', width: '100%', minWidth: '900px' }}>
+                    <div className="table-wrapper" style={{ overflowX: 'auto' }}>
+                        <table className="data-table" style={{ fontSize: '0.85rem', width: '100%', minWidth: '940px' }}>
                             <thead>
                                 <tr>
-                                    <th style={{ width: '40px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
+                                    <th style={{ width: '38px', textAlign: 'center' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={isAllFilteredSelected}
+                                            ref={el => { if (el) el.indeterminate = isSomeFilteredSelected; }}
+                                            onChange={handleToggleSelectAll}
+                                            style={{ cursor: 'pointer', transform: 'scale(1.15)', accentColor: 'var(--accent-gold)' }}
+                                            title="Select all filtered requests"
+                                        />
+                                    </th>
+                                    <th style={{ width: '36px', color: 'var(--text-muted)', textAlign: 'center' }}>#</th>
                                     <th style={{ width: '170px' }}>ACTION / TYPE</th>
                                     <th style={{ width: '190px' }}>REQUESTED BY &amp; DATE</th>
                                     <th style={{ width: '160px' }}>TARGET / ITEM</th>
@@ -181,32 +397,33 @@ export default function AdminApprovals() {
                                 {filteredApprovals.map((item, idx) => {
                                     const snap = item.previousSnapshot || {};
                                     const payload = item.payload || {};
+                                    const isSelected = currentSelectedIds.includes(item.id);
 
                                     const actionBadge = (() => {
                                         switch (item.action) {
                                             case 'ADD_FEED_PURCHASE':
-                                                return <span class="badge" style={{ background: 'rgba(40,167,69,0.15)', color: 'var(--primary-green-light)', border: '1px solid rgba(40,167,69,0.3)' }}><i class="fa-solid fa-plus-circle"></i> Add Feed Purchase</span>;
+                                                return <span className="badge" style={{ background: 'rgba(40,167,69,0.15)', color: 'var(--primary-green-light)', border: '1px solid rgba(40,167,69,0.3)' }}><i className="fa-solid fa-plus-circle"></i> Add Feed Purchase</span>;
                                             case 'UPDATE_FEED_PURCHASE':
-                                                return <span class="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i class="fa-solid fa-pen-to-square"></i> Edit Feed Purchase</span>;
+                                                return <span className="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i className="fa-solid fa-pen-to-square"></i> Edit Feed Purchase</span>;
                                             case 'ADD_FEED_STOCK_ISSUE':
-                                                return <span class="badge" style={{ background: 'rgba(74,144,217,0.15)', color: '#4a90d9', border: '1px solid rgba(74,144,217,0.3)' }}><i class="fa-solid fa-dolly"></i> Add Stock Issue</span>;
+                                                return <span className="badge" style={{ background: 'rgba(74,144,217,0.15)', color: '#4a90d9', border: '1px solid rgba(74,144,217,0.3)' }}><i className="fa-solid fa-dolly"></i> Add Stock Issue</span>;
                                             case 'ADD_OVERHEAD_EXPENSE':
-                                                return <span class="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i class="fa-solid fa-receipt"></i> Add Expense</span>;
+                                                return <span className="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i className="fa-solid fa-receipt"></i> Add Expense</span>;
                                             case 'SAVE_SETTINGS':
-                                                return <span class="badge" style={{ background: 'rgba(111,66,193,0.15)', color: '#a370f7', border: '1px solid rgba(111,66,193,0.3)' }}><i class="fa-solid fa-sliders"></i> Master Setting Change</span>;
+                                                return <span className="badge" style={{ background: 'rgba(111,66,193,0.15)', color: '#a370f7', border: '1px solid rgba(111,66,193,0.3)' }}><i className="fa-solid fa-sliders"></i> Master Setting Change</span>;
                                             case 'UPDATE_ANIMAL':
-                                                return <span class="badge" style={{ background: 'rgba(23,162,184,0.15)', color: '#17a2b8', border: '1px solid rgba(23,162,184,0.3)' }}><i class="fa-solid fa-pen-to-square"></i> Edit Animal</span>;
+                                                return <span className="badge" style={{ background: 'rgba(23,162,184,0.15)', color: '#17a2b8', border: '1px solid rgba(23,162,184,0.3)' }}><i className="fa-solid fa-pen-to-square"></i> Edit Animal</span>;
                                             case 'RECORD_DEATH':
-                                                return <span class="badge" style={{ background: 'rgba(108,117,125,0.15)', color: '#adb5bd', border: '1px solid rgba(108,117,125,0.3)' }}><i class="fa-solid fa-skull"></i> Record Death</span>;
+                                                return <span className="badge" style={{ background: 'rgba(108,117,125,0.15)', color: '#adb5bd', border: '1px solid rgba(108,117,125,0.3)' }}><i className="fa-solid fa-skull"></i> Record Death</span>;
                                             case 'RECORD_SALE':
-                                                return <span class="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i class="fa-solid fa-handshake"></i> Record Sale</span>;
+                                                return <span className="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i className="fa-solid fa-handshake"></i> Record Sale</span>;
                                             case 'OVERWRITE_FEED_LOG':
-                                                return <span class="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i class="fa-solid fa-rotate"></i> Overwrite Feed Log</span>;
+                                                return <span className="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i className="fa-solid fa-rotate"></i> Overwrite Feed Log</span>;
                                             default:
                                                 if (item.action.startsWith('DELETE_')) {
-                                                    return <span class="badge" style={{ background: 'rgba(220,53,69,0.15)', color: 'hsl(0,75%,65%)', border: '1px solid rgba(220,53,69,0.3)' }}><i class="fa-solid fa-trash-can"></i> {item.action.replace('DELETE_', 'Delete ')}</span>;
+                                                    return <span className="badge" style={{ background: 'rgba(220,53,69,0.15)', color: 'hsl(0,75%,65%)', border: '1px solid rgba(220,53,69,0.3)' }}><i className="fa-solid fa-trash-can"></i> {item.action.replace('DELETE_', 'Delete ')}</span>;
                                                 }
-                                                return <span class="badge" style={{ background: 'rgba(255,255,255,0.1)', color: 'var(--text-pure)' }}>{item.action}</span>;
+                                                return <span className="badge" style={{ background: 'rgba(255,255,255,0.1)', color: 'var(--text-pure)' }}>{item.action}</span>;
                                         }
                                     })();
 
@@ -237,7 +454,21 @@ export default function AdminApprovals() {
                                     })();
 
                                     return (
-                                        <tr key={item.id}>
+                                        <tr
+                                            key={item.id}
+                                            style={{
+                                                background: isSelected ? 'rgba(255, 193, 7, 0.08)' : undefined,
+                                                transition: 'background 0.15s ease'
+                                            }}
+                                        >
+                                            <td style={{ textAlign: 'center' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isSelected}
+                                                    onChange={() => handleToggleSelect(item.id)}
+                                                    style={{ cursor: 'pointer', transform: 'scale(1.15)', accentColor: 'var(--accent-gold)' }}
+                                                />
+                                            </td>
                                             <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                             <td>{actionBadge}</td>
                                             <td>
@@ -355,13 +586,13 @@ export default function AdminApprovals() {
                                             <td style={{ textAlign: 'center' }}>
                                                 {processingId === item.id ? (
                                                     <span style={{ fontSize: '0.75rem', color: 'var(--accent-gold)' }}>
-                                                        <i class="fa-solid fa-spinner fa-spin"></i> Processing...
+                                                        <i className="fa-solid fa-spinner fa-spin"></i> Processing...
                                                     </span>
                                                 ) : rejectingId === item.id ? (
                                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', width: '100%' }}>
                                                         <input
                                                             type="text"
-                                                            class="form-control"
+                                                            className="form-control"
                                                             placeholder="Reason for rejecting (optional)"
                                                             value={rejectNote}
                                                             onChange={(e) => setRejectNote(e.target.value)}
@@ -369,16 +600,16 @@ export default function AdminApprovals() {
                                                             style={{ fontSize: '0.75rem', padding: '0.25rem 0.4rem' }}
                                                         />
                                                         <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
-                                                            <button class="btn btn-secondary btn-sm" style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem' }} onClick={() => { setRejectingId(null); setRejectNote(''); }}>Cancel</button>
-                                                            <button class="btn btn-secondary btn-sm" style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', borderColor: 'rgba(220, 53, 69, 0.4)', color: 'hsl(0, 75%, 65%)' }} onClick={() => handleReject(item.id)}>Confirm</button>
+                                                            <button className="btn btn-secondary btn-sm" style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem' }} onClick={() => { setRejectingId(null); setRejectNote(''); }}>Cancel</button>
+                                                            <button className="btn btn-secondary btn-sm" style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', borderColor: 'rgba(220, 53, 69, 0.4)', color: 'hsl(0, 75%, 65%)' }} onClick={() => handleReject(item.id)}>Confirm</button>
                                                         </div>
                                                     </div>
                                                 ) : (
                                                     <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
-                                                        <button class="btn btn-primary btn-sm" style={{ padding: '0.3rem 0.75rem', fontSize: '0.78rem' }} onClick={() => handleApprove(item)}>
+                                                        <button className="btn btn-primary btn-sm" style={{ padding: '0.3rem 0.75rem', fontSize: '0.78rem' }} onClick={() => handleApprove(item)}>
                                                             <i className="fa-solid fa-check"></i> Approve
                                                         </button>
-                                                        <button class="btn btn-secondary btn-sm" style={{ padding: '0.3rem 0.75rem', fontSize: '0.78rem', color: 'hsl(0, 75%, 65%)', borderColor: 'rgba(220, 53, 69, 0.3)' }} onClick={() => setRejectingId(item.id)}>
+                                                        <button className="btn btn-secondary btn-sm" style={{ padding: '0.3rem 0.75rem', fontSize: '0.78rem', color: 'hsl(0, 75%, 65%)', borderColor: 'rgba(220, 53, 69, 0.3)' }} onClick={() => setRejectingId(item.id)}>
                                                             <i className="fa-solid fa-xmark"></i> Reject
                                                         </button>
                                                     </div>
@@ -392,6 +623,91 @@ export default function AdminApprovals() {
                     </div>
                 )}
             </div>
+
+            {/* Bulk Reject Reason Modal */}
+            {isBulkRejectModalOpen && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.75)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000,
+                    padding: '1rem'
+                }}>
+                    <div className="glass-panel" style={{
+                        width: '100%',
+                        maxWidth: '460px',
+                        padding: '1.5rem',
+                        border: '1px solid rgba(220, 53, 69, 0.4)',
+                        boxShadow: '0 10px 40px rgba(0,0,0,0.5)'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+                            <div style={{
+                                width: '38px',
+                                height: '38px',
+                                borderRadius: '50%',
+                                background: 'rgba(220, 53, 69, 0.15)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: 'hsl(0, 75%, 65%)'
+                            }}>
+                                <i className="fa-solid fa-triangle-exclamation"></i>
+                            </div>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-pure)' }}>Bulk Reject Requests</h3>
+                                <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                    Rejecting {currentSelectedIds.length} selected request{currentSelectedIds.length === 1 ? '' : 's'}.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+                            <label style={{ fontSize: '0.8rem', color: 'var(--text-pure)', marginBottom: '0.4rem', display: 'block' }}>
+                                Reason for Rejection (optional — attached to all selected items):
+                            </label>
+                            <textarea
+                                className="form-control"
+                                rows={3}
+                                placeholder="e.g. Duplicate entry, incorrect rate, not authorized..."
+                                value={bulkRejectNote}
+                                onChange={(e) => setBulkRejectNote(e.target.value)}
+                                autoFocus
+                                style={{ fontSize: '0.82rem', resize: 'vertical' }}
+                            />
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem' }}>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => setIsBulkRejectModalOpen(false)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={handleConfirmBulkReject}
+                                style={{
+                                    borderColor: 'rgba(220, 53, 69, 0.5)',
+                                    color: 'hsl(0, 75%, 65%)',
+                                    background: 'rgba(220, 53, 69, 0.15)',
+                                    fontWeight: '700'
+                                }}
+                            >
+                                <i className="fa-solid fa-ban"></i> Confirm Rejection ({currentSelectedIds.length})
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
+
