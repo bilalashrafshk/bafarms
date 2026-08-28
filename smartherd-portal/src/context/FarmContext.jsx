@@ -2682,7 +2682,8 @@ export const FarmProvider = ({ children }) => {
             weeks: plan?.weeks || [],
             adaptation: plan?.adaptation || [],
             ingredientPrices: plan?.ingredientPrices || {},
-            isDefault: !!plan?.isDefault
+            isDefault: !!plan?.isDefault,
+            feedingRestrictions: plan?.feedingRestrictions || {}
         };
         const isAdmin = staffUserRef.current?.isAdmin === true;
         if (!isAdmin) {
@@ -2798,9 +2799,16 @@ export const FarmProvider = ({ children }) => {
         return { success: true, planId: data.planId, planKey: data.planKey, version: data.version, rowCount: data.rowCount };
     };
 
-    const updateRationPlanV2 = async ({ id, name, adaptationDays, adgFloor, isDefault }) => {
-        const payload = { id, name, adaptationDays, adgFloor, isDefault };
-        setRationPlansV2(prev => prev.map(p => (p.id === id ? { ...p, name, adaptationDays: adaptationDays || 7, adgFloor: adgFloor || 1.0, isDefault: !!isDefault } : p)));
+    const updateRationPlanV2 = async ({ id, name, adaptationDays, adgFloor, isDefault, feedingRestrictions }) => {
+        const payload = { id, name, adaptationDays, adgFloor, isDefault, feedingRestrictions };
+        setRationPlansV2(prev => prev.map(p => (p.id === id ? {
+            ...p,
+            name: name !== undefined ? name : p.name,
+            adaptationDays: adaptationDays !== undefined ? (adaptationDays || 7) : p.adaptationDays,
+            adgFloor: adgFloor !== undefined ? (adgFloor || 1.0) : p.adgFloor,
+            isDefault: isDefault !== undefined ? !!isDefault : p.isDefault,
+            feedingRestrictions: feedingRestrictions !== undefined ? (feedingRestrictions || {}) : (p.feedingRestrictions || {})
+        } : p)));
         persistMutation('UPDATE_RATION_PLAN_V2', payload);
         setTimeout(refreshApprovals, 250);
         return { success: true };

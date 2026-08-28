@@ -233,7 +233,8 @@ async function ensureColumns(client) {
         ALTER TABLE ba_ration_plans
             ADD COLUMN IF NOT EXISTS ingredient_prices JSONB DEFAULT '{}',
             ADD COLUMN IF NOT EXISTS adaptation JSONB DEFAULT '[]',
-            ADD COLUMN IF NOT EXISTS wanda_stock_item_id VARCHAR(100) DEFAULT NULL;
+            ADD COLUMN IF NOT EXISTS wanda_stock_item_id VARCHAR(100) DEFAULT NULL,
+            ADD COLUMN IF NOT EXISTS feeding_restrictions JSONB DEFAULT '{}';
 
         -- Pens switch between forage sources (e.g. run chari while silage ferments, then
         -- switch), and staff track an expected exit date for scheduling.
@@ -260,10 +261,14 @@ async function ensureColumns(client) {
             adaptation_days INTEGER NOT NULL DEFAULT 7,
             adg_floor NUMERIC DEFAULT 1.0,
             is_default BOOLEAN DEFAULT FALSE,
+            feeding_restrictions JSONB DEFAULT '{}',
             created_by VARCHAR(100),
             created_at TIMESTAMP DEFAULT NOW(),
             UNIQUE(plan_key, version)
         );
+
+        ALTER TABLE ba_ration_plans_v2
+            ADD COLUMN IF NOT EXISTS feeding_restrictions JSONB DEFAULT '{}';
 
         CREATE TABLE IF NOT EXISTS ba_ration_rows (
             id SERIAL PRIMARY KEY,
@@ -1666,6 +1671,7 @@ module.exports = async (req, res) => {
                 ingredientPrices: (typeof row.ingredient_prices === 'string' ? JSON.parse(row.ingredient_prices) : row.ingredient_prices) || {},
                 wandaStockItemId: row.wanda_stock_item_id || null,
                 isDefault: row.is_default,
+                feedingRestrictions: (typeof row.feeding_restrictions === 'string' ? JSON.parse(row.feeding_restrictions) : row.feeding_restrictions) || {},
                 createdBy: row.created_by || null
             }));
 
@@ -1691,6 +1697,7 @@ module.exports = async (req, res) => {
                 adaptationDays: row.adaptation_days,
                 adgFloor: parseFloat(row.adg_floor || 1.0),
                 isDefault: row.is_default,
+                feedingRestrictions: (typeof row.feeding_restrictions === 'string' ? JSON.parse(row.feeding_restrictions) : row.feeding_restrictions) || {},
                 createdBy: row.created_by || null
             }));
 
@@ -2401,13 +2408,14 @@ module.exports = async (req, res) => {
                     `, [changes.title, changes.price, changes.weight || null, changes.desc || null, changes.ribbon || null, changes.rfid || null, changes.marbling || null, changes.fatRatio || null, JSON.stringify(changes.images || []), changes.id]);
                 } else if (approval.action === 'SAVE_RATION_PLAN') {
                     await client.query(`
-                        INSERT INTO ba_ration_plans (id, name, description, adg_floor, weeks, adaptation, ingredient_prices, wanda_stock_item_id, is_default, created_by, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+                        INSERT INTO ba_ration_plans (id, name, description, adg_floor, weeks, adaptation, ingredient_prices, wanda_stock_item_id, is_default, feeding_restrictions, created_by, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
                         ON CONFLICT (id) DO UPDATE SET
                             name = EXCLUDED.name, description = EXCLUDED.description, adg_floor = EXCLUDED.adg_floor,
                             weeks = EXCLUDED.weeks, adaptation = EXCLUDED.adaptation, ingredient_prices = EXCLUDED.ingredient_prices,
-                            wanda_stock_item_id = EXCLUDED.wanda_stock_item_id, is_default = EXCLUDED.is_default, updated_at = NOW()
-                    `, [changes.id, changes.name, changes.description || null, changes.adgFloor || 1.0, JSON.stringify(changes.weeks || []), JSON.stringify(changes.adaptation || []), JSON.stringify(changes.ingredientPrices || {}), changes.wandaStockItemId || null, !!changes.isDefault, approval.requested_by]);
+                            wanda_stock_item_id = EXCLUDED.wanda_stock_item_id, is_default = EXCLUDED.is_default,
+                            feeding_restrictions = EXCLUDED.feeding_restrictions, updated_at = NOW()
+                    `, [changes.id, changes.name, changes.description || null, changes.adgFloor || 1.0, JSON.stringify(changes.weeks || []), JSON.stringify(changes.adaptation || []), JSON.stringify(changes.ingredientPrices || {}), changes.wandaStockItemId || null, !!changes.isDefault, JSON.stringify(changes.feedingRestrictions || {}), approval.requested_by]);
                 } else if (approval.action === 'SAVE_PEN') {
                     await client.query(`
                         INSERT INTO ba_pens (id, ration_plan_id, plan_id, cycle_start_date, ramp_start_date, forage_type, expected_exit_date, notes, created_at, updated_at)
@@ -2423,7 +2431,7 @@ module.exports = async (req, res) => {
                         await client.query(`UPDATE ba_pens SET last_actual_weight_kg = $1, last_weigh_date = $2, current_target_adg = $3 WHERE id = $4`, [cache.lastActualWeightKg, cache.lastWeighDate, cache.currentTargetAdg, changes.id]);
                     }
                 } else if (approval.action === 'UPDATE_RATION_PLAN_V2') {
-                    await client.query(`UPDATE ba_ration_plans_v2 SET name = $1, adaptation_days = $2, adg_floor = $3, is_default = $4 WHERE id = $5`, [changes.name?.trim(), changes.adaptationDays || 7, changes.adgFloor || 1.0, !!changes.isDefault, changes.id]);
+                    await client.query(`UPDATE ba_ration_plans_v2 SET name = $1, adaptation_days = $2, adg_floor = $3, is_default = $4, feeding_restrictions = $5 WHERE id = $6`, [changes.name?.trim(), changes.adaptationDays || 7, changes.adgFloor || 1.0, !!changes.isDefault, JSON.stringify(changes.feedingRestrictions || {}), changes.id]);
                 } else if (approval.action === 'UPDATE_RATION_ROW') {
                     await client.query(`UPDATE ba_ration_rows SET wt_min = $1, wt_max = $2, target_adg = $3 WHERE id = $4`, [changes.wtMin, changes.wtMax, changes.targetAdg, changes.rowId]);
                     if (changes.items) {
@@ -2764,7 +2772,7 @@ module.exports = async (req, res) => {
             }
 
             if (action === 'SAVE_RATION_PLAN') {
-                const { id, name, description, adgFloor, weeks, adaptation, ingredientPrices, isDefault, wandaStockItemId } = payload;
+                const { id, name, description, adgFloor, weeks, adaptation, ingredientPrices, wandaStockItemId, isDefault, feedingRestrictions } = payload;
                 const isAdmin = !!(perms && perms.isAdmin);
 
                 if (!id || !name) {
@@ -2787,8 +2795,8 @@ module.exports = async (req, res) => {
                 }
 
                 await client.query(`
-                    INSERT INTO ba_ration_plans (id, name, description, adg_floor, weeks, adaptation, ingredient_prices, wanda_stock_item_id, is_default, created_by, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+                    INSERT INTO ba_ration_plans (id, name, description, adg_floor, weeks, adaptation, ingredient_prices, wanda_stock_item_id, is_default, feeding_restrictions, created_by, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
                     ON CONFLICT (id) DO UPDATE SET
                         name = EXCLUDED.name,
                         description = EXCLUDED.description,
@@ -2798,10 +2806,12 @@ module.exports = async (req, res) => {
                         ingredient_prices = EXCLUDED.ingredient_prices,
                         wanda_stock_item_id = EXCLUDED.wanda_stock_item_id,
                         is_default = EXCLUDED.is_default,
+                        feeding_restrictions = EXCLUDED.feeding_restrictions,
                         updated_at = NOW()
                 `, [
                     id, name, description || null, adgFloor || 1.0,
-                    JSON.stringify(weeks || []), JSON.stringify(adaptation || []), JSON.stringify(ingredientPrices || {}), wandaStockItemId || null, !!isDefault, session ? session.email : null
+                    JSON.stringify(weeks || []), JSON.stringify(adaptation || []), JSON.stringify(ingredientPrices || {}), wandaStockItemId || null, !!isDefault,
+                    JSON.stringify(feedingRestrictions || {}), session ? session.email : null
                 ]);
 
                 return res.status(200).json({ success: true });
@@ -3058,7 +3068,7 @@ module.exports = async (req, res) => {
             }
 
             if (action === 'UPDATE_RATION_PLAN_V2') {
-                const { id, name, adaptationDays, adgFloor, isDefault } = payload;
+                const { id, name, adaptationDays, adgFloor, isDefault, feedingRestrictions } = payload;
                 const isAdmin = !!(perms && perms.isAdmin);
 
                 if (!id || !name || !name.trim()) {
@@ -3087,9 +3097,9 @@ module.exports = async (req, res) => {
 
                 await client.query(`
                     UPDATE ba_ration_plans_v2
-                    SET name = $1, adaptation_days = $2, adg_floor = $3, is_default = $4
-                    WHERE id = $5
-                `, [name.trim(), adaptationDays || 7, adgFloor || 1.0, !!isDefault, id]);
+                    SET name = $1, adaptation_days = $2, adg_floor = $3, is_default = $4, feeding_restrictions = $5
+                    WHERE id = $6
+                `, [name.trim(), adaptationDays || 7, adgFloor || 1.0, !!isDefault, JSON.stringify(feedingRestrictions || {}), id]);
 
                 return res.status(200).json({ success: true });
             }

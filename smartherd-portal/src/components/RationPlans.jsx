@@ -991,67 +991,39 @@ export default function RationPlans() {
                                     <tbody>
                                         {rationPlansV2.map((plan, idx) => (
                                             <React.Fragment key={plan.id}>
-                                                {editingV2Id === plan.id ? (
-                                                    <tr>
-                                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
-                                                        <td>
-                                                            <input type="text" class="form-control" style={{ minWidth: '140px' }} value={v2EditName} onChange={e => setV2EditName(e.target.value)} />
-                                                        </td>
-                                                        <td>v{plan.version}</td>
-                                                        <td>
-                                                            <input type="number" class="form-control" style={{ width: '80px' }} value={v2EditAdaptationDays} onChange={e => setV2EditAdaptationDays(e.target.value)} />
-                                                        </td>
-                                                        <td>
-                                                            <input type="number" step="0.01" class="form-control" style={{ width: '90px' }} value={v2EditAdgFloor} onChange={e => setV2EditAdgFloor(e.target.value)} />
-                                                        </td>
-                                                        <td>{rationRows.filter(r => r.planId === plan.id).length}</td>
-                                                        <td>{pens.filter(p => p.planId === plan.id).length}</td>
-                                                        <td>
-                                                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', marginBottom: '0.4rem' }}>
-                                                                <input type="checkbox" checked={v2EditIsDefault} onChange={e => setV2EditIsDefault(e.target.checked)} /> Default
-                                                            </label>
-                                                            <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                                                <button type="button" class="btn btn-primary btn-sm" onClick={() => handleSaveV2Plan(plan.id)} disabled={v2SavingId === plan.id}>
-                                                                    {v2SavingId === plan.id ? 'Saving…' : 'Save'}
+                                                <tr>
+                                                    <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
+                                                    <td style={{ fontWeight: '700', color: 'var(--text-pure)', cursor: 'pointer' }} onClick={() => toggleV2PlanExpanded(plan.id)}>
+                                                        {plan.name}
+                                                        {plan.isDefault && <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--accent-gold)' }}>DEFAULT</span>}
+                                                    </td>
+                                                    <td>v{plan.version}</td>
+                                                    <td>{plan.adaptationDays}</td>
+                                                    <td>{plan.adgFloor} kg/day</td>
+                                                    <td>{rationRows.filter(r => r.planId === plan.id).length}</td>
+                                                    <td>{pens.filter(p => p.planId === plan.id).length}</td>
+                                                    <td>
+                                                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                                            <button
+                                                                type="button"
+                                                                class={`btn btn-sm ${expandedV2PlanId === plan.id ? 'btn-primary' : 'btn-ghost'}`}
+                                                                title="View / edit brackets and ingredient restrictions"
+                                                                onClick={() => toggleV2PlanExpanded(plan.id)}
+                                                            >
+                                                                <i class={`fa-solid ${expandedV2PlanId === plan.id ? 'fa-chevron-up' : 'fa-pen-to-square'}`}></i>
+                                                                <span style={{ marginLeft: '0.3rem' }}>{expandedV2PlanId === plan.id ? 'Close' : 'Edit'}</span>
+                                                            </button>
+                                                            <button type="button" class="btn btn-ghost btn-sm" title="Export as CSV" onClick={() => handleExportV2Plan(plan)}>
+                                                                <i class="fa-solid fa-file-csv"></i>
+                                                            </button>
+                                                            {isSuperAdmin && (
+                                                                <button type="button" class="btn btn-ghost btn-sm" title="Delete Ration Plan" style={{ color: 'hsl(0,75%,60%)' }} onClick={() => handleDeleteV2Plan(plan)}>
+                                                                    <i class="fa-solid fa-trash-can"></i>
                                                                 </button>
-                                                                <button type="button" class="btn btn-ghost btn-sm" onClick={() => setEditingV2Id(null)}>Cancel</button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                ) : (
-                                                    <tr>
-                                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
-                                                        <td style={{ fontWeight: '700', color: 'var(--text-pure)' }}>
-                                                            {plan.name}
-                                                            {plan.isDefault && <span style={{ marginLeft: '0.5rem', fontSize: '0.68rem', color: 'var(--accent-gold)' }}>DEFAULT</span>}
-                                                        </td>
-                                                        <td>v{plan.version}</td>
-                                                        <td>{plan.adaptationDays}</td>
-                                                        <td>{plan.adgFloor} kg/day</td>
-                                                        <td>{rationRows.filter(r => r.planId === plan.id).length}</td>
-                                                        <td>{pens.filter(p => p.planId === plan.id).length}</td>
-                                                        <td>
-                                                            <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                                                <button type="button" class={`btn btn-sm ${expandedV2PlanId === plan.id ? 'btn-primary' : 'btn-ghost'}`} title="View / edit brackets" onClick={() => toggleV2PlanExpanded(plan.id)}>
-                                                                    <i class={`fa-solid ${expandedV2PlanId === plan.id ? 'fa-chevron-up' : 'fa-table-list'}`}></i>
-                                                                </button>
-                                                                {isAdmin && (
-                                                                    <button type="button" class="btn btn-ghost btn-sm" title="Edit name/settings" onClick={() => openEditV2Plan(plan)}>
-                                                                        <i class="fa-solid fa-pen-to-square"></i>
-                                                                    </button>
-                                                                )}
-                                                                <button type="button" class="btn btn-ghost btn-sm" title="Export as CSV" onClick={() => handleExportV2Plan(plan)}>
-                                                                    <i class="fa-solid fa-file-csv"></i>
-                                                                </button>
-                                                                {isSuperAdmin && (
-                                                                    <button type="button" class="btn btn-ghost btn-sm" title="Delete Ration Plan" style={{ color: 'hsl(0,75%,60%)' }} onClick={() => handleDeleteV2Plan(plan)}>
-                                                                        <i class="fa-solid fa-trash-can"></i>
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                )}
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                </tr>
                                                 {expandedV2PlanId === plan.id && (
                                                     <tr>
                                                         <td colSpan={7} style={{ padding: 0, background: 'rgba(255,255,255,0.02)' }}>
@@ -1061,6 +1033,7 @@ export default function RationPlans() {
                                                                 rationRowItems={rationRowItems}
                                                                 feedIngredients={feedIngredients}
                                                                 isAdmin={isAdmin}
+                                                                updateRationPlanV2={updateRationPlanV2}
                                                                 bracketFilterForage={bracketFilterForage}
                                                                 setBracketFilterForage={setBracketFilterForage}
                                                                 bracketFilterPhase={bracketFilterPhase}
@@ -1815,7 +1788,7 @@ export default function RationPlans() {
 // identically. Row-level edits (admin only) go through UPDATE_RATION_ROW, which re-validates
 // bounds + bracket contiguity against sibling rows before writing.
 function BracketDetailPanel({
-    plan, rationRows, rationRowItems, feedIngredients, isAdmin,
+    plan, rationRows, rationRowItems, feedIngredients, isAdmin, updateRationPlanV2,
     bracketFilterForage, setBracketFilterForage,
     bracketFilterPhase, setBracketFilterPhase,
     editingRowId, openEditRow, cancelEditRow,
@@ -1835,6 +1808,49 @@ function BracketDetailPanel({
     });
     const ingredientIds = [...ingredientIdSet];
     const ingredientNameById = (id) => feedIngredients.find(f => f.id === id)?.name || id;
+
+    const handleRestrictionChange = (ingId, val) => {
+        if (!updateRationPlanV2) return;
+        const current = { ...(plan.feedingRestrictions || {}) };
+        if (!val || val === 'any') {
+            delete current[ingId];
+        } else {
+            current[ingId] = val;
+        }
+        updateRationPlanV2({
+            id: plan.id,
+            name: plan.name,
+            adaptationDays: plan.adaptationDays,
+            adgFloor: plan.adgFloor,
+            isDefault: plan.isDefault,
+            feedingRestrictions: current
+        });
+    };
+
+    const [isEditingSettings, setIsEditingSettings] = useState(false);
+    const [settingsName, setSettingsName] = useState(plan.name);
+    const [settingsAdaptationDays, setSettingsAdaptationDays] = useState(plan.adaptationDays);
+    const [settingsAdgFloor, setSettingsAdgFloor] = useState(plan.adgFloor);
+    const [settingsIsDefault, setSettingsIsDefault] = useState(!!plan.isDefault);
+    const [isSavingSettings, setIsSavingSettings] = useState(false);
+
+    const handleSaveSettings = async (e) => {
+        e?.preventDefault();
+        if (!updateRationPlanV2) return;
+        setIsSavingSettings(true);
+        const res = await updateRationPlanV2({
+            id: plan.id,
+            name: settingsName.trim() || plan.name,
+            adaptationDays: parseInt(settingsAdaptationDays, 10) || 7,
+            adgFloor: parseFloat(settingsAdgFloor) || 1.0,
+            isDefault: settingsIsDefault,
+            feedingRestrictions: plan.feedingRestrictions || {}
+        });
+        setIsSavingSettings(false);
+        if (res?.success) {
+            setIsEditingSettings(false);
+        }
+    };
 
     const filteredRows = allRows.filter(r =>
         (bracketFilterForage === 'all' || r.forageType === bracketFilterForage) &&
@@ -1865,11 +1881,47 @@ function BracketDetailPanel({
                     <option value="STEADY">Steady</option>
                 </select>
                 {isAdmin && (
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                        <i class="fa-solid fa-circle-info"></i> Editing here corrects this exact version in place — pens already on v{plan.version} pick up the change immediately.
-                    </span>
+                    <button
+                        type="button"
+                        class={`btn btn-sm ${isEditingSettings ? 'btn-primary' : 'btn-ghost'}`}
+                        style={{ fontSize: '0.75rem', marginLeft: 'auto' }}
+                        onClick={() => {
+                            setSettingsName(plan.name);
+                            setSettingsAdaptationDays(plan.adaptationDays);
+                            setSettingsAdgFloor(plan.adgFloor);
+                            setSettingsIsDefault(!!plan.isDefault);
+                            setIsEditingSettings(!isEditingSettings);
+                        }}
+                    >
+                        <i class="fa-solid fa-sliders"></i> {isEditingSettings ? 'Hide Plan Settings' : 'Plan Settings'}
+                    </button>
                 )}
             </div>
+
+            {isEditingSettings && (
+                <form onSubmit={handleSaveSettings} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '0.8rem 1rem', marginBottom: '0.8rem', display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div style={{ minWidth: '180px' }}>
+                        <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>Plan Name</label>
+                        <input type="text" class="form-control" value={settingsName} onChange={e => setSettingsName(e.target.value)} required />
+                    </div>
+                    <div style={{ width: '105px' }}>
+                        <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>Adaptation Days</label>
+                        <input type="number" class="form-control" value={settingsAdaptationDays} onChange={e => setSettingsAdaptationDays(e.target.value)} required />
+                    </div>
+                    <div style={{ width: '105px' }}>
+                        <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>ADG Floor (kg)</label>
+                        <input type="number" step="0.01" class="form-control" value={settingsAdgFloor} onChange={e => setSettingsAdgFloor(e.target.value)} required />
+                    </div>
+                    <div style={{ paddingBottom: '0.4rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={settingsIsDefault} onChange={e => setSettingsIsDefault(e.target.checked)} /> Default Plan
+                        </label>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm" disabled={isSavingSettings}>
+                        {isSavingSettings ? 'Saving…' : 'Save Settings'}
+                    </button>
+                </form>
+            )}
 
             {rowSaveErrors.length > 0 && (
                 <div style={{ background: 'rgba(220,50,50,0.12)', border: '1px solid rgba(220,50,50,0.4)', borderRadius: '8px', padding: '0.6rem 0.8rem', marginBottom: '0.8rem', fontSize: '0.76rem', color: '#ff8080' }}>
@@ -1888,7 +1940,30 @@ function BracketDetailPanel({
                             <th>WT MIN</th>
                             <th>WT MAX</th>
                             <th>TARGET ADG</th>
-                            {ingredientIds.map(id => <th key={id}>{ingredientNameById(id)}</th>)}
+                            {ingredientIds.map(id => (
+                                <th key={id} style={{ whiteSpace: 'nowrap' }}>
+                                    <div>{ingredientNameById(id)}</div>
+                                    {isAdmin ? (
+                                        <select
+                                            class="form-control"
+                                            value={plan.feedingRestrictions?.[id] || 'any'}
+                                            onChange={e => handleRestrictionChange(id, e.target.value)}
+                                            style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.62rem', fontWeight: '400', textTransform: 'none', padding: '0.05rem 0.25rem', minHeight: '20px', height: '20px', width: '100%' }}
+                                            title="Restrict this ingredient to a single feeding in TMR Calculator (e.g. potato in the evening only)"
+                                        >
+                                            <option value="any">Any feeding</option>
+                                            <option value="am">Morning only</option>
+                                            <option value="pm">Evening only</option>
+                                        </select>
+                                    ) : (
+                                        plan.feedingRestrictions?.[id] && (
+                                            <div style={{ fontSize: '0.62rem', color: 'var(--accent-gold)' }}>
+                                                {plan.feedingRestrictions[id] === 'am' ? 'Morning only' : 'Evening only'}
+                                            </div>
+                                        )
+                                    )}
+                                </th>
+                            ))}
                             <th>EST COST</th>
                             {isAdmin && <th>ACTIONS</th>}
                         </tr>
