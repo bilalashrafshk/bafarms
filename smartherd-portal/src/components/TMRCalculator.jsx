@@ -1,4 +1,4 @@
-import React, { useContext, useState, useEffect } from 'react';
+import React, { useContext, useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
@@ -14,6 +14,154 @@ const addDaysPKT = (dateStr, delta) => {
     d.setUTCDate(d.getUTCDate() + delta);
     return d.toISOString().split('T')[0];
 };
+
+// Searchable ingredient select combobox with instant live filter and stock indicator
+function SearchableIngredientSelect({ items, value, onChange, onAdd, placeholder = "Search & select ingredient...", disabled = false, getStockQty }) {
+    const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const containerRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (containerRef.current && !containerRef.current.contains(e.target)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const selectedItem = items.find(i => i.id === value);
+
+    const filteredItems = useMemo(() => {
+        if (!search.trim()) return items;
+        const q = search.toLowerCase();
+        return items.filter(i => (i.name || i.id || '').toLowerCase().includes(q));
+    }, [items, search]);
+
+    return (
+        <div ref={containerRef} style={{ position: 'relative', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', maxWidth: '440px', width: '100%' }}>
+            <div style={{ position: 'relative', flex: '1 1 250px' }}>
+                <div
+                    onClick={() => { if (!disabled) setIsOpen(prev => !prev); }}
+                    className="form-control form-control-sm"
+                    style={{
+                        cursor: disabled ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: isOpen ? '1px solid var(--accent-gold)' : '1px solid rgba(255,255,255,0.12)',
+                        minHeight: '34px',
+                        padding: '0.2rem 0.65rem',
+                        fontSize: '0.82rem',
+                        color: selectedItem ? 'var(--text-pure)' : 'var(--text-muted)',
+                        borderRadius: '6px'
+                    }}
+                >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {selectedItem ? (
+                            <span>
+                                <strong style={{ color: 'var(--text-pure)' }}>{selectedItem.name}</strong>
+                                {getStockQty && getStockQty(selectedItem.id) !== null && (
+                                    <small style={{ color: 'var(--accent-gold)', marginLeft: '0.4rem' }}>
+                                        ({getStockQty(selectedItem.id).toFixed(1)}kg in stock)
+                                    </small>
+                                )}
+                            </span>
+                        ) : placeholder}
+                    </span>
+                    <i className={`fa-solid ${isOpen ? 'fa-chevron-up' : 'fa-chevron-down'}`} style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.4rem' }}></i>
+                </div>
+
+                {isOpen && (
+                    <div style={{
+                        position: 'absolute',
+                        top: 'calc(100% + 4px)',
+                        left: 0,
+                        right: 0,
+                        background: '#16191c',
+                        border: '1px solid var(--accent-gold)',
+                        borderRadius: '8px',
+                        boxShadow: '0 8px 30px rgba(0,0,0,0.7)',
+                        zIndex: 1000,
+                        maxHeight: '260px',
+                        overflowY: 'auto',
+                        padding: '0.4rem'
+                    }}>
+                        <div style={{ padding: '0.2rem 0.2rem 0.4rem 0.2rem', borderBottom: '1px solid rgba(255,255,255,0.08)', marginBottom: '0.3rem' }}>
+                            <div style={{ position: 'relative' }}>
+                                <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.75rem' }}></i>
+                                <input
+                                    type="text"
+                                    className="form-control form-control-sm"
+                                    placeholder="Type to search (e.g. Wanda, Silage)..."
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    autoFocus
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{ paddingLeft: '1.9rem', fontSize: '0.8rem', height: '30px', background: 'rgba(0,0,0,0.4)', borderRadius: '4px' }}
+                                />
+                            </div>
+                        </div>
+
+                        {filteredItems.length === 0 ? (
+                            <div style={{ padding: '0.6rem', textAlign: 'center', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                No matching ingredients found.
+                            </div>
+                        ) : (
+                            filteredItems.map(item => {
+                                const stock = getStockQty ? getStockQty(item.id) : null;
+                                const isSelected = item.id === value;
+                                return (
+                                    <div
+                                        key={item.id}
+                                        onClick={() => {
+                                            onChange(item.id);
+                                            setIsOpen(false);
+                                            setSearch('');
+                                        }}
+                                        style={{
+                                            padding: '0.45rem 0.65rem',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            background: isSelected ? 'rgba(255,193,7,0.15)' : 'transparent',
+                                            fontSize: '0.82rem',
+                                            color: isSelected ? 'var(--accent-gold)' : 'var(--text-pure)',
+                                            transition: 'background 0.15s ease'
+                                        }}
+                                        onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+                                        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+                                    >
+                                        <span style={{ fontWeight: isSelected ? '700' : '500' }}>{item.name}</span>
+                                        {stock !== null && (
+                                            <span style={{ fontSize: '0.72rem', color: stock > 0 ? 'var(--primary-green-light)' : 'var(--text-muted)' }}>
+                                                {stock.toFixed(1)} kg in store
+                                            </span>
+                                        )}
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                )}
+            </div>
+
+            <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={onAdd}
+                disabled={!value || disabled}
+                style={{ height: '34px', padding: '0 0.85rem', fontSize: '0.8rem', fontWeight: '600' }}
+            >
+                <i className="fa-solid fa-circle-plus"></i> Add
+            </button>
+        </div>
+    );
+}
 
 // Number input for editing a diet override (plan qty, extra ingredient, tractor batch
 // weight, etc). These all display a value that gets recomputed — sometimes through
@@ -1470,22 +1618,15 @@ export default function TMRCalculator() {
                                 </div>
 
                                 {isAdmin && bulkAvailableExtraIngredients.length > 0 && (
-                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.8rem', flexWrap: 'wrap' }}>
-                                        <select
-                                            className="form-control form-control-sm"
-                                            style={{ maxWidth: '280px', width: 'auto', flex: '1 1 auto' }}
+                                    <div style={{ marginTop: '0.8rem' }}>
+                                        <SearchableIngredientSelect
+                                            items={bulkAvailableExtraIngredients}
                                             value={bulkAddChoice}
-                                            onChange={(e) => setBulkAddChoice(e.target.value)}
-                                        >
-                                            <option value="">Substitute / add an ingredient to ALL pens…</option>
-                                            {bulkAvailableExtraIngredients.map(i => {
-                                                const stockQty = getIngredientStockQty(i.id);
-                                                return <option key={i.id} value={i.id}>{i.name}{stockQty !== null ? ` (${stockQty.toFixed(2)}kg in stock)` : ''}</option>;
-                                            })}
-                                        </select>
-                                        <button type="button" className="btn btn-secondary btn-sm" onClick={handleAddExtraIngredientToAllPens} disabled={!bulkAddChoice}>
-                                            <i className="fa-solid fa-circle-plus"></i> Add
-                                        </button>
+                                            onChange={(val) => setBulkAddChoice(val)}
+                                            onAdd={handleAddExtraIngredientToAllPens}
+                                            placeholder="🔍 Search & substitute ingredient for ALL pens…"
+                                            getStockQty={getIngredientStockQty}
+                                        />
                                     </div>
                                 )}
 
@@ -1661,22 +1802,15 @@ export default function TMRCalculator() {
                                         </div>
 
                                         {isAdmin && penAvailableExtraIngredients.length > 0 && (
-                                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.8rem', flexWrap: 'wrap' }}>
-                                                <select
-                                                    className="form-control form-control-sm"
-                                                    style={{ maxWidth: '280px', width: 'auto', flex: '1 1 auto' }}
+                                            <div style={{ marginTop: '0.8rem' }}>
+                                                <SearchableIngredientSelect
+                                                    items={penAvailableExtraIngredients}
                                                     value={getAddIngredientChoice(penId)}
-                                                    onChange={(e) => setAddIngredientChoice(penId, e.target.value)}
-                                                >
-                                                    <option value="">Substitute / add an ingredient not in Pen {penId}'s plan…</option>
-                                                    {penAvailableExtraIngredients.map(i => {
-                                                        const stockQty = getIngredientStockQty(i.id);
-                                                        return <option key={i.id} value={i.id}>{i.name}{stockQty !== null ? ` (${stockQty.toFixed(2)}kg in stock)` : ''}</option>;
-                                                    })}
-                                                </select>
-                                                <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleAddExtraIngredient(penId)} disabled={!getAddIngredientChoice(penId)}>
-                                                    <i className="fa-solid fa-circle-plus"></i> Add
-                                                </button>
+                                                    onChange={(val) => setAddIngredientChoice(penId, val)}
+                                                    onAdd={() => handleAddExtraIngredient(penId)}
+                                                    placeholder={`🔍 Search & add ingredient for Pen ${penId}…`}
+                                                    getStockQty={getIngredientStockQty}
+                                                />
                                             </div>
                                         )}
 
@@ -1883,22 +2017,15 @@ export default function TMRCalculator() {
                             </div>
 
                             {isAdmin && availableExtraIngredients.length > 0 && (
-                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.8rem', flexWrap: 'wrap' }}>
-                                    <select
-                                        className="form-control form-control-sm"
-                                        style={{ maxWidth: '280px', width: 'auto', flex: '1 1 auto' }}
+                                <div style={{ marginTop: '0.8rem' }}>
+                                    <SearchableIngredientSelect
+                                        items={availableExtraIngredients}
                                         value={getAddIngredientChoice(selectedTMRPen)}
-                                        onChange={(e) => setAddIngredientChoice(selectedTMRPen, e.target.value)}
-                                    >
-                                        <option value="">Substitute / add an ingredient not in this plan…</option>
-                                        {availableExtraIngredients.map(i => {
-                                            const stockQty = getIngredientStockQty(i.id);
-                                            return <option key={i.id} value={i.id}>{i.name}{stockQty !== null ? ` (${stockQty.toFixed(2)}kg in stock)` : ''}</option>;
-                                        })}
-                                    </select>
-                                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleAddExtraIngredient(selectedTMRPen)} disabled={!getAddIngredientChoice(selectedTMRPen)}>
-                                        <i className="fa-solid fa-circle-plus"></i> Add
-                                    </button>
+                                        onChange={(val) => setAddIngredientChoice(selectedTMRPen, val)}
+                                        onAdd={() => handleAddExtraIngredient(selectedTMRPen)}
+                                        placeholder={`🔍 Search & substitute ingredient not in this plan…`}
+                                        getStockQty={getIngredientStockQty}
+                                    />
                                 </div>
                             )}
 
