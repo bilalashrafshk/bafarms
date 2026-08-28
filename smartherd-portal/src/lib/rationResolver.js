@@ -29,6 +29,37 @@ export class NoMatchingRationError extends Error {
 
 const dayDiff = (fromDate, toDate) => Math.floor((new Date(toDate) - new Date(fromDate)) / 86400000);
 
+const normForage = (ft) => (ft || '').toLowerCase().trim();
+const isForageMatch = (rowForage, penForage) => {
+    const rf = normForage(rowForage);
+    const pf = normForage(penForage);
+    if (rf === pf) return true;
+    if (rf === 'mixed' || rf === 'both' || pf === 'mixed' || pf === 'both') return true;
+    return false;
+};
+
+/**
+ * Shared guard checks + weight projection math used by both resolveRation (phase =
+ * ADAPTATION/STEADY, keyed off cycleStartDate) and resolveIngredientRampRow (phase =
+ * INGREDIENT_RAMP, keyed off rampStartDate) — the projection itself doesn't depend on
+ * which phase is being looked up, only daysOnFeed does.
+ */
+function computeProjectedWeight({ pen, plan, today }) {
+    if (!pen.cycleStartDate) {
+        throw new NoMatchingRationError('Pen has no cycle start date on record.', { pen });
+    }
+    if (pen.lastActualWeightKg == null || !pen.lastWeighDate) {
+        throw new NoMatchingRationError('Pen has no weigh-in on record — cannot project weight.', { pen });
+    }
+
+    const daysOnFeed = dayDiff(pen.cycleStartDate, today) + 1;
+    const daysSinceWeigh = Math.max(0, dayDiff(pen.lastWeighDate, today));
+    const adg = pen.currentTargetAdg != null ? pen.currentTargetAdg : (plan?.adgFloor ?? 0);
+    const projectedWeight = pen.lastActualWeightKg + daysSinceWeigh * adg;
+
+    return { daysOnFeed, projectedWeight };
+}
+
 /**
  * Resolves the single deterministic ration row for a pen "as of" `today`.
  *
@@ -42,30 +73,11 @@ const dayDiff = (fromDate, toDate) => Math.floor((new Date(toDate) - new Date(fr
  * admin fixes the plan/pen data.
  */
 export function resolveRation({ pen, plan, rows, rowItems, today = todayAsDate() }) {
-    if (!pen.cycleStartDate) {
-        throw new NoMatchingRationError('Pen has no cycle start date on record.', { pen });
-    }
-    if (pen.lastActualWeightKg == null || !pen.lastWeighDate) {
-        throw new NoMatchingRationError('Pen has no weigh-in on record — cannot project weight.', { pen });
-    }
-
-    const daysOnFeed = dayDiff(pen.cycleStartDate, today) + 1;
-    const daysSinceWeigh = Math.max(0, dayDiff(pen.lastWeighDate, today));
-    const adg = pen.currentTargetAdg != null ? pen.currentTargetAdg : (plan?.adgFloor ?? 0);
-    const projectedWeight = pen.lastActualWeightKg + daysSinceWeigh * adg;
+    const { daysOnFeed, projectedWeight } = computeProjectedWeight({ pen, plan, today });
 
     const adaptationDays = plan?.adaptationDays ?? 7;
     const phase = daysOnFeed <= adaptationDays ? 'ADAPTATION' : 'STEADY';
     const dayNo = phase === 'ADAPTATION' ? daysOnFeed : null;
-
-    const normForage = (ft) => (ft || '').toLowerCase().trim();
-    const isForageMatch = (rowForage, penForage) => {
-        const rf = normForage(rowForage);
-        const pf = normForage(penForage);
-        if (rf === pf) return true;
-        if (rf === 'mixed' || rf === 'both' || pf === 'mixed' || pf === 'both') return true;
-        return false;
-    };
 
     const allMatches = rows.filter(r => (
         r.planId === pen.planId &&
@@ -105,6 +117,53 @@ export function resolveRation({ pen, plan, rows, rowItems, today = todayAsDate()
         projectedWeight,
         phase,
         dayNo,
+        bracketMin: row.wtMin,
+        bracketMax: row.wtMax,
+        daysOnFeed
+    };
+}
+
+/**
+ * Looks up a single INGREDIENT_RAMP row for a pen on a specific `rampDay` (1-indexed,
+ * counted from the pen's own rampStartDate — independent of cycleStartDate/daysOnFeed).
+ * INGREDIENT_RAMP rows are ordinary, complete, pre-computed rows (a full balanced
+ * ration for that ramp day) — this does no arithmetic/substitution, it's the same
+ * bracket-matching logic as resolveRation with a different phase/day key.
+ *
+ * Returns null (not an error) when no row matches this rampDay — that's the normal
+ * "ramp isn't active / has finished" case and the caller falls through to
+ * resolveRation. Still throws NoMatchingRationError on a genuine data error
+ * (multiple overlapping brackets for the same day/weight).
+ */
+export function resolveIngredientRampRow({ pen, plan, rows, rowItems, rampDay, today = todayAsDate() }) {
+    const { daysOnFeed, projectedWeight } = computeProjectedWeight({ pen, plan, today });
+
+    const allMatches = rows.filter(r => (
+        r.planId === pen.planId &&
+        isForageMatch(r.forageType, pen.forageType) &&
+        r.phase === 'INGREDIENT_RAMP' &&
+        r.dayNo === rampDay &&
+        projectedWeight >= r.wtMin && projectedWeight < r.wtMax + 1
+    ));
+
+    const exactMatches = allMatches.filter(r => normForage(r.forageType) === normForage(pen.forageType));
+    const matches = exactMatches.length > 0 ? exactMatches : allMatches;
+
+    if (matches.length === 0) return null;
+    if (matches.length > 1) {
+        throw new NoMatchingRationError(
+            `Ration data error: ${matches.length} overlapping INGREDIENT_RAMP brackets match projected weight ${projectedWeight.toFixed(1)}kg on ramp day ${rampDay}. Feeding blocked — fix the plan's bracket overlap.`,
+            { pen, rampDay, projectedWeight, matches }
+        );
+    }
+
+    const row = matches[0];
+    const items = rowItems.filter(i => i.rowId === row.id);
+
+    return {
+        row,
+        items,
+        projectedWeight,
         bracketMin: row.wtMin,
         bracketMax: row.wtMax,
         daysOnFeed

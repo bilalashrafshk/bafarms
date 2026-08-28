@@ -785,7 +785,7 @@ export default function TMRCalculator() {
         const resolvedPlanRow = batch.resolvedPlanRow;
         const isV2 = resolvedPlanRow.system === 'v2';
         const stageNote = isV2
-            ? `${resolvedPlanRow.plan.name} v${resolvedPlanRow.plan.version}, bracket ${resolvedPlanRow.bracketMin}-${resolvedPlanRow.bracketMax}kg${resolvedPlanRow.phase === 'ADAPTATION' ? `, Adaptation Day ${resolvedPlanRow.dayNo}` : ', Steady State'}`
+            ? `${resolvedPlanRow.plan.name} v${resolvedPlanRow.plan.version}, bracket ${resolvedPlanRow.bracketMin}-${resolvedPlanRow.bracketMax}kg${resolvedPlanRow.phase === 'ADAPTATION' ? `, Adaptation Day ${resolvedPlanRow.dayNo}` : resolvedPlanRow.phase === 'INGREDIENT_RAMP' ? `, ${resolvedPlanRow.rampInfo?.ingredient || 'Ingredient'} Ramp Day ${resolvedPlanRow.dayNo}` : ', Steady State'}`
             : (resolvedPlanRow.usesAdaptationTable
                 ? `Adaptation Day ${resolvedPlanRow.adaptationDay}`
                 : `Week ${resolvedPlanRow.week.week}${resolvedPlanRow.usesDailyDiet && resolvedPlanRow.dayInWeek ? `, Day ${resolvedPlanRow.dayInWeek}` : ''}`);
@@ -1682,15 +1682,17 @@ export default function TMRCalculator() {
                                         {(resolvedPlanRow.forageType || 'silage').toUpperCase()}
                                     </span>
                                     {resolvedPlanRow.system === 'v2' && (
-                                        <span style={{ marginLeft: '0.5rem', color: resolvedPlanRow.phase === 'ADAPTATION' ? 'var(--accent-gold)' : 'var(--primary-green-light)', fontSize: '0.75rem' }}>
-                                            {resolvedPlanRow.phase === 'ADAPTATION' ? `DAY ${resolvedPlanRow.dayNo} (ADAPTATION)` : 'STEADY STATE'}
+                                        <span style={{ marginLeft: '0.5rem', color: resolvedPlanRow.phase === 'STEADY' ? 'var(--primary-green-light)' : 'var(--accent-gold)', fontSize: '0.75rem' }}>
+                                            {resolvedPlanRow.phase === 'ADAPTATION' ? `DAY ${resolvedPlanRow.dayNo} (ADAPTATION)`
+                                                : resolvedPlanRow.phase === 'INGREDIENT_RAMP' ? `RAMP DAY ${resolvedPlanRow.dayNo}`
+                                                    : 'STEADY STATE'}
                                         </span>
                                     )}
                                     {resolvedPlanRow.system !== 'v2' && !resolvedPlanRow.usesAdaptationTable && resolvedPlanRow.usesDailyDiet && resolvedPlanRow.dayInWeek && <span style={{ marginLeft: '0.5rem', color: 'var(--primary-green-light)', fontSize: '0.75rem' }}>DAY {resolvedPlanRow.dayInWeek} OF 7</span>}
                                     {resolvedPlanRow.system !== 'v2' && resolvedPlanRow.usesAdaptationTable && <span style={{ marginLeft: '0.5rem', color: 'var(--accent-gold)', fontSize: '0.75rem' }}>ADAPTATION</span>}
                                     {resolvedPlanRow.rampInfo?.active && (
                                         <span style={{ marginLeft: '0.5rem', color: 'var(--accent-gold)', fontSize: '0.7rem', border: '1px solid rgba(212,175,55,0.35)', borderRadius: '4px', padding: '0.1rem 0.4rem' }}>
-                                            {resolvedPlanRow.rampInfo.ingredientIds.map(id => feedIngredients.find(f => f.id === id)?.name || id).join(', ')} ramp day {resolvedPlanRow.rampInfo.day} of {resolvedPlanRow.rampInfo.maxDay}
+                                            {resolvedPlanRow.rampInfo.ingredient} ramp — day {resolvedPlanRow.rampInfo.day} of {resolvedPlanRow.rampInfo.total}
                                         </span>
                                     )}
                                 </div>

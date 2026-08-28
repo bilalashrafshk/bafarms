@@ -5,7 +5,7 @@
 // Worked numbers (bracket + ingredient qtys) are taken verbatim from spec §3.
 
 import { describe, it, expect } from 'vitest';
-import { resolveRation, getWeightDivergence, findContiguityGaps, NoMatchingRationError } from './rationResolver';
+import { resolveRation, resolveIngredientRampRow, getWeightDivergence, findContiguityGaps, NoMatchingRationError } from './rationResolver';
 
 const plan = { id: 'type-1', adaptationDays: 7, adgFloor: 1.0 };
 
@@ -197,6 +197,90 @@ describe('findContiguityGaps', () => {
         expect(problems).toHaveLength(1);
         expect(problems[0].a.wtMax).toBe(124);
         expect(problems[0].b.wtMin).toBe(128);
+    });
+});
+
+// Ingredient ramp — v2 revised design (INGREDIENT_RAMP as a third, ordinary CSV phase
+// with its own independent day numbering keyed to pen.rampStartDate rather than
+// cycleStartDate). rampDay is computed by the caller (FarmContext's resolvePenRationV2)
+// the same way daysOnFeed is: daysBetween(today, rampStartDate) + 1. These tests exercise
+// resolveIngredientRampRow directly with pre-computed rampDay values, matching spec 2.5.
+describe('resolveIngredientRampRow — ingredient ramp phase (spec 2.5)', () => {
+    // 5-day potato ramp, one weight bracket (160-164kg), full pre-computed row per day —
+    // no arithmetic/substitution, just an ordinary bracket lookup keyed on phase+dayNo.
+    const rampRows = [
+        { id: 100, planId: 'type-1', phase: 'INGREDIENT_RAMP', dayNo: 1, rampIngredient: 'Potato', forageType: 'chari', wtMin: 160, wtMax: 164, targetAdg: 1.0 },
+        { id: 101, planId: 'type-1', phase: 'INGREDIENT_RAMP', dayNo: 2, rampIngredient: 'Potato', forageType: 'chari', wtMin: 160, wtMax: 164, targetAdg: 1.0 },
+        { id: 102, planId: 'type-1', phase: 'INGREDIENT_RAMP', dayNo: 3, rampIngredient: 'Potato', forageType: 'chari', wtMin: 160, wtMax: 164, targetAdg: 1.0 },
+        { id: 103, planId: 'type-1', phase: 'INGREDIENT_RAMP', dayNo: 4, rampIngredient: 'Potato', forageType: 'chari', wtMin: 160, wtMax: 164, targetAdg: 1.0 },
+        { id: 104, planId: 'type-1', phase: 'INGREDIENT_RAMP', dayNo: 5, rampIngredient: 'Potato', forageType: 'chari', wtMin: 160, wtMax: 164, targetAdg: 1.0 }
+    ];
+    const rampItems = [
+        { rowId: 100, ingredientId: 'potato', qtyKgPerHeadPerDay: 1.0 },
+        { rowId: 101, ingredientId: 'potato', qtyKgPerHeadPerDay: 2.0 },
+        { rowId: 102, ingredientId: 'potato', qtyKgPerHeadPerDay: 3.0 },
+        { rowId: 103, ingredientId: 'potato', qtyKgPerHeadPerDay: 4.0 },
+        { rowId: 104, ingredientId: 'potato', qtyKgPerHeadPerDay: 5.0 }
+    ];
+    const steadyRow = { id: 105, planId: 'type-1', phase: 'STEADY', dayNo: null, forageType: 'chari', wtMin: 160, wtMax: 164, targetAdg: 1.12 };
+    const steadyItems = [{ rowId: 105, ingredientId: 'potato', qtyKgPerHeadPerDay: 5.0 }];
+
+    const rampPen = makePen(161.9, { cycleStartDate: '2025-12-01' }); // well past adaptation -> STEADY if ramp misses
+
+    it('1. rampStartDate = today resolves ramp day 1', () => {
+        const result = resolveIngredientRampRow({ pen: rampPen, plan, rows: rampRows, rowItems: rampItems, rampDay: 1, today });
+        expect(result.row.dayNo).toBe(1);
+        expect(result.items.find(i => i.ingredientId === 'potato').qtyKgPerHeadPerDay).toBe(1.0);
+    });
+
+    it('2. rampStartDate = 4 days ago resolves ramp day 5', () => {
+        const result = resolveIngredientRampRow({ pen: rampPen, plan, rows: rampRows, rowItems: rampItems, rampDay: 5, today });
+        expect(result.row.dayNo).toBe(5);
+        expect(result.items.find(i => i.ingredientId === 'potato').qtyKgPerHeadPerDay).toBe(5.0);
+    });
+
+    it('3. rampStartDate = 6 days ago with a 5-day ramp table misses (returns null, not an error) and falls through to STEADY', () => {
+        const rampMatch = resolveIngredientRampRow({ pen: rampPen, plan, rows: rampRows, rowItems: rampItems, rampDay: 6, today });
+        expect(rampMatch).toBeNull();
+
+        const steadyResult = resolveRation({ pen: rampPen, plan, rows: [...rampRows, steadyRow], rowItems: [...rampItems, ...steadyItems], today });
+        expect(steadyResult.phase).toBe('STEADY');
+    });
+
+    it('4. a pen with no rampStartDate resolves ADAPTATION unaffected by INGREDIENT_RAMP rows sharing the same plan/bracket', () => {
+        const adaptationPen = makePen(161.9); // cycleStartDate = 2026-01-09, today = 2026-01-10 -> daysOnFeed 2
+        const adaptationRow = { id: 106, planId: 'type-1', phase: 'ADAPTATION', dayNo: 2, forageType: 'chari', wtMin: 160, wtMax: 164, targetAdg: 1.0 };
+        const adaptationItems = [{ rowId: 106, ingredientId: 'potato', qtyKgPerHeadPerDay: 0 }];
+        const result = resolveRation({ pen: adaptationPen, plan, rows: [...rampRows, adaptationRow], rowItems: [...rampItems, ...adaptationItems], today });
+        expect(result.phase).toBe('ADAPTATION');
+        expect(result.dayNo).toBe(2);
+        expect(result.items.find(i => i.ingredientId === 'potato').qtyKgPerHeadPerDay).toBe(0);
+    });
+
+    it('5. a plan with zero INGREDIENT_RAMP rows misses cleanly (returns null) even with rampStartDate set', () => {
+        const rampMatch = resolveIngredientRampRow({ pen: rampPen, plan, rows: [steadyRow], rowItems: steadyItems, rampDay: 1, today });
+        expect(rampMatch).toBeNull();
+    });
+
+    it('9. two pens on the same plan with different rampStartDate values resolve to different ramp days on the same date', () => {
+        const penX = makePen(161.9, { cycleStartDate: '2025-12-01' });
+        const penY = makePen(161.9, { cycleStartDate: '2025-12-01' });
+
+        const resultX = resolveIngredientRampRow({ pen: penX, plan, rows: rampRows, rowItems: rampItems, rampDay: 2, today });
+        const resultY = resolveIngredientRampRow({ pen: penY, plan, rows: rampRows, rowItems: rampItems, rampDay: 4, today });
+
+        expect(resultX.row.dayNo).toBe(2);
+        expect(resultY.row.dayNo).toBe(4);
+        expect(resultX.items.find(i => i.ingredientId === 'potato').qtyKgPerHeadPerDay).toBe(2.0);
+        expect(resultY.items.find(i => i.ingredientId === 'potato').qtyKgPerHeadPerDay).toBe(4.0);
+    });
+
+    it('throws NoMatchingRationError (a genuine data error) when two INGREDIENT_RAMP brackets overlap for the same day/weight', () => {
+        const overlapping = [
+            { id: 200, planId: 'type-1', phase: 'INGREDIENT_RAMP', dayNo: 1, rampIngredient: 'Potato', forageType: 'chari', wtMin: 158, wtMax: 163, targetAdg: 1.0 },
+            { id: 201, planId: 'type-1', phase: 'INGREDIENT_RAMP', dayNo: 1, rampIngredient: 'Potato', forageType: 'chari', wtMin: 160, wtMax: 165, targetAdg: 1.0 }
+        ];
+        expect(() => resolveIngredientRampRow({ pen: rampPen, plan, rows: overlapping, rowItems: [], rampDay: 1, today })).toThrow(NoMatchingRationError);
     });
 });
 

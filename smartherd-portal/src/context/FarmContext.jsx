@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useRef, useMemo } from 'react';
-import { resolveRation, getWeightDivergence, NoMatchingRationError } from '../lib/rationResolver';
+import { resolveRation, resolveIngredientRampRow, getWeightDivergence, NoMatchingRationError } from '../lib/rationResolver';
 import { todayPKT, todayAsDate, parseDateOnly, daysBetween } from '../utils/dateOnly';
 import { buildLots, allocateFifo } from '../utils/fifoStock';
 
@@ -734,10 +734,6 @@ export const FarmProvider = ({ children }) => {
     const [rationPlansV2, setRationPlansV2] = useState(() => loadStoredData('ba_ration_plans_v2', []));
     const [rationRows, setRationRows] = useState(() => loadStoredData('ba_ration_rows', []));
     const [rationRowItems, setRationRowItems] = useState(() => loadStoredData('ba_ration_row_items', []));
-    // Per-ingredient day-by-day ramp schedule (e.g. "potato" phased in over 5 days on a
-    // single-bag plan). Optional and additive: a plan with zero rows here resolves exactly
-    // as before. { id, planId, ingredientId, dayNo, pct, substituteIngredientId, substituteRatio }
-    const [rationIngredientRamp, setRationIngredientRamp] = useState(() => loadStoredData('ba_ration_ingredient_ramp', []));
 
     // Database load and sync metrics
     const [fetchLoading, setFetchLoading] = useState(true);
@@ -1681,10 +1677,6 @@ export const FarmProvider = ({ children }) => {
     }, [rationRowItems]);
 
     useEffect(() => {
-        debouncedCacheWrite('ba_ration_ingredient_ramp', rationIngredientRamp);
-    }, [rationIngredientRamp]);
-
-    useEffect(() => {
         debouncedCacheWrite('ba_quotations', quotations);
     }, [quotations]);
 
@@ -1765,7 +1757,6 @@ export const FarmProvider = ({ children }) => {
                         if (data.rationPlansV2) setIfChanged(setRationPlansV2, data.rationPlansV2, 'ba_ration_plans_v2');
                         if (data.rationRows) setIfChanged(setRationRows, data.rationRows, 'ba_ration_rows');
                         if (data.rationRowItems) setIfChanged(setRationRowItems, data.rationRowItems, 'ba_ration_row_items');
-                        if (data.rationIngredientRamp) setIfChanged(setRationIngredientRamp, data.rationIngredientRamp, 'ba_ration_ingredient_ramp');
 
                         if (data.rationPlans && data.rationPlans.length === 0) {
                             setRationPlans([defaultBaselineRationPlan]);
@@ -2823,55 +2814,6 @@ export const FarmProvider = ({ children }) => {
         return { success: true };
     };
 
-    // Saves the full day-by-day ramp schedule for one (plan, ingredient) pair — e.g. potato
-    // phased in at 20/40/60/80/100% over days 1-5, backfilled with maize silage. Replaces
-    // any prior schedule for this exact plan+ingredient in one call (never partial), same
-    // "reject the whole thing on any violation" contract as importRationPlanCSV.
-    // Two hard rules, checked here since there's no server in this repo to enforce them:
-    //   1. Every day's pct must be within 0-100.
-    //   2. The ingredient must actually appear somewhere in this plan's rows — a ramp
-    //      schedule for an ingredient the plan doesn't contain is a typo, not a valid config.
-    const saveIngredientRamp = async ({ planId, ingredientId, substituteIngredientId, substituteRatio, days }) => {
-        const cleanDays = (days || []).filter(d => d.dayNo != null && d.dayNo > 0);
-        if (cleanDays.length === 0) {
-            return { success: false, error: 'At least one day is required.' };
-        }
-        const outOfRange = cleanDays.find(d => d.pct == null || isNaN(d.pct) || d.pct < 0 || d.pct > 100);
-        if (outOfRange) {
-            return { success: false, error: `Day ${outOfRange.dayNo}: percentage must be between 0 and 100.` };
-        }
-        const planRowIds = new Set(rationRows.filter(r => r.planId === planId).map(r => r.id));
-        const planHasIngredient = rationRowItems.some(i => planRowIds.has(i.rowId) && i.ingredientId === ingredientId);
-        if (!planHasIngredient) {
-            return { success: false, error: `This plan has no "${ingredientId}" ingredient in its rows — check for a typo before saving a ramp schedule for it.` };
-        }
-
-        const newRows = cleanDays.map(d => ({
-            id: `${planId}__${ingredientId}__${d.dayNo}`,
-            planId,
-            ingredientId,
-            dayNo: d.dayNo,
-            pct: parseFloat(d.pct),
-            substituteIngredientId: substituteIngredientId || null,
-            substituteRatio: substituteIngredientId ? (parseFloat(substituteRatio) || 0) : null
-        }));
-
-        setRationIngredientRamp(prev => [
-            ...prev.filter(r => !(r.planId === planId && r.ingredientId === ingredientId)),
-            ...newRows
-        ]);
-        persistMutation('SAVE_INGREDIENT_RAMP', { planId, ingredientId, rows: newRows });
-        setTimeout(refreshApprovals, 250);
-        return { success: true };
-    };
-
-    const deleteIngredientRamp = async ({ planId, ingredientId }) => {
-        setRationIngredientRamp(prev => prev.filter(r => !(r.planId === planId && r.ingredientId === ingredientId)));
-        persistMutation('DELETE_INGREDIENT_RAMP', { planId, ingredientId });
-        setTimeout(refreshApprovals, 250);
-        return { success: true };
-    };
-
     // Finds the steady-state bracket row for a given forage type + weight, falling back
     // to the nearest bracket by midpoint distance so a pen never silently loses its
     // ration. Rows saved before forageType existed are treated as 'silage' (the only
@@ -3000,49 +2942,45 @@ export const FarmProvider = ({ children }) => {
         };
 
         try {
-            const result = resolveRation({ pen: penForResolver, plan, rows: rationRows, rowItems: rationRowItems, today: refDate });
-            const ingredients = {};
-            result.items.forEach(item => { ingredients[item.ingredientId] = item.qtyKgPerHeadPerDay; });
-
-            // Ramp layer — runs after the bracket lookup above, unchanged for every pen
-            // without a rampStartDate (the default). Withholds a % of a ramped ingredient's
-            // bracket quantity and optionally backfills the gap with a substitute, so e.g.
-            // potato phases in at 20/40/60/80/100% over 5 days instead of jumping straight
-            // to the full bracket amount on day 1. Never mutates pen state here — this must
-            // stay a pure read (it can run during render); the auto-clear once the ramp is
-            // finished is handled by a separate effect below.
+            // Ramp layer — takes precedence over the ADAPTATION/STEADY lookup below,
+            // for every pen without a rampStartDate this is a no-op (the default).
+            // INGREDIENT_RAMP rows are ordinary, complete, pre-computed rows (a full
+            // balanced ration for that ramp day) keyed to the pen's own rampStartDate
+            // rather than cycleStartDate — no arithmetic/substitution here, just a
+            // different bracket lookup. Never mutates pen state here — this must stay a
+            // pure read (it can run during render); the auto-clear once the ramp is
+            // finished (or the plan has no ramp rows at all) is handled by a separate
+            // effect below.
+            let result = null;
             let rampInfo = null;
             if (pen.rampStartDate) {
-                const planRampRows = rationIngredientRamp.filter(r => r.planId === plan.id);
-                if (planRampRows.length > 0) {
-                    const rampDay = daysBetween(refDate, pen.rampStartDate) + 1;
-                    const maxDayNo = Math.max(...planRampRows.map(r => r.dayNo));
-                    if (rampDay >= 1 && rampDay <= maxDayNo) {
-                        const todaysRows = planRampRows.filter(r => r.dayNo === rampDay);
-                        todaysRows.forEach(r => {
-                            const original = ingredients[r.ingredientId] || 0;
-                            const reduced = original * (r.pct / 100);
-                            const withheld = original - reduced;
-                            ingredients[r.ingredientId] = reduced;
-                            if (r.substituteIngredientId) {
-                                ingredients[r.substituteIngredientId] = (ingredients[r.substituteIngredientId] || 0) + withheld * (r.substituteRatio || 0);
-                            }
-                        });
-                        rampInfo = {
-                            active: true,
-                            complete: false,
-                            day: rampDay,
-                            maxDay: maxDayNo,
-                            ingredientIds: [...new Set(todaysRows.map(r => r.ingredientId))]
+                const rampDay = daysBetween(refDate, pen.rampStartDate) + 1;
+                if (rampDay >= 1) {
+                    const rampMatch = resolveIngredientRampRow({ pen: penForResolver, plan, rows: rationRows, rowItems: rationRowItems, rampDay, today: refDate });
+                    if (rampMatch) {
+                        const rampRowsForPlan = rationRows.filter(r => r.planId === plan.id && r.phase === 'INGREDIENT_RAMP');
+                        const totalRampDays = rampRowsForPlan.length > 0 ? Math.max(...rampRowsForPlan.map(r => r.dayNo)) : rampDay;
+                        result = {
+                            row: rampMatch.row,
+                            items: rampMatch.items,
+                            projectedWeight: rampMatch.projectedWeight,
+                            daysOnFeed: rampMatch.daysOnFeed,
+                            phase: 'INGREDIENT_RAMP',
+                            dayNo: rampDay,
+                            bracketMin: rampMatch.bracketMin,
+                            bracketMax: rampMatch.bracketMax
                         };
-                    } else if (rampDay > maxDayNo) {
-                        // Ramp is done (even if started well past maxDay, e.g. after time
-                        // offline) — full bracket quantity, no withholding. The pen's
-                        // rampStartDate gets cleared by the effect below, not here.
-                        rampInfo = { active: false, complete: true, day: rampDay, maxDay: maxDayNo };
+                        rampInfo = { active: true, ingredient: rampMatch.row.rampIngredient, day: rampDay, total: totalRampDays };
                     }
                 }
             }
+
+            if (!result) {
+                result = resolveRation({ pen: penForResolver, plan, rows: rationRows, rowItems: rationRowItems, today: refDate });
+            }
+
+            const ingredients = {};
+            result.items.forEach(item => { ingredients[item.ingredientId] = item.qtyKgPerHeadPerDay; });
 
             return {
                 system: 'v2',
@@ -3132,26 +3070,41 @@ export const FarmProvider = ({ children }) => {
         }
     };
 
-    // Auto-clears a pen's rampStartDate once its ramp schedule is finished (ramp_day
-    // exceeds the plan's last defined day), per the "must not fail to find a day-6 row"
-    // requirement — resolvePenRationV2 above stays a pure read (safe to call during
-    // render), so the actual field-clearing write happens here instead, in an effect.
+    // Auto-clears a pen's rampStartDate once its ramp schedule is finished — i.e. once
+    // no INGREDIENT_RAMP row matches the pen's current ramp day/weight any more (the
+    // ramp table has run out of days for this pen). resolvePenRationV2 above stays a
+    // pure read (safe to call during render), so the actual field-clearing write
+    // happens here instead, in an effect. A genuine data error (overlapping brackets)
+    // is left alone rather than clearing the ramp — that's surfaced to the admin via
+    // the normal blocked-pen UI, not silently reset here.
     useEffect(() => {
         const today = todayAsDate();
         pens.forEach(pen => {
             if (!pen.rampStartDate || !pen.planId) return;
             const plan = rationPlansV2.find(p => p.id === pen.planId);
             if (!plan) return;
-            const planRampRows = rationIngredientRamp.filter(r => r.planId === plan.id);
-            if (planRampRows.length === 0) return;
             const rampDay = daysBetween(today, pen.rampStartDate) + 1;
-            const maxDayNo = Math.max(...planRampRows.map(r => r.dayNo));
-            if (rampDay > maxDayNo) {
+            if (rampDay < 1) return;
+            const penForResolver = {
+                cycleStartDate: pen.cycleStartDate,
+                forageType: pen.forageType || 'silage',
+                planId: pen.planId,
+                lastActualWeightKg: pen.lastActualWeightKg,
+                lastWeighDate: pen.lastWeighDate,
+                currentTargetAdg: pen.currentTargetAdg
+            };
+            let rampMatch;
+            try {
+                rampMatch = resolveIngredientRampRow({ pen: penForResolver, plan, rows: rationRows, rowItems: rationRowItems, rampDay, today });
+            } catch (e) {
+                return;
+            }
+            if (!rampMatch) {
                 savePen({ ...pen, rampStartDate: null });
             }
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pens, rationPlansV2, rationIngredientRamp]);
+    }, [pens, rationPlansV2, rationRows, rationRowItems]);
 
     const getPenRationRow = (penId, targetDate = null) => {
         if (!penId || penId === 'all') return null;
@@ -3688,7 +3641,6 @@ export const FarmProvider = ({ children }) => {
             rationPlansV2,
             rationRows,
             rationRowItems,
-            rationIngredientRamp,
             pens,
             saveRationPlan,
             duplicateRationPlan,
@@ -3697,8 +3649,6 @@ export const FarmProvider = ({ children }) => {
             importRationPlanCSV,
             updateRationPlanV2,
             updateRationRow,
-            saveIngredientRamp,
-            deleteIngredientRamp,
             savePen,
             deletePen,
             getPenRationRow,
