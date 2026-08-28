@@ -380,18 +380,22 @@ export default function TMRCalculator() {
         const mPct = (activeSplitList && activeSplitList[0]) || 50;
         const ePct = (activeSplitList && activeSplitList[1]) || 50;
 
+        let effectiveFeedIdx = 0;
         if (session === 'morning') {
+            effectiveFeedIdx = 1;
             sessionLabel = `Morning Feeding (${mPct}% Split)`;
             sessionMultiplier = mPct / 100;
         } else if (session === 'evening') {
+            effectiveFeedIdx = 2;
             sessionLabel = `Evening Feeding (${ePct}% Split)`;
             sessionMultiplier = ePct / 100;
         } else if (session === 'full') {
+            effectiveFeedIdx = 0;
             sessionLabel = `Full Day Complete Diet (100%)`;
             sessionMultiplier = 1.0;
             isFullDayWithSplits = numFeedings > 1;
         } else {
-            // current
+            effectiveFeedIdx = activeFeedingIndex;
             if (activeFeedingIndex === 1) {
                 sessionLabel = `Morning Feeding (${activeFeedingPct}% Split)`;
                 sessionMultiplier = activeFeedingPct / 100;
@@ -402,6 +406,7 @@ export default function TMRCalculator() {
                 sessionLabel = `Feeding ${activeFeedingIndex} (${activeFeedingPct}% Split)`;
                 sessionMultiplier = activeFeedingPct / 100;
             } else {
+                effectiveFeedIdx = 0;
                 sessionLabel = `Full Day Complete Diet (100%)`;
                 sessionMultiplier = 1.0;
                 isFullDayWithSplits = numFeedings > 1;
@@ -434,12 +439,47 @@ export default function TMRCalculator() {
                 ? (penAnimals.reduce((s, a) => s + (parseFloat(a.currentWeight || a.entryWeight || 0)), 0) / penAnimals.length).toFixed(0)
                 : (planRow?.avgWeight ? Math.round(planRow.avgWeight) : null);
 
-            const penFullDayWeight = batch.totalBatchWeight;
-            const penSessionWeight = penFullDayWeight * sessionMultiplier;
-            grandTotalWeight += penSessionWeight;
+            const restrictions = batch.feedingRestrictions || {};
 
-            const penMorningWeight = penFullDayWeight * (mPct / 100);
-            const penEveningWeight = penFullDayWeight * (ePct / 100);
+            let penFullDayWeight = 0;
+            let penMorningWeight = 0;
+            let penEveningWeight = 0;
+            let penSessionWeight = 0;
+
+            const ingList = (batch.displayIngredients || []).map(ing => {
+                const ingFullBatch = (ing.wetBatch || (ing.wetSingle * headCount));
+                penFullDayWeight += ingFullBatch;
+
+                const scaleM = getIngredientFeedingScale(restrictions, ing.id, 1, numFeedings, mPct / 100);
+                const scaleE = getIngredientFeedingScale(restrictions, ing.id, 2, numFeedings, ePct / 100);
+                const ingM = ingFullBatch * scaleM;
+                const ingE = ingFullBatch * scaleE;
+                penMorningWeight += ingM;
+                penEveningWeight += ingE;
+
+                const scaleSession = effectiveFeedIdx === 0
+                    ? 1.0
+                    : getIngredientFeedingScale(restrictions, ing.id, effectiveFeedIdx, numFeedings, sessionMultiplier);
+                const ingSessionBatch = ingFullBatch * scaleSession;
+                const ingPerHead = (ing.wetSingle || 0) * scaleSession;
+                penSessionWeight += ingSessionBatch;
+
+                return {
+                    id: ing.id,
+                    name: ing.name,
+                    ingFullBatch,
+                    ingSingle: ing.wetSingle,
+                    ingM,
+                    ingE,
+                    scaleM,
+                    scaleE,
+                    ingSessionBatch,
+                    ingPerHead,
+                    scaleSession
+                };
+            });
+
+            grandTotalWeight += penSessionWeight;
             grandTotalMorning += penMorningWeight;
             grandTotalEvening += penEveningWeight;
 
@@ -461,19 +501,17 @@ export default function TMRCalculator() {
             lines.push(`----------------------------------------`);
             lines.push(`*INGREDIENTS BREAKDOWN:*`);
 
-            if (batch.displayIngredients && batch.displayIngredients.length > 0) {
-                batch.displayIngredients.forEach(ing => {
-                    const ingFullBatch = (ing.wetBatch || (ing.wetSingle * headCount));
-                    const ingSessionBatch = ingFullBatch * sessionMultiplier;
-                    const ingPerHead = (ing.wetSingle || 0) * sessionMultiplier;
-
+            if (ingList.length > 0) {
+                ingList.forEach(ing => {
                     if (isFullDayWithSplits) {
-                        const ingM = ingFullBatch * (mPct / 100);
-                        const ingE = ingFullBatch * (ePct / 100);
-                        lines.push(`* ${ing.name}: *${formatKg(ingFullBatch, 1)} kg* total (${formatKg(ing.wetSingle, 2)} kg/hd)`);
-                        lines.push(`  - Morning: ${formatKg(ingM, 1)} kg | Evening: ${formatKg(ingE, 1)} kg`);
+                        lines.push(`* ${ing.name}: *${formatKg(ing.ingFullBatch, 1)} kg* total (${formatKg(ing.ingSingle, 2)} kg/hd)`);
+                        lines.push(`  - Morning: ${formatKg(ing.ingM, 1)} kg | Evening: ${formatKg(ing.ingE, 1)} kg`);
                     } else {
-                        lines.push(`* ${ing.name}: *${formatKg(ingSessionBatch, 1)} kg* (${formatKg(ingPerHead, 2)} kg/hd)`);
+                        if (ing.scaleSession > 0) {
+                            lines.push(`* ${ing.name}: *${formatKg(ing.ingSessionBatch, 1)} kg* (${formatKg(ing.ingPerHead, 2)} kg/hd)`);
+                        } else {
+                            lines.push(`* ${ing.name}: 0.0 kg _(Evening Only)_`);
+                        }
                     }
                 });
             } else {
