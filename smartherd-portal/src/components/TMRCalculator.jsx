@@ -1688,6 +1688,11 @@ export default function TMRCalculator() {
                                     )}
                                     {resolvedPlanRow.system !== 'v2' && !resolvedPlanRow.usesAdaptationTable && resolvedPlanRow.usesDailyDiet && resolvedPlanRow.dayInWeek && <span style={{ marginLeft: '0.5rem', color: 'var(--primary-green-light)', fontSize: '0.75rem' }}>DAY {resolvedPlanRow.dayInWeek} OF 7</span>}
                                     {resolvedPlanRow.system !== 'v2' && resolvedPlanRow.usesAdaptationTable && <span style={{ marginLeft: '0.5rem', color: 'var(--accent-gold)', fontSize: '0.75rem' }}>ADAPTATION</span>}
+                                    {resolvedPlanRow.rampInfo?.active && (
+                                        <span style={{ marginLeft: '0.5rem', color: 'var(--accent-gold)', fontSize: '0.7rem', border: '1px solid rgba(212,175,55,0.35)', borderRadius: '4px', padding: '0.1rem 0.4rem' }}>
+                                            {resolvedPlanRow.rampInfo.ingredientIds.map(id => feedIngredients.find(f => f.id === id)?.name || id).join(', ')} ramp day {resolvedPlanRow.rampInfo.day} of {resolvedPlanRow.rampInfo.maxDay}
+                                        </span>
+                                    )}
                                 </div>
                                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
                                     {resolvedPlanRow.matchedByWeight

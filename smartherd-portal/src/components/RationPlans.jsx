@@ -5,6 +5,7 @@ export default function RationPlans() {
     const {
         rationPlans, saveRationPlan, duplicateRationPlan, deleteRationPlan,
         rationPlansV2, rationRows, rationRowItems, importRationPlanCSV, updateRationPlanV2, deleteRationPlanV2, updateRationRow,
+        rationIngredientRamp, saveIngredientRamp, deleteIngredientRamp,
         pens, savePen, deletePen, getPenRationRow,
         animals, feedIngredients, getIngredientStockPrice, addStockTrackedIngredient, staffUser
     } = useContext(FarmContext);
@@ -1057,6 +1058,9 @@ export default function RationPlans() {
                                                                 plan={plan}
                                                                 rationRows={rationRows}
                                                                 rationRowItems={rationRowItems}
+                                                                rationIngredientRamp={rationIngredientRamp}
+                                                                saveIngredientRamp={saveIngredientRamp}
+                                                                deleteIngredientRamp={deleteIngredientRamp}
                                                                 feedIngredients={feedIngredients}
                                                                 isAdmin={isAdmin}
                                                                 bracketFilterForage={bracketFilterForage}
@@ -1569,6 +1573,7 @@ export default function RationPlans() {
                                         <th>FORAGE</th>
                                         <th>CYCLE START DATE</th>
                                         <th>EXPECTED EXIT</th>
+                                        <th>INGREDIENT RAMP</th>
                                         <th>CURRENT RATION</th>
                                         {isAdmin && <th style={{ textAlign: 'center', width: '70px' }}>REMOVE</th>}
                                     </tr>
@@ -1641,6 +1646,22 @@ export default function RationPlans() {
                                                     />
                                                 </td>
                                                 <td>
+                                                    <input
+                                                        type="date"
+                                                        class="form-control"
+                                                        title="Start ingredient ramp — leave blank unless this plan has a ramp schedule to phase in"
+                                                        style={{ minHeight: '32px', height: '32px', padding: '0.2rem 0.5rem' }}
+                                                        value={penConfig.rampStartDate || ''}
+                                                        onChange={e => handlePenFieldChange(penId, 'rampStartDate', e.target.value)}
+                                                        disabled={!isAdmin}
+                                                    />
+                                                    {resolved?.rampInfo?.active && (
+                                                        <div style={{ fontSize: '0.68rem', color: 'var(--accent-gold)', marginTop: '0.2rem' }}>
+                                                            Ramp day {resolved.rampInfo.day} of {resolved.rampInfo.maxDay}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td>
                                                     {resolved ? (
                                                         resolved.blocked ? (
                                                             <span style={{ color: 'hsl(0,75%,65%)' }}>
@@ -1693,7 +1714,7 @@ export default function RationPlans() {
                                     })}
                                     {distinctPenNames.length === 0 && (
                                         <tr>
-                                            <td colSpan={isAdmin ? 10 : 9} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                                            <td colSpan={isAdmin ? 11 : 10} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                                                 No pens registered yet. Assign animals to a pen in Herd Registry, or add one above.
                                             </td>
                                         </tr>
@@ -1782,7 +1803,7 @@ export default function RationPlans() {
 // identically. Row-level edits (admin only) go through UPDATE_RATION_ROW, which re-validates
 // bounds + bracket contiguity against sibling rows before writing.
 function BracketDetailPanel({
-    plan, rationRows, rationRowItems, feedIngredients, isAdmin,
+    plan, rationRows, rationRowItems, rationIngredientRamp, saveIngredientRamp, deleteIngredientRamp, feedIngredients, isAdmin,
     bracketFilterForage, setBracketFilterForage,
     bracketFilterPhase, setBracketFilterPhase,
     editingRowId, openEditRow, cancelEditRow,
@@ -1923,6 +1944,214 @@ function BracketDetailPanel({
                     </tbody>
                 </table>
             </div>
+
+            <IngredientRampPanel
+                plan={plan}
+                ingredientIds={ingredientIds}
+                ingredientNameById={ingredientNameById}
+                rationIngredientRamp={rationIngredientRamp}
+                saveIngredientRamp={saveIngredientRamp}
+                deleteIngredientRamp={deleteIngredientRamp}
+                isAdmin={isAdmin}
+            />
+        </div>
+    );
+}
+
+// ─── INGREDIENT RAMP SCHEDULE ───
+// Optional, per-plan, per-ingredient day-by-day phase-in (e.g. potato at 20/40/60/80/100%
+// over 5 days, backfilled with maize silage). A plan with none of these rows behaves
+// exactly as before — this whole panel is additive. Kept self-contained (its own local
+// form state) since it doesn't need to interact with the bracket editor above it.
+function IngredientRampPanel({ plan, ingredientIds, ingredientNameById, rationIngredientRamp, saveIngredientRamp, deleteIngredientRamp, isAdmin }) {
+    const planRamp = rationIngredientRamp.filter(r => r.planId === plan.id);
+    const rampedIngredientIds = [...new Set(planRamp.map(r => r.ingredientId))];
+
+    const [isFormOpen, setIsFormOpen] = useState(false);
+    const [formIngredientId, setFormIngredientId] = useState('');
+    const [formSubstituteId, setFormSubstituteId] = useState('');
+    const [formSubstituteRatio, setFormSubstituteRatio] = useState(1);
+    const [formDays, setFormDays] = useState([{ dayNo: 1, pct: 20 }, { dayNo: 2, pct: 40 }, { dayNo: 3, pct: 60 }, { dayNo: 4, pct: 80 }, { dayNo: 5, pct: 100 }]);
+    const [formError, setFormError] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+
+    const resetForm = () => {
+        setFormIngredientId('');
+        setFormSubstituteId('');
+        setFormSubstituteRatio(1);
+        setFormDays([{ dayNo: 1, pct: 20 }, { dayNo: 2, pct: 40 }, { dayNo: 3, pct: 60 }, { dayNo: 4, pct: 80 }, { dayNo: 5, pct: 100 }]);
+        setFormError('');
+    };
+
+    const openAddForm = () => {
+        resetForm();
+        setIsFormOpen(true);
+    };
+
+    const openEditForm = (ingredientId) => {
+        const rows = planRamp.filter(r => r.ingredientId === ingredientId).sort((a, b) => a.dayNo - b.dayNo);
+        setFormIngredientId(ingredientId);
+        setFormSubstituteId(rows[0]?.substituteIngredientId || '');
+        setFormSubstituteRatio(rows[0]?.substituteRatio ?? 1);
+        setFormDays(rows.map(r => ({ dayNo: r.dayNo, pct: r.pct })));
+        setFormError('');
+        setIsFormOpen(true);
+    };
+
+    const handleDayChange = (idx, field, value) => {
+        setFormDays(prev => prev.map((d, i) => (i === idx ? { ...d, [field]: value === '' ? '' : parseFloat(value) } : d)));
+    };
+
+    const handleAddDay = () => {
+        setFormDays(prev => [...prev, { dayNo: (prev[prev.length - 1]?.dayNo || 0) + 1, pct: 100 }]);
+    };
+
+    const handleRemoveDay = (idx) => {
+        setFormDays(prev => prev.filter((_, i) => i !== idx));
+    };
+
+    const handleSaveRamp = async () => {
+        if (!formIngredientId) {
+            setFormError('Choose an ingredient.');
+            return;
+        }
+        setIsSaving(true);
+        const result = await saveIngredientRamp({
+            planId: plan.id,
+            ingredientId: formIngredientId,
+            substituteIngredientId: formSubstituteId || null,
+            substituteRatio: formSubstituteRatio,
+            days: formDays
+        });
+        setIsSaving(false);
+        if (result.success) {
+            setIsFormOpen(false);
+            resetForm();
+        } else {
+            setFormError(result.error || 'Failed to save ramp schedule.');
+        }
+    };
+
+    const handleDeleteRamp = (ingredientId) => {
+        if (window.confirm(`Remove the ramp schedule for "${ingredientNameById(ingredientId)}"? It will immediately resolve at its full bracket quantity for every pen on this plan.`)) {
+            deleteIngredientRamp({ planId: plan.id, ingredientId });
+        }
+    };
+
+    return (
+        <div style={{ padding: '0 1.2rem 1.2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', marginTop: '0.4rem' }}>
+                <strong style={{ color: 'var(--text-pure)', fontSize: '0.85rem' }}>
+                    <i class="fa-solid fa-chart-line"></i> Ingredient Ramp Schedules
+                </strong>
+                {isAdmin && !isFormOpen && (
+                    <button type="button" class="btn btn-ghost btn-sm" onClick={openAddForm}>
+                        <i class="fa-solid fa-plus"></i> Add Ramp Schedule
+                    </button>
+                )}
+            </div>
+
+            {rampedIngredientIds.length === 0 && !isFormOpen && (
+                <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                    No ramp schedules on this plan — every ingredient resolves at its full bracket quantity from day 1.
+                </div>
+            )}
+
+            {rampedIngredientIds.length > 0 && (
+                <table class="data-table" style={{ fontSize: '0.78rem', marginBottom: '0.6rem' }}>
+                    <thead>
+                        <tr>
+                            <th>INGREDIENT</th>
+                            <th>DAY SCHEDULE</th>
+                            <th>SUBSTITUTE</th>
+                            {isAdmin && <th style={{ width: '90px' }}>ACTIONS</th>}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rampedIngredientIds.map(ingId => {
+                            const rows = planRamp.filter(r => r.ingredientId === ingId).sort((a, b) => a.dayNo - b.dayNo);
+                            return (
+                                <tr key={ingId}>
+                                    <td>{ingredientNameById(ingId)}</td>
+                                    <td>{rows.map(r => `Day ${r.dayNo}: ${r.pct}%`).join(' · ')}</td>
+                                    <td>{rows[0]?.substituteIngredientId ? `${ingredientNameById(rows[0].substituteIngredientId)} (×${rows[0].substituteRatio})` : '—'}</td>
+                                    {isAdmin && (
+                                        <td>
+                                            <div style={{ display: 'flex', gap: '0.3rem' }}>
+                                                <button type="button" class="btn btn-ghost btn-sm" title="Edit" onClick={() => openEditForm(ingId)}>
+                                                    <i class="fa-solid fa-pen-to-square"></i>
+                                                </button>
+                                                <button type="button" class="btn btn-ghost btn-sm" title="Delete" style={{ color: 'hsl(0,75%,60%)' }} onClick={() => handleDeleteRamp(ingId)}>
+                                                    <i class="fa-solid fa-trash-can"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    )}
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            )}
+
+            {isFormOpen && (
+                <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0.8rem' }}>
+                    {formError && (
+                        <div style={{ background: 'rgba(220,50,50,0.12)', border: '1px solid rgba(220,50,50,0.4)', borderRadius: '6px', padding: '0.4rem 0.6rem', marginBottom: '0.6rem', fontSize: '0.75rem', color: '#ff8080' }}>
+                            <i class="fa-solid fa-triangle-exclamation"></i> {formError}
+                        </div>
+                    )}
+                    <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
+                        <div class="form-group" style={{ marginBottom: 0, minWidth: '180px' }}>
+                            <label style={{ fontSize: '0.75rem' }}>Ingredient to ramp *</label>
+                            <select class="form-control" value={formIngredientId} onChange={e => setFormIngredientId(e.target.value)}>
+                                <option value="">Select ingredient…</option>
+                                {ingredientIds.map(id => <option key={id} value={id}>{ingredientNameById(id)}</option>)}
+                            </select>
+                        </div>
+                        <div class="form-group" style={{ marginBottom: 0, minWidth: '180px' }}>
+                            <label style={{ fontSize: '0.75rem' }}>Substitute (fills the withheld gap)</label>
+                            <select class="form-control" value={formSubstituteId} onChange={e => setFormSubstituteId(e.target.value)}>
+                                <option value="">None</option>
+                                {ingredientIds.filter(id => id !== formIngredientId).map(id => <option key={id} value={id}>{ingredientNameById(id)}</option>)}
+                            </select>
+                        </div>
+                        {formSubstituteId && (
+                            <div class="form-group" style={{ marginBottom: 0, width: '140px' }}>
+                                <label style={{ fontSize: '0.75rem' }}>Substitute ratio (kg/kg)</label>
+                                <input type="number" step="0.01" class="form-control" value={formSubstituteRatio} onChange={e => setFormSubstituteRatio(e.target.value)} />
+                            </div>
+                        )}
+                    </div>
+
+                    <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '0.3rem' }}>Day-by-day % of bracket quantity</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', marginBottom: '0.6rem' }}>
+                        {formDays.map((d, idx) => (
+                            <div key={idx} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', width: '50px' }}>Day</span>
+                                <input type="number" min="1" class="form-control" style={{ width: '60px' }} value={d.dayNo} onChange={e => handleDayChange(idx, 'dayNo', e.target.value)} />
+                                <input type="number" min="0" max="100" class="form-control" style={{ width: '75px' }} value={d.pct} onChange={e => handleDayChange(idx, 'pct', e.target.value)} />
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>%</span>
+                                <button type="button" class="btn btn-ghost btn-sm" title="Remove day" onClick={() => handleRemoveDay(idx)}>
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                        ))}
+                        <button type="button" class="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={handleAddDay}>
+                            <i class="fa-solid fa-plus"></i> Add Day
+                        </button>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.4rem' }}>
+                        <button type="button" class="btn btn-primary btn-sm" onClick={handleSaveRamp} disabled={isSaving}>
+                            <i class={`fa-solid ${isSaving ? 'fa-hourglass-half' : 'fa-check'}`}></i> Save Ramp Schedule
+                        </button>
+                        <button type="button" class="btn btn-ghost btn-sm" onClick={() => { setIsFormOpen(false); resetForm(); }}>
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
