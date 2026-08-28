@@ -47,6 +47,8 @@ function DeferredNumberInput({ value, onCommit, ...props }) {
             }}
         />
     );
+}
+
 // Formats feed weights in kg without losing precision for micro-ingredients (e.g. Monensin, premixes, additives).
 // If a non-zero number would round down to "0.00" or "0.000", it dynamically shows the required decimal digits (up to 5).
 export function formatKg(val, defaultDecimals = 2) {
