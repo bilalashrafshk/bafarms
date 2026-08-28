@@ -1132,25 +1132,24 @@ function normalizeIngName(str) {
         .trim();
 }
 
-// Matches a raw CSV ingredient column name against the farm's existing feed stock
-// ingredient list — never lets an import introduce an ad-hoc ingredient name that
-// diverges from what staff already use in Feed Stock / TMR. Returns { match, ambiguous }.
-function matchIngredientColumn(colName, feedIngredients) {
-    const normCol = normalizeIngName(colName);
-    if (!normCol) return { match: null, ambiguous: false };
+// Matches a raw CSV ingredient column name against the farm's feed stock
+// ingredient list — requires strict 1:1 matching so imports never introduce
+// mismatched or diverging ingredient names. Returns { match, ambiguous }.
+function matchIngredientColumn(colName, feedItems) {
+    const cleanCol = String(colName || '').trim().toLowerCase();
+    if (!cleanCol) return { match: null, ambiguous: false };
 
-    const candidates = feedIngredients.filter(ing => {
-        const normIng = normalizeIngName(ing.name);
-        if (!normIng) return false;
-        return normCol === normIng || normCol.includes(normIng) || normIng.includes(normCol);
-    });
-
-    if (candidates.length === 0) return { match: null, ambiguous: false };
-    if (candidates.length === 1) return { match: candidates[0], ambiguous: false };
-
-    const exact = candidates.find(ing => normalizeIngName(ing.name) === normCol);
+    // 1. Exact 1:1 case-insensitive match
+    const exact = feedItems.find(i => String(i.name || '').trim().toLowerCase() === cleanCol);
     if (exact) return { match: exact, ambiguous: false };
-    return { match: null, ambiguous: true, candidates };
+
+    // 2. Normalized 1:1 match (ignoring extra punctuation / spaces)
+    const normCol = cleanCol.replace(/[^a-z0-9]/g, '');
+    const normMatches = feedItems.filter(i => String(i.name || '').toLowerCase().replace(/[^a-z0-9]/g, '') === normCol);
+    if (normMatches.length === 1) return { match: normMatches[0], ambiguous: false };
+    if (normMatches.length > 1) return { match: null, ambiguous: true, candidates: normMatches };
+
+    return { match: null, ambiguous: false };
 }
 
 // Recomputes a pen's cached weight-projection fields (last_actual_weight_kg,
@@ -2918,13 +2917,30 @@ module.exports = async (req, res) => {
                 }
 
                 const ingRes = await client.query(`SELECT value FROM ba_settings WHERE key = 'feed_ingredients'`);
+                const stockRes = await client.query(`SELECT value FROM ba_settings WHERE key = 'feed_stock_items'`);
                 const feedIngredients = ingRes.rows.length
                     ? ((typeof ingRes.rows[0].value === 'string' ? JSON.parse(ingRes.rows[0].value) : ingRes.rows[0].value) || [])
                     : [];
-                const validNames = feedIngredients.map(i => i.name);
+                const stockItems = stockRes.rows.length
+                    ? ((typeof stockRes.rows[0].value === 'string' ? JSON.parse(stockRes.rows[0].value) : stockRes.rows[0].value) || [])
+                    : [];
 
-                if (feedIngredients.length === 0) {
-                    return res.status(400).json({ success: false, errors: ['No feed ingredients are set up yet — add them in Feed Pricing before importing a ration plan.'] });
+                const availableFeedItems = [];
+                feedIngredients.forEach(i => availableFeedItems.push({ id: i.id, name: i.name }));
+                stockItems.filter(s => s.category === 'feed' || s.isPremix).forEach(s => {
+                    const targetId = s.derivedFromIngredientId || s.id;
+                    const existing = availableFeedItems.find(item => item.id === targetId);
+                    if (!existing) {
+                        availableFeedItems.push({ id: targetId, name: s.name });
+                    } else if (s.name && s.name !== existing.name) {
+                        existing.name = s.name;
+                    }
+                });
+
+                const validNames = availableFeedItems.map(i => i.name);
+
+                if (availableFeedItems.length === 0) {
+                    return res.status(400).json({ success: false, errors: ['No feed ingredients are set up yet — add them in Feed Stock / Feed Pricing before importing a ration plan.'] });
                 }
 
                 const rawColumnNames = new Set();
@@ -2933,18 +2949,18 @@ module.exports = async (req, res) => {
                 let errors = [];
                 const columnToIngredientId = {};
                 rawColumnNames.forEach(col => {
-                    const { match, ambiguous } = matchIngredientColumn(col, feedIngredients);
+                    const { match, ambiguous } = matchIngredientColumn(col, availableFeedItems);
                     if (ambiguous) {
-                        errors.push(`Column "${col}" matches more than one feed stock ingredient — rename it to be unambiguous.`);
+                        errors.push(`Column "${col}" matches more than one Feed Stock ingredient — rename it to match Feed Stock 1:1.`);
                     } else if (!match) {
-                        errors.push(`Column "${col}" does not match any feed stock ingredient.`);
+                        errors.push(`Column "${col}" does not match any Feed Stock ingredient 1:1.`);
                     } else {
                         columnToIngredientId[col] = match.id;
                     }
                 });
 
                 if (errors.length > 0) {
-                    errors.push(`Valid feed stock ingredient names: ${validNames.join(', ')}`);
+                    errors.push(`Valid Feed Stock ingredient names: ${validNames.join(', ')}`);
                     return res.status(400).json({ success: false, errors });
                 }
 
