@@ -1831,7 +1831,6 @@ function BracketDetailPanel({
 
     const [isEditingSettings, setIsEditingSettings] = useState(false);
     const [settingsName, setSettingsName] = useState(plan.name);
-    const [settingsAdaptationDays, setSettingsAdaptationDays] = useState(plan.adaptationDays);
     const [settingsAdgFloor, setSettingsAdgFloor] = useState(plan.adgFloor);
     const [settingsIsDefault, setSettingsIsDefault] = useState(!!plan.isDefault);
     const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -1843,7 +1842,7 @@ function BracketDetailPanel({
         const res = await updateRationPlanV2({
             id: plan.id,
             name: settingsName.trim() || plan.name,
-            adaptationDays: parseInt(settingsAdaptationDays, 10) || 7,
+            adaptationDays: plan.adaptationDays,
             adgFloor: parseFloat(settingsAdgFloor) || 1.0,
             isDefault: settingsIsDefault,
             feedingRestrictions: plan.feedingRestrictions || {}
@@ -1906,9 +1905,10 @@ function BracketDetailPanel({
                         <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>Plan Name</label>
                         <input type="text" class="form-control" value={settingsName} onChange={e => setSettingsName(e.target.value)} required />
                     </div>
-                    <div style={{ width: '105px' }}>
+                    <div style={{ width: '130px' }}>
                         <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>Adaptation Days</label>
-                        <input type="number" class="form-control" value={settingsAdaptationDays} onChange={e => setSettingsAdaptationDays(e.target.value)} required />
+                        <input type="number" class="form-control" value={plan.adaptationDays} disabled title="Hard-set by imported CSV" style={{ opacity: 0.6, cursor: 'not-allowed' }} />
+                        <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.15rem' }}>Hard-set by CSV</span>
                     </div>
                     <div style={{ width: '105px' }}>
                         <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>ADG Floor (kg)</label>
