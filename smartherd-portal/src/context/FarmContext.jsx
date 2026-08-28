@@ -1004,7 +1004,7 @@ export const FarmProvider = ({ children }) => {
     // since that list is only ever built from feedIngredients.
     useEffect(() => {
         const missing = effectiveFeedStockItems
-            .filter(item => item.derivedFromIngredientId && item.derivedFromIngredientId === item.id)
+            .filter(item => (item.category || 'feed') === 'feed' && item.derivedFromIngredientId && item.derivedFromIngredientId === item.id)
             .filter(item => !feedIngredients.some(i => i.id === item.id));
         if (missing.length === 0) return;
         setFeedIngredients(prev => {

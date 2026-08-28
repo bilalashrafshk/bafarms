@@ -295,7 +295,10 @@ export default function TMRCalculator() {
 
         const planIngredientRows = isPlanDriven
             ? Object.entries(resolvedPlanRow.week.ingredients).map(([id, qty]) => {
-                const ing = feedIngredients.find(i => i.id === id || i.name.toLowerCase() === id.toLowerCase() || (id === 'wanda' && i.name.toLowerCase().includes('wanda')))
+                const ing = feedIngredients.find(i => i.id === id)
+                    || feedStockItems.find(i => i.id === id)
+                    || feedIngredients.find(i => i.name?.toLowerCase() === id.toLowerCase())
+                    || feedStockItems.find(i => i.name?.toLowerCase() === id.toLowerCase())
                     || { id, name: id.charAt(0).toUpperCase() + id.slice(1), price: 0 };
                 const stockPrice = getIngredientStockPrice(id);
                 const price = (stockPrice !== null && stockPrice > 0) ? stockPrice : (ing.price || 0);
@@ -320,7 +323,9 @@ export default function TMRCalculator() {
         // the Ration Plan itself.
         const extraIngredientRows = isPlanDriven
             ? Object.entries(extras).map(([id, qty]) => {
-                const ing = feedIngredients.find(i => i.id === id) || { id, name: id, price: 0 };
+                const ing = feedIngredients.find(i => i.id === id)
+                    || feedStockItems.find(i => i.id === id)
+                    || { id, name: id, price: 0 };
                 const stockPrice = getIngredientStockPrice(id);
                 const price = (stockPrice !== null && stockPrice > 0) ? stockPrice : (ing.price || 0);
                 const qtyPerHead = parseFloat(qty) || 0;
@@ -340,11 +345,15 @@ export default function TMRCalculator() {
 
         // Ingredients with real stock, not already part of today's plan or already added,
         // available to pick from for a one-off substitution/top-up.
-        const availableExtraIngredients = feedIngredients.filter(i =>
-            !planIngredientRows.some(r => r.id === i.id) &&
-            !(i.id in extras) &&
-            (getIngredientStockQty(i.id) === null || getIngredientStockQty(i.id) > 0)
-        );
+        const availableExtraIngredients = feedIngredients.filter(i => {
+            if (i.category && i.category !== 'feed') return false;
+            const norm = (i.name || i.id || '').toLowerCase();
+            if (norm.includes('needle') || norm.includes('syring') || norm.includes('inj') || norm.includes('spray') || norm.includes('thermometer') || norm.includes('bandage')) return false;
+            if (planIngredientRows.some(r => r.id === i.id)) return false;
+            if (i.id in extras) return false;
+            const stock = getIngredientStockQty(i.id);
+            return stock === null || stock > 0;
+        }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
         // Display array feeding the batch table / tractor mode / feed log below.
         const displayIngredients = isPlanDriven
@@ -1065,9 +1074,13 @@ export default function TMRCalculator() {
         setBulkAddChoice('');
     };
 
-    const bulkAvailableExtraIngredients = feedIngredients.filter(i =>
-        (getIngredientStockQty(i.id) === null || getIngredientStockQty(i.id) > 0)
-    );
+    const bulkAvailableExtraIngredients = feedIngredients.filter(i => {
+        if (i.category && i.category !== 'feed') return false;
+        const norm = (i.name || i.id || '').toLowerCase();
+        if (norm.includes('needle') || norm.includes('syring') || norm.includes('inj') || norm.includes('spray') || norm.includes('thermometer') || norm.includes('bandage')) return false;
+        const stock = getIngredientStockQty(i.id);
+        return stock === null || stock > 0;
+    }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
     const allPensResolutions = activePens
         .map(penId => {
