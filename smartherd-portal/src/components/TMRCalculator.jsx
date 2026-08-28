@@ -47,6 +47,23 @@ function DeferredNumberInput({ value, onCommit, ...props }) {
             }}
         />
     );
+// Formats feed weights in kg without losing precision for micro-ingredients (e.g. Monensin, premixes, additives).
+// If a non-zero number would round down to "0.00" or "0.000", it dynamically shows the required decimal digits (up to 5).
+export function formatKg(val, defaultDecimals = 2) {
+    const num = parseFloat(val);
+    if (num === null || num === undefined || isNaN(num)) return '0.00';
+    if (num === 0) return (0).toFixed(defaultDecimals);
+    const standard = num.toFixed(defaultDecimals);
+    if (parseFloat(standard) === 0 && Math.abs(num) > 0) {
+        for (let d = defaultDecimals + 1; d <= 5; d++) {
+            const formatted = num.toFixed(d);
+            if (parseFloat(formatted) !== 0) {
+                return formatted;
+            }
+        }
+        return num.toFixed(5);
+    }
+    return standard;
 }
 
 export default function TMRCalculator() {
@@ -453,10 +470,10 @@ export default function TMRCalculator() {
                     if (isFullDayWithSplits) {
                         const ingM = ingFullBatch * (mPct / 100);
                         const ingE = ingFullBatch * (ePct / 100);
-                        lines.push(`* ${ing.name}: *${ingFullBatch.toFixed(1)} kg* total (${(ing.wetSingle || 0).toFixed(2)} kg/hd)`);
-                        lines.push(`  - Morning: ${ingM.toFixed(1)} kg | Evening: ${ingE.toFixed(1)} kg`);
+                        lines.push(`* ${ing.name}: *${formatKg(ingFullBatch, 1)} kg* total (${formatKg(ing.wetSingle, 2)} kg/hd)`);
+                        lines.push(`  - Morning: ${formatKg(ingM, 1)} kg | Evening: ${formatKg(ingE, 1)} kg`);
                     } else {
-                        lines.push(`* ${ing.name}: *${ingSessionBatch.toFixed(1)} kg* (${ingPerHead.toFixed(2)} kg/hd)`);
+                        lines.push(`* ${ing.name}: *${formatKg(ingSessionBatch, 1)} kg* (${formatKg(ingPerHead, 2)} kg/hd)`);
                     }
                 });
             } else {
@@ -1196,7 +1213,7 @@ export default function TMRCalculator() {
                                     const ing = feedIngredients.find(i => i.id === id) || { name: id };
                                     return (
                                         <span key={id}>
-                                            <strong style={{ color: 'var(--text-pure)' }}>{ing.name}</strong>: {(parseFloat(qty) || 0).toFixed(2)} kg/head
+                                            <strong style={{ color: 'var(--text-pure)' }}>{ing.name}</strong>: {formatKg(qty, 2)} kg/head
                                         </span>
                                     );
                                 })}
@@ -1332,13 +1349,13 @@ export default function TMRCalculator() {
                                                 <tr key={row.id}>
                                                     <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                     <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{row.name}</td>
-                                                    <td>{row.avgPlanQty.toFixed(3)} kg</td>
+                                                    <td>{formatKg(row.avgPlanQty, 3)} kg</td>
                                                     <td>
                                                         <DeferredNumberInput
                                                             step="0.001"
                                                             className="form-control"
                                                             style={{ minHeight: '34px', height: '34px', padding: '0.2rem 0.6rem', fontSize: '0.85rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', maxWidth: '110px', color: row.isOverridden ? 'var(--accent-gold)' : 'inherit' }}
-                                                            value={parseFloat(row.avgFedQty.toFixed(3))}
+                                                            value={parseFloat(formatKg(row.avgFedQty, 3))}
                                                             onCommit={(val) => handleAggregateOverride(activePens, allPensTableRows, row.id, val)}
                                                             disabled={!isAdmin}
                                                         />
@@ -1524,7 +1541,7 @@ export default function TMRCalculator() {
                                                     {penPlanIngredientRows.map(row => (
                                                         <tr key={row.id}>
                                                             <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{row.name}</td>
-                                                            <td>{row.planQty.toFixed(3)} kg</td>
+                                                            <td>{formatKg(row.planQty, 3)} kg</td>
                                                             <td>
                                                                 <DeferredNumberInput
                                                                     step="0.001"
@@ -1745,7 +1762,7 @@ export default function TMRCalculator() {
                                             <tr key={row.id}>
                                                 <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                 <td style={{ fontWeight: '600', color: 'var(--text-pure)' }}>{row.name}</td>
-                                                <td>{row.planQty.toFixed(3)} kg</td>
+                                                <td>{formatKg(row.planQty, 3)} kg</td>
                                                 <td>
                                                     <DeferredNumberInput
                                                         step="0.001"
@@ -2115,17 +2132,17 @@ export default function TMRCalculator() {
                                                             <strong>{ing.name}</strong>{ing.isExtra && <span style={{ marginLeft: '0.4rem', fontSize: '0.65rem', color: 'var(--accent-gold)' }}>ADDED</span>}
                                                             {selectedBatch?.feedingRestrictions?.[ing.id] && <span style={{ marginLeft: '0.4rem', fontSize: '0.65rem', color: 'var(--primary-green-light)' }}>{selectedBatch.feedingRestrictions[ing.id] === 'am' ? 'MORNING ONLY' : 'EVENING ONLY'}</span>}
                                                         </td>
-                                                        <td>{ing.scaledDmTarget.toFixed(2)} kg</td>
-                                                        <td>{ing.scaledWetSingle.toFixed(2)} kg</td>
-                                                        <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{ing.scaledWetBatch.toFixed(2)} kg</strong></td>
+                                                        <td>{formatKg(ing.scaledDmTarget, 2)} kg</td>
+                                                        <td>{formatKg(ing.scaledWetSingle, 2)} kg</td>
+                                                        <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{formatKg(ing.scaledWetBatch, 2)} kg</strong></td>
                                                         {isSuperAdmin && <td>{Math.round(ing.scaledCostSingle * animalsCount).toLocaleString()} PKR</td>}
                                                     </tr>
                                                 ))}
                                                 <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
                                                     <td colSpan="2"><strong>Total Feed Mix</strong></td>
-                                                    <td><strong>{scaledTotalDM.toFixed(2)} kg</strong></td>
-                                                    <td><strong>{scaledTotalWetSingle.toFixed(2)} kg</strong></td>
-                                                    <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{scaledTotalBatchWeight.toFixed(2)} kg</strong></td>
+                                                    <td><strong>{formatKg(scaledTotalDM, 2)} kg</strong></td>
+                                                    <td><strong>{formatKg(scaledTotalWetSingle, 2)} kg</strong></td>
+                                                    <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{formatKg(scaledTotalBatchWeight, 2)} kg</strong></td>
                                                     {isSuperAdmin && <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(scaledTotalCostSingle * animalsCount).toLocaleString()} PKR</strong></td>}
                                                 </tr>
                                             </tbody>
@@ -2251,15 +2268,15 @@ export default function TMRCalculator() {
                                                                 <tr key={ing.id}>
                                                                     <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                                                     <td><strong>{ing.name}</strong></td>
-                                                                    <td>{ing.avgPerHead.toFixed(3)} kg</td>
-                                                                    <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{ing.wetBatch.toFixed(2)} kg</strong></td>
+                                                                    <td>{formatKg(ing.avgPerHead, 3)} kg</td>
+                                                                    <td><strong style={{ color: 'var(--primary-green-light)', fontSize: '1.05rem' }}>{formatKg(ing.wetBatch, 2)} kg</strong></td>
                                                                     {isSuperAdmin && <td>{Math.round(ing.cost).toLocaleString()} PKR</td>}
                                                                 </tr>
                                                             ))}
                                                             <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
                                                                 <td colSpan="2"><strong>Total Feed Mix</strong></td>
-                                                                <td><strong>{allPensAggregateIngredients.reduce((sum, i) => sum + i.avgPerHead, 0).toFixed(3)} kg</strong></td>
-                                                                <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{allPensTotalBatchWeight.toFixed(2)} kg</strong></td>
+                                                                <td><strong>{formatKg(allPensAggregateIngredients.reduce((sum, i) => sum + i.avgPerHead, 0), 3)} kg</strong></td>
+                                                                <td><strong style={{ color: 'var(--accent-gold)', fontSize: '1.15rem' }}>{formatKg(allPensTotalBatchWeight, 2)} kg</strong></td>
                                                                 {isSuperAdmin && <td><strong style={{ color: 'var(--accent-gold)' }}>{Math.round(allPensTotalCost).toLocaleString()} PKR</strong></td>}
                                                             </tr>
                                                         </tbody>
@@ -2567,10 +2584,10 @@ export default function TMRCalculator() {
                                                 <span>{idx + 1}. WET {ing.name.toUpperCase()}</span>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                                                     <DeferredNumberInput
-                                                        step="0.1"
+                                                        step={ing.wetBatch < 0.1 ? "0.0001" : "0.1"}
                                                         className="form-control"
                                                         style={{ width: '110px', height: '36px', minHeight: '36px', textAlign: 'right', fontSize: '1.05rem', fontWeight: '700', color: 'var(--primary-green-light)', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)' }}
-                                                        value={parseFloat(ing.wetBatch.toFixed(2))}
+                                                        value={parseFloat(formatKg(ing.wetBatch, 2))}
                                                         onCommit={(val) => {
                                                             // `ing.wetBatch` is already scaled to the active feeding
                                                             // (Full Day / Feeding N of the split), so the typed value

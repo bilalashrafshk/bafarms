@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useRef, useMemo } from 'react';
-import { resolveRation, resolveIngredientRampRow, getWeightDivergence, NoMatchingRationError } from '../lib/rationResolver';
+import { resolveRation, resolveIngredientRampRow, getWeightDivergence, isForageMatch, NoMatchingRationError } from '../lib/rationResolver';
 import { todayPKT, todayAsDate, parseDateOnly, daysBetween } from '../utils/dateOnly';
 import { buildLots, allocateFifo } from '../utils/fifoStock';
 
@@ -768,7 +768,7 @@ export const FarmProvider = ({ children }) => {
             { id: 'silage', name: 'Maize Silage', dmTarget: recipe.silageDM ?? 4.5, price: prices.silagePrice ?? 12.5, moisture: 65, isDefault: true },
             { id: 'cottonseed', name: 'Cottonseed Cake', dmTarget: recipe.cottonseedDM ?? 1.5, price: prices.cottonseedPrice ?? 95.0, moisture: 10, isDefault: true },
             { id: 'straw', name: 'Wheat Straw (Toori)', dmTarget: recipe.strawDM ?? 1.0, price: prices.strawPrice ?? 16.0, moisture: 10, isDefault: true },
-            { id: 'minerals', name: 'Limestone / Minerals', dmTarget: recipe.mineralsDM ?? 0.15, price: prices.mineralsPrice ?? 150.0, moisture: 5, isDefault: true }
+            { id: 'minerals', name: 'Limestone', dmTarget: recipe.mineralsDM ?? 0.15, price: prices.mineralsPrice ?? 150.0, moisture: 5, isDefault: true }
         ];
     });
 
@@ -3363,7 +3363,7 @@ export const FarmProvider = ({ children }) => {
         // from the imported ration rows; legacy pens keep using the old weeks table.
         const targetAdgAtWeight = (weight) => {
             if (v2Plan) {
-                const row = rationRows.find(r => r.planId === v2Plan.id && r.forageType === forageType && weight >= r.wtMin && weight < r.wtMax);
+                const row = rationRows.find(r => r.planId === v2Plan.id && isForageMatch(r.forageType, forageType) && weight >= r.wtMin && weight < r.wtMax + 1);
                 return row ? row.targetAdg : (v2Plan.adgFloor || 0);
             }
             if (legacyPlan) {

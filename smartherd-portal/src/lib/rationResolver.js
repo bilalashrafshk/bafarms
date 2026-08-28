@@ -29,11 +29,14 @@ export class NoMatchingRationError extends Error {
 
 const dayDiff = (fromDate, toDate) => Math.floor((new Date(toDate) - new Date(fromDate)) / 86400000);
 
-const normForage = (ft) => (ft || '').toLowerCase().trim();
-const isForageMatch = (rowForage, penForage) => {
+const normForage = (ft) => (ft || '').toLowerCase().replace(/[\s+_]/g, '').trim();
+export const isForageMatch = (rowForage, penForage) => {
     const rf = normForage(rowForage);
     const pf = normForage(penForage);
     if (rf === pf) return true;
+    const isMixedRow = rf === 'mixed' || rf === 'both' || rf === 'charisilage' || rf === 'silagechari';
+    const isMixedPen = pf === 'mixed' || pf === 'both' || pf === 'charisilage' || pf === 'silagechari';
+    if (isMixedRow && isMixedPen) return true;
     if (rf === 'mixed' || rf === 'both' || pf === 'mixed' || pf === 'both') return true;
     return false;
 };
@@ -44,7 +47,7 @@ const isForageMatch = (rowForage, penForage) => {
  * INGREDIENT_RAMP, keyed off rampStartDate) — the projection itself doesn't depend on
  * which phase is being looked up, only daysOnFeed does.
  */
-function computeProjectedWeight({ pen, plan, today }) {
+function computeProjectedWeight({ pen, plan, rows, today }) {
     if (!pen.cycleStartDate) {
         throw new NoMatchingRationError('Pen has no cycle start date on record.', { pen });
     }
@@ -54,7 +57,22 @@ function computeProjectedWeight({ pen, plan, today }) {
 
     const daysOnFeed = dayDiff(pen.cycleStartDate, today) + 1;
     const daysSinceWeigh = Math.max(0, dayDiff(pen.lastWeighDate, today));
-    const adg = pen.currentTargetAdg != null ? pen.currentTargetAdg : (plan?.adgFloor ?? 0);
+
+    let adg = pen.currentTargetAdg;
+    if (adg == null && rows && rows.length > 0) {
+        const startBracket = rows.find(r => (
+            r.planId === pen.planId &&
+            isForageMatch(r.forageType, pen.forageType) &&
+            pen.lastActualWeightKg >= r.wtMin && pen.lastActualWeightKg < r.wtMax + 1
+        ));
+        if (startBracket && startBracket.targetAdg != null) {
+            adg = parseFloat(startBracket.targetAdg);
+        }
+    }
+    if (adg == null) {
+        adg = plan?.adgFloor ?? 1.0;
+    }
+
     const projectedWeight = pen.lastActualWeightKg + daysSinceWeigh * adg;
 
     return { daysOnFeed, projectedWeight };
@@ -73,7 +91,7 @@ function computeProjectedWeight({ pen, plan, today }) {
  * admin fixes the plan/pen data.
  */
 export function resolveRation({ pen, plan, rows, rowItems, today = todayAsDate() }) {
-    const { daysOnFeed, projectedWeight } = computeProjectedWeight({ pen, plan, today });
+    const { daysOnFeed, projectedWeight } = computeProjectedWeight({ pen, plan, rows, today });
 
     const adaptationDays = plan?.adaptationDays ?? 7;
     const phase = daysOnFeed <= adaptationDays ? 'ADAPTATION' : 'STEADY';
@@ -136,7 +154,7 @@ export function resolveRation({ pen, plan, rows, rowItems, today = todayAsDate()
  * (multiple overlapping brackets for the same day/weight).
  */
 export function resolveIngredientRampRow({ pen, plan, rows, rowItems, rampDay, today = todayAsDate() }) {
-    const { daysOnFeed, projectedWeight } = computeProjectedWeight({ pen, plan, today });
+    const { daysOnFeed, projectedWeight } = computeProjectedWeight({ pen, plan, rows, today });
 
     const allMatches = rows.filter(r => (
         r.planId === pen.planId &&

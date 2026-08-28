@@ -1180,9 +1180,19 @@ async function recomputePenWeightCache(client, penId, planId, forageType) {
     if (planId) {
         const bracketRes = await client.query(
             `SELECT target_adg FROM ba_ration_rows
-             WHERE plan_id = $1 AND forage_type = $2 AND wt_min <= $3 AND wt_max + 1 > $3
-             ORDER BY phase ASC LIMIT 1`,
-            [planId, forageType, avgWeight]
+             WHERE plan_id = $1 AND wt_min <= $2 AND wt_max + 1 > $2
+             ORDER BY
+               CASE
+                 WHEN LOWER(TRIM(forage_type)) = LOWER(TRIM($3)) THEN 1
+                 WHEN (
+                   LOWER(REPLACE(REPLACE(forage_type, ' ', ''), '_', '+')) IN ('mixed', 'both', 'chari+silage', 'silage+chari')
+                   AND LOWER(REPLACE(REPLACE($3, ' ', ''), '_', '+')) IN ('mixed', 'both', 'chari+silage', 'silage+chari')
+                 ) THEN 2
+                 WHEN LOWER(TRIM(forage_type)) IN ('mixed', 'both') OR LOWER(TRIM($3)) IN ('mixed', 'both') THEN 3
+                 ELSE 4
+               END ASC,
+               phase ASC LIMIT 1`,
+            [planId, avgWeight, forageType || 'silage']
         );
         if (bracketRes.rows.length > 0) currentTargetAdg = parseFloat(bracketRes.rows[0].target_adg);
     }
