@@ -1391,7 +1391,21 @@ export const FarmProvider = ({ children }) => {
         const ledger = getFeedStockLedger();
         const linked = effectiveFeedStockItems.filter(item => item.id === ingredientId || item.derivedFromIngredientId === ingredientId);
         const fallbackPrice = feedIngredients.find(i => i.id === ingredientId)?.price || 0;
-        if (linked.length === 0) return fallbackPrice > 0 ? fallbackPrice : null;
+        if (linked.length === 0) {
+            // Check if ingredientId is a premix formula directly
+            const directFormula = premixFormulas[ingredientId];
+            if (directFormula && Array.isArray(directFormula) && directFormula.length > 0) {
+                const formulaRate = directFormula.reduce((sum, row) => {
+                    const rowStockItem = effectiveFeedStockItems.find(item => item.id === row.stockItemId);
+                    const rowRate = ledger.find(l => l.item.id === row.stockItemId)?.avgRate 
+                        || (rowStockItem ? (feedIngredients.find(i => i.id === rowStockItem.id || i.id === rowStockItem.derivedFromIngredientId)?.price || 0) : 0);
+                    return sum + (rowRate * (parseFloat(row.qtyPerKg) || 0));
+                }, 0);
+                if (formulaRate > 0) return formulaRate;
+            }
+            return fallbackPrice > 0 ? fallbackPrice : null;
+        }
+
         let rate = 0;
         if (linked.length === 1) {
             rate = ledger.find(l => l.item.id === linked[0].id)?.avgRate || 0;
@@ -1402,7 +1416,22 @@ export const FarmProvider = ({ children }) => {
                 return sum + itemRate * share;
             }, 0);
         }
-        return rate > 0 ? rate : (fallbackPrice > 0 ? fallbackPrice : 0);
+
+        if (rate > 0) return rate;
+
+        // Fallback: If premix has no batches yet in ledger (rate === 0), compute theoretical cost from its formula raw materials
+        const formula = premixFormulas[ingredientId] || (linked.length > 0 ? premixFormulas[linked[0].id] : null);
+        if (formula && Array.isArray(formula) && formula.length > 0) {
+            const formulaRate = formula.reduce((sum, row) => {
+                const rowStockItem = effectiveFeedStockItems.find(item => item.id === row.stockItemId);
+                const rowRate = ledger.find(l => l.item.id === row.stockItemId)?.avgRate 
+                    || (rowStockItem ? (feedIngredients.find(i => i.id === rowStockItem.id || i.id === rowStockItem.derivedFromIngredientId)?.price || 0) : 0);
+                return sum + (rowRate * (parseFloat(row.qtyPerKg) || 0));
+            }, 0);
+            if (formulaRate > 0) return formulaRate;
+        }
+
+        return fallbackPrice > 0 ? fallbackPrice : 0;
     };
 
     // Returns current available physical closing stock quantity (in kg) for an ingredient.
