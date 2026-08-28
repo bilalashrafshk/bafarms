@@ -908,13 +908,44 @@ export const FarmProvider = ({ children }) => {
                 }
             }
         });
+        (feedPurchases || []).forEach(p => {
+            if (p.itemId && !list.some(i => i.id === p.itemId)) {
+                const norm = (p.itemName || p.itemId || '').toLowerCase();
+                const isSupply = norm.includes('needle') || norm.includes('syring') || norm.includes('thermometer') || norm.includes('bandage') || norm.includes('drip') || norm.includes('bd ');
+                const isMed = norm.includes('inj') || norm.includes('ml') || norm.includes('spray') || norm.includes('vac') || norm.includes('oxf') || norm.includes('ive') || norm.includes('fmd') || norm.includes('hs') || norm.includes('panacort') || norm.includes('famila') || norm.includes('amivicom') || norm.includes('endect') || norm.includes('ivot') || norm.includes('disulf') || norm.includes('loxin') || norm.includes('enro') || norm.includes('dexa') || norm.includes('tribrisen') || norm.includes('atropine') || norm.includes('cyanocob') || norm.includes('hepacel') || norm.includes('b complex') || norm.includes('pulmovac') || norm.includes('pydoine') || norm.includes('tinc') || norm.includes('methasolone') || norm.includes('multivorr') || norm.includes('teragen') || norm.includes('xmp') || norm.includes('tylo') || norm.includes('naflor') || norm.includes('nawazan') || norm.includes('oxyway');
+                const category = isSupply ? 'supply' : isMed ? 'medicine' : 'feed';
+                list.push({
+                    id: p.itemId,
+                    name: p.itemName || p.itemId,
+                    unit: p.unit || p.itemUnit || 'kg',
+                    category,
+                    derivedFromIngredientId: p.itemId
+                });
+            }
+        });
+        (feedStockIssues || []).forEach(s => {
+            if (s.itemId && !list.some(i => i.id === s.itemId)) {
+                const norm = (s.itemName || s.itemId || '').toLowerCase();
+                const isSupply = norm.includes('needle') || norm.includes('syring') || norm.includes('thermometer') || norm.includes('bandage') || norm.includes('drip') || norm.includes('bd ');
+                const isMed = norm.includes('inj') || norm.includes('ml') || norm.includes('spray') || norm.includes('vac') || norm.includes('oxf') || norm.includes('ive') || norm.includes('fmd') || norm.includes('hs') || norm.includes('panacort') || norm.includes('famila') || norm.includes('amivicom') || norm.includes('endect') || norm.includes('ivot') || norm.includes('disulf') || norm.includes('loxin') || norm.includes('enro') || norm.includes('dexa') || norm.includes('tribrisen') || norm.includes('atropine') || norm.includes('cyanocob') || norm.includes('hepacel') || norm.includes('b complex') || norm.includes('pulmovac') || norm.includes('pydoine') || norm.includes('tinc') || norm.includes('methasolone') || norm.includes('multivorr') || norm.includes('teragen') || norm.includes('xmp') || norm.includes('tylo') || norm.includes('naflor') || norm.includes('nawazan') || norm.includes('oxyway');
+                const category = isSupply ? 'supply' : isMed ? 'medicine' : 'feed';
+                list.push({
+                    id: s.itemId,
+                    name: s.itemName || s.itemId,
+                    unit: s.unit || s.itemUnit || 'kg',
+                    category,
+                    derivedFromIngredientId: s.itemId
+                });
+            }
+        });
         return list.map(item => {
             if (item.category) return item;
             const norm = (item.name || item.id || '').toLowerCase();
-            const isMed = norm.includes('inj') || norm.includes('spray') || norm.includes('syring') || norm.includes('needle') || norm.includes('panacort') || norm.includes('famila') || norm.includes('enro') || norm.includes('dexa') || norm.includes('oxfa') || norm.includes('ivotec') || norm.includes('tincture') || norm.includes('pulmovac') || norm.includes('fmd') || norm.includes('bandage') || norm.includes('thermometer');
-            return { ...item, category: isMed ? 'medicine' : 'feed' };
+            const isSupply = norm.includes('needle') || norm.includes('syring') || norm.includes('thermometer') || norm.includes('bandage') || norm.includes('drip') || norm.includes('bd ');
+            const isMed = norm.includes('inj') || norm.includes('ml') || norm.includes('spray') || norm.includes('vac') || norm.includes('oxf') || norm.includes('ive') || norm.includes('fmd') || norm.includes('hs') || norm.includes('panacort') || norm.includes('famila') || norm.includes('amivicom') || norm.includes('endect') || norm.includes('ivot') || norm.includes('disulf') || norm.includes('loxin') || norm.includes('enro') || norm.includes('dexa') || norm.includes('tribrisen') || norm.includes('atropine') || norm.includes('cyanocob') || norm.includes('hepacel') || norm.includes('b complex') || norm.includes('pulmovac') || norm.includes('pydoine') || norm.includes('tinc') || norm.includes('methasolone') || norm.includes('multivorr') || norm.includes('teragen') || norm.includes('xmp') || norm.includes('tylo') || norm.includes('naflor') || norm.includes('nawazan') || norm.includes('oxyway');
+            return { ...item, category: isSupply ? 'supply' : isMed ? 'medicine' : 'feed' };
         });
-    }, [feedStockItems, myRequests, pendingApprovals]);
+    }, [feedStockItems, feedPurchases, feedStockIssues, myRequests, pendingApprovals]);
 
     // Effective feed purchases including pending additions and excluding pending deletions,
     // and ensuring orphaned in-house production purchases whose batches are deleted are excluded.
