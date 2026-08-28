@@ -222,7 +222,24 @@ export default function TMRCalculator() {
     // e.g. potato pinned to "pm" is entirely absent from the morning feeding and
     // fully present in the evening one, not split 50/50 like the rest of the diet.
     const getIngredientFeedingScale = (restrictions, ingId, feedIdx, nFeedings, fallbackScale) => {
-        const restriction = restrictions?.[ingId];
+        let restriction = restrictions?.[ingId];
+        if (!restriction && restrictions && ingId) {
+            const ing = feedIngredients.find(i => i.id === ingId);
+            if (ing) {
+                const normName = ing.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                for (const [rKey, rVal] of Object.entries(restrictions)) {
+                    if (rKey.toLowerCase() === ingId.toLowerCase()) {
+                        restriction = rVal;
+                        break;
+                    }
+                    const rIng = feedIngredients.find(i => i.id === rKey);
+                    if (rIng && rIng.name.toLowerCase().replace(/[^a-z0-9]/g, '') === normName) {
+                        restriction = rVal;
+                        break;
+                    }
+                }
+            }
+        }
         if (!restriction || restriction === 'any' || feedIdx === 0) return fallbackScale;
         return feedIdx === getRestrictedFeedingSlot(restriction, nFeedings) ? 1 : 0;
     };
