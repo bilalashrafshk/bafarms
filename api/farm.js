@@ -280,6 +280,16 @@ async function ensureColumns(client) {
         CREATE INDEX IF NOT EXISTS idx_ration_rows_lookup
             ON ba_ration_rows (plan_id, forage_type, phase, day_no, wt_min, wt_max);
 
+        -- Third CSV phase (alongside ADAPTATION/STEADY): an ordinary, complete,
+        -- pre-computed row for a specific day of an ingredient being phased in (e.g.
+        -- potato over 5 days), keyed to pen.ramp_start_date rather than
+        -- cycle_start_date. Blank on every ADAPTATION/STEADY row. Holds the display
+        -- name of the ingredient column being introduced (matched against the plan's
+        -- ingredient columns at import time), not an ingredient_id, since it's only
+        -- ever read back for display (e.g. "Potato ramp — day 3 of 5").
+        ALTER TABLE ba_ration_rows
+            ADD COLUMN IF NOT EXISTS ramp_ingredient VARCHAR(100);
+
         CREATE TABLE IF NOT EXISTS ba_ration_row_items (
             id SERIAL PRIMARY KEY,
             row_id INTEGER REFERENCES ba_ration_rows(id) ON DELETE CASCADE,
@@ -291,12 +301,16 @@ async function ensureColumns(client) {
         -- \`ration_plan_id\` FK to the old ba_ration_plans is left as-is for pens not yet
         -- migrated. Cached weight/ADG fields let the resolution engine project a pen's
         -- current weight without re-scanning ba_weights on every lookup; both are kept
-        -- in sync by LOG_WEIGHT and by SAVE_PEN's initial assignment.
+        -- in sync by LOG_WEIGHT and by SAVE_PEN's initial assignment. ramp_start_date is
+        -- the trigger field for the INGREDIENT_RAMP phase above — set by an admin to
+        -- start a pen's ramp, auto-cleared by the client once the ramp table runs out
+        -- of days for that pen.
         ALTER TABLE ba_pens
             ADD COLUMN IF NOT EXISTS plan_id VARCHAR(80) REFERENCES ba_ration_plans_v2(id) ON DELETE SET NULL,
             ADD COLUMN IF NOT EXISTS last_actual_weight_kg NUMERIC,
             ADD COLUMN IF NOT EXISTS last_weigh_date DATE,
-            ADD COLUMN IF NOT EXISTS current_target_adg NUMERIC;
+            ADD COLUMN IF NOT EXISTS current_target_adg NUMERIC,
+            ADD COLUMN IF NOT EXISTS ramp_start_date DATE;
     `);
 
     // Group 3 — event log table plus a batch of small, unrelated column adds.
@@ -1660,6 +1674,7 @@ module.exports = async (req, res) => {
                 rationPlanId: row.ration_plan_id || null,
                 planId: row.plan_id || null,
                 cycleStartDate: row.cycle_start_date ? formatDate(row.cycle_start_date) : null,
+                rampStartDate: row.ramp_start_date ? formatDate(row.ramp_start_date) : null,
                 forageType: row.forage_type || 'silage',
                 expectedExitDate: row.expected_exit_date ? formatDate(row.expected_exit_date) : null,
                 lastActualWeightKg: row.last_actual_weight_kg !== null ? parseFloat(row.last_actual_weight_kg) : null,
@@ -1684,6 +1699,7 @@ module.exports = async (req, res) => {
                 planId: row.plan_id,
                 phase: row.phase,
                 dayNo: row.day_no !== null ? parseInt(row.day_no, 10) : null,
+                rampIngredient: row.ramp_ingredient || null,
                 forageType: row.forage_type,
                 wtMin: parseFloat(row.wt_min),
                 wtMax: parseFloat(row.wt_max),
@@ -2394,13 +2410,14 @@ module.exports = async (req, res) => {
                     `, [changes.id, changes.name, changes.description || null, changes.adgFloor || 1.0, JSON.stringify(changes.weeks || []), JSON.stringify(changes.adaptation || []), JSON.stringify(changes.ingredientPrices || {}), changes.wandaStockItemId || null, !!changes.isDefault, approval.requested_by]);
                 } else if (approval.action === 'SAVE_PEN') {
                     await client.query(`
-                        INSERT INTO ba_pens (id, ration_plan_id, plan_id, cycle_start_date, forage_type, expected_exit_date, notes, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+                        INSERT INTO ba_pens (id, ration_plan_id, plan_id, cycle_start_date, ramp_start_date, forage_type, expected_exit_date, notes, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
                         ON CONFLICT (id) DO UPDATE SET
                             ration_plan_id = EXCLUDED.ration_plan_id, plan_id = EXCLUDED.plan_id,
-                            cycle_start_date = EXCLUDED.cycle_start_date, forage_type = EXCLUDED.forage_type,
+                            cycle_start_date = EXCLUDED.cycle_start_date, ramp_start_date = EXCLUDED.ramp_start_date,
+                            forage_type = EXCLUDED.forage_type,
                             expected_exit_date = EXCLUDED.expected_exit_date, notes = EXCLUDED.notes, updated_at = NOW()
-                    `, [changes.id, changes.rationPlanId || null, changes.planId || null, changes.cycleStartDate || null, changes.forageType || 'silage', changes.expectedExitDate || null, changes.notes || null]);
+                    `, [changes.id, changes.rationPlanId || null, changes.planId || null, changes.cycleStartDate || null, changes.rampStartDate || null, changes.forageType || 'silage', changes.expectedExitDate || null, changes.notes || null]);
                     if (changes.planId) {
                         const cache = await recomputePenWeightCache(client, changes.id, changes.planId, changes.forageType || 'silage');
                         await client.query(`UPDATE ba_pens SET last_actual_weight_kg = $1, last_weigh_date = $2, current_target_adg = $3 WHERE id = $4`, [cache.lastActualWeightKg, cache.lastWeighDate, cache.currentTargetAdg, changes.id]);
@@ -2802,7 +2819,7 @@ module.exports = async (req, res) => {
             }
 
             if (action === 'SAVE_PEN') {
-                const { id, rationPlanId, planId, cycleStartDate, forageType, expectedExitDate, notes } = payload;
+                const { id, rationPlanId, planId, cycleStartDate, rampStartDate, forageType, expectedExitDate, notes } = payload;
                 const isAdmin = !!(perms && perms.isAdmin);
 
                 if (!id) {
@@ -2825,17 +2842,18 @@ module.exports = async (req, res) => {
                 }
 
                 await client.query(`
-                    INSERT INTO ba_pens (id, ration_plan_id, plan_id, cycle_start_date, forage_type, expected_exit_date, notes, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+                    INSERT INTO ba_pens (id, ration_plan_id, plan_id, cycle_start_date, ramp_start_date, forage_type, expected_exit_date, notes, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
                     ON CONFLICT (id) DO UPDATE SET
                         ration_plan_id = EXCLUDED.ration_plan_id,
                         plan_id = EXCLUDED.plan_id,
                         cycle_start_date = EXCLUDED.cycle_start_date,
+                        ramp_start_date = EXCLUDED.ramp_start_date,
                         forage_type = EXCLUDED.forage_type,
                         expected_exit_date = EXCLUDED.expected_exit_date,
                         notes = EXCLUDED.notes,
                         updated_at = NOW()
-                `, [id, rationPlanId || null, planId || null, cycleStartDate || null, forageType || 'silage', expectedExitDate || null, notes || null]);
+                `, [id, rationPlanId || null, planId || null, cycleStartDate || null, rampStartDate || null, forageType || 'silage', expectedExitDate || null, notes || null]);
 
                 if (planId) {
                     const cache = await recomputePenWeightCache(client, id, planId, forageType || 'silage');
@@ -2916,8 +2934,11 @@ module.exports = async (req, res) => {
 
                     if (!(wtMin < wtMax)) errors.push(`${label}: wt_min must be less than wt_max.`);
                     if (!(targetAdg >= 0.2 && targetAdg <= 2.0)) errors.push(`${label}: target_adg ${r.targetAdg} out of range 0.2-2.0.`);
-                    if (r.phase !== 'ADAPTATION' && r.phase !== 'STEADY') errors.push(`${label}: phase must be ADAPTATION or STEADY.`);
+                    if (r.phase !== 'ADAPTATION' && r.phase !== 'STEADY' && r.phase !== 'INGREDIENT_RAMP') {
+                        errors.push(`${label}: phase must be ADAPTATION, STEADY, or INGREDIENT_RAMP.`);
+                    }
                     if (r.phase === 'ADAPTATION' && !(r.dayNo >= 1 && r.dayNo <= 7)) errors.push(`${label}: ADAPTATION rows must have day_no 1-7.`);
+                    if (r.phase === 'INGREDIENT_RAMP' && !(r.dayNo >= 1 && Number.isInteger(r.dayNo))) errors.push(`${label}: INGREDIENT_RAMP rows must have day_no >= 1.`);
                     if (r.phase === 'STEADY' && r.dayNo !== null && r.dayNo !== undefined && r.dayNo !== '') errors.push(`${label}: STEADY rows must not have a day_no.`);
 
                     let rowTotal = 0;
@@ -2935,7 +2956,7 @@ module.exports = async (req, res) => {
 
                 const groups = {};
                 rows.forEach(r => {
-                    const key = `${r.forageType}|${r.phase}|${r.dayNo ?? ''}`;
+                    const key = `${r.forageType}|${r.phase}|${r.dayNo ?? ''}|${r.rampIngredient ?? ''}`;
                     (groups[key] = groups[key] || []).push(r);
                 });
                 Object.entries(groups).forEach(([key, groupRows]) => {
@@ -2966,22 +2987,26 @@ module.exports = async (req, res) => {
                     const rowValues = [];
                     const rowParams = [];
                     rows.forEach((r, idx) => {
-                        const base = idx * 8;
-                        rowValues.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`);
+                        const base = idx * 9;
+                        rowValues.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9})`);
                         rowParams.push(
-                            planId, r.phase, r.phase === 'ADAPTATION' ? r.dayNo : null, r.forageType,
+                            planId, r.phase,
+                            (r.phase === 'ADAPTATION' || r.phase === 'INGREDIENT_RAMP') ? r.dayNo : null,
+                            r.phase === 'INGREDIENT_RAMP' ? (r.rampIngredient || null) : null,
+                            r.forageType,
                             r.wtMin, r.wtMax, r.targetAdg, r.estCostPerHeadPerDay || null
                         );
                     });
                     const rowsInsertRes = await client.query(`
-                        INSERT INTO ba_ration_rows (plan_id, phase, day_no, forage_type, wt_min, wt_max, target_adg, est_cost_per_head_per_day)
+                        INSERT INTO ba_ration_rows (plan_id, phase, day_no, ramp_ingredient, forage_type, wt_min, wt_max, target_adg, est_cost_per_head_per_day)
                         VALUES ${rowValues.join(', ')}
                         RETURNING id
                     `, rowParams);
 
                     const createdRows = rows.map((r, idx) => ({
                         id: rowsInsertRes.rows[idx].id, planId, phase: r.phase,
-                        dayNo: r.phase === 'ADAPTATION' ? r.dayNo : null,
+                        dayNo: (r.phase === 'ADAPTATION' || r.phase === 'INGREDIENT_RAMP') ? r.dayNo : null,
+                        rampIngredient: r.phase === 'INGREDIENT_RAMP' ? (r.rampIngredient || null) : null,
                         forageType: r.forageType, wtMin: parseFloat(r.wtMin), wtMax: parseFloat(r.wtMax),
                         targetAdg: parseFloat(r.targetAdg), estCostPerHeadPerDay: r.estCostPerHeadPerDay || null
                     }));
@@ -3123,7 +3148,8 @@ module.exports = async (req, res) => {
                     SELECT id, wt_min, wt_max FROM ba_ration_rows
                     WHERE plan_id = $1 AND forage_type = $2 AND phase = $3
                     AND (day_no = $4 OR ($4 IS NULL AND day_no IS NULL))
-                `, [existingRow.plan_id, existingRow.forage_type, existingRow.phase, existingRow.day_no]);
+                    AND (ramp_ingredient = $5 OR ($5 IS NULL AND ramp_ingredient IS NULL))
+                `, [existingRow.plan_id, existingRow.forage_type, existingRow.phase, existingRow.day_no, existingRow.ramp_ingredient]);
                 const group = siblingsRes.rows.map(r => ({
                     id: r.id,
                     wtMin: r.id === parseInt(rowId, 10) ? newWtMin : parseFloat(r.wt_min),
@@ -3163,6 +3189,7 @@ module.exports = async (req, res) => {
                     row: {
                         id: parseInt(rowId, 10), planId: existingRow.plan_id, phase: existingRow.phase,
                         dayNo: existingRow.day_no !== null ? parseInt(existingRow.day_no, 10) : null,
+                        rampIngredient: existingRow.ramp_ingredient || null,
                         forageType: existingRow.forage_type, wtMin: newWtMin, wtMax: newWtMax,
                         targetAdg: newTargetAdg, estCostPerHeadPerDay: estCostPerHeadPerDay || null
                     },
