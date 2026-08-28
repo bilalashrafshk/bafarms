@@ -1200,7 +1200,11 @@ async function recomputePenWeightCache(client, penId, planId, forageType) {
                  WHEN LOWER(TRIM(forage_type)) IN ('mixed', 'both') OR LOWER(TRIM($3)) IN ('mixed', 'both') THEN 3
                  ELSE 4
                END ASC,
-               phase ASC LIMIT 1`,
+               CASE
+                 WHEN phase = 'STEADY' THEN 1
+                 WHEN phase = 'INGREDIENT_RAMP' THEN 2
+                 ELSE 3
+               END ASC LIMIT 1`,
             [planId, avgWeight, forageType || 'silage']
         );
         if (bracketRes.rows.length > 0) currentTargetAdg = parseFloat(bracketRes.rows[0].target_adg);

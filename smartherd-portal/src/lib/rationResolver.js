@@ -58,15 +58,29 @@ function computeProjectedWeight({ pen, plan, rows, today }) {
     const daysOnFeed = dayDiff(pen.cycleStartDate, today) + 1;
     const daysSinceWeigh = Math.max(0, dayDiff(pen.lastWeighDate, today));
 
-    let adg = pen.currentTargetAdg;
+    let adg = null;
+    if (rows && rows.length > 0) {
+        const steadyBracket = rows.find(r => (
+            r.planId === pen.planId &&
+            isForageMatch(r.forageType, pen.forageType) &&
+            r.phase === 'STEADY' &&
+            pen.lastActualWeightKg >= r.wtMin && pen.lastActualWeightKg < r.wtMax + 1
+        ));
+        if (steadyBracket && steadyBracket.targetAdg != null) {
+            adg = parseFloat(steadyBracket.targetAdg);
+        }
+    }
+    if (adg == null && pen.currentTargetAdg != null) {
+        adg = parseFloat(pen.currentTargetAdg);
+    }
     if (adg == null && rows && rows.length > 0) {
-        const startBracket = rows.find(r => (
+        const anyBracket = rows.find(r => (
             r.planId === pen.planId &&
             isForageMatch(r.forageType, pen.forageType) &&
             pen.lastActualWeightKg >= r.wtMin && pen.lastActualWeightKg < r.wtMax + 1
         ));
-        if (startBracket && startBracket.targetAdg != null) {
-            adg = parseFloat(startBracket.targetAdg);
+        if (anyBracket && anyBracket.targetAdg != null) {
+            adg = parseFloat(anyBracket.targetAdg);
         }
     }
     if (adg == null) {
