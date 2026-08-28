@@ -154,10 +154,12 @@ export default function RationPlans() {
         if (!rows || rows.length === 0) return;
         setCsvImporting(planKey);
         const adgVals = rows.map(r => r.targetAdg).filter(v => Number.isFinite(v));
+        const maxAdaptationDay = Math.max(0, ...rows.filter(r => r.phase === 'ADAPTATION').map(r => parseInt(r.dayNo, 10) || 0));
+        const adaptationDays = maxAdaptationDay > 0 ? maxAdaptationDay : 7;
         const result = await importRationPlanCSV({
             planKey,
             planName: csvPlanNames[planKey] || planKey,
-            adaptationDays: 7,
+            adaptationDays,
             adgFloor: adgVals.length ? Math.min(...adgVals) : 1.0,
             isDefault: false,
             rows
