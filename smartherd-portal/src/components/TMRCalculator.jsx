@@ -188,7 +188,7 @@ export function formatKg(val, defaultDecimals = 2) {
 
 export default function TMRCalculator() {
     const {
-        feedIngredients, animals, staffUser, feedLogs, logFeed, deleteFeedLog,
+        feedIngredients, feedStockItems, animals, staffUser, feedLogs, logFeed, deleteFeedLog,
         pens, getPenRationRow, getPenWeightFlags, getIngredientStockPrice, getIngredientStockQty
     } = useContext(FarmContext);
     // Herd Management access (admin-configurable in Settings) is the real gate for editing
@@ -202,6 +202,37 @@ export default function TMRCalculator() {
 
     // Active (non-sold, non-deceased) herd count — auto-synced
     const activeHerdCount = animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased').length;
+
+    // Unified list of all genuine feed ingredients and premixes available across inventory and catalog
+    const allFeedCandidates = useMemo(() => {
+        const list = [];
+        const seen = new Set();
+
+        (feedStockItems || []).forEach(item => {
+            if (!item || !item.id) return;
+            const cat = (item.category || 'feed').toLowerCase();
+            if (cat === 'medicine' || cat === 'supply') return;
+            const norm = (item.name || item.id || '').toLowerCase();
+            if (norm.includes('needle') || norm.includes('syring') || norm.includes('inj') || norm.includes('spray') || norm.includes('thermometer') || norm.includes('bandage') || norm.includes('drench') || norm.includes('ringer')) return;
+            
+            seen.add(item.id);
+            if (item.derivedFromIngredientId) seen.add(item.derivedFromIngredientId);
+            list.push({ id: item.id, name: item.name, category: 'feed', isPremix: !!item.isPremix });
+        });
+
+        (feedIngredients || []).forEach(item => {
+            if (!item || !item.id || seen.has(item.id)) return;
+            const cat = (item.category || 'feed').toLowerCase();
+            if (cat === 'medicine' || cat === 'supply') return;
+            const norm = (item.name || item.id || '').toLowerCase();
+            if (norm.includes('needle') || norm.includes('syring') || norm.includes('inj') || norm.includes('spray') || norm.includes('thermometer') || norm.includes('bandage') || norm.includes('drench') || norm.includes('ringer')) return;
+            
+            seen.add(item.id);
+            list.push({ id: item.id, name: item.name, category: 'feed', isPremix: !!item.isPremix });
+        });
+
+        return list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }, [feedStockItems, feedIngredients]);
 
     // Unique pens from active animals
     const activePens = [...new Set(
@@ -461,17 +492,13 @@ export default function TMRCalculator() {
             })
             : [];
 
-        // Ingredients with real stock, not already part of today's plan or already added,
+        // Ingredients not already part of today's plan or already added,
         // available to pick from for a one-off substitution/top-up.
-        const availableExtraIngredients = feedIngredients.filter(i => {
-            if (i.category && i.category !== 'feed') return false;
-            const norm = (i.name || i.id || '').toLowerCase();
-            if (norm.includes('needle') || norm.includes('syring') || norm.includes('inj') || norm.includes('spray') || norm.includes('thermometer') || norm.includes('bandage')) return false;
-            if (planIngredientRows.some(r => r.id === i.id)) return false;
+        const availableExtraIngredients = allFeedCandidates.filter(i => {
+            if (planIngredientRows.some(r => r.id === i.id || r.name.toLowerCase() === i.name.toLowerCase())) return false;
             if (i.id in extras) return false;
-            const stock = getIngredientStockQty(i.id);
-            return stock === null || stock > 0;
-        }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            return true;
+        });
 
         // Display array feeding the batch table / tractor mode / feed log below.
         const displayIngredients = isPlanDriven
@@ -1192,13 +1219,7 @@ export default function TMRCalculator() {
         setBulkAddChoice('');
     };
 
-    const bulkAvailableExtraIngredients = feedIngredients.filter(i => {
-        if (i.category && i.category !== 'feed') return false;
-        const norm = (i.name || i.id || '').toLowerCase();
-        if (norm.includes('needle') || norm.includes('syring') || norm.includes('inj') || norm.includes('spray') || norm.includes('thermometer') || norm.includes('bandage')) return false;
-        const stock = getIngredientStockQty(i.id);
-        return stock === null || stock > 0;
-    }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const bulkAvailableExtraIngredients = allFeedCandidates;
 
     const allPensResolutions = activePens
         .map(penId => {
