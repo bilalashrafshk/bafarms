@@ -1029,6 +1029,37 @@ async function reconcileOrphanedFeedStockIssues(client) {
     }
 }
 
+// premix_batches lives as one JSON array under a single ba_settings key, so a plain
+// overwrite is a lost-update hazard: two staff who both add a batch around the same time
+// (or an admin's direct save landing between another client's read and write) each submit
+// a full array computed from whatever *they* last saw — so whichever write lands second
+// can silently erase a batch the other one added, since it was simply never in that
+// client's snapshot. This reconciles two versions of the array so an addition is never
+// dropped: any batch present in `previous` but missing from `incoming` is preserved,
+// *unless* its underlying purchase record has already been removed — which only happens
+// via deletePremixBatch's own safe, id-scoped delete — in which case the removal is real
+// and must be honored, not resurrected.
+async function mergePremixBatchesValue(client, previous, incoming) {
+    let prevArr = previous;
+    if (typeof prevArr === 'string') {
+        try { prevArr = JSON.parse(prevArr); } catch (e) { prevArr = []; }
+    }
+    if (!Array.isArray(prevArr)) prevArr = [];
+    if (!Array.isArray(incoming)) return incoming;
+
+    const incomingIds = new Set(incoming.map(b => b.id));
+    const missing = prevArr.filter(b => !incomingIds.has(b.id));
+    if (missing.length === 0) return incoming;
+
+    const keep = [];
+    for (const b of missing) {
+        if (!b.purchaseId) { keep.push(b); continue; }
+        const r = await client.query('SELECT 1 FROM ba_feed_purchases WHERE id = $1', [b.purchaseId]);
+        if (r.rows.length > 0) keep.push(b);
+    }
+    return keep.length > 0 ? [...incoming, ...keep] : incoming;
+}
+
 // Resolves the real product name/unit for a feed_stock item id and durably persists it
 // into the feed_stock_items master list (ba_settings) whenever it's missing or has
 // changed. Shared by every path that inserts or approves a feed purchase/stock issue, so
@@ -2384,11 +2415,20 @@ module.exports = async (req, res) => {
                         ON CONFLICT (id) DO UPDATE SET item_id = EXCLUDED.item_id, item_name = EXCLUDED.item_name, item_unit = EXCLUDED.item_unit, date = EXCLUDED.date, quantity = EXCLUDED.quantity, rate = EXCLUDED.rate, supplier = EXCLUDED.supplier, notes = EXCLUDED.notes
                     `, [changes.id, changes.itemId, resolved.name, resolved.unit, changes.date, changes.quantity || 0, changes.rate || 0, changes.supplier || null, changes.notes || null, approval.requested_by]);
                 } else if (approval.action === 'SAVE_SETTINGS') {
+                    // changes.value was computed by the requester's client at request time,
+                    // which can now be stale relative to the DB (e.g. another premix batch
+                    // was added/approved in the meantime) — merge rather than blindly
+                    // overwrite so approving this request can't erase that intervening batch.
+                    let approvedValue = changes.value;
+                    if (changes.key === 'premix_batches') {
+                        const currentRes = await client.query('SELECT value FROM ba_settings WHERE key = $1', [changes.key]);
+                        approvedValue = await mergePremixBatchesValue(client, currentRes.rows[0]?.value, changes.value);
+                    }
                     await client.query(`
                         INSERT INTO ba_settings (key, value, updated_by, updated_at)
                         VALUES ($1, $2, $3, NOW())
                         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()
-                    `, [changes.key, JSON.stringify(changes.value), approval.requested_by]);
+                    `, [changes.key, JSON.stringify(approvedValue), approval.requested_by]);
                     if (changes.key === 'premix_batches') {
                         await reconcileOrphanedFeedStockIssues(client);
                     }
@@ -3262,26 +3302,41 @@ module.exports = async (req, res) => {
                     );
                     if (existingPending.rows.length === 0) {
                         const currentRes = await client.query('SELECT value FROM ba_settings WHERE key = $1', [key]);
+                        let mergedValue = value;
+                        if (key === 'premix_batches') {
+                            mergedValue = await mergePremixBatchesValue(client, currentRes.rows[0]?.value, value);
+                        }
                         await client.query(`
                             INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
                             VALUES ('SAVE_SETTINGS', $1, $2, $3)
-                        `, [JSON.stringify({ key, value }), JSON.stringify(currentRes.rows[0] || {}), session.email.toLowerCase().trim()]);
+                        `, [JSON.stringify({ key, value: mergedValue }), JSON.stringify(currentRes.rows[0] || {}), session.email.toLowerCase().trim()]);
                     } else {
                         // A SAVE_SETTINGS request for this key is already pending approval.
                         // Previously this branch silently returned success without recording
                         // anything, discarding this request entirely (e.g. a second premix
-                        // batch logged before the first was approved). Since the client always
-                        // sends its full latest local value (which already includes whatever
-                        // the still-pending request contains), it's always safe to replace the
-                        // pending row's proposed value with this newer one instead of dropping
-                        // it. previous_snapshot is left untouched — it must keep reflecting the
+                        // batch logged before the first was approved). Merge against the
+                        // still-pending payload (not just replace it) so this request's data
+                        // is never dropped even if it came from a different, stale client.
+                        // previous_snapshot is left untouched — it must keep reflecting the
                         // true pre-edit DB value for the admin's diff view.
+                        let mergedValue = value;
+                        if (key === 'premix_batches') {
+                            const pendingRow = await client.query('SELECT payload FROM ba_pending_approvals WHERE id = $1', [existingPending.rows[0].id]);
+                            const pendingPayload = typeof pendingRow.rows[0].payload === 'string' ? JSON.parse(pendingRow.rows[0].payload) : pendingRow.rows[0].payload;
+                            mergedValue = await mergePremixBatchesValue(client, pendingPayload?.value, value);
+                        }
                         await client.query(
                             `UPDATE ba_pending_approvals SET payload = $1 WHERE id = $2`,
-                            [JSON.stringify({ key, value }), existingPending.rows[0].id]
+                            [JSON.stringify({ key, value: mergedValue }), existingPending.rows[0].id]
                         );
                     }
                     return res.status(200).json({ success: true, pending: true });
+                }
+
+                let valueToStore = value;
+                if (key === 'premix_batches') {
+                    const currentRes = await client.query('SELECT value FROM ba_settings WHERE key = $1', [key]);
+                    valueToStore = await mergePremixBatchesValue(client, currentRes.rows[0]?.value, value);
                 }
 
                 await client.query(`
@@ -3291,7 +3346,7 @@ module.exports = async (req, res) => {
                         value = EXCLUDED.value,
                         updated_by = EXCLUDED.updated_by,
                         updated_at = NOW()
-                `, [key, JSON.stringify(value), session ? session.email : null]);
+                `, [key, JSON.stringify(valueToStore), session ? session.email : null]);
 
                 if (key === 'premix_batches') {
                     await reconcileOrphanedFeedStockIssues(client);
