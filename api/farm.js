@@ -3266,6 +3266,20 @@ module.exports = async (req, res) => {
                             INSERT INTO ba_pending_approvals (action, payload, previous_snapshot, requested_by)
                             VALUES ('SAVE_SETTINGS', $1, $2, $3)
                         `, [JSON.stringify({ key, value }), JSON.stringify(currentRes.rows[0] || {}), session.email.toLowerCase().trim()]);
+                    } else {
+                        // A SAVE_SETTINGS request for this key is already pending approval.
+                        // Previously this branch silently returned success without recording
+                        // anything, discarding this request entirely (e.g. a second premix
+                        // batch logged before the first was approved). Since the client always
+                        // sends its full latest local value (which already includes whatever
+                        // the still-pending request contains), it's always safe to replace the
+                        // pending row's proposed value with this newer one instead of dropping
+                        // it. previous_snapshot is left untouched — it must keep reflecting the
+                        // true pre-edit DB value for the admin's diff view.
+                        await client.query(
+                            `UPDATE ba_pending_approvals SET payload = $1 WHERE id = $2`,
+                            [JSON.stringify({ key, value }), existingPending.rows[0].id]
+                        );
                     }
                     return res.status(200).json({ success: true, pending: true });
                 }
