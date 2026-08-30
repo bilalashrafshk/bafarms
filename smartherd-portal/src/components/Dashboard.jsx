@@ -411,12 +411,15 @@ export default function Dashboard({ onNavigate }) {
             startDateStr = earliestEntry;
         }
         if (!startDateStr) return;
-        const start = parseDateOnly(startDateStr);
+        const threeDaysAgoStr = addDaysStr(today, -3);
         for (let d = new Date(start); d < today; d.setUTCDate(d.getUTCDate() + 1)) {
             const dateStr = d.toISOString().split('T')[0];
             const dayLogs = feedLogs.filter(f => f.pen === pen.id && f.date === dateStr);
             if (dayLogs.length === 0) {
-                missedFeedings.push({ pen, date: dateStr, half: false });
+                // Allow up to 3 days grace period for pending paper log entry before raising critical alarm
+                if (dateStr < threeDaysAgoStr) {
+                    missedFeedings.push({ pen, date: dateStr, half: false });
+                }
                 continue;
             }
             const numFeedings = Math.max(...dayLogs.map(f => f.numFeedings || 1));
@@ -585,10 +588,42 @@ export default function Dashboard({ onNavigate }) {
 
     const complianceData = useMemo(() => {
         const yesterdayStr = addDaysStr(today, -1);
-        const sevenDaysAgoStr = addDaysStr(today, -7);
+        const threeDaysAgoStr = addDaysStr(today, -3);
 
-        const startDate = complianceHorizon === 'yesterday' ? yesterdayStr : sevenDaysAgoStr;
-        const endDate = yesterdayStr;
+        const loggedDates = Array.from(new Set(
+            (feedLogs || [])
+                .filter(f => f && f.date)
+                .map(f => String(f.date).split('T')[0])
+        )).sort().reverse();
+
+        const latestLoggedDate = loggedDates[0] || null;
+
+        // Grace period: If yesterday is not yet logged, look back up to 3 days for the latest logged date
+        let startDate = yesterdayStr;
+        let endDate = yesterdayStr;
+        let isFallback = false;
+        let daysAgo = 1;
+
+        if (complianceHorizon === 'yesterday') {
+            if (loggedDates.includes(yesterdayStr)) {
+                startDate = yesterdayStr;
+                endDate = yesterdayStr;
+                daysAgo = 1;
+            } else if (latestLoggedDate && latestLoggedDate >= threeDaysAgoStr) {
+                startDate = latestLoggedDate;
+                endDate = latestLoggedDate;
+                isFallback = true;
+                daysAgo = Math.max(1, daysBetween(parseDateOnly(today), parseDateOnly(latestLoggedDate)));
+            } else {
+                startDate = yesterdayStr;
+                endDate = yesterdayStr;
+            }
+        } else {
+            // 7 Days view: Anchor to latest logged date if available (within 3 days), or yesterday
+            const anchorDate = (latestLoggedDate && latestLoggedDate >= threeDaysAgoStr) ? latestLoggedDate : yesterdayStr;
+            endDate = anchorDate;
+            startDate = addDaysStr(anchorDate, -6);
+        }
 
         const targetLogs = (feedLogs || []).filter(f => {
             if (!f.date) return false;
@@ -601,6 +636,9 @@ export default function Dashboard({ onNavigate }) {
                 hasData: false,
                 startDate,
                 endDate,
+                isFallback,
+                daysAgo,
+                latestLoggedDate,
                 overallCompliancePct: 0,
                 totalActualKg: 0,
                 totalPlannedKg: 0,
@@ -706,6 +744,9 @@ export default function Dashboard({ onNavigate }) {
             hasData: true,
             startDate,
             endDate,
+            isFallback,
+            daysAgo,
+            latestLoggedDate,
             overallCompliancePct,
             totalActualKg,
             totalPlannedKg,
@@ -1335,9 +1376,23 @@ export default function Dashboard({ onNavigate }) {
                             <i className="fa-solid fa-bowl-food"></i>
                         </div>
                         <div>
-                            <h3 className="panel-title" style={{ margin: 0 }}>Feed & Ration Compliance</h3>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                <h3 className="panel-title" style={{ margin: 0 }}>Feed & Ration Compliance</h3>
+                                {complianceData.isFallback && complianceHorizon === 'yesterday' && (
+                                    <span style={{ fontSize: '0.68rem', fontWeight: 600, color: '#38bdf8', background: 'rgba(56,189,248,0.12)', border: '1px solid rgba(56,189,248,0.25)', padding: '0.1rem 0.45rem', borderRadius: '4px' }}>
+                                        <i className="fa-solid fa-clock-rotate-left" style={{ marginRight: '3px' }}></i>
+                                        Latest Logged ({complianceData.daysAgo}d ago)
+                                    </span>
+                                )}
+                            </div>
                             <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                                Actual feed delivered vs nutritionist target plan ({complianceHorizon === 'yesterday' ? formatDate(complianceData.startDate) : `${formatDate(complianceData.startDate)} – ${formatDate(complianceData.endDate)}`})
+                                Actual feed delivered vs nutritionist target plan ({
+                                    complianceHorizon === 'yesterday'
+                                        ? (complianceData.isFallback
+                                            ? `${formatDate(complianceData.startDate)} (pending yesterday)`
+                                            : `Yesterday · ${formatDate(complianceData.startDate)}`)
+                                        : `${formatDate(complianceData.startDate)} – ${formatDate(complianceData.endDate)}`
+                                })
                             </span>
                         </div>
                     </div>
@@ -1349,7 +1404,7 @@ export default function Dashboard({ onNavigate }) {
                                 className={`horizon-btn ${complianceHorizon === 'yesterday' ? 'active' : ''}`}
                                 onClick={() => setComplianceHorizon('yesterday')}
                             >
-                                Yesterday
+                                {complianceData.isFallback ? `Latest Day (${formatDate(complianceData.startDate)})` : 'Yesterday'}
                             </button>
                             <button
                                 type="button"
@@ -1375,7 +1430,7 @@ export default function Dashboard({ onNavigate }) {
                 {!complianceData.hasData ? (
                     <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.84rem' }}>
                         <i className="fa-solid fa-clipboard-question" style={{ fontSize: '1.6rem', color: 'var(--accent-gold)', marginBottom: '0.4rem', display: 'block' }}></i>
-                        No feeding logs recorded for {complianceHorizon === 'yesterday' ? 'yesterday' : 'the last 7 days'}.
+                        No feeding logs recorded within the last 3 days or the selected 7-day period.
                     </div>
                 ) : (
                     <>
