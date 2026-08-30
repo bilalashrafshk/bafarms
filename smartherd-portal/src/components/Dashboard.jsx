@@ -588,6 +588,7 @@ export default function Dashboard({ onNavigate }) {
     const [complianceHorizon, setComplianceHorizon] = useState('yesterday'); // 'yesterday' | '7d' | '30d' | 'thisMonth' | 'lastMonth' | 'custom'
     const [customDateFrom, setCustomDateFrom] = useState('');
     const [customDateTo, setCustomDateTo] = useState('');
+    const [compliancePenFilter, setCompliancePenFilter] = useState('ALL'); // 'ALL' or a specific pen id
 
     const complianceData = useMemo(() => {
         const yesterdayStr = addDaysStr(today, -1);
@@ -665,7 +666,9 @@ export default function Dashboard({ onNavigate }) {
         const targetLogs = (feedLogs || []).filter(f => {
             if (!f.date) return false;
             const logDate = String(f.date).split('T')[0];
-            return logDate >= startDate && logDate <= endDate;
+            if (logDate < startDate || logDate > endDate) return false;
+            if (compliancePenFilter !== 'ALL' && String(f.pen || 'ALL') !== String(compliancePenFilter)) return false;
+            return true;
         });
 
         const activeDaysCount = new Set(targetLogs.map(f => String(f.date).split('T')[0])).size;
@@ -699,11 +702,26 @@ export default function Dashboard({ onNavigate }) {
             penDayLogsMap.get(key).push(f);
         });
 
+        // Logs discarded by the dedup below (a stray Full Day log left over
+        // alongside real split-session logs) — surfaced later as a flag so this
+        // never silently hides a genuine double-logging mistake from the user.
+        const dedupDroppedLogs = [];
+
         const normalizedLogs = [];
-        penDayLogsMap.forEach(logs => {
+        penDayLogsMap.forEach((logs, key) => {
             const splitLogs = logs.filter(l => (l.feedingIndex || 0) > 0);
             if (splitLogs.length > 0) {
                 normalizedLogs.push(...splitLogs);
+                const droppedFullDayLogs = logs.filter(l => (l.feedingIndex || 0) === 0);
+                if (droppedFullDayLogs.length > 0) {
+                    const [logDate, penId] = key.split('_');
+                    dedupDroppedLogs.push({
+                        date: logDate,
+                        pen: penId,
+                        count: droppedFullDayLogs.length,
+                        batchKg: droppedFullDayLogs.reduce((sum, l) => sum + (parseFloat(l.totalBatchKg) || 0), 0)
+                    });
+                }
             } else {
                 normalizedLogs.push(...logs);
             }
@@ -713,11 +731,18 @@ export default function Dashboard({ onNavigate }) {
         let totalActualKg = 0;
         let totalPlannedKg = 0;
         const penMap = new Map();
+        // Per-ingredient animal-days — Map<ingredientName, Map<"date_pen", headCount>>.
+        // Tracked separately from the herd-wide totalAnimalDays below because not every
+        // pen's ration necessarily includes every ingredient; dividing an ingredient's
+        // kg by the whole herd's animal-days would dilute its kg/head figure with
+        // head-counts from pens that were never eligible for it in the first place.
+        const ingAnimalDayMap = new Map();
 
         normalizedLogs.forEach(f => {
             const rawIngs = Array.isArray(f.ingredients) ? f.ingredients : (typeof f.ingredients === 'string' ? JSON.parse(f.ingredients || '[]') : []);
             const logAnimals = f.animalCount || 1;
             const penId = f.pen || 'ALL';
+            const logDateKey = `${String(f.date).split('T')[0]}_${penId}`;
 
             if (!penMap.has(penId)) {
                 penMap.set(penId, { actual: 0, planned: 0, logsCount: 0 });
@@ -729,7 +754,7 @@ export default function Dashboard({ onNavigate }) {
                 const name = ing.name || ing.id;
                 const actualPerHead = parseFloat(ing.wetSingle || ing.qtyKg || 0);
                 const plannedPerHead = ing.plannedQtyKg !== undefined && ing.plannedQtyKg !== null ? parseFloat(ing.plannedQtyKg) : actualPerHead;
-                
+
                 const actualBatch = ing.wetBatch !== undefined && ing.wetBatch !== null ? parseFloat(ing.wetBatch) : (actualPerHead * logAnimals);
                 const plannedBatch = plannedPerHead * logAnimals;
 
@@ -753,6 +778,10 @@ export default function Dashboard({ onNavigate }) {
 
                 penRec.actual += actualBatch;
                 penRec.planned += plannedBatch;
+
+                if (!ingAnimalDayMap.has(name)) ingAnimalDayMap.set(name, new Map());
+                const ingDayMap = ingAnimalDayMap.get(name);
+                ingDayMap.set(logDateKey, Math.max(ingDayMap.get(logDateKey) || 0, logAnimals));
             });
         });
 
@@ -800,8 +829,12 @@ export default function Dashboard({ onNavigate }) {
 
         const ingredients = Array.from(ingMap.values()).map(ing => {
             const isWandaItem = isWanda(ing.name, ing.id);
-            const actualPerHead = totalAnimalDays > 0 ? (ing.actualKg / totalAnimalDays) : 0;
-            const plannedPerHead = totalAnimalDays > 0 ? (ing.plannedKg / totalAnimalDays) : 0;
+            // Denominator is THIS ingredient's own animal-days, not the herd-wide
+            // totalAnimalDays — otherwise an ingredient only fed to some pens would
+            // have its kg/head diluted by head-counts from pens never eligible for it.
+            const ingAnimalDays = Array.from((ingAnimalDayMap.get(ing.name) || new Map()).values()).reduce((sum, c) => sum + c, 0) || 1;
+            const actualPerHead = ing.actualKg / ingAnimalDays;
+            const plannedPerHead = ing.plannedKg / ingAnimalDays;
 
             let pct = 100;
             if (ing.plannedKg > 0.001) {
@@ -864,22 +897,48 @@ export default function Dashboard({ onNavigate }) {
             return { penId, headCount, pct, actual: data.actual, planned: data.planned };
         }).sort((a, b) => a.penId.localeCompare(b.penId));
 
-        // Overall Compliance Calculation: Category-level compliance (combining Wanda into 1 concentrate category)
+        // A %-deviation isn't equally bad in both directions: underfeeding is a real
+        // welfare/growth risk (the animal doesn't get what the plan says it needs),
+        // while overfeeding of the same magnitude is mostly a cost/waste concern.
+        // Penalize a shortfall at full weight but a surplus at half weight, so e.g.
+        // +34% (overfed) and -34% (underfed) no longer score identically.
+        const complianceScore = (pct) => {
+            const deviation = pct - 100;
+            return deviation >= 0
+                ? Math.max(0, 100 - deviation * 0.5)
+                : Math.max(0, 100 - Math.abs(deviation));
+        };
+
+        // Overall Compliance Calculation: mass-weighted across ingredient categories
+        // (combining Wanda into 1 concentrate category) — each category's score is
+        // weighted by its plannedKg so a trace item (e.g. 0.6 kg of minerals) can't
+        // swing the headline % as much as a major roughage component (e.g. 250 kg of
+        // silage). A flat per-category average let minor ingredients dominate.
         const nonWandaPlannedIngs = ingredients.filter(i => !i.isWandaItem && i.plannedKg > 0.1);
-        let sumCompliance = nonWandaPlannedIngs.reduce((sum, i) => sum + Math.max(0, 100 - Math.abs(i.pct - 100)), 0);
-        let countCategories = nonWandaPlannedIngs.length;
+        let weightedComplianceSum = nonWandaPlannedIngs.reduce((sum, i) => sum + i.plannedKg * complianceScore(i.pct), 0);
+        let totalComplianceWeight = nonWandaPlannedIngs.reduce((sum, i) => sum + i.plannedKg, 0);
 
         if (totalWandaPlanned > 0.1) {
-            const wandaDeliveryScore = Math.max(0, 100 - Math.abs(((totalWandaActual - totalWandaPlanned) / totalWandaPlanned) * 100));
-            sumCompliance += wandaDeliveryScore;
-            countCategories += 1;
+            const wandaPct = Math.round((totalWandaActual / totalWandaPlanned) * 100);
+            weightedComplianceSum += totalWandaPlanned * complianceScore(wandaPct);
+            totalComplianceWeight += totalWandaPlanned;
         }
 
-        const overallCompliancePct = countCategories > 0
-            ? Math.round(sumCompliance / countCategories)
+        const overallCompliancePct = totalComplianceWeight > 0
+            ? Math.round(weightedComplianceSum / totalComplianceWeight)
             : (totalPlannedKg > 0 ? Math.round(Math.max(0, 100 - Math.abs(((totalActualKg - totalPlannedKg) / totalPlannedKg) * 100))) : 100);
 
         const flags = [];
+        if (dedupDroppedLogs.length > 0) {
+            const totalDroppedCount = dedupDroppedLogs.reduce((sum, d) => sum + d.count, 0);
+            const totalDroppedKg = dedupDroppedLogs.reduce((sum, d) => sum + d.batchKg, 0);
+            const examples = dedupDroppedLogs.slice(0, 2).map(d => `Pen ${d.pen} on ${formatDate(d.date)}`).join(', ');
+            flags.push({
+                type: 'warning',
+                icon: 'fa-clone',
+                text: `${totalDroppedCount} duplicate Full Day log(s) ignored (${examples}${dedupDroppedLogs.length > 2 ? `, +${dedupDroppedLogs.length - 2} more` : ''}) — split-session logs already exist for that pen/day, so ${totalDroppedKg.toFixed(1)} kg was excluded from these totals. Delete the duplicate log(s) if they were logged by mistake.`
+            });
+        }
         if (isWandaSupplemented && activeWandaFedNames.length > 0) {
             const wandaPct = totalWandaPlanned > 0 ? Math.round((totalWandaActual / totalWandaPlanned) * 100) : 100;
             flags.push({
@@ -914,7 +973,7 @@ export default function Dashboard({ onNavigate }) {
             penScores,
             flags
         };
-    }, [feedLogs, complianceHorizon, customDateFrom, customDateTo, today]);
+    }, [feedLogs, complianceHorizon, customDateFrom, customDateTo, compliancePenFilter, today]);
 
     // 1. Upcoming Weigh-ins (Next projected weigh date per active calf)
     const upcomingWeighList = [];
@@ -1640,6 +1699,31 @@ export default function Dashboard({ onNavigate }) {
                                 />
                             </div>
                         )}
+
+                        <select
+                            value={compliancePenFilter}
+                            onChange={(e) => setCompliancePenFilter(e.target.value)}
+                            title="Filter compliance by pen"
+                            style={{
+                                background: 'rgba(0,0,0,0.3)',
+                                border: `1px solid ${compliancePenFilter !== 'ALL' ? 'var(--accent-gold)' : 'rgba(255,255,255,0.12)'}`,
+                                color: 'var(--text-pure)',
+                                fontSize: '0.72rem',
+                                fontWeight: 600,
+                                padding: '0 0.4rem',
+                                height: '28px',
+                                borderRadius: '6px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            <option value="ALL">All Pens</option>
+                            {(pens || [])
+                                .slice()
+                                .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+                                .map(p => (
+                                    <option key={p.id} value={p.id}>Pen {p.id}</option>
+                                ))}
+                        </select>
 
                         <button
                             type="button"
