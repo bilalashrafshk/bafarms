@@ -1,8 +1,20 @@
-const { Client } = require('pg');
+const { Client, types } = require('pg');
 const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const path = require('path');
+
+// node-postgres's default parser for DATE columns (OID 1082) builds the JS Date
+// using the PROCESS'S LOCAL TIMEZONE, then it gets re-serialized to a UTC ISO
+// string in the JSON response — on any host whose local TZ isn't UTC, this
+// silently rolls the calendar date back (e.g. on a PKT/UTC+5 host, "2026-08-26"
+// becomes "2026-08-25T19:00:00.000Z"). Every date-keyed feature in this app
+// (feed compliance, weigh-in schedules, withholding periods) relies on getting
+// back the exact calendar day stored in Postgres, so force the raw 'YYYY-MM-DD'
+// string through untouched instead of letting it round-trip through a
+// timezone-sensitive Date object. This makes date handling correct regardless
+// of what timezone the Node process happens to be running in.
+types.setTypeParser(1082, (val) => val);
 
 // Load local .env file manually if process.env values are not set (useful for local development)
 if (!process.env.SMTP_HOST) {
