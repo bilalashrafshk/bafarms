@@ -1121,7 +1121,7 @@ export default function TMRCalculator() {
         if (exactLog) {
             const sessionText = `${sessionLabel(targetFeedingIdx)} (${targetPct}%)`;
             const byText = exactLog.createdBy ? ` by ${exactLog.createdBy}` : '';
-            return { blocking: false, message: `⚠️ Pen ${penId} has ALREADY been logged for ${sessionText} on ${date}${byText}.\n\nDo you want to overwrite the existing ${sessionText} log?` };
+            return { blocking: false, message: `⚠️ Pen ${penId} has ALREADY been logged for ${sessionText} on ${formatDate(date)}${byText}.\n\nDo you want to overwrite the existing ${sessionText} log?` };
         }
 
         const otherLogsPct = penLogs.reduce((sum, f) => sum + pctFor(f), 0);
@@ -1130,7 +1130,7 @@ export default function TMRCalculator() {
             const byText = penLogs[0].createdBy ? ` by ${penLogs[0].createdBy}` : '';
             return {
                 blocking: true,
-                message: `🚫 Pen ${penId} already has ${otherLogsPct}% of its daily feed logged on ${date} (${sessionList})${byText}.\n\nAdding this ${sessionLabel(targetFeedingIdx)} (${targetPct}%) feed would total ${otherLogsPct + targetPct}%, which exceeds 100% and is not allowed.\n\nDelete or overwrite the existing feeding log(s) for this pen/date first.`
+                message: `🚫 Pen ${penId} already has ${otherLogsPct}% of its daily feed logged on ${formatDate(date)} (${sessionList})${byText}.\n\nAdding this ${sessionLabel(targetFeedingIdx)} (${targetPct}%) feed would total ${otherLogsPct + targetPct}%, which exceeds 100% and is not allowed.\n\nDelete or overwrite the existing feeding log(s) for this pen/date first.`
             };
         }
 
@@ -1188,14 +1188,14 @@ export default function TMRCalculator() {
         const blockingPens = conflictingPens.filter(item => item.conflict.blocking);
         if (blockingPens.length > 0) {
             const penList = blockingPens.map(item => `Pen ${item.penId}`).join(', ');
-            alert(`🚫 ${blockingPens.length} pen(s) (${penList}) already have feeding log(s) on ${logDate} that would exceed 100% if this feeding is added.\n\nDelete or overwrite their existing feeding log(s) first, then try again.`);
+            alert(`🚫 ${blockingPens.length} pen(s) (${penList}) already have feeding log(s) on ${formatDate(logDate)} that would exceed 100% if this feeding is added.\n\nDelete or overwrite their existing feeding log(s) first, then try again.`);
             return;
         }
 
         const overwritePens = conflictingPens.filter(item => !item.conflict.blocking);
         if (overwritePens.length > 0) {
             const penList = overwritePens.map(item => `Pen ${item.penId}`).join(', ');
-            const confirmMessage = `⚠️ ${overwritePens.length} pen(s) (${penList}) already have a feeding log for this exact session on ${logDate}.\n\nDo you want to overwrite their existing feeding log(s)?`;
+            const confirmMessage = `⚠️ ${overwritePens.length} pen(s) (${penList}) already have a feeding log for this exact session on ${formatDate(logDate)}.\n\nDo you want to overwrite their existing feeding log(s)?`;
             if (!window.confirm(confirmMessage)) {
                 return;
             }

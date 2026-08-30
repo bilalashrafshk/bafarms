@@ -1,6 +1,7 @@
 import React, { useContext, useState } from 'react';
 import { FarmContext, defaultStaffPermissions } from '../context/FarmContext';
 import { renderSettingsDiff } from '../utils/renderSettingsDiff';
+import { formatDate } from '../utils/formatDate';
 
 export default function Settings() {
     const {
@@ -849,7 +850,7 @@ export default function Settings() {
                                             )}
                                         </td>
                                         <td>{a.requestedBy}</td>
-                                        <td>{new Date(a.requestedAt).toLocaleString()}</td>
+                                        <td>{formatDate(a.requestedAt)}</td>
                                         <td>
                                             <span style={{
                                                 fontSize: '0.72rem', padding: '0.1rem 0.5rem', borderRadius: '4px',

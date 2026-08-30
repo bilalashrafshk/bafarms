@@ -672,7 +672,7 @@ export default function RationVarianceReport() {
         ];
 
         const rows = varianceRows.map(r => [
-            `"${r.date}"`,
+            `"${formatDate(r.date)}"`,
             `"${r.penTitle}"`,
             r.maxAnimalCount,
             `"${r.sessionsLabel}"`,
