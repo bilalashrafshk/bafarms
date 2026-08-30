@@ -580,6 +580,141 @@ export default function Dashboard({ onNavigate }) {
     const [calendarFilter, setCalendarFilter] = useState('all');
     const [isCriticalExpanded, setIsCriticalExpanded] = useState(true);
 
+    // I. FEED & RATION COMPLIANCE SUMMARY (Yesterday / Last 7 Days)
+    const [complianceHorizon, setComplianceHorizon] = useState('yesterday'); // 'yesterday' | '7d'
+
+    const complianceData = useMemo(() => {
+        const yesterdayStr = addDaysStr(today, -1);
+        const sevenDaysAgoStr = addDaysStr(today, -7);
+
+        const startDate = complianceHorizon === 'yesterday' ? yesterdayStr : sevenDaysAgoStr;
+        const endDate = yesterdayStr;
+
+        const targetLogs = (feedLogs || []).filter(f => {
+            if (!f.date) return false;
+            const logDate = String(f.date).split('T')[0];
+            return logDate >= startDate && logDate <= endDate;
+        });
+
+        if (targetLogs.length === 0) {
+            return {
+                hasData: false,
+                startDate,
+                endDate,
+                overallCompliancePct: 0,
+                totalActualKg: 0,
+                totalPlannedKg: 0,
+                ingredients: [],
+                penScores: [],
+                flags: []
+            };
+        }
+
+        const ingMap = new Map();
+        let totalActualKg = 0;
+        let totalPlannedKg = 0;
+        const penMap = new Map();
+
+        targetLogs.forEach(f => {
+            const rawIngs = Array.isArray(f.ingredients) ? f.ingredients : (typeof f.ingredients === 'string' ? JSON.parse(f.ingredients || '[]') : []);
+            const logAnimals = f.animalCount || 1;
+            const penId = f.pen || 'ALL';
+
+            if (!penMap.has(penId)) {
+                penMap.set(penId, { actual: 0, planned: 0, logsCount: 0 });
+            }
+            const penRec = penMap.get(penId);
+            penRec.logsCount += 1;
+
+            rawIngs.forEach(ing => {
+                const name = ing.name || ing.id;
+                const actualPerHead = parseFloat(ing.wetSingle || ing.qtyKg || 0);
+                const plannedPerHead = ing.plannedQtyKg !== undefined && ing.plannedQtyKg !== null ? parseFloat(ing.plannedQtyKg) : actualPerHead;
+                
+                const actualBatch = ing.wetBatch !== undefined && ing.wetBatch !== null ? parseFloat(ing.wetBatch) : (actualPerHead * logAnimals);
+                const plannedBatch = plannedPerHead * logAnimals;
+
+                if (!ingMap.has(name)) {
+                    ingMap.set(name, {
+                        name,
+                        actualKg: 0,
+                        plannedKg: 0,
+                        pens: new Set()
+                    });
+                }
+
+                const rec = ingMap.get(name);
+                rec.actualKg += actualBatch;
+                rec.plannedKg += plannedBatch;
+                rec.pens.add(penId);
+
+                totalActualKg += actualBatch;
+                totalPlannedKg += plannedBatch;
+
+                penRec.actual += actualBatch;
+                penRec.planned += plannedBatch;
+            });
+        });
+
+        const ingredients = Array.from(ingMap.values()).map(ing => {
+            let pct = 100;
+            if (ing.plannedKg > 0.001) {
+                pct = Math.round((ing.actualKg / ing.plannedKg) * 100);
+            } else if (ing.actualKg > 0.001) {
+                pct = 100;
+            } else {
+                pct = 0;
+            }
+
+            const diffKg = ing.actualKg - ing.plannedKg;
+            const diffPct = ing.plannedKg > 0 ? ((ing.actualKg - ing.plannedKg) / ing.plannedKg) * 100 : 0;
+            const isOmitted = ing.plannedKg > 0.1 && ing.actualKg <= 0.01;
+            const isOverfed = diffPct > 15;
+            const isUnderfed = diffPct < -15 && !isOmitted;
+            const isOptimal = Math.abs(diffPct) <= 5;
+
+            return {
+                ...ing,
+                pct,
+                diffKg,
+                diffPct,
+                isOmitted,
+                isOverfed,
+                isUnderfed,
+                isOptimal
+            };
+        }).sort((a, b) => b.plannedKg - a.plannedKg);
+
+        const penScores = Array.from(penMap.entries()).map(([penId, data]) => {
+            const pct = data.planned > 0 ? Math.round((data.actual / data.planned) * 100) : 100;
+            return { penId, pct, actual: data.actual, planned: data.planned };
+        }).sort((a, b) => a.penId.localeCompare(b.penId));
+
+        const plannedIngs = ingredients.filter(i => i.plannedKg > 0.1);
+        const overallCompliancePct = plannedIngs.length > 0
+            ? Math.round(plannedIngs.reduce((sum, i) => sum + Math.max(0, 100 - Math.abs(i.pct - 100)), 0) / plannedIngs.length)
+            : (totalPlannedKg > 0 ? Math.round(Math.max(0, 100 - Math.abs(((totalActualKg - totalPlannedKg) / totalPlannedKg) * 100))) : 100);
+
+        const flags = [];
+        ingredients.forEach(i => {
+            if (i.isOmitted) flags.push({ type: 'danger', icon: 'fa-triangle-exclamation', text: `${i.name} was omitted (0 kg fed vs ${i.plannedKg.toFixed(1)} kg planned)` });
+            else if (i.isOverfed) flags.push({ type: 'warning', icon: 'fa-arrow-up-right-dots', text: `${i.name} was over-fed by +${Math.round(i.diffPct)}% (+${i.diffKg.toFixed(1)} kg)` });
+            else if (i.isUnderfed) flags.push({ type: 'warning', icon: 'fa-arrow-down-right-dots', text: `${i.name} was under-fed by ${Math.round(i.diffPct)}% (${i.diffKg.toFixed(1)} kg)` });
+        });
+
+        return {
+            hasData: true,
+            startDate,
+            endDate,
+            overallCompliancePct,
+            totalActualKg,
+            totalPlannedKg,
+            ingredients,
+            penScores,
+            flags
+        };
+    }, [feedLogs, complianceHorizon, today]);
+
     // 1. Upcoming Weigh-ins (Next projected weigh date per active calf)
     const upcomingWeighList = [];
     (animals || []).forEach(a => {
@@ -1190,6 +1325,198 @@ export default function Dashboard({ onNavigate }) {
                     </div>
                 </div>
 
+            </div>
+
+            {/* Feed & Ration Compliance Summary (Yesterday / Last 7 Days) */}
+            <div className="glass-panel" style={{ marginTop: '1.2rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.6rem', marginBottom: '0.85rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(255,193,7,0.12)', border: '1px solid rgba(255,193,7,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-gold)' }}>
+                            <i className="fa-solid fa-bowl-food"></i>
+                        </div>
+                        <div>
+                            <h3 className="panel-title" style={{ margin: 0 }}>Feed & Ration Compliance</h3>
+                            <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                                Actual feed delivered vs nutritionist target plan ({complianceHorizon === 'yesterday' ? formatDate(complianceData.startDate) : `${formatDate(complianceData.startDate)} – ${formatDate(complianceData.endDate)}`})
+                            </span>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div className="calendar-horizon-toggle">
+                            <button
+                                type="button"
+                                className={`horizon-btn ${complianceHorizon === 'yesterday' ? 'active' : ''}`}
+                                onClick={() => setComplianceHorizon('yesterday')}
+                            >
+                                Yesterday
+                            </button>
+                            <button
+                                type="button"
+                                className={`horizon-btn ${complianceHorizon === '7d' ? 'active' : ''}`}
+                                onClick={() => setComplianceHorizon('7d')}
+                            >
+                                Last 7 Days
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '0.72rem', padding: '0.25rem 0.6rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => onNavigate && onNavigate('tmr')}
+                            title="Open Ration Variance Report in TMR"
+                        >
+                            <span>Full Audit</span>
+                            <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: '0.68rem' }}></i>
+                        </button>
+                    </div>
+                </div>
+
+                {!complianceData.hasData ? (
+                    <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.84rem' }}>
+                        <i className="fa-solid fa-clipboard-question" style={{ fontSize: '1.6rem', color: 'var(--accent-gold)', marginBottom: '0.4rem', display: 'block' }}></i>
+                        No feeding logs recorded for {complianceHorizon === 'yesterday' ? 'yesterday' : 'the last 7 days'}.
+                    </div>
+                ) : (
+                    <>
+                        {/* Top Summary Strip */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginBottom: '1rem', padding: '0.75rem', background: 'rgba(0,0,0,0.22)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                            <div>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>Overall Compliance</div>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem', marginTop: '0.15rem' }}>
+                                    <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.6rem', fontWeight: 800, color: complianceData.overallCompliancePct >= 95 ? 'var(--primary-green-light)' : complianceData.overallCompliancePct >= 85 ? 'hsl(45,90%,55%)' : 'hsl(0,75%,60%)' }}>
+                                        {complianceData.overallCompliancePct}%
+                                    </span>
+                                    <span style={{ fontSize: '0.72rem', fontWeight: 600, color: complianceData.overallCompliancePct >= 95 ? 'var(--primary-green-light)' : complianceData.overallCompliancePct >= 85 ? 'hsl(45,90%,55%)' : 'hsl(0,75%,60%)' }}>
+                                        {complianceData.overallCompliancePct >= 95 ? '● On Target' : complianceData.overallCompliancePct >= 85 ? '▲ Moderate Drift' : '▼ Significant Deviation'}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>Total Feed Intake</div>
+                                <div style={{ marginTop: '0.15rem' }}>
+                                    <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-pure)' }}>
+                                        {Math.round(complianceData.totalActualKg).toLocaleString()} kg
+                                    </span>
+                                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginLeft: '0.35rem' }}>
+                                        / {Math.round(complianceData.totalPlannedKg).toLocaleString()} kg planned ({complianceData.totalPlannedKg > 0 ? Math.round((complianceData.totalActualKg / complianceData.totalPlannedKg) * 100) : 100}%)
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>Pen Breakdown</div>
+                                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.3rem' }}>
+                                    {complianceData.penScores.map(p => (
+                                        <span
+                                            key={p.penId}
+                                            style={{
+                                                fontSize: '0.7rem',
+                                                fontWeight: 700,
+                                                padding: '0.15rem 0.45rem',
+                                                borderRadius: '4px',
+                                                background: p.pct >= 95 ? 'rgba(74,222,128,0.1)' : p.pct >= 85 ? 'rgba(255,193,7,0.1)' : 'rgba(239,68,68,0.1)',
+                                                color: p.pct >= 95 ? 'var(--primary-green-light)' : p.pct >= 85 ? 'hsl(45,90%,55%)' : 'hsl(0,75%,60%)',
+                                                border: `1px solid ${p.pct >= 95 ? 'rgba(74,222,128,0.25)' : p.pct >= 85 ? 'rgba(255,193,7,0.25)' : 'rgba(239,68,68,0.25)'}`
+                                            }}
+                                        >
+                                            Pen {p.penId}: {p.pct}%
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Ingredient Progress Bars Grid */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.65rem' }}>
+                            {complianceData.ingredients.map(ing => {
+                                const statusColor = ing.isOmitted
+                                    ? 'hsl(0,75%,60%)'
+                                    : ing.isOverfed
+                                    ? 'hsl(45,90%,55%)'
+                                    : ing.isUnderfed
+                                    ? 'hsl(45,90%,55%)'
+                                    : 'var(--primary-green-light)';
+
+                                const barFillPct = Math.min(100, Math.max(0, ing.pct));
+
+                                return (
+                                    <div
+                                        key={ing.name}
+                                        style={{
+                                            padding: '0.6rem 0.75rem',
+                                            background: 'rgba(255,255,255,0.02)',
+                                            border: '1px solid rgba(255,255,255,0.05)',
+                                            borderRadius: '6px'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.35rem' }}>
+                                            <div style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--text-pure)' }}>
+                                                {ing.name}
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.35rem' }}>
+                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                                    {ing.actualKg.toFixed(1)} / {ing.plannedKg.toFixed(1)} kg
+                                                </span>
+                                                <span
+                                                    style={{
+                                                        fontSize: '0.72rem',
+                                                        fontWeight: 700,
+                                                        color: statusColor,
+                                                        padding: '0.05rem 0.35rem',
+                                                        borderRadius: '3px',
+                                                        background: ing.isOmitted ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)'
+                                                    }}
+                                                >
+                                                    {ing.isOmitted ? 'Omitted' : `${ing.pct}%`}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Progress bar */}
+                                        <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '3px', overflow: 'hidden' }}>
+                                            <div
+                                                style={{
+                                                    width: `${barFillPct}%`,
+                                                    height: '100%',
+                                                    background: statusColor,
+                                                    borderRadius: '3px',
+                                                    transition: 'width 0.4s ease'
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Flags & Warnings */}
+                        {complianceData.flags.length > 0 && (
+                            <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                {complianceData.flags.slice(0, 3).map((f, idx) => (
+                                    <div
+                                        key={idx}
+                                        style={{
+                                            fontSize: '0.74rem',
+                                            padding: '0.3rem 0.6rem',
+                                            borderRadius: '4px',
+                                            background: f.type === 'danger' ? 'rgba(220,53,69,0.1)' : 'rgba(255,193,7,0.08)',
+                                            borderLeft: `3px solid ${f.type === 'danger' ? 'hsl(0,75%,55%)' : 'var(--accent-gold)'}`,
+                                            color: f.type === 'danger' ? 'hsl(0,75%,65%)' : 'hsl(45,90%,60%)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.45rem'
+                                        }}
+                                    >
+                                        <i className={`fa-solid ${f.icon}`}></i>
+                                        <span>{f.text}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </>
+                )}
             </div>
 
             {/* Upcoming Operations & Weighing Schedule Calendar (Next 7-14 Days) */}
