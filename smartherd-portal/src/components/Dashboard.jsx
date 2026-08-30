@@ -411,6 +411,7 @@ export default function Dashboard({ onNavigate }) {
             startDateStr = earliestEntry;
         }
         if (!startDateStr) return;
+        const start = parseDateOnly(startDateStr);
         const threeDaysAgoStr = addDaysStr(today, -3);
         for (let d = new Date(start); d < today; d.setUTCDate(d.getUTCDate() + 1)) {
             const dateStr = d.toISOString().split('T')[0];
