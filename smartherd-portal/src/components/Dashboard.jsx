@@ -583,11 +583,13 @@ export default function Dashboard({ onNavigate }) {
     const [calendarFilter, setCalendarFilter] = useState('all');
     const [isCriticalExpanded, setIsCriticalExpanded] = useState(true);
 
-    // I. FEED & RATION COMPLIANCE SUMMARY (Yesterday / Last 7 Days)
-    const [complianceHorizon, setComplianceHorizon] = useState('yesterday'); // 'yesterday' | '7d'
+    // I. FEED & RATION COMPLIANCE SUMMARY (Date Selector, Yesterday, Day Before, Last 7 Days)
+    const [complianceHorizon, setComplianceHorizon] = useState('yesterday'); // 'yesterday' | 'day-before' | '7d' | 'custom'
+    const [customComplianceDate, setCustomComplianceDate] = useState('');
 
     const complianceData = useMemo(() => {
         const yesterdayStr = addDaysStr(today, -1);
+        const dayBeforeStr = addDaysStr(today, -2);
         const threeDaysAgoStr = addDaysStr(today, -3);
 
         const loggedDates = Array.from(new Set(
@@ -598,31 +600,47 @@ export default function Dashboard({ onNavigate }) {
 
         const latestLoggedDate = loggedDates[0] || null;
 
-        // Grace period: If yesterday is not yet logged, look back up to 3 days for the latest logged date
+        // Grace period / Date Selection logic
         let startDate = yesterdayStr;
         let endDate = yesterdayStr;
         let isFallback = false;
         let daysAgo = 1;
+        let modeLabel = 'Yesterday';
 
         if (complianceHorizon === 'yesterday') {
             if (loggedDates.includes(yesterdayStr)) {
                 startDate = yesterdayStr;
                 endDate = yesterdayStr;
                 daysAgo = 1;
+                modeLabel = 'Yesterday';
             } else if (latestLoggedDate && latestLoggedDate >= threeDaysAgoStr) {
                 startDate = latestLoggedDate;
                 endDate = latestLoggedDate;
                 isFallback = true;
                 daysAgo = Math.max(1, daysBetween(parseDateOnly(today), parseDateOnly(latestLoggedDate)));
+                modeLabel = `Latest Logged (${daysAgo}d ago)`;
             } else {
                 startDate = yesterdayStr;
                 endDate = yesterdayStr;
+                modeLabel = 'Yesterday';
             }
+        } else if (complianceHorizon === 'day-before') {
+            startDate = dayBeforeStr;
+            endDate = dayBeforeStr;
+            daysAgo = 2;
+            modeLabel = 'Day Before Yesterday';
+        } else if (complianceHorizon === 'custom') {
+            const chosen = customComplianceDate || (latestLoggedDate || yesterdayStr);
+            startDate = chosen;
+            endDate = chosen;
+            daysAgo = Math.max(0, daysBetween(parseDateOnly(today), parseDateOnly(chosen)));
+            modeLabel = formatDate(chosen);
         } else {
             // 7 Days view: Anchor to latest logged date if available (within 3 days), or yesterday
             const anchorDate = (latestLoggedDate && latestLoggedDate >= threeDaysAgoStr) ? latestLoggedDate : yesterdayStr;
             endDate = anchorDate;
             startDate = addDaysStr(anchorDate, -6);
+            modeLabel = 'Last 7 Days';
         }
 
         const targetLogs = (feedLogs || []).filter(f => {
@@ -638,6 +656,7 @@ export default function Dashboard({ onNavigate }) {
                 endDate,
                 isFallback,
                 daysAgo,
+                modeLabel,
                 latestLoggedDate,
                 overallCompliancePct: 0,
                 totalActualKg: 0,
@@ -746,6 +765,7 @@ export default function Dashboard({ onNavigate }) {
             endDate,
             isFallback,
             daysAgo,
+            modeLabel,
             latestLoggedDate,
             overallCompliancePct,
             totalActualKg,
@@ -754,7 +774,7 @@ export default function Dashboard({ onNavigate }) {
             penScores,
             flags
         };
-    }, [feedLogs, complianceHorizon, today]);
+    }, [feedLogs, complianceHorizon, customComplianceDate, today]);
 
     // 1. Upcoming Weigh-ins (Next projected weigh date per active calf)
     const upcomingWeighList = [];
@@ -1368,7 +1388,7 @@ export default function Dashboard({ onNavigate }) {
 
             </div>
 
-            {/* Feed & Ration Compliance Summary (Yesterday / Last 7 Days) */}
+            {/* Feed & Ration Compliance Summary (Date Selector, Yesterday, Day Before, Last 7 Days) */}
             <div className="glass-panel" style={{ marginTop: '1.2rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.6rem', marginBottom: '0.85rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -1384,6 +1404,12 @@ export default function Dashboard({ onNavigate }) {
                                         Latest Logged ({complianceData.daysAgo}d ago)
                                     </span>
                                 )}
+                                {complianceHorizon === 'custom' && (
+                                    <span style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--accent-gold)', background: 'rgba(255,193,7,0.12)', border: '1px solid rgba(255,193,7,0.25)', padding: '0.1rem 0.45rem', borderRadius: '4px' }}>
+                                        <i className="fa-solid fa-calendar-check" style={{ marginRight: '3px' }}></i>
+                                        Custom Date
+                                    </span>
+                                )}
                             </div>
                             <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
                                 Actual feed delivered vs nutritionist target plan ({
@@ -1391,33 +1417,73 @@ export default function Dashboard({ onNavigate }) {
                                         ? (complianceData.isFallback
                                             ? `${formatDate(complianceData.startDate)} (pending yesterday)`
                                             : `Yesterday · ${formatDate(complianceData.startDate)}`)
+                                        : complianceHorizon === 'day-before'
+                                        ? `Day Before Yesterday · ${formatDate(complianceData.startDate)}`
+                                        : complianceHorizon === 'custom'
+                                        ? `Audit Date: ${formatDate(complianceData.startDate)}`
                                         : `${formatDate(complianceData.startDate)} – ${formatDate(complianceData.endDate)}`
                                 })
                             </span>
                         </div>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
                         <div className="calendar-horizon-toggle">
                             <button
                                 type="button"
                                 className={`horizon-btn ${complianceHorizon === 'yesterday' ? 'active' : ''}`}
                                 onClick={() => setComplianceHorizon('yesterday')}
+                                title="Yesterday or Most Recent Logged Day"
                             >
-                                {complianceData.isFallback ? `Latest Day (${formatDate(complianceData.startDate)})` : 'Yesterday'}
+                                {complianceData.isFallback && complianceHorizon === 'yesterday' ? `Latest (${formatDate(complianceData.startDate)})` : 'Yesterday'}
+                            </button>
+                            <button
+                                type="button"
+                                className={`horizon-btn ${complianceHorizon === 'day-before' ? 'active' : ''}`}
+                                onClick={() => setComplianceHorizon('day-before')}
+                                title="Day Before Yesterday"
+                            >
+                                Day Before
                             </button>
                             <button
                                 type="button"
                                 className={`horizon-btn ${complianceHorizon === '7d' ? 'active' : ''}`}
                                 onClick={() => setComplianceHorizon('7d')}
+                                title="Last 7 Days Rolling Window"
                             >
                                 Last 7 Days
                             </button>
                         </div>
+
+                        {/* Direct Calendar Date Picker */}
+                        <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.3)', border: complianceHorizon === 'custom' ? '1px solid var(--accent-gold)' : '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', padding: '1px 6px', height: '28px', gap: '4px' }}>
+                            <i className="fa-solid fa-calendar-day" style={{ fontSize: '0.72rem', color: complianceHorizon === 'custom' ? 'var(--accent-gold)' : 'var(--text-muted)' }}></i>
+                            <input
+                                type="date"
+                                style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: complianceHorizon === 'custom' ? 'var(--accent-gold)' : 'var(--text-pure)',
+                                    fontSize: '0.72rem',
+                                    fontWeight: complianceHorizon === 'custom' ? '700' : '500',
+                                    padding: '0',
+                                    outline: 'none',
+                                    cursor: 'pointer'
+                                }}
+                                value={customComplianceDate || (complianceHorizon === 'custom' ? complianceData.startDate : '')}
+                                max={addDaysStr(today, 0)}
+                                onChange={(e) => {
+                                    setCustomComplianceDate(e.target.value);
+                                    setComplianceHorizon('custom');
+                                }}
+                                title="Pick any specific date directly to audit compliance"
+                            />
+                        </div>
+
                         <button
                             type="button"
                             className="btn btn-secondary btn-sm"
-                            style={{ fontSize: '0.72rem', padding: '0.25rem 0.6rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            style={{ fontSize: '0.72rem', padding: '0.2rem 0.55rem', display: 'inline-flex', alignItems: 'center', gap: '4px', height: '28px' }}
                             onClick={() => onNavigate && onNavigate('tmr')}
                             title="Open Ration Variance Report in TMR"
                         >
@@ -1430,7 +1496,19 @@ export default function Dashboard({ onNavigate }) {
                 {!complianceData.hasData ? (
                     <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.84rem' }}>
                         <i className="fa-solid fa-clipboard-question" style={{ fontSize: '1.6rem', color: 'var(--accent-gold)', marginBottom: '0.4rem', display: 'block' }}></i>
-                        No feeding logs recorded within the last 3 days or the selected 7-day period.
+                        No feeding logs recorded for {formatDate(complianceData.startDate)}.
+                        {complianceHorizon !== 'yesterday' && (
+                            <div style={{ marginTop: '0.6rem' }}>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => setComplianceHorizon('yesterday')}
+                                    style={{ fontSize: '0.74rem' }}
+                                >
+                                    ← Back to Latest Feeding
+                                </button>
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <>
