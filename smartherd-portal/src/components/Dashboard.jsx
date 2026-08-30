@@ -690,12 +690,31 @@ export default function Dashboard({ onNavigate }) {
             };
         }
 
+        // Deduplicate logs per pen-day to avoid double-counting overlapping full-day and split-session logs
+        const penDayLogsMap = new Map();
+        targetLogs.forEach(f => {
+            const logDate = String(f.date).split('T')[0];
+            const key = `${logDate}_${f.pen || 'ALL'}`;
+            if (!penDayLogsMap.has(key)) penDayLogsMap.set(key, []);
+            penDayLogsMap.get(key).push(f);
+        });
+
+        const normalizedLogs = [];
+        penDayLogsMap.forEach(logs => {
+            const splitLogs = logs.filter(l => (l.feedingIndex || 0) > 0);
+            if (splitLogs.length > 0) {
+                normalizedLogs.push(...splitLogs);
+            } else {
+                normalizedLogs.push(...logs);
+            }
+        });
+
         const ingMap = new Map();
         let totalActualKg = 0;
         let totalPlannedKg = 0;
         const penMap = new Map();
 
-        targetLogs.forEach(f => {
+        normalizedLogs.forEach(f => {
             const rawIngs = Array.isArray(f.ingredients) ? f.ingredients : (typeof f.ingredients === 'string' ? JSON.parse(f.ingredients || '[]') : []);
             const logAnimals = f.animalCount || 1;
             const penId = f.pen || 'ALL';
@@ -716,6 +735,7 @@ export default function Dashboard({ onNavigate }) {
 
                 if (!ingMap.has(name)) {
                     ingMap.set(name, {
+                        id: ing.id,
                         name,
                         actualKg: 0,
                         plannedKg: 0,
@@ -736,7 +756,31 @@ export default function Dashboard({ onNavigate }) {
             });
         });
 
+        // Smart Wanda / Concentrate Substitution & Supplementation
+        const isWanda = (name, id) => {
+            const s = `${name || ''} ${id || ''}`.toLowerCase();
+            return s.includes('wanda') || s.includes('premix');
+        };
+
+        let totalWandaPlanned = 0;
+        let totalWandaActual = 0;
+        const wandaIngNames = [];
+
+        ingMap.forEach((data, name) => {
+            if (isWanda(name, data.id)) {
+                totalWandaPlanned += data.plannedKg;
+                totalWandaActual += data.actualKg;
+                wandaIngNames.push(name);
+            }
+        });
+
+        const isWandaSupplemented = totalWandaPlanned > 0 && totalWandaActual > 0 && wandaIngNames.length > 1;
+        const activeWandaFedNames = wandaIngNames.filter(n => (ingMap.get(n)?.actualKg || 0) > 0.1);
+        const activeWandaFedLabel = activeWandaFedNames.join(', ') || 'Alternative Wanda';
+
         const ingredients = Array.from(ingMap.values()).map(ing => {
+            const isWandaItem = isWanda(ing.name, ing.id);
+
             let pct = 100;
             if (ing.plannedKg > 0.001) {
                 pct = Math.round((ing.actualKg / ing.plannedKg) * 100);
@@ -748,13 +792,34 @@ export default function Dashboard({ onNavigate }) {
 
             const diffKg = ing.actualKg - ing.plannedKg;
             const diffPct = ing.plannedKg > 0 ? ((ing.actualKg - ing.plannedKg) / ing.plannedKg) * 100 : 0;
-            const isOmitted = ing.plannedKg > 0.1 && ing.actualKg <= 0.01;
-            const isOverfed = diffPct > 15;
-            const isUnderfed = diffPct < -15 && !isOmitted;
-            const isOptimal = Math.abs(diffPct) <= 5;
+            
+            let isOmitted = ing.plannedKg > 0.1 && ing.actualKg <= 0.01;
+            let isOverfed = diffPct > 15;
+            let isUnderfed = diffPct < -15 && !isOmitted;
+            let isOptimal = Math.abs(diffPct) <= 5;
+            let isSupplemented = false;
+            let badgeText = `${pct}%`;
+
+            // Smart Wanda Supplementation handling
+            if (isWandaItem && isWandaSupplemented) {
+                if (isOmitted && totalWandaActual > 0) {
+                    isOmitted = false;
+                    isSupplemented = true;
+                    badgeText = `Supplemented by ${activeWandaFedLabel}`;
+                } else if (ing.plannedKg <= 0.01 && ing.actualKg > 0.01) {
+                    isOverfed = false;
+                    isSupplemented = true;
+                    const wandaDeliveryPct = totalWandaPlanned > 0 ? Math.round((totalWandaActual / totalWandaPlanned) * 100) : 100;
+                    badgeText = `Supplemented (${wandaDeliveryPct}%)`;
+                    pct = wandaDeliveryPct;
+                }
+            }
 
             return {
                 ...ing,
+                isWandaItem,
+                isSupplemented,
+                badgeText,
                 pct,
                 diffKg,
                 diffPct,
@@ -763,23 +828,46 @@ export default function Dashboard({ onNavigate }) {
                 isUnderfed,
                 isOptimal
             };
-        }).sort((a, b) => b.plannedKg - a.plannedKg);
+        }).sort((a, b) => {
+            if (a.isWandaItem && !b.isWandaItem) return -1;
+            if (!a.isWandaItem && b.isWandaItem) return 1;
+            return b.plannedKg - a.plannedKg;
+        });
 
         const penScores = Array.from(penMap.entries()).map(([penId, data]) => {
             const pct = data.planned > 0 ? Math.round((data.actual / data.planned) * 100) : 100;
             return { penId, pct, actual: data.actual, planned: data.planned };
         }).sort((a, b) => a.penId.localeCompare(b.penId));
 
-        const plannedIngs = ingredients.filter(i => i.plannedKg > 0.1);
-        const overallCompliancePct = plannedIngs.length > 0
-            ? Math.round(plannedIngs.reduce((sum, i) => sum + Math.max(0, 100 - Math.abs(i.pct - 100)), 0) / plannedIngs.length)
+        // Overall Compliance Calculation: Category-level compliance (combining Wanda into 1 concentrate category)
+        const nonWandaPlannedIngs = ingredients.filter(i => !i.isWandaItem && i.plannedKg > 0.1);
+        let sumCompliance = nonWandaPlannedIngs.reduce((sum, i) => sum + Math.max(0, 100 - Math.abs(i.pct - 100)), 0);
+        let countCategories = nonWandaPlannedIngs.length;
+
+        if (totalWandaPlanned > 0.1) {
+            const wandaDeliveryScore = Math.max(0, 100 - Math.abs(((totalWandaActual - totalWandaPlanned) / totalWandaPlanned) * 100));
+            sumCompliance += wandaDeliveryScore;
+            countCategories += 1;
+        }
+
+        const overallCompliancePct = countCategories > 0
+            ? Math.round(sumCompliance / countCategories)
             : (totalPlannedKg > 0 ? Math.round(Math.max(0, 100 - Math.abs(((totalActualKg - totalPlannedKg) / totalPlannedKg) * 100))) : 100);
 
         const flags = [];
+        if (isWandaSupplemented && activeWandaFedNames.length > 0) {
+            const wandaPct = totalWandaPlanned > 0 ? Math.round((totalWandaActual / totalWandaPlanned) * 100) : 100;
+            flags.push({
+                type: 'info',
+                icon: 'fa-repeat',
+                text: `Wanda Supplementation: ${activeWandaFedLabel} fed in place of plan (${Math.round(totalWandaActual)} / ${Math.round(totalWandaPlanned)} kg · ${wandaPct}% of Wanda quota delivered)`
+            });
+        }
+
         ingredients.forEach(i => {
             if (i.isOmitted) flags.push({ type: 'danger', icon: 'fa-triangle-exclamation', text: `${i.name} was omitted (0 kg fed vs ${i.plannedKg.toFixed(1)} kg planned)` });
-            else if (i.isOverfed) flags.push({ type: 'warning', icon: 'fa-arrow-up-right-dots', text: `${i.name} was over-fed by +${Math.round(i.diffPct)}% (+${i.diffKg.toFixed(1)} kg)` });
-            else if (i.isUnderfed) flags.push({ type: 'warning', icon: 'fa-arrow-down-right-dots', text: `${i.name} was under-fed by ${Math.round(i.diffPct)}% (${i.diffKg.toFixed(1)} kg)` });
+            else if (i.isOverfed && !i.isWandaItem) flags.push({ type: 'warning', icon: 'fa-arrow-up-right-dots', text: `${i.name} was over-fed by +${Math.round(i.diffPct)}% (+${i.diffKg.toFixed(1)} kg)` });
+            else if (i.isUnderfed && !i.isWandaItem) flags.push({ type: 'warning', icon: 'fa-arrow-down-right-dots', text: `${i.name} was under-fed by ${Math.round(i.diffPct)}% (${i.diffKg.toFixed(1)} kg)` });
         });
 
         return {
@@ -790,7 +878,7 @@ export default function Dashboard({ onNavigate }) {
             daysAgo,
             modeLabel,
             latestLoggedDate,
-            targetLogsCount: targetLogs.length,
+            targetLogsCount: normalizedLogs.length,
             activeDaysCount,
             overallCompliancePct,
             totalActualKg,
@@ -1614,7 +1702,9 @@ export default function Dashboard({ onNavigate }) {
                         {/* Ingredient Progress Bars Grid */}
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.65rem' }}>
                             {complianceData.ingredients.map(ing => {
-                                const statusColor = ing.isOmitted
+                                const statusColor = ing.isSupplemented
+                                    ? '#38bdf8'
+                                    : ing.isOmitted
                                     ? 'hsl(0,75%,60%)'
                                     : ing.isOverfed
                                     ? 'hsl(45,90%,55%)'
@@ -1629,8 +1719,8 @@ export default function Dashboard({ onNavigate }) {
                                         key={ing.name}
                                         style={{
                                             padding: '0.6rem 0.75rem',
-                                            background: 'rgba(255,255,255,0.02)',
-                                            border: '1px solid rgba(255,255,255,0.05)',
+                                            background: ing.isSupplemented ? 'rgba(56,189,248,0.03)' : 'rgba(255,255,255,0.02)',
+                                            border: ing.isSupplemented ? '1px solid rgba(56,189,248,0.15)' : '1px solid rgba(255,255,255,0.05)',
                                             borderRadius: '6px'
                                         }}
                                     >
@@ -1649,10 +1739,20 @@ export default function Dashboard({ onNavigate }) {
                                                         color: statusColor,
                                                         padding: '0.05rem 0.35rem',
                                                         borderRadius: '3px',
-                                                        background: ing.isOmitted ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)'
+                                                        background: ing.isSupplemented
+                                                            ? 'rgba(56,189,248,0.15)'
+                                                            : ing.isOmitted
+                                                            ? 'rgba(239,68,68,0.15)'
+                                                            : 'rgba(255,255,255,0.06)'
                                                     }}
                                                 >
-                                                    {ing.isOmitted ? 'Omitted' : `${ing.pct}%`}
+                                                    {ing.isSupplemented ? (
+                                                        <span><i className="fa-solid fa-repeat" style={{ marginRight: '3px', fontSize: '0.65rem' }}></i>{ing.badgeText}</span>
+                                                    ) : ing.isOmitted ? (
+                                                        'Omitted'
+                                                    ) : (
+                                                        `${ing.pct}%`
+                                                    )}
                                                 </span>
                                             </div>
                                         </div>
