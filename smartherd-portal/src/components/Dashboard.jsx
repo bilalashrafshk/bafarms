@@ -583,13 +583,13 @@ export default function Dashboard({ onNavigate }) {
     const [calendarFilter, setCalendarFilter] = useState('all');
     const [isCriticalExpanded, setIsCriticalExpanded] = useState(true);
 
-    // I. FEED & RATION COMPLIANCE SUMMARY (Date Selector, Yesterday, Day Before, Last 7 Days)
-    const [complianceHorizon, setComplianceHorizon] = useState('yesterday'); // 'yesterday' | 'day-before' | '7d' | 'custom'
-    const [customComplianceDate, setCustomComplianceDate] = useState('');
+    // I. FEED & RATION COMPLIANCE SUMMARY (Industry Standard Date Range Filters)
+    const [complianceHorizon, setComplianceHorizon] = useState('yesterday'); // 'yesterday' | '7d' | '30d' | 'thisMonth' | 'lastMonth' | 'custom'
+    const [customDateFrom, setCustomDateFrom] = useState('');
+    const [customDateTo, setCustomDateTo] = useState('');
 
     const complianceData = useMemo(() => {
         const yesterdayStr = addDaysStr(today, -1);
-        const dayBeforeStr = addDaysStr(today, -2);
         const threeDaysAgoStr = addDaysStr(today, -3);
 
         const loggedDates = Array.from(new Set(
@@ -600,7 +600,22 @@ export default function Dashboard({ onNavigate }) {
 
         const latestLoggedDate = loggedDates[0] || null;
 
-        // Grace period / Date Selection logic
+        // Month boundary calculations
+        const tDate = parseDateOnly(today);
+        const yyyy = tDate.getUTCFullYear();
+        const mm = String(tDate.getUTCMonth() + 1).padStart(2, '0');
+        const thisMonthStart = `${yyyy}-${mm}-01`;
+
+        const prevMonthDate = new Date(Date.UTC(yyyy, tDate.getUTCMonth() - 1, 1));
+        const prevYyyy = prevMonthDate.getUTCFullYear();
+        const prevMm = String(prevMonthDate.getUTCMonth() + 1).padStart(2, '0');
+        const lastDayPrevMonth = new Date(Date.UTC(yyyy, tDate.getUTCMonth(), 0)).getUTCDate();
+        const lastMonthStart = `${prevYyyy}-${prevMm}-01`;
+        const lastMonthEnd = `${prevYyyy}-${prevMm}-${String(lastDayPrevMonth).padStart(2, '0')}`;
+
+        // Anchor date for rolling ranges (respects 3-day grace period for unkeyed logs)
+        const anchorDate = (latestLoggedDate && latestLoggedDate >= threeDaysAgoStr) ? latestLoggedDate : yesterdayStr;
+
         let startDate = yesterdayStr;
         let endDate = yesterdayStr;
         let isFallback = false;
@@ -624,23 +639,26 @@ export default function Dashboard({ onNavigate }) {
                 endDate = yesterdayStr;
                 modeLabel = 'Yesterday';
             }
-        } else if (complianceHorizon === 'day-before') {
-            startDate = dayBeforeStr;
-            endDate = dayBeforeStr;
-            daysAgo = 2;
-            modeLabel = 'Day Before Yesterday';
-        } else if (complianceHorizon === 'custom') {
-            const chosen = customComplianceDate || (latestLoggedDate || yesterdayStr);
-            startDate = chosen;
-            endDate = chosen;
-            daysAgo = Math.max(0, daysBetween(parseDateOnly(today), parseDateOnly(chosen)));
-            modeLabel = formatDate(chosen);
-        } else {
-            // 7 Days view: Anchor to latest logged date if available (within 3 days), or yesterday
-            const anchorDate = (latestLoggedDate && latestLoggedDate >= threeDaysAgoStr) ? latestLoggedDate : yesterdayStr;
+        } else if (complianceHorizon === '7d') {
             endDate = anchorDate;
             startDate = addDaysStr(anchorDate, -6);
             modeLabel = 'Last 7 Days';
+        } else if (complianceHorizon === '30d') {
+            endDate = anchorDate;
+            startDate = addDaysStr(anchorDate, -29);
+            modeLabel = 'Last 30 Days';
+        } else if (complianceHorizon === 'thisMonth') {
+            startDate = thisMonthStart;
+            endDate = anchorDate;
+            modeLabel = 'This Month';
+        } else if (complianceHorizon === 'lastMonth') {
+            startDate = lastMonthStart;
+            endDate = lastMonthEnd;
+            modeLabel = 'Last Month';
+        } else if (complianceHorizon === 'custom') {
+            startDate = customDateFrom || addDaysStr(anchorDate, -6);
+            endDate = customDateTo || anchorDate;
+            modeLabel = 'Custom Range';
         }
 
         const targetLogs = (feedLogs || []).filter(f => {
@@ -648,6 +666,8 @@ export default function Dashboard({ onNavigate }) {
             const logDate = String(f.date).split('T')[0];
             return logDate >= startDate && logDate <= endDate;
         });
+
+        const activeDaysCount = new Set(targetLogs.map(f => String(f.date).split('T')[0])).size;
 
         if (targetLogs.length === 0) {
             return {
@@ -658,6 +678,8 @@ export default function Dashboard({ onNavigate }) {
                 daysAgo,
                 modeLabel,
                 latestLoggedDate,
+                targetLogsCount: 0,
+                activeDaysCount: 0,
                 overallCompliancePct: 0,
                 totalActualKg: 0,
                 totalPlannedKg: 0,
@@ -767,6 +789,8 @@ export default function Dashboard({ onNavigate }) {
             daysAgo,
             modeLabel,
             latestLoggedDate,
+            targetLogsCount: targetLogs.length,
+            activeDaysCount,
             overallCompliancePct,
             totalActualKg,
             totalPlannedKg,
@@ -774,7 +798,7 @@ export default function Dashboard({ onNavigate }) {
             penScores,
             flags
         };
-    }, [feedLogs, complianceHorizon, customComplianceDate, today]);
+    }, [feedLogs, complianceHorizon, customDateFrom, customDateTo, today]);
 
     // 1. Upcoming Weigh-ins (Next projected weigh date per active calf)
     const upcomingWeighList = [];
@@ -1388,7 +1412,7 @@ export default function Dashboard({ onNavigate }) {
 
             </div>
 
-            {/* Feed & Ration Compliance Summary (Date Selector, Yesterday, Day Before, Last 7 Days) */}
+            {/* Feed & Ration Compliance Summary (Industry Standard Date Filters: Yesterday, 7D, 30D, This Month, Last Month, Custom) */}
             <div className="glass-panel" style={{ marginTop: '1.2rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.6rem', marginBottom: '0.85rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -1404,24 +1428,17 @@ export default function Dashboard({ onNavigate }) {
                                         Latest Logged ({complianceData.daysAgo}d ago)
                                     </span>
                                 )}
-                                {complianceHorizon === 'custom' && (
-                                    <span style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--accent-gold)', background: 'rgba(255,193,7,0.12)', border: '1px solid rgba(255,193,7,0.25)', padding: '0.1rem 0.45rem', borderRadius: '4px' }}>
-                                        <i className="fa-solid fa-calendar-check" style={{ marginRight: '3px' }}></i>
-                                        Custom Date
-                                    </span>
-                                )}
+                                <span style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)', padding: '0.1rem 0.45rem', borderRadius: '4px' }}>
+                                    {complianceData.modeLabel}
+                                </span>
                             </div>
                             <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
                                 Actual feed delivered vs nutritionist target plan ({
-                                    complianceHorizon === 'yesterday'
+                                    complianceData.startDate === complianceData.endDate
                                         ? (complianceData.isFallback
                                             ? `${formatDate(complianceData.startDate)} (pending yesterday)`
-                                            : `Yesterday · ${formatDate(complianceData.startDate)}`)
-                                        : complianceHorizon === 'day-before'
-                                        ? `Day Before Yesterday · ${formatDate(complianceData.startDate)}`
-                                        : complianceHorizon === 'custom'
-                                        ? `Audit Date: ${formatDate(complianceData.startDate)}`
-                                        : `${formatDate(complianceData.startDate)} – ${formatDate(complianceData.endDate)}`
+                                            : formatDate(complianceData.startDate))
+                                        : `${formatDate(complianceData.startDate)} – ${formatDate(complianceData.endDate)} (${complianceData.activeDaysCount} active ${complianceData.activeDaysCount === 1 ? 'day' : 'days'}, ${complianceData.targetLogsCount} sessions)`
                                 })
                             </span>
                         </div>
@@ -1439,46 +1456,74 @@ export default function Dashboard({ onNavigate }) {
                             </button>
                             <button
                                 type="button"
-                                className={`horizon-btn ${complianceHorizon === 'day-before' ? 'active' : ''}`}
-                                onClick={() => setComplianceHorizon('day-before')}
-                                title="Day Before Yesterday"
-                            >
-                                Day Before
-                            </button>
-                            <button
-                                type="button"
                                 className={`horizon-btn ${complianceHorizon === '7d' ? 'active' : ''}`}
                                 onClick={() => setComplianceHorizon('7d')}
                                 title="Last 7 Days Rolling Window"
                             >
-                                Last 7 Days
+                                7D
+                            </button>
+                            <button
+                                type="button"
+                                className={`horizon-btn ${complianceHorizon === '30d' ? 'active' : ''}`}
+                                onClick={() => setComplianceHorizon('30d')}
+                                title="Last 30 Days Rolling Window"
+                            >
+                                30D
+                            </button>
+                            <button
+                                type="button"
+                                className={`horizon-btn ${complianceHorizon === 'thisMonth' ? 'active' : ''}`}
+                                onClick={() => setComplianceHorizon('thisMonth')}
+                                title="This Month (MTD)"
+                            >
+                                This Month
+                            </button>
+                            <button
+                                type="button"
+                                className={`horizon-btn ${complianceHorizon === 'lastMonth' ? 'active' : ''}`}
+                                onClick={() => setComplianceHorizon('lastMonth')}
+                                title="Last Month"
+                            >
+                                Last Month
+                            </button>
+                            <button
+                                type="button"
+                                className={`horizon-btn ${complianceHorizon === 'custom' ? 'active' : ''}`}
+                                onClick={() => {
+                                    if (complianceHorizon !== 'custom') {
+                                        if (!customDateFrom) setCustomDateFrom(addDaysStr(today, -7));
+                                        if (!customDateTo) setCustomDateTo(addDaysStr(today, -1));
+                                        setComplianceHorizon('custom');
+                                    }
+                                }}
+                                title="Custom Date Range Picker"
+                            >
+                                Custom
                             </button>
                         </div>
 
-                        {/* Direct Calendar Date Picker */}
-                        <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.3)', border: complianceHorizon === 'custom' ? '1px solid var(--accent-gold)' : '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', padding: '1px 6px', height: '28px', gap: '4px' }}>
-                            <i className="fa-solid fa-calendar-day" style={{ fontSize: '0.72rem', color: complianceHorizon === 'custom' ? 'var(--accent-gold)' : 'var(--text-muted)' }}></i>
-                            <input
-                                type="date"
-                                style={{
-                                    background: 'transparent',
-                                    border: 'none',
-                                    color: complianceHorizon === 'custom' ? 'var(--accent-gold)' : 'var(--text-pure)',
-                                    fontSize: '0.72rem',
-                                    fontWeight: complianceHorizon === 'custom' ? '700' : '500',
-                                    padding: '0',
-                                    outline: 'none',
-                                    cursor: 'pointer'
-                                }}
-                                value={customComplianceDate || (complianceHorizon === 'custom' ? complianceData.startDate : '')}
-                                max={addDaysStr(today, 0)}
-                                onChange={(e) => {
-                                    setCustomComplianceDate(e.target.value);
-                                    setComplianceHorizon('custom');
-                                }}
-                                title="Pick any specific date directly to audit compliance"
-                            />
-                        </div>
+                        {/* Custom Date Range Inputs (when Custom is active) */}
+                        {complianceHorizon === 'custom' && (
+                            <div style={{ display: 'inline-flex', alignItems: 'center', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--accent-gold)', borderRadius: '6px', padding: '1px 6px', height: '28px', gap: '4px' }}>
+                                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>From:</span>
+                                <input
+                                    type="date"
+                                    style={{ background: 'transparent', border: 'none', color: 'var(--text-pure)', fontSize: '0.72rem', fontWeight: '600', padding: '0', outline: 'none', cursor: 'pointer' }}
+                                    value={customDateFrom || complianceData.startDate}
+                                    max={customDateTo || addDaysStr(today, 0)}
+                                    onChange={(e) => setCustomDateFrom(e.target.value)}
+                                />
+                                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>To:</span>
+                                <input
+                                    type="date"
+                                    style={{ background: 'transparent', border: 'none', color: 'var(--text-pure)', fontSize: '0.72rem', fontWeight: '600', padding: '0', outline: 'none', cursor: 'pointer' }}
+                                    value={customDateTo || complianceData.endDate}
+                                    min={customDateFrom}
+                                    max={addDaysStr(today, 0)}
+                                    onChange={(e) => setCustomDateTo(e.target.value)}
+                                />
+                            </div>
+                        )}
 
                         <button
                             type="button"
@@ -1496,7 +1541,11 @@ export default function Dashboard({ onNavigate }) {
                 {!complianceData.hasData ? (
                     <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.84rem' }}>
                         <i className="fa-solid fa-clipboard-question" style={{ fontSize: '1.6rem', color: 'var(--accent-gold)', marginBottom: '0.4rem', display: 'block' }}></i>
-                        No feeding logs recorded for {formatDate(complianceData.startDate)}.
+                        No feeding logs recorded for {
+                            complianceData.startDate === complianceData.endDate
+                                ? formatDate(complianceData.startDate)
+                                : `${formatDate(complianceData.startDate)} to ${formatDate(complianceData.endDate)}`
+                        }.
                         {complianceHorizon !== 'yesterday' && (
                             <div style={{ marginTop: '0.6rem' }}>
                                 <button
