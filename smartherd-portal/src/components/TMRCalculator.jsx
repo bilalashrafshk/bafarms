@@ -1044,9 +1044,13 @@ export default function TMRCalculator() {
         const targetPct = activeFeedingIndex === 0 ? 100 : activeFeedingPct;
         
         if (!skipConfirm) {
-            const conflictMsg = checkPenFeedConflict(feedLogs, logDate, penId, targetFeedingIdx, targetPct);
-            if (conflictMsg) {
-                if (!window.confirm(conflictMsg)) {
+            const conflict = checkPenFeedConflict(feedLogs, logDate, penId, targetFeedingIdx, targetPct);
+            if (conflict) {
+                if (conflict.blocking) {
+                    alert(conflict.message);
+                    return;
+                }
+                if (!window.confirm(conflict.message)) {
                     return;
                 }
             }
@@ -1098,35 +1102,36 @@ export default function TMRCalculator() {
         return res;
     };
 
+    // Returns null (no conflict), { blocking: false, message } for a safe in-place
+    // overwrite of the exact same date+pen+feedingIndex slot, or { blocking: true,
+    // message } when saving would create a NEW row alongside existing ones and push
+    // the pen's daily total over 100%. Blocking conflicts must never be bypassed by a
+    // confirm dialog — logFeed() upserts on (date, pen, feedingIndex), so anything
+    // other than an exact-slot match is additive, not a real overwrite, and stacking
+    // it on top of existing feed(s) is how a pen ends up fed >100% in a day. The only
+    // way to change what's fed for that slot is to overwrite or delete it first.
+    const pctFor = (f) => f.feedingPct || (((f.feedingIndex || 0) === 0) ? 100 : 50);
+    const sessionLabel = (idx) => idx === 0 ? 'Full Day' : idx === 1 ? 'Morning' : idx === 2 ? 'Evening' : `Feed ${idx}`;
+
     const checkPenFeedConflict = (logs, date, penId, targetFeedingIdx, targetPct) => {
         const penLogs = (logs || []).filter(f => f.date === date && String(f.pen) === String(penId));
         if (penLogs.length === 0) return null;
 
-        const fullDayLog = penLogs.find(f => (f.feedingIndex || 0) === 0 || (f.feedingPct || 100) === 100);
-        if (fullDayLog) {
-            const byText = fullDayLog.createdBy ? ` by ${fullDayLog.createdBy}` : '';
-            return `⚠️ Pen ${penId} has ALREADY been logged for Full Day (100%) on ${date}${byText}.\n\nDo you want to update/overwrite the existing log?`;
-        }
-
-        if (targetFeedingIdx === 0) {
-            const firstLog = penLogs[0];
-            const byText = firstLog.createdBy ? ` by ${firstLog.createdBy}` : '';
-            const sessionList = penLogs.map(l => l.feedingIndex === 1 ? 'Morning (50%)' : l.feedingIndex === 2 ? 'Evening (50%)' : `Feed ${l.feedingIndex}`).join(', ');
-            return `⚠️ Pen ${penId} ALREADY has logged feed(s) (${sessionList}) on ${date}${byText}.\n\nYou cannot log a 100% Full Day feed on top of partial feeds. Do you want to update/overwrite the existing feed log?`;
-        }
-
         const exactLog = penLogs.find(f => (f.feedingIndex || 0) === targetFeedingIdx);
         if (exactLog) {
-            const sessionText = targetFeedingIdx === 1 ? 'Morning (50%)' : targetFeedingIdx === 2 ? 'Evening (50%)' : `Feed ${targetFeedingIdx}`;
+            const sessionText = `${sessionLabel(targetFeedingIdx)} (${targetPct}%)`;
             const byText = exactLog.createdBy ? ` by ${exactLog.createdBy}` : '';
-            return `⚠️ Pen ${penId} has ALREADY been logged for ${sessionText} on ${date}${byText}.\n\nDo you want to update/overwrite the existing ${sessionText} log?`;
+            return { blocking: false, message: `⚠️ Pen ${penId} has ALREADY been logged for ${sessionText} on ${date}${byText}.\n\nDo you want to overwrite the existing ${sessionText} log?` };
         }
 
-        const currentTotalPct = penLogs.reduce((sum, f) => sum + (f.feedingPct || 50), 0);
-        if (currentTotalPct + targetPct > 100) {
-            const firstLog = penLogs[0];
-            const byText = firstLog.createdBy ? ` by ${firstLog.createdBy}` : '';
-            return `⚠️ Pen ${penId} has already received ${currentTotalPct}% of its daily feed on ${date}${byText}.\n\nAdding this ${targetPct}% feed exceeds 100%. Do you want to update/overwrite existing feeding logs?`;
+        const otherLogsPct = penLogs.reduce((sum, f) => sum + pctFor(f), 0);
+        if (otherLogsPct + targetPct > 100) {
+            const sessionList = penLogs.map(l => `${sessionLabel(l.feedingIndex || 0)} (${pctFor(l)}%)`).join(', ');
+            const byText = penLogs[0].createdBy ? ` by ${penLogs[0].createdBy}` : '';
+            return {
+                blocking: true,
+                message: `🚫 Pen ${penId} already has ${otherLogsPct}% of its daily feed logged on ${date} (${sessionList})${byText}.\n\nAdding this ${sessionLabel(targetFeedingIdx)} (${targetPct}%) feed would total ${otherLogsPct + targetPct}%, which exceeds 100% and is not allowed.\n\nDelete or overwrite the existing feeding log(s) for this pen/date first.`
+            };
         }
 
         return null;
@@ -1177,12 +1182,20 @@ export default function TMRCalculator() {
         const targetPct = activeFeedingIndex === 0 ? 100 : activeFeedingPct;
 
         const conflictingPens = tractorSelectedPens
-            .map(penId => ({ penId, msg: checkPenFeedConflict(feedLogs, logDate, penId, targetFeedingIdx, targetPct) }))
-            .filter(item => item.msg !== null);
+            .map(penId => ({ penId, conflict: checkPenFeedConflict(feedLogs, logDate, penId, targetFeedingIdx, targetPct) }))
+            .filter(item => item.conflict !== null);
 
-        if (conflictingPens.length > 0) {
-            const penList = conflictingPens.map(item => `Pen ${item.penId}`).join(', ');
-            const confirmMessage = `⚠️ ${conflictingPens.length} pen(s) (${penList}) have existing or overlapping feeding logs on ${logDate}.\n\nDo you want to update/overwrite their existing feeding logs?`;
+        const blockingPens = conflictingPens.filter(item => item.conflict.blocking);
+        if (blockingPens.length > 0) {
+            const penList = blockingPens.map(item => `Pen ${item.penId}`).join(', ');
+            alert(`🚫 ${blockingPens.length} pen(s) (${penList}) already have feeding log(s) on ${logDate} that would exceed 100% if this feeding is added.\n\nDelete or overwrite their existing feeding log(s) first, then try again.`);
+            return;
+        }
+
+        const overwritePens = conflictingPens.filter(item => !item.conflict.blocking);
+        if (overwritePens.length > 0) {
+            const penList = overwritePens.map(item => `Pen ${item.penId}`).join(', ');
+            const confirmMessage = `⚠️ ${overwritePens.length} pen(s) (${penList}) already have a feeding log for this exact session on ${logDate}.\n\nDo you want to overwrite their existing feeding log(s)?`;
             if (!window.confirm(confirmMessage)) {
                 return;
             }
