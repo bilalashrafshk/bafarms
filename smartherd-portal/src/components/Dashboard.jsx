@@ -778,8 +778,30 @@ export default function Dashboard({ onNavigate }) {
         const activeWandaFedNames = wandaIngNames.filter(n => (ingMap.get(n)?.actualKg || 0) > 0.1);
         const activeWandaFedLabel = activeWandaFedNames.join(', ') || 'Alternative Wanda';
 
+        // Calculate total head count across unique pens on that day/period
+        const penHeadCountMap = new Map();
+        normalizedLogs.forEach(f => {
+            const penId = f.pen || 'ALL';
+            const existing = penHeadCountMap.get(penId) || 0;
+            penHeadCountMap.set(penId, Math.max(existing, f.animalCount || 0));
+        });
+
+        const totalActiveAnimals = Array.from(penHeadCountMap.values()).reduce((sum, c) => sum + c, 0);
+
+        // Total animal days across the date range
+        const penDateHeadMap = new Map();
+        normalizedLogs.forEach(f => {
+            const logDate = String(f.date).split('T')[0];
+            const key = `${logDate}_${f.pen || 'ALL'}`;
+            const existing = penDateHeadMap.get(key) || 0;
+            penDateHeadMap.set(key, Math.max(existing, f.animalCount || 0));
+        });
+        const totalAnimalDays = Array.from(penDateHeadMap.values()).reduce((sum, c) => sum + c, 0) || (totalActiveAnimals * (activeDaysCount || 1)) || 1;
+
         const ingredients = Array.from(ingMap.values()).map(ing => {
             const isWandaItem = isWanda(ing.name, ing.id);
+            const actualPerHead = totalAnimalDays > 0 ? (ing.actualKg / totalAnimalDays) : 0;
+            const plannedPerHead = totalAnimalDays > 0 ? (ing.plannedKg / totalAnimalDays) : 0;
 
             let pct = 100;
             if (ing.plannedKg > 0.001) {
@@ -817,6 +839,8 @@ export default function Dashboard({ onNavigate }) {
 
             return {
                 ...ing,
+                actualPerHead,
+                plannedPerHead,
                 isWandaItem,
                 isSupplemented,
                 badgeText,
@@ -835,8 +859,9 @@ export default function Dashboard({ onNavigate }) {
         });
 
         const penScores = Array.from(penMap.entries()).map(([penId, data]) => {
+            const headCount = penHeadCountMap.get(penId) || 0;
             const pct = data.planned > 0 ? Math.round((data.actual / data.planned) * 100) : 100;
-            return { penId, pct, actual: data.actual, planned: data.planned };
+            return { penId, headCount, pct, actual: data.actual, planned: data.planned };
         }).sort((a, b) => a.penId.localeCompare(b.penId));
 
         // Overall Compliance Calculation: Category-level compliance (combining Wanda into 1 concentrate category)
@@ -880,6 +905,8 @@ export default function Dashboard({ onNavigate }) {
             latestLoggedDate,
             targetLogsCount: normalizedLogs.length,
             activeDaysCount,
+            totalActiveAnimals,
+            totalAnimalDays,
             overallCompliancePct,
             totalActualKg,
             totalPlannedKg,
@@ -1651,7 +1678,7 @@ export default function Dashboard({ onNavigate }) {
                 ) : (
                     <>
                         {/* Top Summary Strip */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginBottom: '1rem', padding: '0.75rem', background: 'rgba(0,0,0,0.22)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.75rem', marginBottom: '1rem', padding: '0.75rem', background: 'rgba(0,0,0,0.22)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
                             <div>
                                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>Overall Compliance</div>
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem', marginTop: '0.15rem' }}>
@@ -1660,6 +1687,18 @@ export default function Dashboard({ onNavigate }) {
                                     </span>
                                     <span style={{ fontSize: '0.72rem', fontWeight: 600, color: complianceData.overallCompliancePct >= 95 ? 'var(--primary-green-light)' : complianceData.overallCompliancePct >= 85 ? 'hsl(45,90%,55%)' : 'hsl(0,75%,60%)' }}>
                                         {complianceData.overallCompliancePct >= 95 ? '● On Target' : complianceData.overallCompliancePct >= 85 ? '▲ Moderate Drift' : '▼ Significant Deviation'}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>Active Animals</div>
+                                <div style={{ marginTop: '0.15rem' }}>
+                                    <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-pure)' }}>
+                                        {complianceData.totalActiveAnimals} Head
+                                    </span>
+                                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginLeft: '0.35rem' }}>
+                                        across {complianceData.penScores.length} {complianceData.penScores.length === 1 ? 'pen' : 'pens'}
                                     </span>
                                 </div>
                             </div>
@@ -1692,7 +1731,7 @@ export default function Dashboard({ onNavigate }) {
                                                 border: `1px solid ${p.pct >= 95 ? 'rgba(74,222,128,0.25)' : p.pct >= 85 ? 'rgba(255,193,7,0.25)' : 'rgba(239,68,68,0.25)'}`
                                             }}
                                         >
-                                            Pen {p.penId}: {p.pct}%
+                                            Pen {p.penId} ({p.headCount}h): {p.pct}%
                                         </span>
                                     ))}
                                 </div>
@@ -1718,26 +1757,32 @@ export default function Dashboard({ onNavigate }) {
                                     <div
                                         key={ing.name}
                                         style={{
-                                            padding: '0.6rem 0.75rem',
+                                            padding: '0.65rem 0.8rem',
                                             background: ing.isSupplemented ? 'rgba(56,189,248,0.03)' : 'rgba(255,255,255,0.02)',
-                                            border: ing.isSupplemented ? '1px solid rgba(56,189,248,0.15)' : '1px solid rgba(255,255,255,0.05)',
+                                            border: ing.isSupplemented ? '1px solid rgba(56,189,248,0.18)' : '1px solid rgba(255,255,255,0.05)',
                                             borderRadius: '6px'
                                         }}
                                     >
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.35rem' }}>
-                                            <div style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--text-pure)' }}>
-                                                {ing.name}
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.35rem' }}>
+                                            <div>
+                                                <div style={{ fontWeight: 600, fontSize: '0.84rem', color: 'var(--text-pure)' }}>
+                                                    {ing.name}
+                                                </div>
+                                                {/* Per Head Given vs Planned */}
+                                                <div style={{ fontSize: '0.72rem', color: 'var(--accent-gold)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <i className="fa-solid fa-cow" style={{ fontSize: '0.66rem', opacity: 0.85 }}></i>
+                                                    <span>
+                                                        <strong>{ing.actualPerHead.toFixed(2)} kg</strong> <span style={{ color: 'var(--text-muted)' }}>/ {ing.plannedPerHead.toFixed(2)} kg/head</span>
+                                                    </span>
+                                                </div>
                                             </div>
-                                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.35rem' }}>
-                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                                                    {ing.actualKg.toFixed(1)} / {ing.plannedKg.toFixed(1)} kg
-                                                </span>
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
                                                 <span
                                                     style={{
                                                         fontSize: '0.72rem',
                                                         fontWeight: 700,
                                                         color: statusColor,
-                                                        padding: '0.05rem 0.35rem',
+                                                        padding: '0.06rem 0.35rem',
                                                         borderRadius: '3px',
                                                         background: ing.isSupplemented
                                                             ? 'rgba(56,189,248,0.15)'
@@ -1754,6 +1799,9 @@ export default function Dashboard({ onNavigate }) {
                                                         `${ing.pct}%`
                                                     )}
                                                 </span>
+                                                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                                    {ing.actualKg.toFixed(1)} / {ing.plannedKg.toFixed(1)} kg total
+                                                </span>
                                             </div>
                                         </div>
 
@@ -1763,7 +1811,7 @@ export default function Dashboard({ onNavigate }) {
                                                 style={{
                                                     width: `${barFillPct}%`,
                                                     height: '100%',
-                                                    background: statusColor,
+                                                    background: ing.isSupplemented ? '#38bdf8' : statusColor,
                                                     borderRadius: '3px',
                                                     transition: 'width 0.4s ease'
                                                 }}
