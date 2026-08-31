@@ -5,6 +5,14 @@ import { formatDate } from '../utils/formatDate';
 import { todayPKT, daysBetween, parseDateOnly } from '../utils/dateOnly';
 import FeedLogDetailModal from './FeedLogDetailModal';
 import RationVarianceReport from './RationVarianceReport';
+import {
+    formatIngredientDisplayName,
+    sortIngredientsCanonical,
+    generateDietTableCanvas,
+    generateDietTableBlob,
+    downloadDietTableImage,
+    copyImageBlobToClipboard
+} from '../utils/dietFormatting';
 
 // Offsets a 'YYYY-MM-DD' date-only string by `delta` calendar days, staying in the
 // same PKT-anchored day-space as every other date helper in the app (see dateOnly.js)
@@ -186,7 +194,61 @@ export function formatKg(val, defaultDecimals = 2) {
     return standard;
 }
 
+// Live High-Res Image Preview Component for WhatsApp Diet Modal
+function DietTableImagePreview({ shareData, onCanvasReady }) {
+    const [imgUrl, setImgUrl] = useState(null);
+
+    useEffect(() => {
+        let isMounted = true;
+        try {
+            const canvas = generateDietTableCanvas(shareData);
+            if (canvas && isMounted) {
+                setImgUrl(canvas.toDataURL('image/png'));
+                if (onCanvasReady) onCanvasReady(canvas);
+            }
+        } catch (e) {
+            console.error("Error generating diet table canvas", e);
+        }
+        return () => { isMounted = false; };
+    }, [shareData, onCanvasReady]);
+
+    if (!imgUrl) {
+        return (
+            <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: '8px', color: '#25D366' }}></i>
+                Generating HD Matrix Table...
+            </div>
+        );
+    }
+
+    return (
+        <div style={{
+            width: '100%',
+            overflowX: 'auto',
+            borderRadius: '8px',
+            border: '1px solid rgba(255,255,255,0.12)',
+            background: '#070b09',
+            textAlign: 'center',
+            padding: '0.6rem'
+        }}>
+            <img
+                src={imgUrl}
+                alt="Diet Mixing Sheet Table"
+                style={{
+                    maxWidth: '100%',
+                    height: 'auto',
+                    borderRadius: '6px',
+                    boxShadow: '0 8px 30px rgba(0,0,0,0.6)',
+                    display: 'block',
+                    margin: '0 auto'
+                }}
+            />
+        </div>
+    );
+}
+
 export default function TMRCalculator() {
+
     const {
         feedIngredients, feedStockItems, animals, staffUser, feedLogs, logFeed, deleteFeedLog,
         pens, getPenRationRow, getPenWeightFlags, getIngredientStockPrice, getIngredientStockQty
@@ -412,6 +474,7 @@ export default function TMRCalculator() {
     const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
     const [whatsAppModalPen, setWhatsAppModalPen] = useState('all');
     const [whatsAppModalSession, setWhatsAppModalSession] = useState('morning');
+    const [whatsAppPreviewMode, setWhatsAppPreviewMode] = useState('image'); // 'image' | 'text'
     const [copiedToast, setCopiedToast] = useState('');
 
     // 2. QUANTITY MATH — plan-driven only. Ingredient quantities are as-fed kg/head/day
@@ -442,7 +505,7 @@ export default function TMRCalculator() {
         const overrides = getPlanOverrides(penId);
         const extras = getExtraIngredients(penId);
 
-        const planIngredientRows = isPlanDriven
+        const rawPlanIngredientRows = isPlanDriven
             ? Object.entries(resolvedPlanRow.week.ingredients).map(([id, qty]) => {
                 const ing = feedIngredients.find(i => i.id === id)
                     || feedStockItems.find(i => i.id === id)
@@ -452,9 +515,10 @@ export default function TMRCalculator() {
                 const stockPrice = getIngredientStockPrice(id);
                 const price = (stockPrice !== null && stockPrice > 0) ? stockPrice : (ing.price || 0);
                 const qtyPerHead = overrides[id] !== undefined ? overrides[id] : qty;
+                const formattedName = formatIngredientDisplayName(ing.name, id);
                 return {
                     id,
-                    name: ing.name,
+                    name: formattedName,
                     price,
                     planQty: qty,
                     qtyPerHead,
@@ -470,7 +534,7 @@ export default function TMRCalculator() {
         // difference). Any ingredient with real stock can be picked, not just what's
         // already scheduled — a one-off substitution or top-up shouldn't require editing
         // the Ration Plan itself.
-        const extraIngredientRows = isPlanDriven
+        const rawExtraIngredientRows = isPlanDriven
             ? Object.entries(extras).map(([id, qty]) => {
                 const ing = feedIngredients.find(i => i.id === id)
                     || feedStockItems.find(i => i.id === id)
@@ -478,9 +542,10 @@ export default function TMRCalculator() {
                 const stockPrice = getIngredientStockPrice(id);
                 const price = (stockPrice !== null && stockPrice > 0) ? stockPrice : (ing.price || 0);
                 const qtyPerHead = parseFloat(qty) || 0;
+                const formattedName = formatIngredientDisplayName(ing.name, id);
                 return {
                     id,
-                    name: ing.name,
+                    name: formattedName,
                     price,
                     planQty: 0,
                     qtyPerHead,
@@ -492,6 +557,9 @@ export default function TMRCalculator() {
             })
             : [];
 
+        const planIngredientRows = sortIngredientsCanonical(rawPlanIngredientRows);
+        const extraIngredientRows = sortIngredientsCanonical(rawExtraIngredientRows);
+
         // Ingredients not already part of today's plan or already added,
         // available to pick from for a one-off substitution/top-up.
         const availableExtraIngredients = allFeedCandidates.filter(i => {
@@ -500,21 +568,23 @@ export default function TMRCalculator() {
             return true;
         });
 
-        // Display array feeding the batch table / tractor mode / feed log below.
-        const displayIngredients = isPlanDriven
-            ? [...planIngredientRows, ...extraIngredientRows].map(r => ({
-                id: r.id,
-                name: r.name,
-                dmTarget: r.qtyPerHead,
-                wetSingle: r.qtyPerHead,
-                wetBatch: r.wetBatch,
-                costSingle: r.costSingle,
-                price: r.price,
-                planQty: r.planQty,
-                isOverridden: r.isOverridden,
-                isExtra: !!r.isExtra
-            }))
-            : [];
+        // Display array feeding the batch table / tractor mode / feed log below (sorted canonically).
+        const displayIngredients = sortIngredientsCanonical(
+            isPlanDriven
+                ? [...planIngredientRows, ...extraIngredientRows].map(r => ({
+                    id: r.id,
+                    name: r.name,
+                    dmTarget: r.qtyPerHead,
+                    wetSingle: r.qtyPerHead,
+                    wetBatch: r.wetBatch,
+                    costSingle: r.costSingle,
+                    price: r.price,
+                    planQty: r.planQty,
+                    isOverridden: r.isOverridden,
+                    isExtra: !!r.isExtra
+                }))
+                : []
+        );
 
         const totalDM = displayIngredients.reduce((sum, ing) => sum + ing.dmTarget, 0);
         const totalBatchWeight = displayIngredients.reduce((sum, ing) => sum + ing.wetBatch, 0);
@@ -538,12 +608,11 @@ export default function TMRCalculator() {
         };
     };
 
-    // Formats a high-clarity, beautifully styled WhatsApp feeding mixing sheet
-    // Formats a high-clarity, clean, 100% reliable WhatsApp feeding sheet
-    const generateWhatsAppDietText = (options = {}) => {
+    // Resolves unified dataset for WhatsApp text and visual image table
+    const getDietShareData = (options = {}) => {
         const {
-            targetPen = selectedTMRPen, // 'all' or 'A', 'B', etc.
-            session = 'current' // 'current', 'morning', 'evening', 'full'
+            targetPen = whatsAppModalPen || selectedTMRPen,
+            session = whatsAppModalSession || 'morning'
         } = options;
 
         let sessionLabel = 'Full Day Diet (100%)';
@@ -586,12 +655,6 @@ export default function TMRCalculator() {
             }
         }
 
-        const lines = [];
-        lines.push(`*BA FARMS — TMR MIXING SHEET*`);
-        lines.push(`Date: ${formatDate(logDate)}`);
-        lines.push(`Shift: ${sessionLabel}`);
-        lines.push(`========================================`);
-
         const pensToProcess = (targetPen === 'all' || !targetPen)
             ? activePens
             : [targetPen];
@@ -601,7 +664,9 @@ export default function TMRCalculator() {
         let grandTotalEvening = 0;
         let grandTotalAnimals = 0;
 
-        pensToProcess.forEach(pId => {
+        const masterIngMap = {};
+
+        const penDataList = pensToProcess.map(pId => {
             const batch = computePenBatch(pId);
             const planRow = batch.resolvedPlanRow;
             const headCount = batch.headCount || 0;
@@ -619,7 +684,7 @@ export default function TMRCalculator() {
             let penEveningWeight = 0;
             let penSessionWeight = 0;
 
-            const ingList = (batch.displayIngredients || []).map(ing => {
+            const rawIngList = (batch.displayIngredients || []).map(ing => {
                 const ingFullBatch = (ing.wetBatch || (ing.wetSingle * headCount));
                 penFullDayWeight += ingFullBatch;
 
@@ -637,9 +702,22 @@ export default function TMRCalculator() {
                 const ingPerHead = (ing.wetSingle || 0) * scaleSession;
                 penSessionWeight += ingSessionBatch;
 
+                const formattedName = formatIngredientDisplayName(ing.name, ing.id);
+
+                if (!masterIngMap[ing.id]) {
+                    masterIngMap[ing.id] = {
+                        id: ing.id,
+                        name: formattedName,
+                        totalFarmBatch: 0,
+                        totalFarmFullDay: 0
+                    };
+                }
+                masterIngMap[ing.id].totalFarmBatch += ingSessionBatch;
+                masterIngMap[ing.id].totalFarmFullDay += ingFullBatch;
+
                 return {
                     id: ing.id,
-                    name: ing.name,
+                    name: formattedName,
                     ingFullBatch,
                     ingSingle: ing.wetSingle,
                     ingM,
@@ -652,30 +730,119 @@ export default function TMRCalculator() {
                 };
             });
 
+            const ingList = sortIngredientsCanonical(rawIngList);
+
             grandTotalWeight += penSessionWeight;
             grandTotalMorning += penMorningWeight;
             grandTotalEvening += penEveningWeight;
 
+            return {
+                penId: pId,
+                headCount,
+                avgWeight: avgWt,
+                planName: planRow?.planName || planRow?.planKey,
+                weekNumber: planRow?.weekNumber,
+                penFullDayWeight,
+                penMorningWeight,
+                penEveningWeight,
+                totalBatchWeight: penSessionWeight,
+                ingredients: ingList
+            };
+        });
+
+        const masterIngredientsList = sortIngredientsCanonical(
+            Object.values(masterIngMap).map(item => ({
+                ...item,
+                avgPerHead: grandTotalAnimals > 0 ? (item.totalFarmBatch / grandTotalAnimals) : 0
+            }))
+        );
+
+        // Check if morning and evening diets are completely identical:
+        // 1. Split is 50/50 (mPct === 50 && ePct === 50)
+        // 2. No ingredient has an 'am' or 'pm' feeding restriction (scaleM === scaleE for every ingredient across every pen)
+        const hasForcedFeedingRules = penDataList.some(pen =>
+            pen.ingredients.some(ing => Math.abs((ing.scaleM ?? 0.5) - (ing.scaleE ?? 0.5)) > 0.001)
+        );
+        const isSymmetricMorningEvening = (mPct === 50 && ePct === 50 && !hasForcedFeedingRules);
+        const isMorning = effectiveFeedIdx === 1 || session === 'morning';
+
+        if (isMorning && isSymmetricMorningEvening) {
+            sessionLabel = `Morning Feeding (50% Split) — Same for Evening`;
+        }
+
+        return {
+            dateStr: logDate,
+            sessionLabel,
+            isFullDayWithSplits,
+            isSymmetricMorningEvening,
+            hasForcedFeedingRules,
+            isMorning,
+            mPct,
+            ePct,
+            penDataList,
+            masterIngredientsList,
+            grandTotalWeight,
+            grandTotalMorning,
+            grandTotalEvening,
+            grandTotalAnimals,
+            targetPen,
+            session
+        };
+    };
+
+    // Formats a high-clarity, beautifully styled WhatsApp feeding mixing sheet
+    const generateWhatsAppDietText = (options = {}) => {
+        const data = getDietShareData(options);
+        const {
+            dateStr,
+            sessionLabel,
+            isFullDayWithSplits,
+            isSymmetricMorningEvening,
+            isMorning,
+            mPct,
+            ePct,
+            penDataList,
+            grandTotalWeight,
+            grandTotalMorning,
+            grandTotalEvening,
+            grandTotalAnimals
+        } = data;
+
+        const lines = [];
+        lines.push(`*BA FARMS — TMR MIXING SHEET*`);
+        lines.push(`Date: ${formatDate(dateStr)}`);
+        if (isMorning && isSymmetricMorningEvening) {
+            lines.push(`Shift: *Morning Feeding (50% Split) — Same for Evening*`);
+            lines.push(`_Note: Morning & Evening are identical. Repeat same mix for Evening._`);
+        } else {
+            lines.push(`Shift: ${sessionLabel}`);
+        }
+        lines.push(`========================================`);
+
+        penDataList.forEach(pen => {
             lines.push(``);
-            lines.push(`*PEN ${pId}*`);
-            lines.push(`Herd: ${headCount} Head${avgWt ? ` | Avg Weight: ${avgWt} kg` : ''}`);
-            if (planRow?.planName || planRow?.planKey) {
-                lines.push(`Plan: ${planRow.planName || planRow.planKey}${planRow.weekNumber ? ` (Week ${planRow.weekNumber})` : ''}`);
+            lines.push(`*PEN ${pen.penId}*`);
+            lines.push(`Herd: ${pen.headCount} Head${pen.avgWeight ? ` | Avg Weight: ${pen.avgWeight} kg` : ''}`);
+            if (pen.planName) {
+                lines.push(`Plan: ${pen.planName}${pen.weekNumber ? ` (Week ${pen.weekNumber})` : ''}`);
             }
 
             if (isFullDayWithSplits) {
-                lines.push(`*Full Day Target: ${penFullDayWeight.toFixed(1)} kg* (${headCount > 0 ? (penFullDayWeight / headCount).toFixed(2) : '0.00'} kg/hd)`);
-                lines.push(`  > Morning (${mPct}%): *${penMorningWeight.toFixed(1)} kg*`);
-                lines.push(`  > Evening (${ePct}%): *${penEveningWeight.toFixed(1)} kg*`);
+                lines.push(`*Full Day Target: ${pen.penFullDayWeight.toFixed(1)} kg* (${pen.headCount > 0 ? (pen.penFullDayWeight / pen.headCount).toFixed(2) : '0.00'} kg/hd)`);
+                lines.push(`  > Morning (${mPct}%): *${pen.penMorningWeight.toFixed(1)} kg*`);
+                lines.push(`  > Evening (${ePct}%): *${pen.penEveningWeight.toFixed(1)} kg*`);
+            } else if (isMorning && isSymmetricMorningEvening) {
+                lines.push(`*MORNING BATCH (50%): ${pen.totalBatchWeight.toFixed(1)} kg* (${pen.headCount > 0 ? (pen.totalBatchWeight / pen.headCount).toFixed(2) : '0.00'} kg/hd)`);
+                lines.push(`  _→ Exact same ${pen.totalBatchWeight.toFixed(1)} kg batch repeated for Evening_`);
             } else {
-                lines.push(`*TARGET BATCH: ${penSessionWeight.toFixed(1)} kg* (${headCount > 0 ? (penSessionWeight / headCount).toFixed(2) : '0.00'} kg/hd)`);
+                lines.push(`*TARGET BATCH: ${pen.totalBatchWeight.toFixed(1)} kg* (${pen.headCount > 0 ? (pen.totalBatchWeight / pen.headCount).toFixed(2) : '0.00'} kg/hd)`);
             }
 
             lines.push(`----------------------------------------`);
             lines.push(`*INGREDIENTS BREAKDOWN:*`);
 
-            if (ingList.length > 0) {
-                ingList.forEach(ing => {
+            if (pen.ingredients.length > 0) {
+                pen.ingredients.forEach(ing => {
                     if (isFullDayWithSplits) {
                         lines.push(`* ${ing.name}: *${formatKg(ing.ingFullBatch, 1)} kg* total (${formatKg(ing.ingSingle, 2)} kg/hd)`);
                         lines.push(`  - Morning: ${formatKg(ing.ingM, 1)} kg | Evening: ${formatKg(ing.ingE, 1)} kg`);
@@ -693,7 +860,7 @@ export default function TMRCalculator() {
             lines.push(`----------------------------------------`);
         });
 
-        if (pensToProcess.length > 1) {
+        if (penDataList.length > 1) {
             lines.push(``);
             lines.push(`========================================`);
             if (isFullDayWithSplits) {
@@ -701,35 +868,98 @@ export default function TMRCalculator() {
                 lines.push(`* Morning Mixer (${mPct}%): *${grandTotalMorning.toFixed(1)} kg*`);
                 lines.push(`* Evening Mixer (${ePct}%): *${grandTotalEvening.toFixed(1)} kg*`);
                 lines.push(`* Full Day Total (100%): *${grandTotalWeight.toFixed(1)} kg*`);
+            } else if (isMorning && isSymmetricMorningEvening) {
+                lines.push(`*TOTAL FARM MORNING BATCH (50%): ${grandTotalWeight.toFixed(1)} kg*`);
+                lines.push(`* (Evening Mixer is identical: ${grandTotalWeight.toFixed(1)} kg | Full Day Total: ${(grandTotalWeight * 2).toFixed(1)} kg)`);
+                lines.push(`Total Herd: ${grandTotalAnimals} Head across ${penDataList.length} Pens`);
             } else {
                 lines.push(`*TOTAL FARM MIXER BATCH: ${grandTotalWeight.toFixed(1)} kg*`);
-                lines.push(`Total Herd: ${grandTotalAnimals} Head across ${pensToProcess.length} Pens`);
+                lines.push(`Total Herd: ${grandTotalAnimals} Head across ${penDataList.length} Pens`);
             }
             lines.push(`========================================`);
         }
 
         lines.push(``);
+        if (isMorning && isSymmetricMorningEvening) {
+            lines.push(`📌 Note: Morning and Evening diets are identical (50/50 split). Prepare this exact same batch for Evening.`);
+        }
         lines.push(`Note: Please zero/tare the mixer scale before loading.`);
         lines.push(`_BA Farms Feedlot Precision Management_`);
 
         return lines.join('\n');
     };
 
-    const handleShareWhatsApp = (options = {}) => {
+
+    const handleCopyTableImage = async (options = {}) => {
+        const shareData = getDietShareData(options);
+        try {
+            const blob = await generateDietTableBlob(shareData);
+            if (blob) {
+                await copyImageBlobToClipboard(blob);
+                setCopiedToast('✅ High-res table picture copied to clipboard! Paste directly into WhatsApp or notes.');
+                setTimeout(() => setCopiedToast(''), 4500);
+            }
+        } catch (e) {
+            console.error('Error copying table image to clipboard', e);
+            setCopiedToast('⚠️ Could not copy image directly. Click "Download Image" instead.');
+            setTimeout(() => setCopiedToast(''), 4500);
+        }
+    };
+
+    const handleDownloadTableImage = (options = {}) => {
+        const shareData = getDietShareData(options);
+        const fileName = `BA_Farms_Diet_${shareData.targetPen}_${shareData.session}_${logDate}.png`;
+        downloadDietTableImage(shareData, fileName);
+        setCopiedToast(`✅ Table picture saved as ${fileName}!`);
+        setTimeout(() => setCopiedToast(''), 4000);
+    };
+
+    const handleShareWhatsApp = async (options = {}) => {
+        const shareData = getDietShareData(options);
         const text = generateWhatsAppDietText(options);
-        
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text).catch(() => {});
+
+        // 1. Auto copy image to clipboard and try web share API
+        try {
+            const blob = await generateDietTableBlob(shareData);
+            if (blob) {
+                try {
+                    await copyImageBlobToClipboard(blob);
+                    setCopiedToast('✅ Table picture copied to clipboard & WhatsApp opened! Press Paste (Ctrl+V) in chat.');
+                } catch (clipErr) {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        await navigator.clipboard.writeText(text).catch(() => {});
+                    }
+                    setCopiedToast('Diet text copied to clipboard & opening WhatsApp...');
+                }
+
+                const fileName = `BA_Farms_Diet_${shareData.targetPen}_${logDate}.png`;
+                const file = new File([blob], fileName, { type: 'image/png' });
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    try {
+                        await navigator.share({
+                            title: `BA Farms Diet Sheet - ${formatDate(logDate)}`,
+                            text: text,
+                            files: [file]
+                        });
+                        setShowWhatsAppModal(false);
+                        return;
+                    } catch (shareErr) {
+                        // User cancelled or share aborted
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('Error in WhatsApp share', e);
         }
 
-        setCopiedToast('Diet copied to clipboard & opening WhatsApp...');
-        setTimeout(() => setCopiedToast(''), 4000);
+        setTimeout(() => setCopiedToast(''), 5000);
 
         const encoded = encodeURIComponent(text);
         const url = `https://api.whatsapp.com/send?text=${encoded}`;
         window.open(url, '_blank');
         setShowWhatsAppModal(false);
     };
+
 
     // Headcount-weighted avg plan qty / fed qty per ingredient across a set of
     // already-resolved pen batches (`{ penId, batch }[]`, from computePenBatch above).
@@ -758,7 +988,7 @@ export default function TMRCalculator() {
             });
         });
 
-        return Object.values(map).map(r => ({
+        const rows = Object.values(map).map(r => ({
             id: r.id,
             name: r.name,
             avgPlanQty: r.planWetTotal / totalHeadCount,
@@ -766,7 +996,9 @@ export default function TMRCalculator() {
             isOverridden: r.isOverridden,
             isExtra: r.isExtra
         }));
+        return sortIngredientsCanonical(rows);
     };
+
 
     // Applies a target herd/tractor-average quantity for one ingredient by scaling
     // each pen's own existing quantity proportionally (rather than flattening every
@@ -880,8 +1112,9 @@ export default function TMRCalculator() {
                 if (ing.isOverridden) totals[id].isOverridden = true;
             });
         });
-        return Object.values(totals);
+        return sortIngredientsCanonical(Object.values(totals));
     })();
+
 
     const tractorTotalHeadCount = tractorPenResolutions.reduce((sum, r) => sum + (r.batch.headCount || 0), 0);
     const tractorTotalBatchWeight = tractorAggregateIngredients.reduce((sum, i) => sum + i.wetBatch, 0);
@@ -1291,11 +1524,13 @@ export default function TMRCalculator() {
                 if (ing.isOverridden) totals[id].isOverridden = true;
             });
         });
-        return Object.values(totals).map(t => ({
+        const list = Object.values(totals).map(t => ({
             ...t,
             avgPerHead: allPensTotalHeadCount > 0 ? t.wetBatch / allPensTotalHeadCount : 0
         }));
+        return sortIngredientsCanonical(list);
     })();
+
     const allPensTotalBatchWeight = allPensAggregateIngredients.reduce((sum, i) => sum + i.wetBatch, 0);
     const allPensTotalCost = allPensAggregateIngredients.reduce((sum, i) => sum + i.cost, 0);
 
@@ -1431,15 +1666,18 @@ export default function TMRCalculator() {
                         )}
                         {canExpand && expanded && (
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem 1rem', fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
-                                {Object.entries(resolved.week.ingredients || {}).map(([id, qty]) => {
-                                    const ing = feedIngredients.find(i => i.id === id) || { name: id };
-                                    return (
-                                        <span key={id}>
-                                            <strong style={{ color: 'var(--text-pure)' }}>{ing.name}</strong>: {formatKg(qty, 2)} kg/head
-                                        </span>
-                                    );
-                                })}
+                                {sortIngredientsCanonical(
+                                    Object.entries(resolved.week.ingredients || {}).map(([id, qty]) => {
+                                        const ing = feedIngredients.find(i => i.id === id) || { name: id };
+                                        return { id, name: formatIngredientDisplayName(ing.name, id), qty };
+                                    })
+                                ).map(item => (
+                                    <span key={item.id}>
+                                        <strong style={{ color: 'var(--text-pure)' }}>{item.name}</strong>: {formatKg(item.qty, 2)} kg/head
+                                    </span>
+                                ))}
                             </div>
+
                         )}
                     </div>
                 );
@@ -3012,9 +3250,9 @@ export default function TMRCalculator() {
                         className="modal-content glass-panel"
                         onClick={(e) => e.stopPropagation()}
                         style={{
-                            maxWidth: '650px',
+                            maxWidth: '740px',
                             width: '95%',
-                            maxHeight: '90vh',
+                            maxHeight: '92vh',
                             overflowY: 'auto',
                             borderTop: '4px solid #25D366',
                             padding: '1.4rem'
@@ -3028,7 +3266,7 @@ export default function TMRCalculator() {
                                 <div>
                                     <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-pure)' }}>Share Diet on WhatsApp</h3>
                                     <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                                        1-Click instant feeding & mixing sheet formatted for mobile & WhatsApp
+                                        Instant mixing sheet with Pen matrix table image & formatted WhatsApp text
                                     </span>
                                 </div>
                             </div>
@@ -3141,77 +3379,163 @@ export default function TMRCalculator() {
                             </div>
                         </div>
 
-                        {/* Live Formatted WhatsApp Message Preview */}
-                        <div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
-                                <span style={{ fontSize: '0.74rem', fontWeight: '600', color: 'var(--text-muted)' }}>
-                                    <i className="fa-solid fa-eye" style={{ marginRight: '4px' }}></i> Message Preview:
+                        {/* Mode Switcher Tabs (Image Matrix Table vs Formatted Text) */}
+                        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.8rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.5rem' }}>
+                            <button
+                                type="button"
+                                className={`btn btn-sm ${whatsAppPreviewMode === 'image' ? 'btn-primary' : 'btn-secondary'}`}
+                                onClick={() => setWhatsAppPreviewMode('image')}
+                                style={{ fontSize: '0.76rem', fontWeight: '700', padding: '0.3rem 0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                            >
+                                <i className="fa-solid fa-table-cells"></i> 🖼️ Matrix Table Picture
+                                <span style={{ background: '#25D366', color: '#000', fontSize: '0.62rem', padding: '1px 5px', borderRadius: '4px', fontWeight: '800' }}>
+                                    HD Image
                                 </span>
+                            </button>
+                            <button
+                                type="button"
+                                className={`btn btn-sm ${whatsAppPreviewMode === 'text' ? 'btn-primary' : 'btn-secondary'}`}
+                                onClick={() => setWhatsAppPreviewMode('text')}
+                                style={{ fontSize: '0.76rem', fontWeight: '700', padding: '0.3rem 0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                            >
+                                <i className="fa-solid fa-align-left"></i> 📄 WhatsApp Text Message
+                            </button>
+                        </div>
+
+                        {/* Tab Content: 1. Image Table Preview */}
+                        {whatsAppPreviewMode === 'image' && (
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                    <span style={{ fontSize: '0.74rem', fontWeight: '600', color: 'var(--text-muted)' }}>
+                                        <i className="fa-solid fa-image" style={{ marginRight: '4px' }}></i> HD Picture Preview (Pens as Columns, Ingredients Sorted):
+                                    </span>
+                                    <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm"
+                                            style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem' }}
+                                            onClick={() => handleCopyTableImage({ targetPen: whatsAppModalPen, session: whatsAppModalSession })}
+                                            title="Copy PNG table image to clipboard"
+                                        >
+                                            <i className="fa-solid fa-copy"></i> Copy Picture
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm"
+                                            style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem' }}
+                                            onClick={() => handleDownloadTableImage({ targetPen: whatsAppModalPen, session: whatsAppModalSession })}
+                                            title="Save image as PNG file"
+                                        >
+                                            <i className="fa-solid fa-download"></i> Download PNG
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <DietTableImagePreview
+                                    shareData={getDietShareData({ targetPen: whatsAppModalPen, session: whatsAppModalSession })}
+                                />
+
+                                <div style={{ background: 'rgba(37, 211, 102, 0.08)', border: '1px solid rgba(37, 211, 102, 0.25)', borderRadius: '6px', padding: '0.6rem 0.8rem', marginTop: '0.8rem', fontSize: '0.74rem', color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <i className="fa-solid fa-circle-info" style={{ color: '#25D366', fontSize: '0.9rem' }}></i>
+                                    <span>
+                                        <strong>1-Click WhatsApp Image:</strong> When you click <em>"Open & Send on WhatsApp"</em>, this picture is automatically copied to your clipboard. Simply press <strong>Paste (Ctrl+V / Cmd+V)</strong> in WhatsApp!
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Tab Content: 2. Text Preview */}
+                        {whatsAppPreviewMode === 'text' && (
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                                    <span style={{ fontSize: '0.74rem', fontWeight: '600', color: 'var(--text-muted)' }}>
+                                        <i className="fa-solid fa-eye" style={{ marginRight: '4px' }}></i> Formatted Message Preview:
+                                    </span>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary btn-sm"
+                                        style={{ fontSize: '0.72rem', padding: '0.15rem 0.5rem' }}
+                                        onClick={() => {
+                                            const text = generateWhatsAppDietText({ targetPen: whatsAppModalPen, session: whatsAppModalSession });
+                                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                                navigator.clipboard.writeText(text);
+                                                setCopiedToast('Preview text copied to clipboard!');
+                                                setTimeout(() => setCopiedToast(''), 3000);
+                                            }
+                                        }}
+                                    >
+                                        <i className="fa-solid fa-copy"></i> Copy Text
+                                    </button>
+                                </div>
+                                <pre
+                                    style={{
+                                        background: 'rgba(0, 0, 0, 0.4)',
+                                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                                        borderRadius: '8px',
+                                        padding: '0.8rem',
+                                        fontSize: '0.78rem',
+                                        fontFamily: 'monospace',
+                                        whiteSpace: 'pre-wrap',
+                                        wordBreak: 'break-word',
+                                        maxHeight: '260px',
+                                        overflowY: 'auto',
+                                        color: '#e2e8f0',
+                                        lineHeight: '1.4'
+                                    }}
+                                >
+                                    {generateWhatsAppDietText({ targetPen: whatsAppModalPen, session: whatsAppModalSession })}
+                                </pre>
+                            </div>
+                        )}
+
+                        {/* Bottom Actions */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.2rem', paddingTop: '0.8rem', borderTop: '1px solid rgba(255, 255, 255, 0.08)', flexWrap: 'wrap', gap: '0.6rem' }}>
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
                                 <button
                                     type="button"
                                     className="btn btn-secondary btn-sm"
-                                    style={{ fontSize: '0.72rem', padding: '0.15rem 0.5rem' }}
-                                    onClick={() => {
-                                        const text = generateWhatsAppDietText({ targetPen: whatsAppModalPen, session: whatsAppModalSession });
-                                        if (navigator.clipboard && navigator.clipboard.writeText) {
-                                            navigator.clipboard.writeText(text);
-                                            setCopiedToast('Preview copied to clipboard!');
-                                            setTimeout(() => setCopiedToast(''), 3000);
-                                        }
-                                    }}
+                                    onClick={() => handleCopyTableImage({ targetPen: whatsAppModalPen, session: whatsAppModalSession })}
                                 >
-                                    <i className="fa-solid fa-copy"></i> Copy Text
+                                    <i className="fa-solid fa-copy"></i> Copy Picture
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => handleDownloadTableImage({ targetPen: whatsAppModalPen, session: whatsAppModalSession })}
+                                >
+                                    <i className="fa-solid fa-download"></i> Save PNG
                                 </button>
                             </div>
-                            <pre
-                                style={{
-                                    background: 'rgba(0, 0, 0, 0.4)',
-                                    border: '1px solid rgba(255, 255, 255, 0.08)',
-                                    borderRadius: '8px',
-                                    padding: '0.8rem',
-                                    fontSize: '0.78rem',
-                                    fontFamily: 'monospace',
-                                    whiteSpace: 'pre-wrap',
-                                    wordBreak: 'break-word',
-                                    maxHeight: '220px',
-                                    overflowY: 'auto',
-                                    color: '#e2e8f0',
-                                    lineHeight: '1.4'
-                                }}
-                            >
-                                {generateWhatsAppDietText({ targetPen: whatsAppModalPen, session: whatsAppModalSession })}
-                            </pre>
-                        </div>
-
-                        {/* Bottom Actions */}
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', marginTop: '1.2rem', paddingTop: '0.8rem', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                            <button
-                                type="button"
-                                className="btn btn-secondary"
-                                onClick={() => setShowWhatsAppModal(false)}
-                            >
-                                Close
-                            </button>
-                            <button
-                                type="button"
-                                className="btn"
-                                style={{
-                                    background: '#25D366',
-                                    color: '#000000',
-                                    fontWeight: '800',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                }}
-                                onClick={() => handleShareWhatsApp({ targetPen: whatsAppModalPen, session: whatsAppModalSession })}
-                            >
-                                <i className="fa-brands fa-whatsapp" style={{ fontSize: '1.1rem' }}></i>
-                                Open & Send on WhatsApp
-                            </button>
+                            <div style={{ display: 'flex', gap: '0.6rem' }}>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={() => setShowWhatsAppModal(false)}
+                                >
+                                    Close
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn"
+                                    style={{
+                                        background: '#25D366',
+                                        color: '#000000',
+                                        fontWeight: '800',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}
+                                    onClick={() => handleShareWhatsApp({ targetPen: whatsAppModalPen, session: whatsAppModalSession })}
+                                >
+                                    <i className="fa-brands fa-whatsapp" style={{ fontSize: '1.1rem' }}></i>
+                                    Open & Send on WhatsApp
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
+
 
         </div>
     );
