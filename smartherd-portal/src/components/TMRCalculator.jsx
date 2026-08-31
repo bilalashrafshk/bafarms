@@ -811,12 +811,7 @@ export default function TMRCalculator() {
         const lines = [];
         lines.push(`*BA FARMS — TMR MIXING SHEET*`);
         lines.push(`Date: ${formatDate(dateStr)}`);
-        if (isMorning && isSymmetricMorningEvening) {
-            lines.push(`Shift: *Morning Feeding (50% Split) — Same for Evening*`);
-            lines.push(`_Note: Morning & Evening are identical. Repeat same mix for Evening._`);
-        } else {
-            lines.push(`Shift: ${sessionLabel}`);
-        }
+        lines.push(`Shift: ${sessionLabel}`);
         lines.push(`========================================`);
 
         penDataList.forEach(pen => {
@@ -831,9 +826,6 @@ export default function TMRCalculator() {
                 lines.push(`*Full Day Target: ${pen.penFullDayWeight.toFixed(1)} kg* (${pen.headCount > 0 ? (pen.penFullDayWeight / pen.headCount).toFixed(2) : '0.00'} kg/hd)`);
                 lines.push(`  > Morning (${mPct}%): *${pen.penMorningWeight.toFixed(1)} kg*`);
                 lines.push(`  > Evening (${ePct}%): *${pen.penEveningWeight.toFixed(1)} kg*`);
-            } else if (isMorning && isSymmetricMorningEvening) {
-                lines.push(`*MORNING BATCH (50%): ${pen.totalBatchWeight.toFixed(1)} kg* (${pen.headCount > 0 ? (pen.totalBatchWeight / pen.headCount).toFixed(2) : '0.00'} kg/hd)`);
-                lines.push(`  _→ Exact same ${pen.totalBatchWeight.toFixed(1)} kg batch repeated for Evening_`);
             } else {
                 lines.push(`*TARGET BATCH: ${pen.totalBatchWeight.toFixed(1)} kg* (${pen.headCount > 0 ? (pen.totalBatchWeight / pen.headCount).toFixed(2) : '0.00'} kg/hd)`);
             }
@@ -868,10 +860,6 @@ export default function TMRCalculator() {
                 lines.push(`* Morning Mixer (${mPct}%): *${grandTotalMorning.toFixed(1)} kg*`);
                 lines.push(`* Evening Mixer (${ePct}%): *${grandTotalEvening.toFixed(1)} kg*`);
                 lines.push(`* Full Day Total (100%): *${grandTotalWeight.toFixed(1)} kg*`);
-            } else if (isMorning && isSymmetricMorningEvening) {
-                lines.push(`*TOTAL FARM MORNING BATCH (50%): ${grandTotalWeight.toFixed(1)} kg*`);
-                lines.push(`* (Evening Mixer is identical: ${grandTotalWeight.toFixed(1)} kg | Full Day Total: ${(grandTotalWeight * 2).toFixed(1)} kg)`);
-                lines.push(`Total Herd: ${grandTotalAnimals} Head across ${penDataList.length} Pens`);
             } else {
                 lines.push(`*TOTAL FARM MIXER BATCH: ${grandTotalWeight.toFixed(1)} kg*`);
                 lines.push(`Total Herd: ${grandTotalAnimals} Head across ${penDataList.length} Pens`);
@@ -888,6 +876,7 @@ export default function TMRCalculator() {
 
         return lines.join('\n');
     };
+
 
 
     const handleCopyTableImage = async (options = {}) => {
