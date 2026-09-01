@@ -3,6 +3,7 @@ import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 import { todayAsDate, todayPKT, parseDateOnly, daysBetween } from '../utils/dateOnly';
 import { getLaggerIds, getSpecialFocusIds } from '../utils/laggers';
+import { checkTodayFeedComplete } from '../utils/feedCompliance';
 
 export default function Dashboard({ onNavigate }) {
     const {
@@ -585,12 +586,23 @@ export default function Dashboard({ onNavigate }) {
     const [isCriticalExpanded, setIsCriticalExpanded] = useState(true);
 
     // I. FEED & RATION COMPLIANCE SUMMARY (Industry Standard Date Range Filters)
-    const [complianceHorizon, setComplianceHorizon] = useState('yesterday'); // 'yesterday' | '7d' | '30d' | 'thisMonth' | 'lastMonth' | 'custom'
+    const [complianceHorizon, setComplianceHorizon] = useState(null); // 'today' | 'yesterday' | '7d' | '30d' | 'thisMonth' | 'lastMonth' | 'custom'
     const [customDateFrom, setCustomDateFrom] = useState('');
     const [customDateTo, setCustomDateTo] = useState('');
     const [compliancePenFilter, setCompliancePenFilter] = useState('ALL'); // 'ALL' or a specific pen id
 
+    // Determine if today's feed is completely logged for the farm (or selected pen)
+    const isTodayFeedComplete = useMemo(() => {
+        const todayStr = addDaysStr(today, 0);
+        return checkTodayFeedComplete(animals, feedLogs, todayStr, compliancePenFilter);
+    }, [animals, feedLogs, compliancePenFilter, today]);
+
+    const effectiveComplianceHorizon = (complianceHorizon === 'today' && !isTodayFeedComplete)
+        ? 'yesterday'
+        : (complianceHorizon || (isTodayFeedComplete ? 'today' : 'yesterday'));
+
     const complianceData = useMemo(() => {
+        const todayStr = addDaysStr(today, 0);
         const yesterdayStr = addDaysStr(today, -1);
         const threeDaysAgoStr = addDaysStr(today, -3);
 
@@ -616,7 +628,11 @@ export default function Dashboard({ onNavigate }) {
         const lastMonthEnd = `${prevYyyy}-${prevMm}-${String(lastDayPrevMonth).padStart(2, '0')}`;
 
         // Anchor date for rolling ranges (respects 3-day grace period for unkeyed logs)
-        const anchorDate = (latestLoggedDate && latestLoggedDate >= threeDaysAgoStr) ? latestLoggedDate : yesterdayStr;
+        const anchorDate = isTodayFeedComplete
+            ? todayStr
+            : ((latestLoggedDate && latestLoggedDate >= threeDaysAgoStr && latestLoggedDate !== todayStr)
+                ? latestLoggedDate
+                : yesterdayStr);
 
         let startDate = yesterdayStr;
         let endDate = yesterdayStr;
@@ -624,7 +640,12 @@ export default function Dashboard({ onNavigate }) {
         let daysAgo = 1;
         let modeLabel = 'Yesterday';
 
-        if (complianceHorizon === 'yesterday') {
+        if (effectiveComplianceHorizon === 'today') {
+            startDate = todayStr;
+            endDate = todayStr;
+            daysAgo = 0;
+            modeLabel = 'Today';
+        } else if (effectiveComplianceHorizon === 'yesterday') {
             if (loggedDates.includes(yesterdayStr)) {
                 startDate = yesterdayStr;
                 endDate = yesterdayStr;
@@ -641,23 +662,23 @@ export default function Dashboard({ onNavigate }) {
                 endDate = yesterdayStr;
                 modeLabel = 'Yesterday';
             }
-        } else if (complianceHorizon === '7d') {
+        } else if (effectiveComplianceHorizon === '7d') {
             endDate = anchorDate;
             startDate = addDaysStr(anchorDate, -6);
             modeLabel = 'Last 7 Days';
-        } else if (complianceHorizon === '30d') {
+        } else if (effectiveComplianceHorizon === '30d') {
             endDate = anchorDate;
             startDate = addDaysStr(anchorDate, -29);
             modeLabel = 'Last 30 Days';
-        } else if (complianceHorizon === 'thisMonth') {
+        } else if (effectiveComplianceHorizon === 'thisMonth') {
             startDate = thisMonthStart;
             endDate = anchorDate;
             modeLabel = 'This Month';
-        } else if (complianceHorizon === 'lastMonth') {
+        } else if (effectiveComplianceHorizon === 'lastMonth') {
             startDate = lastMonthStart;
             endDate = lastMonthEnd;
             modeLabel = 'Last Month';
-        } else if (complianceHorizon === 'custom') {
+        } else if (effectiveComplianceHorizon === 'custom') {
             startDate = customDateFrom || addDaysStr(anchorDate, -6);
             endDate = customDateTo || anchorDate;
             modeLabel = 'Custom Range';
@@ -973,7 +994,7 @@ export default function Dashboard({ onNavigate }) {
             penScores,
             flags
         };
-    }, [feedLogs, complianceHorizon, customDateFrom, customDateTo, compliancePenFilter, today]);
+    }, [feedLogs, effectiveComplianceHorizon, isTodayFeedComplete, customDateFrom, customDateTo, compliancePenFilter, today]);
 
     // 1. Upcoming Weigh-ins (Next projected weigh date per active calf)
     const upcomingWeighList = [];
@@ -1597,7 +1618,7 @@ export default function Dashboard({ onNavigate }) {
                         <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                                 <h3 className="panel-title" style={{ margin: 0 }}>Feed & Ration Compliance</h3>
-                                {complianceData.isFallback && complianceHorizon === 'yesterday' && (
+                                {complianceData.isFallback && effectiveComplianceHorizon === 'yesterday' && (
                                     <span style={{ fontSize: '0.68rem', fontWeight: 600, color: '#38bdf8', background: 'rgba(56,189,248,0.12)', border: '1px solid rgba(56,189,248,0.25)', padding: '0.1rem 0.45rem', borderRadius: '4px' }}>
                                         <i className="fa-solid fa-clock-rotate-left" style={{ marginRight: '3px' }}></i>
                                         Latest Logged ({complianceData.daysAgo}d ago)
@@ -1621,17 +1642,27 @@ export default function Dashboard({ onNavigate }) {
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
                         <div className="calendar-horizon-toggle">
+                            {isTodayFeedComplete && (
+                                <button
+                                    type="button"
+                                    className={`horizon-btn ${effectiveComplianceHorizon === 'today' ? 'active' : ''}`}
+                                    onClick={() => setComplianceHorizon('today')}
+                                    title="Today's Completed Feeding Compliance"
+                                >
+                                    Today
+                                </button>
+                            )}
                             <button
                                 type="button"
-                                className={`horizon-btn ${complianceHorizon === 'yesterday' ? 'active' : ''}`}
+                                className={`horizon-btn ${effectiveComplianceHorizon === 'yesterday' ? 'active' : ''}`}
                                 onClick={() => setComplianceHorizon('yesterday')}
                                 title="Yesterday or Most Recent Logged Day"
                             >
-                                {complianceData.isFallback && complianceHorizon === 'yesterday' ? `Latest (${formatDate(complianceData.startDate)})` : 'Yesterday'}
+                                {complianceData.isFallback && effectiveComplianceHorizon === 'yesterday' ? `Latest (${formatDate(complianceData.startDate)})` : 'Yesterday'}
                             </button>
                             <button
                                 type="button"
-                                className={`horizon-btn ${complianceHorizon === '7d' ? 'active' : ''}`}
+                                className={`horizon-btn ${effectiveComplianceHorizon === '7d' ? 'active' : ''}`}
                                 onClick={() => setComplianceHorizon('7d')}
                                 title="Last 7 Days Rolling Window"
                             >
@@ -1639,7 +1670,7 @@ export default function Dashboard({ onNavigate }) {
                             </button>
                             <button
                                 type="button"
-                                className={`horizon-btn ${complianceHorizon === '30d' ? 'active' : ''}`}
+                                className={`horizon-btn ${effectiveComplianceHorizon === '30d' ? 'active' : ''}`}
                                 onClick={() => setComplianceHorizon('30d')}
                                 title="Last 30 Days Rolling Window"
                             >
@@ -1647,7 +1678,7 @@ export default function Dashboard({ onNavigate }) {
                             </button>
                             <button
                                 type="button"
-                                className={`horizon-btn ${complianceHorizon === 'thisMonth' ? 'active' : ''}`}
+                                className={`horizon-btn ${effectiveComplianceHorizon === 'thisMonth' ? 'active' : ''}`}
                                 onClick={() => setComplianceHorizon('thisMonth')}
                                 title="This Month (MTD)"
                             >
@@ -1655,7 +1686,7 @@ export default function Dashboard({ onNavigate }) {
                             </button>
                             <button
                                 type="button"
-                                className={`horizon-btn ${complianceHorizon === 'lastMonth' ? 'active' : ''}`}
+                                className={`horizon-btn ${effectiveComplianceHorizon === 'lastMonth' ? 'active' : ''}`}
                                 onClick={() => setComplianceHorizon('lastMonth')}
                                 title="Last Month"
                             >
@@ -1663,11 +1694,11 @@ export default function Dashboard({ onNavigate }) {
                             </button>
                             <button
                                 type="button"
-                                className={`horizon-btn ${complianceHorizon === 'custom' ? 'active' : ''}`}
+                                className={`horizon-btn ${effectiveComplianceHorizon === 'custom' ? 'active' : ''}`}
                                 onClick={() => {
-                                    if (complianceHorizon !== 'custom') {
+                                    if (effectiveComplianceHorizon !== 'custom') {
                                         if (!customDateFrom) setCustomDateFrom(addDaysStr(today, -7));
-                                        if (!customDateTo) setCustomDateTo(addDaysStr(today, -1));
+                                        if (!customDateTo) setCustomDateTo(isTodayFeedComplete ? addDaysStr(today, 0) : addDaysStr(today, -1));
                                         setComplianceHorizon('custom');
                                     }
                                 }}
@@ -1678,7 +1709,7 @@ export default function Dashboard({ onNavigate }) {
                         </div>
 
                         {/* Custom Date Range Inputs (when Custom is active) */}
-                        {complianceHorizon === 'custom' && (
+                        {effectiveComplianceHorizon === 'custom' && (
                             <div style={{ display: 'inline-flex', alignItems: 'center', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--accent-gold)', borderRadius: '6px', padding: '1px 6px', height: '28px', gap: '4px' }}>
                                 <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>From:</span>
                                 <input
@@ -1746,12 +1777,12 @@ export default function Dashboard({ onNavigate }) {
                                 ? formatDate(complianceData.startDate)
                                 : `${formatDate(complianceData.startDate)} to ${formatDate(complianceData.endDate)}`
                         }.
-                        {complianceHorizon !== 'yesterday' && (
+                        {effectiveComplianceHorizon !== (isTodayFeedComplete ? 'today' : 'yesterday') && (
                             <div style={{ marginTop: '0.6rem' }}>
                                 <button
                                     type="button"
                                     className="btn btn-secondary btn-sm"
-                                    onClick={() => setComplianceHorizon('yesterday')}
+                                    onClick={() => setComplianceHorizon(isTodayFeedComplete ? 'today' : 'yesterday')}
                                     style={{ fontSize: '0.74rem' }}
                                 >
                                     ← Back to Latest Feeding
