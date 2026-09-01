@@ -228,20 +228,20 @@ export function generateDietTableCanvas({
     const paddingBottom = 24;
     const headerHeight = 85;
     const tableHeaderHeight = 44;
-    const rowHeight = 36;
+    const rowHeight = 44; // Spacious row height for dual display (Total Batch + Per Head)
+    const summaryRowHeight = 36;
     const footerHeight = 45;
 
     // Column widths
-    const ingColWidth = isSinglePen ? 260 : 220;
-    const penColWidth = isSinglePen ? 160 : Math.max(100, Math.min(135, Math.floor(650 / (penDataList.length || 1))));
-    const totalColWidth = isSinglePen ? 160 : 130;
-    const avgColWidth = isSinglePen ? 0 : 115;
+    const ingColWidth = isSinglePen ? 260 : 225;
+    const penColWidth = isSinglePen ? 160 : Math.max(105, Math.min(140, Math.floor(650 / (penDataList.length || 1))));
+    const totalColWidth = isSinglePen ? 160 : 135;
+    const avgColWidth = isSinglePen ? 0 : 120;
 
     const tableWidth = ingColWidth + (penDataList.length * penColWidth) + (isSinglePen ? (penColWidth) : (totalColWidth + avgColWidth));
     const totalWidth = Math.max(720, tableWidth + (paddingX * 2));
 
-    const totalRowsCount = masterIngredientsList.length + 3; // ingredients + Total Batch + Headcount + Avg Weight
-    const tableTotalHeight = tableHeaderHeight + (totalRowsCount * rowHeight);
+    const tableTotalHeight = tableHeaderHeight + (masterIngredientsList.length * rowHeight) + rowHeight + (2 * summaryRowHeight);
     const totalHeight = paddingTop + headerHeight + tableTotalHeight + footerHeight + paddingBottom;
 
     // Canvas physical size (scaled for high DPI)
@@ -299,7 +299,6 @@ export function generateDietTableCanvas({
     ctx.fillStyle = '#4ade80';
     ctx.fillText(shiftBadgeText, badgeX + 12, badgeY + 18);
 
-
     // Date & Summary Subline
     curY += 56;
     ctx.fillStyle = '#e2e8f0';
@@ -351,7 +350,7 @@ export function generateDietTableCanvas({
 
         ctx.fillStyle = '#38bdf8';
         ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        const title = isSinglePen ? `PEN ${pen.penId}` : `PEN ${pen.penId}`;
+        const title = `PEN ${pen.penId}`;
         ctx.fillText(title, colX + 10, startY + 18);
 
         ctx.fillStyle = '#94a3b8';
@@ -418,18 +417,20 @@ export function generateDietTableCanvas({
 
         let rowColX = tableStartX;
 
-        // Ingredient Name
+        // Ingredient Name (Vertically Centered)
         const formattedName = formatIngredientDisplayName(ing.name || ing.id, ing.id);
         ctx.fillStyle = '#ffffff';
         ctx.font = '600 11.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.fillText(formattedName, rowColX + 12, curY + 22);
+        ctx.fillText(formattedName, rowColX + 12, curY + 26);
         rowColX += ingColWidth;
 
-        // Pen Values
+        // Pen Values: Line 1 = Total Batch (kg), Line 2 = Per Head (kg/hd)
         penDataList.forEach(pen => {
-            // Find this ingredient in this pen
             const penIng = pen.ingredients.find(i => i.id === ing.id || i.name?.toLowerCase() === ing.name?.toLowerCase());
             const qty = penIng ? (penIng.ingSessionBatch !== undefined ? penIng.ingSessionBatch : penIng.wetBatch) : 0;
+            const perHead = penIng
+                ? (penIng.ingPerHead !== undefined ? penIng.ingPerHead : (pen.headCount > 0 ? (qty / pen.headCount) : (penIng.wetSingle || 0)))
+                : 0;
             const isRestrictedOff = penIng && penIng.scaleSession === 0;
 
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
@@ -440,26 +441,37 @@ export function generateDietTableCanvas({
 
             if (isRestrictedOff) {
                 ctx.fillStyle = '#64748b';
-                ctx.font = 'italic 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-                ctx.fillText('0.0 (PM)', rowColX + 10, curY + 22);
-            } else if (qty > 0) {
-                ctx.fillStyle = '#f1f5f9';
                 ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-                ctx.fillText(`${formatKg(qty, 1)} kg`, rowColX + 10, curY + 22);
+                ctx.fillText('0.0 kg', rowColX + 10, curY + 18);
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = 'italic 9px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                ctx.fillText('(Evening Only)', rowColX + 10, curY + 33);
+            } else if (qty > 0) {
+                // Line 1: Batch Quantity
+                ctx.fillStyle = '#f8fafc';
+                ctx.font = 'bold 11.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                ctx.fillText(`${formatKg(qty, 1)} kg`, rowColX + 10, curY + 18);
+
+                // Line 2: Surgical small Per Head helper
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '500 9.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                ctx.fillText(`${formatKg(perHead, 2)} kg/hd`, rowColX + 10, curY + 33);
             } else {
                 ctx.fillStyle = '#475569';
                 ctx.font = '500 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-                ctx.fillText('-', rowColX + 14, curY + 22);
+                ctx.fillText('-', rowColX + 14, curY + 26);
             }
 
             rowColX += penColWidth;
         });
 
         if (isSinglePen) {
-            // Per head for single pen
+            // Single Pen: Rate Per Head column
             const singlePen = penDataList[0];
             const penIng = singlePen.ingredients.find(i => i.id === ing.id || i.name?.toLowerCase() === ing.name?.toLowerCase());
-            const perHead = penIng ? (penIng.ingPerHead !== undefined ? penIng.ingPerHead : penIng.wetSingle) : 0;
+            const perHead = penIng
+                ? (penIng.ingPerHead !== undefined ? penIng.ingPerHead : (singlePen.headCount > 0 ? (penIng.wetBatch / singlePen.headCount) : (penIng.wetSingle || 0)))
+                : 0;
 
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
             ctx.beginPath();
@@ -468,30 +480,38 @@ export function generateDietTableCanvas({
             ctx.stroke();
 
             ctx.fillStyle = '#fbbf24';
-            ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-            ctx.fillText(`${formatKg(perHead, 2)} kg/hd`, rowColX + 10, curY + 22);
+            ctx.font = '600 11.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillText(`${formatKg(perHead, 2)} kg/hd`, rowColX + 10, curY + 26);
             rowColX += penColWidth;
         } else {
-            // Total Column
+            // Total Farm Column: Line 1 = Total Batch (kg), Line 2 = Farm Avg (kg/hd)
             ctx.fillStyle = 'rgba(37, 211, 102, 0.04)';
             ctx.fillRect(rowColX, curY, totalColWidth, rowHeight);
             ctx.strokeStyle = 'rgba(37, 211, 102, 0.2)';
             ctx.strokeRect(rowColX, curY, totalColWidth, rowHeight);
 
             ctx.fillStyle = '#4ade80';
-            ctx.font = 'bold 11.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-            ctx.fillText(`${formatKg(ing.totalFarmBatch || 0, 1)} kg`, rowColX + 10, curY + 22);
+            ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillText(`${formatKg(ing.totalFarmBatch || 0, 1)} kg`, rowColX + 10, curY + 18);
+
+            ctx.fillStyle = '#86efac';
+            ctx.font = '500 9.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillText(`${formatKg(ing.avgPerHead || 0, 2)} kg/hd (avg)`, rowColX + 10, curY + 33);
             rowColX += totalColWidth;
 
-            // Avg Column
+            // Herd Avg Column: Line 1 = Herd Avg Rate, Line 2 = Tag
             ctx.fillStyle = 'rgba(56, 189, 248, 0.04)';
             ctx.fillRect(rowColX, curY, avgColWidth, rowHeight);
             ctx.strokeStyle = 'rgba(56, 189, 248, 0.2)';
             ctx.strokeRect(rowColX, curY, avgColWidth, rowHeight);
 
             ctx.fillStyle = '#38bdf8';
-            ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-            ctx.fillText(`${formatKg(ing.avgPerHead || 0, 2)} kg`, rowColX + 10, curY + 22);
+            ctx.font = 'bold 11.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillText(`${formatKg(ing.avgPerHead || 0, 2)} kg/hd`, rowColX + 10, curY + 18);
+
+            ctx.fillStyle = '#7dd3fc';
+            ctx.font = '500 9px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillText('Herd Avg', rowColX + 10, curY + 33);
             rowColX += avgColWidth;
         }
 
@@ -508,10 +528,13 @@ export function generateDietTableCanvas({
     let totColX = tableStartX;
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    ctx.fillText('⚖️ TOTAL BATCH (kg)', totColX + 10, curY + 22);
+    ctx.fillText('⚖️ TOTAL BATCH (kg)', totColX + 10, curY + 26);
     totColX += ingColWidth;
 
     penDataList.forEach(pen => {
+        const penTotalKg = pen.totalBatchWeight || 0;
+        const penAvgHd = pen.headCount > 0 ? (penTotalKg / pen.headCount) : 0;
+
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
         ctx.beginPath();
         ctx.moveTo(totColX, curY);
@@ -519,8 +542,13 @@ export function generateDietTableCanvas({
         ctx.stroke();
 
         ctx.fillStyle = '#4ade80';
-        ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.fillText(`${formatKg(pen.totalBatchWeight || 0, 1)} kg`, totColX + 10, curY + 22);
+        ctx.font = 'bold 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.fillText(`${formatKg(penTotalKg, 1)} kg`, totColX + 10, curY + 18);
+
+        ctx.fillStyle = '#fef08a';
+        ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.fillText(`${formatKg(penAvgHd, 2)} kg/hd`, totColX + 10, curY + 33);
+
         totColX += penColWidth;
     });
 
@@ -535,21 +563,26 @@ export function generateDietTableCanvas({
 
         ctx.fillStyle = '#fde047';
         ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.fillText(`${formatKg(avgHeadBatch, 2)} kg/hd`, totColX + 10, curY + 22);
+        ctx.fillText(`${formatKg(avgHeadBatch, 2)} kg/hd`, totColX + 10, curY + 26);
         totColX += penColWidth;
     } else {
         // Multi pen grand totals
+        const grandAvgPerHead = grandTotalAnimals > 0 ? (grandTotalWeight / grandTotalAnimals) : 0;
+
         ctx.fillStyle = 'rgba(34, 197, 94, 0.2)';
         ctx.fillRect(totColX, curY, totalColWidth, rowHeight);
         ctx.strokeStyle = '#22c55e';
         ctx.strokeRect(totColX, curY, totalColWidth, rowHeight);
 
         ctx.fillStyle = '#86efac';
-        ctx.font = 'bold 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.fillText(`${formatKg(grandTotalWeight, 1)} kg`, totColX + 10, curY + 22);
+        ctx.font = 'bold 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.fillText(`${formatKg(grandTotalWeight, 1)} kg`, totColX + 10, curY + 18);
+
+        ctx.fillStyle = '#fef08a';
+        ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.fillText(`${formatKg(grandAvgPerHead, 2)} kg/hd (avg)`, totColX + 10, curY + 33);
         totColX += totalColWidth;
 
-        const grandAvgPerHead = grandTotalAnimals > 0 ? (grandTotalWeight / grandTotalAnimals) : 0;
         ctx.fillStyle = 'rgba(56, 189, 248, 0.15)';
         ctx.fillRect(totColX, curY, avgColWidth, rowHeight);
         ctx.strokeStyle = '#38bdf8';
@@ -557,7 +590,11 @@ export function generateDietTableCanvas({
 
         ctx.fillStyle = '#7dd3fc';
         ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.fillText(`${formatKg(grandAvgPerHead, 2)} kg`, totColX + 10, curY + 22);
+        ctx.fillText(`${formatKg(grandAvgPerHead, 2)} kg/hd`, totColX + 10, curY + 18);
+
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = '500 9px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.fillText('Herd Total', totColX + 10, curY + 33);
         totColX += avgColWidth;
     }
 
@@ -566,26 +603,26 @@ export function generateDietTableCanvas({
     // --- 6. Summary Rows: Head Count & Avg Live Weight ---
     // Row 1: Headcount
     ctx.fillStyle = '#111c16';
-    ctx.fillRect(tableStartX, curY, tableWidth, rowHeight);
+    ctx.fillRect(tableStartX, curY, tableWidth, summaryRowHeight);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-    ctx.strokeRect(tableStartX, curY, tableWidth, rowHeight);
+    ctx.strokeRect(tableStartX, curY, tableWidth, summaryRowHeight);
 
     let headColX = tableStartX;
     ctx.fillStyle = '#94a3b8';
     ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    ctx.fillText('🐄 Herd Headcount', headColX + 12, curY + 22);
+    ctx.fillText('🐄 Herd Headcount', headColX + 12, curY + 23);
     headColX += ingColWidth;
 
     penDataList.forEach(pen => {
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
         ctx.beginPath();
         ctx.moveTo(headColX, curY);
-        ctx.lineTo(headColX, curY + rowHeight);
+        ctx.lineTo(headColX, curY + summaryRowHeight);
         ctx.stroke();
 
         ctx.fillStyle = '#e2e8f0';
         ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.fillText(`${pen.headCount || 0} hd`, headColX + 10, curY + 22);
+        ctx.fillText(`${pen.headCount || 0} hd`, headColX + 10, curY + 23);
         headColX += penColWidth;
     });
 
@@ -593,37 +630,37 @@ export function generateDietTableCanvas({
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
         ctx.beginPath();
         ctx.moveTo(headColX, curY);
-        ctx.lineTo(headColX, curY + rowHeight);
+        ctx.lineTo(headColX, curY + summaryRowHeight);
         ctx.stroke();
 
         ctx.fillStyle = '#94a3b8';
         ctx.font = '500 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.fillText('Active', headColX + 10, curY + 22);
+        ctx.fillText('Active', headColX + 10, curY + 23);
         headColX += penColWidth;
     } else {
         ctx.fillStyle = '#e2e8f0';
         ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.fillText(`${grandTotalAnimals} Head`, headColX + 10, curY + 22);
+        ctx.fillText(`${grandTotalAnimals} Head`, headColX + 10, curY + 23);
         headColX += totalColWidth;
 
         ctx.fillStyle = '#94a3b8';
         ctx.font = '500 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.fillText('-', headColX + 14, curY + 22);
+        ctx.fillText('-', headColX + 14, curY + 23);
         headColX += avgColWidth;
     }
 
-    curY += rowHeight;
+    curY += summaryRowHeight;
 
     // Row 2: Avg Live Weight
     ctx.fillStyle = '#0d1511';
-    ctx.fillRect(tableStartX, curY, tableWidth, rowHeight);
+    ctx.fillRect(tableStartX, curY, tableWidth, summaryRowHeight);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-    ctx.strokeRect(tableStartX, curY, tableWidth, rowHeight);
+    ctx.strokeRect(tableStartX, curY, tableWidth, summaryRowHeight);
 
     let wtColX = tableStartX;
     ctx.fillStyle = '#94a3b8';
     ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    ctx.fillText('📊 Avg Live Weight', wtColX + 12, curY + 22);
+    ctx.fillText('📊 Avg Live Weight', wtColX + 12, curY + 23);
     wtColX += ingColWidth;
 
     let totalWeightSum = 0;
@@ -633,7 +670,7 @@ export function generateDietTableCanvas({
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
         ctx.beginPath();
         ctx.moveTo(wtColX, curY);
-        ctx.lineTo(wtColX, curY + rowHeight);
+        ctx.lineTo(wtColX, curY + summaryRowHeight);
         ctx.stroke();
 
         const penAvg = pen.avgWeight ? Math.round(pen.avgWeight) : null;
@@ -644,7 +681,7 @@ export function generateDietTableCanvas({
 
         ctx.fillStyle = '#e2e8f0';
         ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.fillText(penAvg ? `${penAvg} kg` : '-', wtColX + 10, curY + 22);
+        ctx.fillText(penAvg ? `${penAvg} kg` : '-', wtColX + 10, curY + 23);
         wtColX += penColWidth;
     });
 
@@ -654,26 +691,27 @@ export function generateDietTableCanvas({
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
         ctx.beginPath();
         ctx.moveTo(wtColX, curY);
-        ctx.lineTo(wtColX, curY + rowHeight);
+        ctx.lineTo(wtColX, curY + summaryRowHeight);
         ctx.stroke();
 
         ctx.fillStyle = '#94a3b8';
         ctx.font = '500 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.fillText('-', wtColX + 14, curY + 22);
+        ctx.fillText('-', wtColX + 14, curY + 23);
         wtColX += penColWidth;
     } else {
         ctx.fillStyle = '#e2e8f0';
         ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.fillText(farmWeightedAvgWt ? `${farmWeightedAvgWt} kg (Avg)` : '-', wtColX + 10, curY + 22);
+        ctx.fillText(farmWeightedAvgWt ? `${farmWeightedAvgWt} kg (Avg)` : '-', wtColX + 10, curY + 23);
         wtColX += totalColWidth;
 
         ctx.fillStyle = '#94a3b8';
         ctx.font = '500 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.fillText('-', wtColX + 14, curY + 22);
+        ctx.fillText('-', wtColX + 14, curY + 23);
         wtColX += avgColWidth;
     }
 
-    curY += rowHeight;
+    curY += summaryRowHeight;
+
 
     // --- 7. Footer Notice ---
     curY += 18;
