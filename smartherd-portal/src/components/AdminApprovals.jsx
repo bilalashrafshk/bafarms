@@ -64,6 +64,7 @@ export default function AdminApprovals() {
                 if (actionFilter === 'ISSUES' && item.action !== 'ADD_FEED_STOCK_ISSUE' && item.action !== 'DELETE_FEED_STOCK_ISSUE') return false;
                 if (actionFilter === 'EXPENSES' && item.action !== 'ADD_OVERHEAD_EXPENSE' && item.action !== 'DELETE_OVERHEAD_EXPENSE') return false;
                 if (actionFilter === 'SETTINGS' && item.action !== 'SAVE_SETTINGS') return false;
+                if (actionFilter === 'WEIGHTS' && item.action !== 'LOG_WEIGHT' && item.action !== 'DELETE_WEIGHT_LOG' && item.action !== 'UPDATE_WEIGHT_LOGS_BATCH') return false;
                 if (actionFilter === 'DELETIONS' && !item.action.startsWith('DELETE_')) return false;
             }
             if (!searchTerm.trim()) return true;
@@ -244,6 +245,7 @@ export default function AdminApprovals() {
                         style={{ fontSize: '0.8rem', height: '36px', width: '160px' }}
                     >
                         <option value="ALL">All Actions</option>
+                        <option value="WEIGHTS">Weight Logs</option>
                         <option value="PURCHASES">Feed Purchases</option>
                         <option value="ISSUES">Stock Issues</option>
                         <option value="EXPENSES">Overhead Expenses</option>
@@ -417,6 +419,10 @@ export default function AdminApprovals() {
                                                 return <span className="badge" style={{ background: 'rgba(108,117,125,0.15)', color: '#adb5bd', border: '1px solid rgba(108,117,125,0.3)' }}><i className="fa-solid fa-skull"></i> Record Death</span>;
                                             case 'RECORD_SALE':
                                                 return <span className="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i className="fa-solid fa-handshake"></i> Record Sale</span>;
+                                            case 'LOG_WEIGHT':
+                                                return <span className="badge" style={{ background: 'rgba(40,167,69,0.15)', color: 'var(--primary-green-light)', border: '1px solid rgba(40,167,69,0.3)' }}><i className="fa-solid fa-weight-scale"></i> Log Weight</span>;
+                                            case 'UPDATE_WEIGHT_LOGS_BATCH':
+                                                return <span className="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i className="fa-solid fa-pen-to-square"></i> Edit Weight Log</span>;
                                             case 'OVERWRITE_FEED_LOG':
                                                 return <span className="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i className="fa-solid fa-rotate"></i> Overwrite Feed Log</span>;
                                             default:
@@ -444,6 +450,7 @@ export default function AdminApprovals() {
                                             case 'UPDATE_ANIMAL':
                                             case 'RECORD_DEATH':
                                             case 'RECORD_SALE':
+                                            case 'LOG_WEIGHT':
                                             case 'DELETE_WEIGHT_LOG':
                                             case 'UPDATE_WEIGHT_LOGS_BATCH':
                                             case 'DELETE_TREATMENT':
@@ -557,6 +564,12 @@ export default function AdminApprovals() {
                                                                 return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Amount: PKR {(Number(snap?.amount || payload?.amount) || 0).toLocaleString()} · Category: {snap?.category || payload?.category || '—'} · Date: {formatDate(snap?.date || payload?.date) || '—'}</div>;
                                                             case 'DELETE_WEIGHT_LOG':
                                                                 return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Weight log on {formatDate(snap?.date || payload?.date)}: {snap?.weight || payload?.weight} kg (ADG: {(Number(snap?.adg || payload?.adg) || 0).toFixed(2)} kg/day)</div>;
+                                                            case 'LOG_WEIGHT':
+                                                                return (
+                                                                    <div style={{ fontSize: '0.78rem', color: 'var(--primary-green-light)' }}>
+                                                                        Weight: <strong>{payload?.weight} kg</strong> · Date: {formatDate(payload?.date)} {payload?.adg !== undefined ? `· ADG: ${Number(payload?.adg) > 0 ? '+' : ''}${Number(payload?.adg).toFixed(2)} kg/day` : ''}
+                                                                    </div>
+                                                                );
                                                             case 'DELETE_TREATMENT':
                                                                 return <div style={{ fontSize: '0.78rem', color: 'hsl(0, 75%, 70%)' }}>Treatment on {formatDate(snap?.date || payload?.date)}: {snap?.medicine || snap?.type || payload?.medicine || payload?.type} (Dosage: {snap?.dosage || payload?.dosage || '—'})</div>;
                                                             case 'DELETE_FEED_LOG':

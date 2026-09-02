@@ -2067,6 +2067,22 @@ module.exports = async (req, res) => {
 
             if (action === 'LOG_WEIGHT') {
                 const { animalId, date, weight, adg } = payload;
+                const isAdmin = !!(perms && perms.isAdmin);
+
+                if (!isAdmin) {
+                    const existingPending = await client.query(
+                        `SELECT id FROM ba_pending_approvals WHERE action = 'LOG_WEIGHT' AND animal_id = $1 AND (payload->>'date') = $2 AND status = 'pending'`,
+                        [animalId, String(date)]
+                    );
+                    if (existingPending.rows.length === 0) {
+                        const animalRes = await client.query('SELECT * FROM ba_animals WHERE id = $1', [animalId]);
+                        await client.query(`
+                            INSERT INTO ba_pending_approvals (action, animal_id, animal_rfid, animal_breed, payload, previous_snapshot, requested_by)
+                            VALUES ('LOG_WEIGHT', $1, $2, $3, $4, $5, $6)
+                        `, [animalId, animalRes.rows[0]?.rfid || null, animalRes.rows[0]?.breed || null, JSON.stringify({ animalId, date, weight, adg }), JSON.stringify(animalRes.rows[0] || {}), session.email.toLowerCase().trim()]);
+                    }
+                    return res.status(200).json({ success: true, pending: true });
+                }
 
                 await client.query(`
                     INSERT INTO ba_weights (animal_id, date, weight, adg, created_by)
@@ -2451,6 +2467,22 @@ module.exports = async (req, res) => {
                     if (changes.currentWeight !== undefined) {
                         await client.query(`UPDATE ba_animals SET current_weight = $1 WHERE id = $2`, [changes.currentWeight, approval.animal_id]);
                     }
+                } else if (approval.action === 'LOG_WEIGHT') {
+                    const { animalId, date, weight, adg } = changes;
+                    const targetAnimalId = animalId || approval.animal_id;
+                    await client.query(`
+                        INSERT INTO ba_weights (animal_id, date, weight, adg, created_by)
+                        VALUES ($1, $2, $3, $4, $5)
+                    `, [targetAnimalId, date, weight, adg, approval.requested_by]);
+
+                    await client.query(`
+                        UPDATE ba_animals
+                        SET current_weight = $1
+                        WHERE id = $2
+                    `, [weight, targetAnimalId]);
+
+                    const penRes = await client.query('SELECT pen FROM ba_animals WHERE id = $1', [targetAnimalId]);
+                    await refreshPenCache(client, penRes.rows[0]?.pen);
                 } else if (approval.action === 'ADD_MEAT_CUT') {
                     await client.query(`
                         INSERT INTO ba_meat_cuts (id, title, category, price, weight, description, ribbon, rfid, marbling, fat_ratio, images)

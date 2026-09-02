@@ -810,6 +810,8 @@ export default function Settings() {
                                                         case 'UPDATE_ANIMAL': return 'Edit Animal';
                                                         case 'DELETE_FEED_PURCHASE': return 'Delete Feed Purchase';
                                                         case 'DELETE_FEED_STOCK_ISSUE': return 'Delete Feed Stock Issue';
+                                                        case 'LOG_WEIGHT': return 'Log Weight';
+                                                        case 'UPDATE_WEIGHT_LOGS_BATCH': return 'Edit Weight Log';
                                                         case 'DELETE_WEIGHT_LOG': return 'Delete Weight Log';
                                                         case 'DELETE_TREATMENT': return 'Delete Treatment';
                                                         case 'DELETE_FEED_LOG': return 'Delete Feed Log';

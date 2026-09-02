@@ -8,7 +8,7 @@ import { todayPKT, daysBetween } from '../utils/dateOnly';
 import { getLaggerIds } from '../utils/laggers';
 
 export default function WeightTracker() {
-    const { animals, weightLogs, logWeight, deleteWeightLog, updateWeightLog, systemParams } = useContext(FarmContext);
+    const { animals, weightLogs, logWeight, deleteWeightLog, updateWeightLog, systemParams, myRequests, pendingApprovals, staffUser } = useContext(FarmContext);
 
     // Animals flagged as "laggers" (ADG below the herd alert threshold) — same shared
     // definition Dashboard/Herd Ledger/Rotation Planner use, surfaced on the report table.
@@ -29,6 +29,7 @@ export default function WeightTracker() {
     const [weight, setWeight] = useState('');
     const [date, setDate] = useState(todayPKT());
     const [isSuccess, setIsSuccess] = useState(false);
+    const [isPendingNotice, setIsPendingNotice] = useState(false);
 
     // Weigh Day Mode state
     const [weighDayMode, setWeighDayMode] = useState(false);
@@ -103,14 +104,15 @@ export default function WeightTracker() {
         };
     }, [tagOpen, tagSearch]);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (!selectedAnimal || !weight || !date) return;
 
-        logWeight(selectedAnimal, date, parseFloat(weight));
+        const res = await logWeight(selectedAnimal, date, parseFloat(weight));
         setWeight('');
+        setIsPendingNotice(res?.pending || !(staffUser?.isAdmin));
         setIsSuccess(true);
-        setTimeout(() => setIsSuccess(false), 3000);
+        setTimeout(() => setIsSuccess(false), 3500);
     };
 
     // Correcting a mis-keyed weight or weighing date — ADG for this log and every
@@ -135,13 +137,48 @@ export default function WeightTracker() {
         closeEditLogModal();
     };
 
+    const pendingLogKeys = useMemo(() => {
+        const set = new Set();
+        const relevantRequests = [...(myRequests || []), ...(pendingApprovals || [])];
+        relevantRequests.forEach(r => {
+            if (r.status === 'pending' && r.action === 'LOG_WEIGHT') {
+                if (r.payload?.id) set.add(`id_${r.payload.id}`);
+                const aid = r.payload?.animalId || r.animalId || r.animal_id;
+                const d = r.payload?.date;
+                if (aid && d) set.add(`ad_${aid}_${d}`);
+            }
+        });
+        return set;
+    }, [myRequests, pendingApprovals]);
+
+    const displayLogs = useMemo(() => {
+        let list = [...weightLogs];
+        (myRequests || []).forEach(r => {
+            if (r.status === 'pending' && r.action === 'LOG_WEIGHT' && r.payload) {
+                const p = r.payload;
+                const aid = parseInt(p.animalId || r.animalId || r.animal_id);
+                const exists = list.some(w => (p.id && w.id === p.id) || (w.animalId === aid && w.date === p.date));
+                if (!exists) {
+                    list.push({
+                        id: p.id || `pending_${r.id}`,
+                        animalId: aid,
+                        date: p.date,
+                        weight: p.weight,
+                        adg: p.adg ?? 0
+                    });
+                }
+            }
+        });
+        return list;
+    }, [weightLogs, myRequests]);
+
     // Sort weight logs by date descending for overview
-    const sortedLogs = [...weightLogs].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const sortedLogs = useMemo(() => [...displayLogs].sort((a, b) => new Date(b.date) - new Date(a.date)), [displayLogs]);
 
     // Per-animal history for the selected animal
     const selectedAnimalData = selectedAnimal ? animals.find(a => a.id === parseInt(selectedAnimal)) : null;
     const animalHistory = selectedAnimal
-        ? [...weightLogs.filter(w => w.animalId === parseInt(selectedAnimal))].sort((a, b) => new Date(a.date) - new Date(b.date))
+        ? [...displayLogs.filter(w => w.animalId === parseInt(selectedAnimal))].sort((a, b) => new Date(a.date) - new Date(b.date))
         : [];
 
     // ─── WEIGHT & GAIN REPORT ───
@@ -668,9 +705,20 @@ export default function WeightTracker() {
 
 
                         {isSuccess && (
-                            <div style={{ marginTop: '1.2rem', padding: '0.8rem', background: 'rgba(25,135,84,0.1)', border: '1px solid var(--primary-green-light)', borderRadius: '8px', color: 'var(--primary-green-light)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.88rem' }}>
-                                <i class="fa-solid fa-circle-check"></i>
-                                Weight logged.
+                            <div style={{
+                                marginTop: '1.2rem',
+                                padding: '0.8rem',
+                                background: isPendingNotice ? 'rgba(255,193,7,0.1)' : 'rgba(25,135,84,0.1)',
+                                border: `1px solid ${isPendingNotice ? 'var(--accent-gold)' : 'var(--primary-green-light)'}`,
+                                borderRadius: '8px',
+                                color: isPendingNotice ? 'var(--accent-gold)' : 'var(--primary-green-light)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                fontSize: '0.88rem'
+                            }}>
+                                <i className={`fa-solid ${isPendingNotice ? 'fa-clock' : 'fa-circle-check'}`}></i>
+                                {isPendingNotice ? 'Weight record submitted — sent for admin approval.' : 'Weight logged successfully.'}
                             </div>
                         )}
 
@@ -1017,7 +1065,12 @@ export default function WeightTracker() {
                                         {getRfid(log.animalId)}
                                     </td>
                                     <td>{formatDate(log.date)}</td>
-                                    <td><strong>{log.weight} kg</strong></td>
+                                    <td>
+                                        <strong>{log.weight} kg</strong>
+                                        {(pendingLogKeys.has(`id_${log.id}`) || pendingLogKeys.has(`ad_${log.animalId}_${log.date}`)) && (
+                                            <span className="badge" style={{ marginLeft: '0.4rem', background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)', fontSize: '0.68rem', verticalAlign: 'middle' }}>Pending</span>
+                                        )}
+                                    </td>
                                     <td style={{ fontFamily: 'var(--font-heading)' }}>
                                         {log.adg !== 0 ? (
                                             <span className={log.adg >= (systemParams.adgAlertThreshold ?? 1.0) ? 'adg-text good' : 'adg-text alert'}>
@@ -1028,7 +1081,9 @@ export default function WeightTracker() {
                                         )}
                                     </td>
                                     <td>
-                                        {log.adg === 0 ? (
+                                        {pendingLogKeys.has(`id_${log.id}`) || pendingLogKeys.has(`ad_${log.animalId}_${log.date}`) ? (
+                                            <span style={{ color: 'var(--accent-gold)', fontWeight: '600' }}><i className="fa-solid fa-clock"></i> Pending Approval</span>
+                                        ) : log.adg === 0 ? (
                                             <span style={{ color: 'var(--text-muted)' }}>Registered</span>
                                         ) : log.adg >= (systemParams.adgAlertThreshold ?? 1.0) ? (
                                             <span style={{ color: 'var(--primary-green-light)', fontWeight: '600' }}><i className="fa-solid fa-circle-check"></i> Standard Met</span>

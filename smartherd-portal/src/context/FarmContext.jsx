@@ -1966,7 +1966,8 @@ export const FarmProvider = ({ children }) => {
 
     const logWeight = async (animalId, date, weight) => {
         const targetWeight = parseFloat(weight);
-        const animalLogs = weightLogs.filter(w => w.animalId === parseInt(animalId))
+        const parsedAnimalId = parseInt(animalId);
+        const animalLogs = weightLogs.filter(w => w.animalId === parsedAnimalId)
                                      .sort((a, b) => daysBetween(a.date, b.date));
 
         let calculatedAdg = 0;
@@ -1980,23 +1981,41 @@ export const FarmProvider = ({ children }) => {
         const id = weightLogs.length > 0 ? Math.max(...weightLogs.map(w => w.id)) + 1 : 1;
         const newLog = {
             id,
-            animalId: parseInt(animalId),
+            animalId: parsedAnimalId,
             date,
             weight: targetWeight,
             adg: calculatedAdg
         };
 
+        const isAdmin = staffUserRef.current?.isAdmin === true;
+        if (!isAdmin) {
+            setMyRequests(prev => [
+                {
+                    id: `temp_weight_${Date.now()}_${id}`,
+                    action: 'LOG_WEIGHT',
+                    animalId: parsedAnimalId,
+                    payload: { id, animalId: parsedAnimalId, date, weight: targetWeight, adg: calculatedAdg },
+                    status: 'pending',
+                    requestedBy: staffUserRef.current?.email || 'me',
+                    requestedAt: new Date().toISOString()
+                },
+                ...prev
+            ]);
+        }
+
         // 1. Sync UI locally
         setWeightLogs(prev => [...prev, newLog]);
         setAnimals(prev => prev.map(animal => {
-            if (animal.id === parseInt(animalId)) {
+            if (animal.id === parsedAnimalId) {
                 return { ...animal, currentWeight: targetWeight };
             }
             return animal;
         }));
 
         // 2. Queue database transaction durably
-        persistMutation('LOG_WEIGHT', { animalId: parseInt(animalId), date, weight: targetWeight, adg: calculatedAdg });
+        persistMutation('LOG_WEIGHT', { animalId: parsedAnimalId, date, weight: targetWeight, adg: calculatedAdg });
+        setTimeout(refreshApprovals, 250);
+        return { success: true, pending: !isAdmin };
     };
 
     // Recomputes the entire ADG chain for one animal after a weight or date edit.
@@ -2450,6 +2469,27 @@ export const FarmProvider = ({ children }) => {
                 if (changes.currentWeight !== undefined) {
                     setAnimals(prev => prev.map(a => a.id === (approval.animal_id || approval.animalId) ? { ...a, currentWeight: changes.currentWeight } : a));
                 }
+            } else if (approval.action === 'LOG_WEIGHT') {
+                const changes = approval.payload || {};
+                const animalId = parseInt(changes.animalId || approval.animal_id || approval.animalId);
+                const targetWeight = parseFloat(changes.weight);
+                const newLog = {
+                    id: changes.id || (weightLogs.length > 0 ? Math.max(...weightLogs.map(w => w.id)) + 1 : 1),
+                    animalId,
+                    date: changes.date,
+                    weight: targetWeight,
+                    adg: changes.adg ?? 0
+                };
+                setWeightLogs(prev => {
+                    const exists = prev.some(w => (changes.id && w.id === changes.id) || (w.animalId === animalId && w.date === changes.date));
+                    return exists ? prev.map(w => ((changes.id && w.id === changes.id) || (w.animalId === animalId && w.date === changes.date)) ? { ...w, ...newLog } : w) : [...prev, newLog];
+                });
+                setAnimals(prev => prev.map(animal => {
+                    if (animal.id === animalId) {
+                        return { ...animal, currentWeight: targetWeight };
+                    }
+                    return animal;
+                }));
             } else if (approval.action === 'SAVE_RATION_PLAN') {
                 const changes = approval.payload || {};
                 setRationPlans(prev => {
