@@ -2,21 +2,18 @@ import React, { createContext, useState, useEffect, useRef, useMemo } from 'reac
 import { resolveRation, resolveIngredientRampRow, getWeightDivergence, isForageMatch, NoMatchingRationError } from '../lib/rationResolver';
 import { todayPKT, todayAsDate, parseDateOnly, daysBetween } from '../utils/dateOnly';
 import { buildLots, allocateFifo } from '../utils/fifoStock';
+import {
+    safeGetItem,
+    safeSetItem,
+    safeRemoveItem,
+    pruneFailedMutations,
+    sanitizeFailedMutation,
+    clearDispensableCaches
+} from '../utils/safeStorage';
 
 export const FarmContext = createContext();
 
-const loadStoredData = (key, defaultVal) => {
-    try {
-        const stored = localStorage.getItem(key);
-        if (stored) {
-            return JSON.parse(stored);
-        }
-        return defaultVal;
-    } catch (e) {
-        console.error("Error loading LocalStorage key: " + key, e);
-        return defaultVal;
-    }
-};
+const loadStoredData = (key, defaultVal) => safeGetItem(key, defaultVal);
 
 const defaultBreeds = [
     { name: 'Sahiwal', defaultTargetWeight: 360 },
@@ -169,7 +166,10 @@ export const defaultStaffPermissions = [
 
 export const FarmProvider = ({ children }) => {
     // Auth States
-    const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('ba_staff_logged_in') === 'true');
+    const [isLoggedIn, setIsLoggedIn] = useState(() => {
+        const stored = safeGetItem('ba_staff_logged_in', null);
+        return stored === true || stored === 'true';
+    });
     const enrichUser = (u) => {
         if (!u) return null;
         const email = (u.email || '').toLowerCase().trim();
@@ -184,8 +184,8 @@ export const FarmProvider = ({ children }) => {
     };
 
     const [staffUser, setStaffUser] = useState(() => {
-        const stored = localStorage.getItem('ba_staff_user');
-        return stored ? enrichUser(JSON.parse(stored)) : null;
+        const stored = safeGetItem('ba_staff_user', null);
+        return stored ? enrichUser(stored) : null;
     });
     // Bumped only on an actual login/reauth (see handleLoginSuccess) — deliberately
     // NOT tied to staffUser.token, which also changes on every silent background
@@ -212,8 +212,8 @@ export const FarmProvider = ({ children }) => {
 
     const handleLoginSuccess = (userSession) => {
         const enriched = enrichUser(userSession);
-        localStorage.setItem('ba_staff_logged_in', 'true');
-        localStorage.setItem('ba_staff_user', JSON.stringify(enriched));
+        safeSetItem('ba_staff_logged_in', 'true');
+        safeSetItem('ba_staff_user', enriched);
         setIsLoggedIn(true);
         setStaffUser(enriched);
         setSessionExpired(false);
@@ -236,7 +236,7 @@ export const FarmProvider = ({ children }) => {
     // withholding gate), resetSystem (destructive, must never auto-retry), and
     // updateStaffPermission (access-control changes need an immediate confirmation).
     const [pendingMutations, setPendingMutations] = useState(() => loadStoredData('ba_pending_mutations', []));
-    const [failedMutations, setFailedMutations] = useState(() => loadStoredData('ba_failed_mutations', []));
+    const [failedMutations, setFailedMutations] = useState(() => pruneFailedMutations(loadStoredData('ba_failed_mutations', [])));
     const [isSyncing, setIsSyncing] = useState(false);
     // True when the queue hit a 401 (expired/invalid session token) rather than a real
     // validation/permission rejection. Kept distinct from failedMutations on purpose —
@@ -264,12 +264,27 @@ export const FarmProvider = ({ children }) => {
     useEffect(() => { pendingRef.current = pendingMutations; }, [pendingMutations]);
     useEffect(() => { staffUserRef.current = staffUser; }, [staffUser]);
 
+    // Proactively free up cache headroom on mount if storage is already tight or exceeded
     useEffect(() => {
-        localStorage.setItem('ba_pending_mutations', JSON.stringify(pendingMutations));
+        try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                const probeKey = '__ba_probe__';
+                window.localStorage.setItem(probeKey, '1');
+                window.localStorage.removeItem(probeKey);
+            }
+        } catch (_) {
+            console.warn('Storage quota exhausted on startup. Automatically evicting dispensable display caches...');
+            clearDispensableCaches();
+        }
+    }, []);
+
+    useEffect(() => {
+        safeSetItem('ba_pending_mutations', pendingMutations);
     }, [pendingMutations]);
 
     useEffect(() => {
-        localStorage.setItem('ba_failed_mutations', JSON.stringify(failedMutations));
+        const pruned = pruneFailedMutations(failedMutations, 15);
+        safeSetItem('ba_failed_mutations', pruned);
     }, [failedMutations]);
 
     // Session validity/revocation checking lives solely in refreshSession() below —
@@ -361,8 +376,8 @@ export const FarmProvider = ({ children }) => {
                 // Server rejected it for a real reason (validation/permission/etc).
                 // Don't let this block the rest of the queue, but never drop it
                 // silently either.
-                const failedItem = { ...item, error: data.error || `HTTP ${res.status}`, failedAt: Date.now() };
-                setFailedMutations(prev => [...prev, failedItem]);
+                const failedItem = sanitizeFailedMutation({ ...item, error: data.error || `HTTP ${res.status}`, failedAt: Date.now() });
+                setFailedMutations(prev => [...prev.slice(-14), failedItem]);
             } else {
                 setSessionExpired(false);
             }
@@ -404,7 +419,8 @@ export const FarmProvider = ({ children }) => {
                     setTimeout(flushQueue, 0);
                     return null;
                 } else if (!res.ok || data.success === false) {
-                    setFailedMutations(prev => [...prev, { ...item, error: data.error || `HTTP ${res.status}`, failedAt: Date.now() }]);
+                    const failedItem = sanitizeFailedMutation({ ...item, error: data.error || `HTTP ${res.status}`, failedAt: Date.now() });
+                    setFailedMutations(prev => [...prev.slice(-14), failedItem]);
                 } else {
                     setSessionExpired(false);
                 }
@@ -471,7 +487,7 @@ export const FarmProvider = ({ children }) => {
                 setStaffUser(prev => {
                     if (!prev) return prev;
                     const merged = { ...prev, ...data.user, token: data.token };
-                    localStorage.setItem('ba_staff_user', JSON.stringify(merged));
+                    safeSetItem('ba_staff_user', merged);
                     return merged;
                 });
                 // Piggyback a silent (no "Syncing…" badge) background data refresh onto
@@ -539,8 +555,8 @@ export const FarmProvider = ({ children }) => {
             }
         } catch (e) {}
 
-        localStorage.removeItem('ba_staff_logged_in');
-        localStorage.removeItem('ba_staff_user');
+        safeRemoveItem('ba_staff_logged_in');
+        safeRemoveItem('ba_staff_user');
         setIsLoggedIn(false);
         setStaffUser(null);
     };
@@ -552,7 +568,7 @@ export const FarmProvider = ({ children }) => {
     const [quarantineProtocols, setQuarantineProtocols] = useState(() => {
         const stored = loadStoredData('ba_quarantine_protocols', defaultQuarantineProtocols);
         if (Array.isArray(stored) && (stored.some(p => p.id === 'vitb12' || p.id === 'tick' || p.id === 'fmd1' || p.id === 'fmd2') || !stored.some(p => p.id === 'hs'))) {
-            localStorage.setItem('ba_quarantine_protocols', JSON.stringify(defaultQuarantineProtocols));
+            safeSetItem('ba_quarantine_protocols', defaultQuarantineProtocols);
             return defaultQuarantineProtocols;
         }
         return stored;
@@ -560,25 +576,25 @@ export const FarmProvider = ({ children }) => {
 
     const updateBreedsConfig = (newBreeds) => {
         setBreedsConfig(newBreeds);
-        localStorage.setItem('ba_breeds_config', JSON.stringify(newBreeds));
+        safeSetItem('ba_breeds_config', newBreeds);
         persistMutation('SAVE_SETTINGS', { key: 'breeds_config', value: newBreeds });
     };
 
     const updateMedCategories = (newCategories) => {
         setMedCategories(newCategories);
-        localStorage.setItem('ba_med_categories', JSON.stringify(newCategories));
+        safeSetItem('ba_med_categories', newCategories);
         persistMutation('SAVE_SETTINGS', { key: 'med_categories', value: newCategories });
     };
 
     const updateSystemParams = (newParams) => {
         setSystemParams(newParams);
-        localStorage.setItem('ba_system_params', JSON.stringify(newParams));
+        safeSetItem('ba_system_params', newParams);
         persistMutation('SAVE_SETTINGS', { key: 'system_params', value: newParams });
     };
 
     const updateQuarantineProtocols = (newProtocols) => {
         setQuarantineProtocols(newProtocols);
-        localStorage.setItem('ba_quarantine_protocols', JSON.stringify(newProtocols));
+        safeSetItem('ba_quarantine_protocols', newProtocols);
         persistMutation('SAVE_SETTINGS', { key: 'quarantine_protocols', value: newProtocols });
     };
 
@@ -741,14 +757,8 @@ export const FarmProvider = ({ children }) => {
 
     // Feed optimized data
     const [feedIngredients, setFeedIngredients] = useState(() => {
-        const stored = localStorage.getItem('ba_feed_ingredients');
-        if (stored) {
-            try {
-                return JSON.parse(stored);
-            } catch (e) {
-                console.error("Error parsing ba_feed_ingredients", e);
-            }
-        }
+        const stored = safeGetItem('ba_feed_ingredients', null);
+        if (stored) return stored;
 
         // Migrate legacy settings
         const recipe = loadStoredData('ba_feed_recipe', {
@@ -1640,7 +1650,7 @@ export const FarmProvider = ({ children }) => {
     const debouncedCacheWrite = (key, value) => {
         const timers = cacheWriteTimers.current;
         clearTimeout(timers[key]?.timer);
-        const write = () => localStorage.setItem(key, JSON.stringify(value));
+        const write = () => safeSetItem(key, value);
         timers[key] = { timer: setTimeout(write, 400), write };
     };
 
@@ -1797,7 +1807,7 @@ export const FarmProvider = ({ children }) => {
                         setter(prev => {
                             if (JSON.stringify(prev) === JSON.stringify(newValue)) return prev;
                             if (storageKey) {
-                                try { localStorage.setItem(storageKey, JSON.stringify(newValue)); } catch (_) {}
+                                safeSetItem(storageKey, newValue);
                             }
                             return newValue;
                         });
@@ -1881,7 +1891,7 @@ export const FarmProvider = ({ children }) => {
                         setStaffUser(prev => {
                             if (!prev) return prev;
                             const merged = enrichUser({ ...prev, ...data.session, token: prev.token });
-                            localStorage.setItem('ba_staff_user', JSON.stringify(merged));
+                            safeSetItem('ba_staff_user', merged);
                             return merged;
                         });
                     }
@@ -3578,9 +3588,9 @@ export const FarmProvider = ({ children }) => {
     };
 
     const resetSystem = async () => {
-        localStorage.removeItem('ba_animals');
-        localStorage.removeItem('ba_weights');
-        localStorage.removeItem('ba_treatments');
+        safeRemoveItem('ba_animals');
+        safeRemoveItem('ba_weights');
+        safeRemoveItem('ba_treatments');
 
         setAnimals([]);
         setWeightLogs([]);

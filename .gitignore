@@ -6,3 +6,4 @@ node_modules
 dist
 upcoming.json
 *service_account*.json
+scratch*.json
