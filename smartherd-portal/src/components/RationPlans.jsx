@@ -1650,7 +1650,11 @@ export default function RationPlans() {
                                                 </td>
                                                 <td>
                                                     {resolved ? (
-                                                        resolved.blocked ? (
+                                                        resolved.empty ? (
+                                                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                                                                Pen is empty (0 head)
+                                                            </span>
+                                                        ) : resolved.blocked ? (
                                                             <span style={{ color: 'hsl(0,75%,65%)' }}>
                                                                 <i class="fa-solid fa-ban"></i> Feeding blocked
                                                                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>{resolved.error}</div>

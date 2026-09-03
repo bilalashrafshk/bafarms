@@ -3050,12 +3050,59 @@ export const FarmProvider = ({ children }) => {
             return { system: 'v2', blocked: true, error: 'Assigned ration plan version not found.', forageType, headCount, avgWeight, plan: null };
         }
 
+        if (headCount === 0) {
+            return {
+                system: 'v2',
+                blocked: false,
+                empty: true,
+                plan,
+                forageType,
+                headCount: 0,
+                avgWeight: null,
+                avgProjectedWeight: null,
+                daysOnFeed: 0,
+                phase: 'STEADY',
+                dayNo: null,
+                bracketMin: null,
+                bracketMax: null,
+                estCostPerHeadPerDay: 0,
+                week: { targetAdg: 0, ingredients: {} },
+                matchedByWeight: false,
+                isAdaptationWeek: false,
+                usesAdaptationTable: false,
+                forageAdLib: false,
+                adLibForageId: null,
+                rampInfo: null
+            };
+        }
+
+        let actualWeight = pen.lastActualWeightKg;
+        let weighDate = pen.lastWeighDate;
+
+        if (actualWeight == null) {
+            actualWeight = avgWeight;
+        }
+
+        if (!weighDate) {
+            const animalIds = penAnimals.map(a => a.id);
+            const penLogs = (weightLogs || []).filter(w => animalIds.includes(w.animalId));
+            if (penLogs.length > 0) {
+                weighDate = penLogs.reduce((latest, log) => (!latest || log.date > latest ? log.date : latest), null);
+            }
+            if (!weighDate) {
+                const entryDates = penAnimals.map(a => a.entryDate).filter(Boolean);
+                weighDate = entryDates.length > 0
+                    ? entryDates.reduce((latest, d) => (!latest || d > latest ? d : latest), null)
+                    : (pen.cycleStartDate || refDate);
+            }
+        }
+
         const penForResolver = {
-            cycleStartDate: pen.cycleStartDate,
+            cycleStartDate: pen.cycleStartDate || weighDate || refDate,
             forageType,
             planId: pen.planId,
-            lastActualWeightKg: pen.lastActualWeightKg,
-            lastWeighDate: pen.lastWeighDate,
+            lastActualWeightKg: actualWeight,
+            lastWeighDate: weighDate,
             currentTargetAdg: pen.currentTargetAdg
         };
 
@@ -3133,10 +3180,10 @@ export const FarmProvider = ({ children }) => {
                     altResult = null;
                 }
 
-                const daysOnFeed = pen.cycleStartDate ? daysBetween(refDate, pen.cycleStartDate) + 1 : null;
-                const daysSinceWeigh = pen.lastWeighDate ? Math.max(0, daysBetween(refDate, pen.lastWeighDate)) : 0;
-                const adg = pen.currentTargetAdg != null ? pen.currentTargetAdg : (plan?.adgFloor ?? 0);
-                const projectedWeight = (pen.lastActualWeightKg || 0) + daysSinceWeigh * adg;
+                const daysOnFeed = penForResolver.cycleStartDate ? daysBetween(refDate, penForResolver.cycleStartDate) + 1 : null;
+                const daysSinceWeigh = penForResolver.lastWeighDate ? Math.max(0, daysBetween(refDate, penForResolver.lastWeighDate)) : 0;
+                const adg = penForResolver.currentTargetAdg != null ? penForResolver.currentTargetAdg : (plan?.adgFloor ?? 0);
+                const projectedWeight = (penForResolver.lastActualWeightKg || 0) + daysSinceWeigh * adg;
 
                 const adaptationDays = plan?.adaptationDays ?? 7;
                 const phase = daysOnFeed !== null && daysOnFeed <= adaptationDays ? 'ADAPTATION' : 'STEADY';

@@ -1628,7 +1628,7 @@ export default function TMRCalculator() {
 
             {peekResolutions.map(({ penId, resolved }) => {
                 const expanded = peekExpandedPens.has(penId);
-                const canExpand = resolved && !resolved.blocked;
+                const canExpand = resolved && !resolved.blocked && !resolved.empty;
                 return (
                     <div key={penId} style={{ marginBottom: '0.5rem', paddingBottom: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                         <div
@@ -1637,7 +1637,7 @@ export default function TMRCalculator() {
                         >
                             <div style={{ fontWeight: '700', color: 'var(--text-pure)', fontSize: '0.85rem' }}>
                                 Pen {penId}
-                                {resolved && !resolved.blocked && (
+                                {resolved && !resolved.blocked && !resolved.empty && (
                                     <span style={{ marginLeft: '0.5rem', fontWeight: '400', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
                                         {resolved.plan.name}{resolved.system === 'v2' ? ` v${resolved.plan.version}` : ''}
                                         {' · '}{(resolved.phase === 'ADAPTATION' || resolved.usesAdaptationTable)
@@ -1650,6 +1650,9 @@ export default function TMRCalculator() {
                             {canExpand && <i class={`fa-solid fa-chevron-${expanded ? 'up' : 'down'}`} style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}></i>}
                         </div>
                         {!resolved && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>No Ration Plan assigned.</span>}
+                        {resolved?.empty && (
+                            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Pen is empty (0 head).</span>
+                        )}
                         {resolved?.blocked && (
                             <span style={{ fontSize: '0.78rem', color: 'hsl(0,75%,65%)' }}><i class="fa-solid fa-ban"></i> {resolved.error}</span>
                         )}
