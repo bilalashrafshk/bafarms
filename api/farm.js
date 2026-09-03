@@ -2170,7 +2170,7 @@ module.exports = async (req, res) => {
             }
 
             if (action === 'UPDATE_ANIMAL') {
-                const { id, rfid, breed, entryDate, entryWeight, targetWeight, purchasePrice, source, status, pen, price, desc, images } = payload;
+                const { id, rfid, breed, entryDate, entryWeight, targetWeight, purchasePrice, source, status, pen, price, desc, images, mandiPrice, mandiWeight, mandiTax, carriage, miscExpense } = payload;
                 const isAdmin = !!(perms && perms.isAdmin);
 
                 const currentRes = await client.query('SELECT * FROM ba_animals WHERE id = $1', [id]);
