@@ -99,18 +99,33 @@ export default function Dashboard({ onNavigate }) {
         const todayStr = todayPKT();
         (animals || []).forEach(animal => {
             const penEvents = (events || [])
-                .filter(e => e.animalId === animal.id && (e.eventType === 'registered' || e.eventType === 'pen_transfer') && e.toPen)
+                .filter(e => e.animalId === animal.id && (e.eventType === 'registered' || e.eventType === 'pen_transfer') && (e.toPen || e.fromPen))
                 .sort((a, b) => daysBetween(parseDateOnly(a.date), parseDateOnly(b.date)) || (a.id - b.id));
             const exitEvent = (events || []).find(e => e.animalId === animal.id && (e.eventType === 'sold' || e.eventType === 'deceased'));
             const exitDate = exitEvent ? exitEvent.date : todayStr;
 
-            const segments = penEvents.length > 0
-                ? penEvents.map((ev, i) => ({
-                    pen: ev.toPen,
-                    start: ev.date,
-                    end: i + 1 < penEvents.length ? penEvents[i + 1].date : exitDate
-                }))
-                : [{ pen: animal.pen, start: animal.entryDate || exitDate, end: exitDate }];
+            let segments = [];
+            if (penEvents.length > 0) {
+                const first = penEvents[0];
+                const entry = animal.entryDate || first.date;
+                if (first.fromPen && parseDateOnly(first.date) > parseDateOnly(entry)) {
+                    segments.push({
+                        pen: first.fromPen,
+                        start: entry,
+                        end: first.date
+                    });
+                }
+                penEvents.forEach((ev, i) => {
+                    if (!ev.toPen) return;
+                    segments.push({
+                        pen: ev.toPen,
+                        start: ev.date,
+                        end: i + 1 < penEvents.length ? penEvents[i + 1].date : exitDate
+                    });
+                });
+            } else {
+                segments = [{ pen: animal.pen, start: animal.entryDate || exitDate, end: exitDate }];
+            }
             map.set(animal.id, segments);
         });
         return map;
@@ -405,17 +420,26 @@ export default function Dashboard({ onNavigate }) {
     (pens || []).forEach(pen => {
         const penAnimals = animals.filter(a => a.pen === pen.id && a.status !== 'Sold' && a.status !== 'Deceased');
         if (penAnimals.length === 0) return;
-        const earliestEntry = penAnimals.reduce((earliest, a) =>
-            (!earliest || parseDateOnly(a.entryDate) < parseDateOnly(earliest)) ? a.entryDate : earliest, null);
+
+        // Earliest date any current animal in this pen actually resided in THIS pen (not their overall farm entryDate)
+        const earliestPenEntry = penAnimals.reduce((earliest, a) => {
+            const segs = (segmentsByAnimal.get(a.id) || []).filter(s => s.pen === pen.id);
+            const penStart = segs.length > 0 ? segs[0].start : a.entryDate;
+            return (!earliest || (penStart && parseDateOnly(penStart) < parseDateOnly(earliest))) ? penStart : earliest;
+        }, null);
+
         let startDateStr = pen.cycleStartDate;
-        if (!startDateStr || (earliestEntry && parseDateOnly(earliestEntry) > parseDateOnly(startDateStr))) {
-            startDateStr = earliestEntry;
+        if (!startDateStr || (earliestPenEntry && parseDateOnly(earliestPenEntry) > parseDateOnly(startDateStr))) {
+            startDateStr = earliestPenEntry;
         }
         if (!startDateStr) return;
         const start = parseDateOnly(startDateStr);
         const threeDaysAgoStr = addDaysStr(today, -3);
         for (let d = new Date(start); d < today; d.setUTCDate(d.getUTCDate() + 1)) {
             const dateStr = d.toISOString().split('T')[0];
+            const headCount = totalHeadDaysInPenWindow(pen.id, dateStr, dateStr);
+            if (headCount === 0) continue; // Pen had no animals on this date
+
             const dayLogs = feedLogs.filter(f => f.pen === pen.id && f.date === dateStr);
             if (dayLogs.length === 0) {
                 // Allow up to 3 days grace period for pending paper log entry before raising critical alarm

@@ -1958,7 +1958,7 @@ export const FarmProvider = ({ children }) => {
 
         // 1. Sync UI locally immediately for zero-lag response
         setAnimals(prev => [...prev, animal]);
-        setEvents(prev => [...prev, { id: Date.now(), animalId: id, date: animal.entryDate, eventType: 'registered', note: `Registered — ${animal.breed}, ${animal.entryWeight}kg, ${animal.status}` }]);
+        setEvents(prev => [...prev, { id: Date.now(), animalId: id, date: animal.entryDate, eventType: 'registered', note: `Registered — ${animal.breed}, ${animal.entryWeight}kg, ${animal.status}`, toPen: animal.pen || null }]);
 
         const weightId = weightLogs.length > 0 ? Math.max(...weightLogs.map(w => w.id)) + 1 : 1;
         const initialLog = {
@@ -3010,14 +3010,22 @@ export const FarmProvider = ({ children }) => {
                 if (!exitEvent || parseDateOnly(exitEvent.date) <= refDate) return false;
             }
 
-            const penEvents = events
+            const allPenEvents = events
                 .filter(e => e.animalId === animal.id
                     && (e.eventType === 'registered' || e.eventType === 'pen_transfer')
-                    && e.toPen
-                    && parseDateOnly(e.date) <= refDate)
+                    && (e.toPen || e.fromPen))
                 .sort((a, b) => daysBetween(parseDateOnly(a.date), parseDateOnly(b.date)) || (a.id - b.id));
 
-            const effectivePen = penEvents.length > 0 ? penEvents[penEvents.length - 1].toPen : animal.pen;
+            const pastOrPresentEvents = allPenEvents.filter(e => e.toPen && parseDateOnly(e.date) <= refDate);
+
+            let effectivePen;
+            if (pastOrPresentEvents.length > 0) {
+                effectivePen = pastOrPresentEvents[pastOrPresentEvents.length - 1].toPen;
+            } else if (allPenEvents.length > 0 && allPenEvents[0].fromPen) {
+                effectivePen = allPenEvents[0].fromPen;
+            } else {
+                effectivePen = animal.pen;
+            }
             return effectivePen === penId;
         });
     };

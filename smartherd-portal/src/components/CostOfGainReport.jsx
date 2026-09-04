@@ -69,18 +69,33 @@ export default function CostOfGainReport() {
         const map = new Map();
         animals.forEach(animal => {
             const penEvents = events
-                .filter(e => e.animalId === animal.id && (e.eventType === 'registered' || e.eventType === 'pen_transfer') && e.toPen)
+                .filter(e => e.animalId === animal.id && (e.eventType === 'registered' || e.eventType === 'pen_transfer') && (e.toPen || e.fromPen))
                 .sort((a, b) => daysBetween(parseDateOnly(a.date), parseDateOnly(b.date)) || (a.id - b.id));
             const exitEvent = events.find(e => e.animalId === animal.id && (e.eventType === 'sold' || e.eventType === 'deceased'));
             const exitDate = exitEvent ? exitEvent.date : todayStr;
 
-            const segments = penEvents.length > 0
-                ? penEvents.map((ev, i) => ({
-                    pen: ev.toPen,
-                    start: ev.date,
-                    end: i + 1 < penEvents.length ? penEvents[i + 1].date : exitDate
-                }))
-                : [{ pen: animal.pen, start: animal.entryDate || dateFrom, end: exitDate }];
+            let segments = [];
+            if (penEvents.length > 0) {
+                const first = penEvents[0];
+                const entry = animal.entryDate || first.date;
+                if (first.fromPen && parseDateOnly(first.date) > parseDateOnly(entry)) {
+                    segments.push({
+                        pen: first.fromPen,
+                        start: entry,
+                        end: first.date
+                    });
+                }
+                penEvents.forEach((ev, i) => {
+                    if (!ev.toPen) return;
+                    segments.push({
+                        pen: ev.toPen,
+                        start: ev.date,
+                        end: i + 1 < penEvents.length ? penEvents[i + 1].date : exitDate
+                    });
+                });
+            } else {
+                segments = [{ pen: animal.pen, start: animal.entryDate || dateFrom, end: exitDate }];
+            }
 
             const perPen = {};
             let totalDays = 0;
