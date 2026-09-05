@@ -621,9 +621,7 @@ export default function Dashboard({ onNavigate }) {
         return checkTodayFeedComplete(animals, feedLogs, todayStr, compliancePenFilter);
     }, [animals, feedLogs, compliancePenFilter, today]);
 
-    const effectiveComplianceHorizon = (complianceHorizon === 'today' && !isTodayFeedComplete)
-        ? 'yesterday'
-        : (complianceHorizon || (isTodayFeedComplete ? 'today' : 'yesterday'));
+    const effectiveComplianceHorizon = complianceHorizon || (isTodayFeedComplete ? 'today' : 'yesterday');
 
     const complianceData = useMemo(() => {
         const todayStr = addDaysStr(today, 0);
@@ -1692,16 +1690,14 @@ export default function Dashboard({ onNavigate }) {
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
                         <div className="calendar-horizon-toggle">
-                            {isTodayFeedComplete && (
-                                <button
-                                    type="button"
-                                    className={`horizon-btn ${effectiveComplianceHorizon === 'today' ? 'active' : ''}`}
-                                    onClick={() => setComplianceHorizon('today')}
-                                    title="Today's Completed Feeding Compliance"
-                                >
-                                    Today
-                                </button>
-                            )}
+                            <button
+                                type="button"
+                                className={`horizon-btn ${effectiveComplianceHorizon === 'today' ? 'active' : ''}`}
+                                onClick={() => setComplianceHorizon('today')}
+                                title={isTodayFeedComplete ? "Today's Completed Feeding Compliance" : "Today's Feeding Compliance (In-Progress)"}
+                            >
+                                Today
+                            </button>
                             <button
                                 type="button"
                                 className={`horizon-btn ${effectiveComplianceHorizon === 'yesterday' ? 'active' : ''}`}
