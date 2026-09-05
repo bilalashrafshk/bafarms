@@ -824,9 +824,10 @@ export default function Dashboard({ onNavigate }) {
                 penRec.actual += actualBatch;
                 penRec.planned += plannedBatch;
 
+                const logScale = ((f.feedingPct !== undefined && f.feedingPct !== null) ? parseFloat(f.feedingPct) : 100) / 100;
                 if (!ingAnimalDayMap.has(name)) ingAnimalDayMap.set(name, new Map());
                 const ingDayMap = ingAnimalDayMap.get(name);
-                ingDayMap.set(logDateKey, Math.max(ingDayMap.get(logDateKey) || 0, logAnimals));
+                ingDayMap.set(logDateKey, (ingDayMap.get(logDateKey) || 0) + (logAnimals * logScale));
             });
         });
 
@@ -852,23 +853,45 @@ export default function Dashboard({ onNavigate }) {
         const activeWandaFedNames = wandaIngNames.filter(n => (ingMap.get(n)?.actualKg || 0) > 0.1);
         const activeWandaFedLabel = activeWandaFedNames.join(', ') || 'Alternative Wanda';
 
-        // Calculate total head count across unique pens on that day/period
-        const penHeadCountMap = new Map();
-        normalizedLogs.forEach(f => {
-            const penId = f.pen || 'ALL';
-            const existing = penHeadCountMap.get(penId) || 0;
-            penHeadCountMap.set(penId, Math.max(existing, f.animalCount || 0));
+        // Determine active herd and roster as of endDate (or today)
+        const refDate = parseDateOnly(endDate || todayStr);
+        const activeHerd = (animals || []).filter(a => {
+            if (a.entryDate && parseDateOnly(a.entryDate) > refDate) return false;
+            if (a.status === 'Sold' || a.status === 'Deceased') {
+                const exitEvent = (events || []).find(e => e.animalId === a.id && (e.eventType === 'sold' || e.eventType === 'deceased'));
+                if (!exitEvent || parseDateOnly(exitEvent.date) <= refDate) return false;
+            }
+            return true;
         });
 
-        const totalActiveAnimals = Array.from(penHeadCountMap.values()).reduce((sum, c) => sum + c, 0);
+        // Calculate head count per pen as of the target date.
+        // Uses getPenRosterAsOf (which correctly replays pen_transfer events), falling back to logs if roster empty.
+        const penHeadCountMap = new Map();
+        if (getPenRosterAsOf && activeHerd.length > 0) {
+            penMap.forEach((_, penId) => {
+                const count = getPenRosterAsOf(penId, refDate).length;
+                penHeadCountMap.set(penId, count);
+            });
+        } else {
+            normalizedLogs.forEach(f => {
+                const penId = f.pen || 'ALL';
+                penHeadCountMap.set(penId, f.animalCount || 0);
+            });
+        }
 
-        // Total animal days across the date range
+        const totalActiveAnimals = compliancePenFilter !== 'ALL'
+            ? (penHeadCountMap.get(compliancePenFilter) ?? (getPenRosterAsOf ? getPenRosterAsOf(compliancePenFilter, refDate).length : 0))
+            : (activeHerd.length > 0 ? activeHerd.length : Array.from(penHeadCountMap.values()).reduce((sum, c) => sum + c, 0));
+
+        // Total animal days across the date range, properly weighting split feeding sessions (e.g. 50% = 0.5 animal-day)
+        // so mid-day animal transfers never double-count animal-days.
         const penDateHeadMap = new Map();
         normalizedLogs.forEach(f => {
             const logDate = String(f.date).split('T')[0];
             const key = `${logDate}_${f.pen || 'ALL'}`;
-            const existing = penDateHeadMap.get(key) || 0;
-            penDateHeadMap.set(key, Math.max(existing, f.animalCount || 0));
+            const scale = ((f.feedingPct !== undefined && f.feedingPct !== null) ? parseFloat(f.feedingPct) : 100) / 100;
+            const animalDays = (f.animalCount || 0) * scale;
+            penDateHeadMap.set(key, (penDateHeadMap.get(key) || 0) + animalDays);
         });
         const totalAnimalDays = Array.from(penDateHeadMap.values()).reduce((sum, c) => sum + c, 0) || (totalActiveAnimals * (activeDaysCount || 1)) || 1;
 
@@ -937,10 +960,12 @@ export default function Dashboard({ onNavigate }) {
         });
 
         const penScores = Array.from(penMap.entries()).map(([penId, data]) => {
-            const headCount = penHeadCountMap.get(penId) || 0;
+            const headCount = penHeadCountMap.get(penId) ?? 0;
             const pct = data.planned > 0 ? Math.round((data.actual / data.planned) * 100) : 100;
             return { penId, headCount, pct, actual: data.actual, planned: data.planned };
         }).sort((a, b) => a.penId.localeCompare(b.penId));
+
+        const activePensCount = penScores.filter(p => p.headCount > 0).length;
 
         // A %-deviation isn't equally bad in both directions: underfeeding is a real
         // welfare/growth risk (the animal doesn't get what the plan says it needs),
@@ -1010,6 +1035,7 @@ export default function Dashboard({ onNavigate }) {
             targetLogsCount: normalizedLogs.length,
             activeDaysCount,
             totalActiveAnimals,
+            activePensCount,
             totalAnimalDays,
             overallCompliancePct,
             totalActualKg,
@@ -1018,7 +1044,7 @@ export default function Dashboard({ onNavigate }) {
             penScores,
             flags
         };
-    }, [feedLogs, effectiveComplianceHorizon, isTodayFeedComplete, customDateFrom, customDateTo, compliancePenFilter, today]);
+    }, [feedLogs, effectiveComplianceHorizon, isTodayFeedComplete, customDateFrom, customDateTo, compliancePenFilter, today, animals, events, getPenRosterAsOf]);
 
     // 1. Upcoming Weigh-ins (Next projected weigh date per active calf)
     const upcomingWeighList = [];
@@ -1837,7 +1863,7 @@ export default function Dashboard({ onNavigate }) {
                                         {complianceData.totalActiveAnimals} Head
                                     </span>
                                     <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginLeft: '0.35rem' }}>
-                                        across {complianceData.penScores.length} {complianceData.penScores.length === 1 ? 'pen' : 'pens'}
+                                        across {complianceData.activePensCount ?? complianceData.penScores.length} {(complianceData.activePensCount ?? complianceData.penScores.length) === 1 ? 'pen' : 'pens'}
                                     </span>
                                 </div>
                             </div>

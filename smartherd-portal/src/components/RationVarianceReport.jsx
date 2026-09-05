@@ -190,14 +190,24 @@ export default function RationVarianceReport() {
             let totalPlannedCost = 0;
             let maxAnimalCount = 0;
 
-            // In daily rollup mode across all pens, total animals is the sum of headCount per pen on that day
+            // In daily rollup mode across all pens, total animals is the active herd on that day
             if (viewMode === 'daily' && group.pen === 'ALL') {
-                const penAnimalMap = new Map();
-                group.logs.forEach(f => {
-                    const existing = penAnimalMap.get(f.pen) || 0;
-                    penAnimalMap.set(f.pen, Math.max(existing, f.animalCount || 0));
-                });
-                maxAnimalCount = Array.from(penAnimalMap.values()).reduce((a, b) => a + b, 0);
+                const refDate = parseDateOnly(group.date);
+                const activeHerdOnDate = (animals || []).filter(a => {
+                    if (a.entryDate && parseDateOnly(a.entryDate) > refDate) return false;
+                    if (a.status === 'Sold' || a.status === 'Deceased') return false;
+                    return true;
+                }).length;
+                if (activeHerdOnDate > 0) {
+                    maxAnimalCount = activeHerdOnDate;
+                } else {
+                    const penAnimalMap = new Map();
+                    group.logs.forEach(f => {
+                        const existing = penAnimalMap.get(f.pen) || 0;
+                        penAnimalMap.set(f.pen, Math.max(existing, f.animalCount || 0));
+                    });
+                    maxAnimalCount = Array.from(penAnimalMap.values()).reduce((a, b) => a + b, 0);
+                }
             } else {
                 group.logs.forEach(f => {
                     maxAnimalCount = Math.max(maxAnimalCount, f.animalCount || 0);
@@ -566,7 +576,7 @@ export default function RationVarianceReport() {
             const avgAdherencePct = s.feedingsCount > 0 ? Math.max(0, 100 - avgAbsDeviationPct) : 100;
             const netBiasPct = s.weightForAvg > 0 ? s.sumSignedDevWeighted / s.weightForAvg : 0;
             const activeAnimalsInPen = animals.filter(a => String(a.pen) === String(s.pen) && a.status !== 'Sold' && a.status !== 'Deceased');
-            const headCount = activeAnimalsInPen.length || s.headCount;
+            const headCount = (animals && animals.length > 0) ? activeAnimalsInPen.length : s.headCount;
 
             const penPlan = pens.find(p => String(p.id) === String(s.pen));
 
