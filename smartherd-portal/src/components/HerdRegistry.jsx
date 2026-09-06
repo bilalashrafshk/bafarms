@@ -27,7 +27,7 @@ const SORT_ACCESSORS = {
     status: (a) => a.status
 };
 
-export default function HerdRegistry() {
+export default function HerdRegistry({ onViewHistory } = {}) {
     const { animals, addAnimal, updateAnimal, deleteAnimal, recordDeath, transitionAnimalStatus, breedsConfig, updateBreedsConfig, staffUser, myRequests, weightLogs, systemParams } = useContext(FarmContext);
 
     // Strictly the DB-backed Super Admin flag — non-admins can add animals freely
@@ -1071,6 +1071,24 @@ export default function HerdRegistry() {
                                 <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                                         <span>{animal.rfid}</span>
+                                        {onViewHistory && (
+                                            <button
+                                                type="button"
+                                                onClick={() => onViewHistory(animal.rfid)}
+                                                title="View full history in Activity Log"
+                                                style={{
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    color: 'var(--text-muted)',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.75rem',
+                                                    padding: '2px 3px',
+                                                    lineHeight: 1
+                                                }}
+                                            >
+                                                <i className="fa-solid fa-timeline"></i>
+                                            </button>
+                                        )}
                                         {duplicateRfidsMap[(animal.rfid || '').trim().toLowerCase()] > 1 && animal.status !== 'Deceased' && (
                                             <span
                                                 style={{

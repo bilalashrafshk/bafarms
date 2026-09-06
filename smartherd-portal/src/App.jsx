@@ -13,6 +13,7 @@ import OverheadExpenses from './components/OverheadExpenses';
 import CostOfGainReport from './components/CostOfGainReport';
 import RotationPlanner from './components/RotationPlanner';
 import ActivityFeed from './components/ActivityFeed';
+import PenCheck from './components/PenCheck';
 import Login from './components/Login';
 import Settings from './components/Settings';
 import SalesManager from './components/SalesManager';
@@ -25,6 +26,14 @@ import { renderSettingsDiff } from './utils/renderSettingsDiff';
 
 function AppContent() {
     const [activeTab, setActiveTab] = useState('dashboard');
+    // Set by HerdRegistry's "History" link so ActivityFeed opens pre-filtered to that
+    // animal's tag instead of the full unfiltered log — the only wiring needed since
+    // ActivityFeed already supports free-text tag search internally.
+    const [activityTagFilter, setActivityTagFilter] = useState('');
+    const viewAnimalHistory = (rfid) => {
+        setActivityTagFilter(rfid);
+        setActiveTab('activity');
+    };
     const {
         animals, logWeight, addTreatment, addAnimal, transitionAnimalStatus, fetchLoading, dbUnconfigured,
         isLoggedIn, staffUser, handleLoginSuccess, handleLogout, breedsConfig, medCategories, systemParams, quarantineProtocols,
@@ -180,7 +189,7 @@ function AppContent() {
             case 'listings':
                 return <ListingsManager />;
             case 'herd':
-                return <HerdRegistry />;
+                return <HerdRegistry onViewHistory={viewAnimalHistory} />;
             case 'weights':
                 return <WeightTracker />;
             case 'vet':
@@ -200,7 +209,9 @@ function AppContent() {
             case 'rotation':
                 return <RotationPlanner />;
             case 'activity':
-                return <ActivityFeed />;
+                return <ActivityFeed initialTagFilter={activityTagFilter} />;
+            case 'penCheck':
+                return <PenCheck />;
             case 'approvals':
                 return <AdminApprovals />;
             case 'settings':
@@ -227,6 +238,7 @@ function AppContent() {
             case 'costOfGain': return "Cost of Gain Report";
             case 'rotation': return "Rotation & Batch Flow";
             case 'activity': return "Activity Log";
+            case 'penCheck': return "Daily Pen Check";
             case 'approvals': return "Staff Requests & Pending Approvals";
             case 'settings': return "System Configuration Panel";
             default: return "Dashboard";
@@ -301,6 +313,9 @@ function AppContent() {
                             </button>
                             <button class={`menu-item ${activeTab === 'vet' ? 'active' : ''}`} onClick={() => setActiveTab('vet')}>
                                 <i class="fa-solid fa-prescription-bottle-medical"></i> Medical Logs
+                            </button>
+                            <button class={`menu-item ${activeTab === 'penCheck' ? 'active' : ''}`} onClick={() => setActiveTab('penCheck')}>
+                                <i class="fa-solid fa-person-walking-arrow-right"></i> Pen Check
                             </button>
                             <button class={`menu-item ${activeTab === 'tmr' ? 'active' : ''}`} onClick={() => setActiveTab('tmr')}>
                                 <i class="fa-solid fa-scale-balanced"></i> TMR Calculator
@@ -511,6 +526,9 @@ function AppContent() {
                             {canAccessHerd && (
                                 <>
                                     <div className="sidebar-group-label">Herd Management</div>
+                                    <button className="menu-item" onClick={() => { setActiveTab('penCheck'); setShowMobileMore(false); }}>
+                                        <i className="fa-solid fa-person-walking-arrow-right"></i> Pen Check
+                                    </button>
                                     <button className="menu-item" onClick={() => { setActiveTab('rotation'); setShowMobileMore(false); }}>
                                         <i className="fa-solid fa-rotate"></i> Rotation Flow
                                     </button>

@@ -1,4 +1,4 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { FarmContext } from '../context/FarmContext';
 import { formatDate } from '../utils/formatDate';
 import FeedLogDetailModal from './FeedLogDetailModal';
@@ -17,12 +17,19 @@ const EVENT_META = {
     feed_purchase: { icon: 'fa-cart-shopping',     color: 'hsl(210,75%,60%)' },
     feed_issue:    { icon: 'fa-boxes-packing',      color: 'hsl(30,80%,55%)' },
     tag_replacement: { icon: 'fa-tags',             color: 'hsl(45,95%,55%)' },
+    pen_check_flag: { icon: 'fa-person-walking-arrow-right', color: 'hsl(15,85%,60%)' },
 };
 
-export default function ActivityFeed() {
+export default function ActivityFeed({ initialTagFilter = '' } = {}) {
     const { animals, events, treatments, weightLogs, feedLogs, feedPurchases, feedStockIssues, feedStockItems, premixBatches, allApprovals, staffUser, undoActivity } = useContext(FarmContext);
     const [filter, setFilter] = useState('all');
-    const [tagSearch, setTagSearch] = useState('');
+    const [tagSearch, setTagSearch] = useState(initialTagFilter);
+
+    // Lets HerdRegistry's "History" link re-target an already-mounted Activity Feed
+    // (e.g. clicking a second animal's history without leaving the tab in between).
+    useEffect(() => {
+        if (initialTagFilter) setTagSearch(initialTagFilter);
+    }, [initialTagFilter]);
     const [selectedFeedLog, setSelectedFeedLog] = useState(null);
 
     const isAdmin = staffUser?.isAdmin === true;

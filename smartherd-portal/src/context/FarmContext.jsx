@@ -729,6 +729,7 @@ export const FarmProvider = ({ children }) => {
     const [weightLogs, setWeightLogs] = useState(() => loadStoredData('ba_weights', initialWeights));
     const [treatments, setTreatments] = useState(() => loadStoredData('ba_treatments', initialTreatments));
     const [events, setEvents] = useState(() => loadStoredData('ba_events', initialEvents));
+    const [penChecks, setPenChecks] = useState(() => loadStoredData('ba_pen_checks', []));
     // Orders, enquiries and meatCuts start empty — authoritative source is DB
     const [orders, setOrders] = useState([]);
     const [meatCuts, setMeatCuts] = useState(defaultMeatCuts);
@@ -1683,6 +1684,10 @@ export const FarmProvider = ({ children }) => {
     }, [events]);
 
     useEffect(() => {
+        debouncedCacheWrite('ba_pen_checks', penChecks);
+    }, [penChecks]);
+
+    useEffect(() => {
         debouncedCacheWrite('ba_feed_ingredients', feedIngredients);
     }, [feedIngredients]);
 
@@ -1821,6 +1826,7 @@ export const FarmProvider = ({ children }) => {
                         setIfChanged(setWeightLogs, data.weightLogs, 'ba_weights');
                         setIfChanged(setTreatments, data.treatments, 'ba_treatments');
                         if (data.events) setIfChanged(setEvents, data.events, 'ba_events');
+                        if (data.penChecks) setIfChanged(setPenChecks, data.penChecks, 'ba_pen_checks');
                         if (data.feedLogs) setIfChanged(setFeedLogs, data.feedLogs, 'ba_feed_logs');
                         if (data.rationPlans) setIfChanged(setRationPlans, data.rationPlans, 'ba_ration_plans');
                         if (data.pens) setIfChanged(setPens, data.pens, 'ba_pens');
@@ -2124,6 +2130,55 @@ export const FarmProvider = ({ children }) => {
                 transitionAnimalStatus(animalId, 'Sick');
             }
         }
+    };
+
+    // One-tap daily pen-walk / health-check log. Deliberately pen-level: `flags` only
+    // carries the small number of animals actually pulled during the walk (each
+    // { animalId, note }), not a per-animal row for the whole pen — mirrors how real
+    // feedlot pen riders log routine checks (see LOG_PEN_CHECK in api/farm.js). Each
+    // flagged animal still gets its own lightweight event on its individual history via
+    // the same 'pen_check_flag' events already synced into `events` above, so nothing
+    // needs a separate read path — HerdRegistry's history link and ActivityFeed pick it
+    // up automatically once the mutation round-trips.
+    const logPenCheck = async (pen, { headCount, headPulled, bunkScore, notes, flags } = {}) => {
+        const today = todayPKT();
+        const currentUser = staffUserRef.current?.email || staffUserRef.current?.name || null;
+        const id = penChecks.length > 0 ? Math.max(...penChecks.map(p => p.id)) + 1 : 1;
+        const newCheck = {
+            id,
+            date: today,
+            pen,
+            headCount: parseInt(headCount) || 0,
+            headPulled: parseInt(headPulled) || 0,
+            bunkScore: (bunkScore === undefined || bunkScore === null || bunkScore === '') ? null : parseInt(bunkScore),
+            notes: notes || '',
+            createdBy: currentUser
+        };
+
+        // 1. Sync UI locally
+        setPenChecks(prev => [newCheck, ...prev]);
+        if (Array.isArray(flags) && flags.length > 0) {
+            setEvents(prev => [
+                ...prev,
+                ...flags.filter(f => f && f.animalId).map(f => ({
+                    id: Date.now() + Math.random(),
+                    animalId: parseInt(f.animalId),
+                    date: today,
+                    eventType: 'pen_check_flag',
+                    note: f.note || 'Flagged during pen check',
+                    toPen: pen,
+                    createdBy: currentUser
+                }))
+            ]);
+        }
+
+        // 2. Queue database transaction durably
+        persistMutation('LOG_PEN_CHECK', {
+            date: today, pen,
+            headCount: newCheck.headCount, headPulled: newCheck.headPulled,
+            bunkScore: newCheck.bunkScore, notes: newCheck.notes,
+            flags: Array.isArray(flags) ? flags.filter(f => f && f.animalId).map(f => ({ animalId: parseInt(f.animalId), note: f.note || '' })) : []
+        });
     };
 
     const transitionAnimalStatus = async (animalId, nextStatus) => {
@@ -3771,6 +3826,8 @@ export const FarmProvider = ({ children }) => {
             weightLogs,
             treatments,
             events,
+            penChecks,
+            logPenCheck,
             feedRecipe,
             feedPrices,
             feedIngredients,

@@ -361,6 +361,29 @@ async function ensureColumns(client) {
         ALTER TABLE ba_animals ADD COLUMN IF NOT EXISTS misc_expense NUMERIC;
     `);
 
+    // Group 3b — Daily pen-walk / health-check log. Deliberately pen-level, not
+    // animal-level: mirrors how real feedlots record routine pen riding (pen, rider,
+    // time, head observed, head pulled) rather than a per-animal wellness row for every
+    // healthy animal every day. bunk_score follows the same idea as a bunk-reading
+    // scorecard (0 = clean, higher = more leftover feed) — it's the earliest visible
+    // sign of a pen going off feed, so it rides along with the same one-tap check
+    // instead of being a separate habit for staff to remember. Detail only escalates
+    // to a per-animal record (a 'pen_check_flag' ba_events row, written alongside this)
+    // when something is actually pulled — see LOG_PEN_CHECK below.
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS ba_pen_checks (
+            id SERIAL PRIMARY KEY,
+            date DATE NOT NULL,
+            pen VARCHAR(50) NOT NULL,
+            head_count INTEGER NOT NULL DEFAULT 0,
+            head_pulled INTEGER NOT NULL DEFAULT 0,
+            bunk_score INTEGER,
+            notes TEXT,
+            created_by VARCHAR(150),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+    `);
+
     // Group 4 — Approval queue for sensitive herd changes made by non-super-admin staff:
     // edits to an animal's purchase price / entry (gross) weight, and any animal
     // deletion, are staged here instead of writing straight to ba_animals — a super
@@ -1152,7 +1175,7 @@ async function resolvePermissions(client, session) {
 // actions (ADD_ORDER, RECORD_SALE) are intentionally excluded — they must keep working
 // for unauthenticated shoppers and for RotationPlanner's staff-initiated sale flow.
 const HERD_ACTIONS = new Set([
-    'ADD_ANIMAL', 'LOG_WEIGHT', 'LOG_TREATMENT', 'TRANSITION_STATUS', 'LOG_EVENT',
+    'ADD_ANIMAL', 'LOG_WEIGHT', 'LOG_TREATMENT', 'TRANSITION_STATUS', 'LOG_EVENT', 'LOG_PEN_CHECK',
     'DELETE_ANIMAL', 'UPDATE_ANIMAL', 'RECORD_DEATH', 'DELETE_WEIGHT_LOG', 'DELETE_TREATMENT',
     'LOG_FEED', 'DELETE_FEED_LOG', 'UPDATE_WEIGHT_LOGS_BATCH',
     'SAVE_RATION_PLAN', 'DELETE_RATION_PLAN', 'SAVE_PEN', 'DELETE_PEN',
@@ -1604,7 +1627,8 @@ module.exports = async (req, res) => {
                 rationPlansRes, rationPlansV2Res, rationRowsRes, rationRowItemsRes,
                 pensRes, settingsRes, feedPurchasesRes, feedStockIssuesRes, ordersRes,
                 meatCutsRes, enquiriesRes, quotationsRes, specSheetsRes, staffPermsRes,
-                pendingApprovalsRes, myRequestsRes, allApprovalsRes, overheadExpensesRes
+                pendingApprovalsRes, myRequestsRes, allApprovalsRes, overheadExpensesRes,
+                penChecksRes
             ] = await Promise.all([
                 client.query('SELECT * FROM ba_animals ORDER BY id ASC'),
                 canHerd ? client.query('SELECT * FROM ba_weights ORDER BY date ASC, id ASC') : EMPTY,
@@ -1642,7 +1666,8 @@ module.exports = async (req, res) => {
                 // searchable "Approvals" audit tab in Settings, separate from the live
                 // pendingApprovals queue above which only ever shows open requests.
                 (isStaff && perms && perms.isAdmin) ? client.query(`SELECT * FROM ba_pending_approvals ORDER BY requested_at DESC LIMIT 500`) : EMPTY,
-                canHerd ? client.query('SELECT * FROM ba_overhead_expenses ORDER BY date DESC, created_at DESC') : EMPTY
+                canHerd ? client.query('SELECT * FROM ba_overhead_expenses ORDER BY date DESC, created_at DESC') : EMPTY,
+                canHerd ? client.query('SELECT * FROM ba_pen_checks ORDER BY date DESC, id DESC') : EMPTY
             ]);
 
             const animals = animalsRes.rows.map(row => ({
@@ -1704,6 +1729,17 @@ module.exports = async (req, res) => {
                 note: row.note,
                 fromPen: row.from_pen,
                 toPen: row.to_pen,
+                createdBy: row.created_by || null
+            }));
+
+            const penChecks = penChecksRes.rows.map(row => ({
+                id: row.id,
+                date: formatDate(row.date),
+                pen: row.pen,
+                headCount: parseInt(row.head_count || 0),
+                headPulled: parseInt(row.head_pulled || 0),
+                bunkScore: row.bunk_score !== null && row.bunk_score !== undefined ? parseInt(row.bunk_score) : null,
+                notes: row.notes || '',
                 createdBy: row.created_by || null
             }));
 
@@ -1958,7 +1994,7 @@ module.exports = async (req, res) => {
                 accessHerd: canHerd
             } : null;
 
-            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, feedLogs, rationPlans, rationPlansV2, rationRows, rationRowItems, pens, settings, feedPurchases, feedStockIssues, overheadExpenses, orders, meatCuts, enquiries, quotations, specSheets, session: sessionOut, staffPermissions, pendingApprovals, myRequests, allApprovals });
+            return res.status(200).json({ success: true, animals, weightLogs, treatments, events, feedLogs, rationPlans, rationPlansV2, rationRows, rationRowItems, pens, settings, feedPurchases, feedStockIssues, overheadExpenses, orders, meatCuts, enquiries, quotations, specSheets, session: sessionOut, staffPermissions, pendingApprovals, myRequests, allApprovals, penChecks });
         }
 
         // ─── POST ENDPOINT: LOG TRANSACTION DATA ───
@@ -2139,6 +2175,35 @@ module.exports = async (req, res) => {
                     VALUES ($1, $2, $3, $4, $5)
                 `, [animalId, date, eventType, note, userEmail]);
                 return res.status(200).json({ success: true });
+            }
+
+            // Daily pen-walk / health-check log — deliberately ungated (no admin-approval
+            // queue, unlike LOG_WEIGHT) so it stays as fast to log as LOG_TREATMENT/LOG_EVENT
+            // above: this is a routine low-stakes record, and adding friction here is exactly
+            // what would make staff stop doing it. `flags` (optional) carries the small subset
+            // of animals actually pulled during the walk — each becomes its own lightweight
+            // 'pen_check_flag' ba_events row (visible on that animal's own history/Activity
+            // Feed) rather than a full treatment record, which only gets created later if the
+            // flagged animal actually needs one.
+            if (action === 'LOG_PEN_CHECK') {
+                const { date, pen, headCount, headPulled, bunkScore, notes, flags } = payload;
+                const checkRes = await client.query(`
+                    INSERT INTO ba_pen_checks (date, pen, head_count, head_pulled, bunk_score, notes, created_by)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    RETURNING id
+                `, [date, pen, headCount || 0, headPulled || 0, (bunkScore === undefined || bunkScore === null || bunkScore === '') ? null : parseInt(bunkScore), notes || null, userEmail]);
+
+                if (Array.isArray(flags)) {
+                    for (const f of flags) {
+                        if (!f || !f.animalId) continue;
+                        await client.query(`
+                            INSERT INTO ba_events (animal_id, date, event_type, note, to_pen, created_by)
+                            VALUES ($1, $2, 'pen_check_flag', $3, $4, $5)
+                        `, [f.animalId, date, f.note || 'Flagged during pen check', pen, userEmail]);
+                    }
+                }
+
+                return res.status(200).json({ success: true, id: checkRes.rows[0].id });
             }
 
             if (action === 'DELETE_ANIMAL') {

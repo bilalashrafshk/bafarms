@@ -9,7 +9,8 @@ export default function Dashboard({ onNavigate }) {
     const {
         animals, weightLogs, treatments, feedLogs, transitionAnimalStatus,
         systemParams, orders, pens, quarantineProtocols, feedStockIssues,
-        feedStockItems, feedPurchases, getFeedStockIssueCosts, getPenRosterAsOf, events
+        feedStockItems, feedPurchases, getFeedStockIssueCosts, getPenRosterAsOf, events,
+        penChecks
     } = useContext(FarmContext);
 
     // 1. DYNAMIC CALCULATIONS
@@ -472,10 +473,31 @@ export default function Dashboard({ onNavigate }) {
         return spreadPct > 20 ? { penId: pen.id, spreadPct } : null;
     }).filter(Boolean);
 
+    // H. Pen Check Compliance — flags any active pen whose most recent ba_pen_checks
+    // entry is more than 2 days old (or has none at all). Kept to a simple "freshness
+    // of last check" rule rather than the full historical day-by-day walk used for
+    // missedFeedings above: a pen-walk log is a routine rider habit, not a financial/
+    // nutrition audit trail, so what matters operationally is "how long since someone
+    // last looked," not backfilling every day ever missed.
+    const PEN_CHECK_GRACE_DAYS = 2;
+    const missedPenChecks = (pens || []).map(pen => {
+        const penAnimals = animals.filter(a => a.pen === pen.id && a.status !== 'Sold' && a.status !== 'Deceased');
+        if (penAnimals.length === 0) return null;
+        const lastCheck = (penChecks || [])
+            .filter(c => String(c.pen) === String(pen.id))
+            .reduce((latest, c) => (!latest || parseDateOnly(c.date) > parseDateOnly(latest.date)) ? c : latest, null);
+        const daysSince = lastCheck ? daysBetween(today, lastCheck.date) : null;
+        if (daysSince === null || daysSince > PEN_CHECK_GRACE_DAYS) {
+            return { penId: pen.id, daysSince };
+        }
+        return null;
+    }).filter(Boolean);
+
     // CRITICAL OPERATIONAL ALERTS (Top Collapsible Banner)
     // 1. Sick calves untreated for >7 days (immediate vet intervention needed)
     // 2. Missed / half-missed feeding sessions (feed compliance failure)
     // 3. Wide pen weight spreads >20% (ration bracket distortion)
+    // 4. Pen not walked/checked in 2+ days (routine health-check compliance)
     const criticalAlerts = [
         ...sickUntreated.map(a => ({
             type: 'sick',
@@ -505,6 +527,17 @@ export default function Dashboard({ onNavigate }) {
             badgeColor: 'warning',
             icon: 'fa-scale-unbalanced',
             action: { label: 'Re-sort Pen', tab: 'rationPlans' }
+        })),
+        ...missedPenChecks.map(p => ({
+            type: 'missed-pen-check',
+            title: p.daysSince === null ? `Pen ${p.penId} — Never Checked` : `Pen ${p.penId} — Not Checked in ${p.daysSince}d`,
+            desc: p.daysSince === null
+                ? 'No pen-walk/health check has ever been logged for this pen'
+                : `Last pen check was ${p.daysSince} day${p.daysSince === 1 ? '' : 's'} ago — walk the pen and log a check`,
+            badge: 'Pen Check Due',
+            badgeColor: 'warning',
+            icon: 'fa-person-walking-arrow-right',
+            action: { label: 'Log Pen Check', tab: 'penCheck' }
         }))
     ];
 
