@@ -35,7 +35,7 @@ function AppContent() {
         setActiveTab('activity');
     };
     const {
-        animals, logWeight, addTreatment, addAnimal, transitionAnimalStatus, fetchLoading, dbUnconfigured,
+        animals, logWeight, addTreatment, addAnimal, transitionAnimalStatus, fetchLoading, dbUnconfigured, dbSyncError, fetchFarmData,
         isLoggedIn, staffUser, handleLoginSuccess, handleLogout, breedsConfig, medCategories, systemParams, quarantineProtocols,
         enquiries, pendingMutations, failedMutations, isSyncing, retryFailedMutation, dismissFailedMutation, sessionExpired,
         pendingApprovals, approvePendingChange, rejectPendingChange, feedStockItems
@@ -382,10 +382,20 @@ function AppContent() {
                                 <i className="fa-solid fa-sync fa-spin"></i>
                                 <span>Syncing...</span>
                             </div>
-                        ) : !dbUnconfigured && (
+                        ) : !dbUnconfigured && !dbSyncError ? (
                             <div className="farm-badge" style={{ borderColor: 'rgba(25, 135, 84, 0.25)', color: 'var(--primary-green-light)' }} title="Operational databases fully synchronized in real-time with Neon Postgres cloud.">
                                 <i className="fa-solid fa-database"></i>
                                 <span>Database: Live</span>
+                            </div>
+                        ) : (
+                            <div
+                                className="farm-badge"
+                                style={{ borderColor: 'rgba(220, 53, 69, 0.4)', color: 'hsl(0, 75%, 65%)', cursor: 'pointer' }}
+                                title={dbSyncError ? `Database sync issue: ${dbSyncError}. Click to retry.` : "Database unconfigured. Operating from local cache. Click to retry."}
+                                onClick={() => fetchFarmData && fetchFarmData()}
+                            >
+                                <i className="fa-solid fa-database"></i>
+                                <span>Database: {dbUnconfigured ? 'Offline' : 'Error'} (Retry)</span>
                             </div>
                         )}
 

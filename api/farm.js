@@ -567,7 +567,7 @@ async function ensureColumns(client) {
 // gate on whether a cold start needs to run schema migrations at all — see
 // ensureSchemaVersion() below for why this replaces re-running ~9 round trips of
 // CREATE/ALTER IF NOT EXISTS checks on every single cold start.
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 // Real migration-version gate (the industry-standard pattern: a schema_migrations-style
 // table tracked in the DB itself, like Rails/Django/Flyway/Prisma use), instead of relying

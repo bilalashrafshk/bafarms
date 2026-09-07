@@ -755,6 +755,7 @@ export const FarmProvider = ({ children }) => {
     // Database load and sync metrics
     const [fetchLoading, setFetchLoading] = useState(true);
     const [dbUnconfigured, setDbUnconfigured] = useState(false);
+    const [dbSyncError, setDbSyncError] = useState(null);
 
     // Feed optimized data
     const [feedIngredients, setFeedIngredients] = useState(() => {
@@ -1906,11 +1907,18 @@ export const FarmProvider = ({ children }) => {
                     setIfChanged(setPendingApprovals, data.pendingApprovals || [], 'ba_pending_approvals');
                     setIfChanged(setMyRequests, data.myRequests || [], 'ba_my_requests');
                     setIfChanged(setAllApprovals, data.allApprovals || [], 'ba_all_approvals');
+                    setDbSyncError(null);
                 } else if (data.unconfigured) {
                     setDbUnconfigured(true);
+                    setDbSyncError('Database unconfigured');
                     console.warn("Neon Database connection string unconfigured. Utilizing offline localStorage backup.");
+                } else {
+                    const errMsg = data.error || 'Database sync failed';
+                    setDbSyncError(errMsg);
+                    console.error("Database sync failed:", errMsg);
                 }
         } catch (err) {
+            setDbSyncError(err.message || 'Database unreachable');
             console.error("Neon API unreachable, preserving localStorage backup states:", err);
         } finally {
             if (!silent) setFetchLoading(false);
@@ -3886,6 +3894,8 @@ export const FarmProvider = ({ children }) => {
             getPenWeightFlags,
             fetchLoading,
             dbUnconfigured,
+            dbSyncError,
+            fetchFarmData: () => fetchFarmData({ silent: false }),
             orders,
             addOrder,
             updateOrderStatus,
