@@ -48,6 +48,42 @@ export default function CostOfGainReport() {
         return nd >= dateFrom && nd <= dateTo;
     };
 
+    // One-off uncalibrated intake-scale window — excluded from ADG math everywhere else
+    // in the portal (WeightTracker, Dashboard); mirrored here for consistency.
+    const isCorruptedWeighDate = (d) => {
+        if (!d) return false;
+        const str = String(d);
+        return str.startsWith('2026-07-29') || str.startsWith('2026-08-02');
+    };
+
+    // Per-animal weight history, sorted oldest→newest, used to pool ADG as
+    // (actual gain across consecutive logs) ÷ (actual days between them) rather than
+    // averaging each log's own precomputed .adg value — see WeightTracker.jsx/
+    // FeedGrowthReport.jsx/Dashboard.jsx for the same "mean of ratios vs ratio of sums" fix.
+    const weightLogsByAnimal = useMemo(() => {
+        const map = new Map();
+        weightLogs.forEach(w => {
+            if (isCorruptedWeighDate(w.date)) return;
+            if (!map.has(w.animalId)) map.set(w.animalId, []);
+            map.get(w.animalId).push(w);
+        });
+        map.forEach(list => list.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.id || 0) - (b.id || 0))));
+        return map;
+    }, [weightLogs]);
+
+    const pooledAnimalAdg = (animalId) => {
+        const history = weightLogsByAnimal.get(animalId) || [];
+        let totalGain = 0, totalDays = 0;
+        for (let i = 1; i < history.length; i++) {
+            const cur = history[i];
+            if (cur.adg === 0 || !inRange(cur.date)) continue;
+            const prev = history[i - 1];
+            totalGain += (cur.weight - prev.weight);
+            totalDays += Math.max(1, daysBetween(cur.date, prev.date));
+        }
+        return totalDays > 0 ? totalGain / totalDays : null;
+    };
+
     const activePens = useMemo(() => {
         const set = new Set();
         animals.forEach(a => { if (a.pen && a.status !== 'Sold' && a.status !== 'Deceased') set.add(a.pen); });
@@ -230,10 +266,7 @@ export default function CostOfGainReport() {
 
                 const costOfGain = feedCost + treatCost + overheadShare;
 
-                const relevantWeightLogs = weightLogs.filter(w => w.animalId === animal.id && w.adg !== 0 && inRange(w.date));
-                const avgAdg = relevantWeightLogs.length > 0
-                    ? relevantWeightLogs.reduce((s, w) => s + w.adg, 0) / relevantWeightLogs.length
-                    : null;
+                const avgAdg = pooledAnimalAdg(animal.id);
                 const gainKg = avgAdg !== null ? avgAdg * days.totalDays : null;
                 const costPerKgGain = gainKg && gainKg > 0 ? costOfGain / gainKg : null;
 

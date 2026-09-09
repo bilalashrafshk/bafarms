@@ -66,13 +66,30 @@ export default function Dashboard({ onNavigate }) {
         ? totalLoggedFeedCost / tmrAnimalDays
         : null;
 
-    // B. Herd Average ADG — overall average across all valid weight logs across time,
-    // excluding the one-off corrupted intake window (pre-08-Aug-2026 interval).
-    // All subsequent weigh-ins will be accumulated and averaged together normally.
-    const validAdgLogs = (weightLogs || []).filter(w => w.adg !== 0 && !isCorruptedAdgDate(w.date));
-    const avgHerdAdg = validAdgLogs.length > 0
-        ? parseFloat((validAdgLogs.reduce((sum, log) => sum + log.adg, 0) / validAdgLogs.length).toFixed(2))
-        : null;
+    // B. Herd Average ADG — pooled (total gain ÷ total animal-days) across every valid
+    // consecutive weigh-in transition, herd-wide, excluding the one-off corrupted intake
+    // window (pre-08-Aug-2026 uncalibrated scale entries). Averaging each log's own
+    // pre-computed adg value (the old approach) weights every transition equally
+    // regardless of its length or gain, letting one short/noisy interval swing the
+    // headline number — same fix already applied to WeightTracker's Weight & Gain
+    // Report and FeedGrowthReport's pen/herd averages, kept consistent here too.
+    const herdAdgByAnimal = new Map();
+    (weightLogs || []).forEach(w => {
+        if (!herdAdgByAnimal.has(w.animalId)) herdAdgByAnimal.set(w.animalId, []);
+        herdAdgByAnimal.get(w.animalId).push(w);
+    });
+    herdAdgByAnimal.forEach(list => list.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.id || 0) - (b.id || 0))));
+    let herdTotalGain = 0, herdTotalDays = 0;
+    herdAdgByAnimal.forEach(history => {
+        for (let i = 1; i < history.length; i++) {
+            const prev = history[i - 1];
+            const cur = history[i];
+            if (isCorruptedWeighDate(prev.date) || isCorruptedWeighDate(cur.date)) continue;
+            herdTotalGain += (cur.weight - prev.weight);
+            herdTotalDays += Math.max(1, daysBetween(cur.date, prev.date));
+        }
+    });
+    const avgHerdAdg = herdTotalDays > 0 ? parseFloat((herdTotalGain / herdTotalDays).toFixed(2)) : null;
 
     // A2. Actual Cost per kg Gained — rebuilt at RFID/animal level, the way a feedlot
     // actually closes out cost-of-gain: for every animal with ≥2 weight logs, each
@@ -1246,16 +1263,25 @@ export default function Dashboard({ onNavigate }) {
 
     const totalUpcomingEventsCount = upcomingWeighList.length + upcomingVaccineList.length + upcomingQuarantineExits.length;
 
+    // Herd ADG Trend — same pooled fix as avgHerdAdg above: each date's point is that
+    // date's transitions' total gain ÷ total animal-days, not a simple mean of each
+    // animal's own precomputed .adg value (which let one short/noisy interval swing a
+    // single day's point on the chart).
     const adgByDate = (() => {
         if (!weightLogs || weightLogs.length === 0) return [];
         const groups = {};
-        weightLogs.filter(w => w.adg !== 0 && !isCorruptedAdgDate(w.date)).forEach(w => {
-            if (!groups[w.date]) groups[w.date] = { sum: 0, count: 0 };
-            groups[w.date].sum += w.adg;
-            groups[w.date].count += 1;
+        herdAdgByAnimal.forEach(history => {
+            for (let i = 1; i < history.length; i++) {
+                const prev = history[i - 1];
+                const cur = history[i];
+                if (cur.adg === 0 || isCorruptedAdgDate(prev.date) || isCorruptedAdgDate(cur.date)) continue;
+                if (!groups[cur.date]) groups[cur.date] = { gain: 0, days: 0 };
+                groups[cur.date].gain += (cur.weight - prev.weight);
+                groups[cur.date].days += Math.max(1, daysBetween(cur.date, prev.date));
+            }
         });
         return Object.keys(groups)
-            .map(date => ({ date, avgAdg: parseFloat((Number(groups[date].sum / groups[date].count) || 0).toFixed(2)) }))
+            .map(date => ({ date, avgAdg: parseFloat((Number(groups[date].gain / groups[date].days) || 0).toFixed(2)) }))
             .sort((a, b) => parseDateOnly(a.date) - parseDateOnly(b.date));
     })();
 
