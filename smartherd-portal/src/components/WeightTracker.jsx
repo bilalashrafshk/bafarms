@@ -193,11 +193,26 @@ export default function WeightTracker() {
     const [reportFrom, setReportFrom] = useState('');
     const [reportTo, setReportTo] = useState('');
 
+    // Same one-off corrupted intake window Dashboard.jsx excludes (isCorruptedWeighDate):
+    // 2026-07-29 and 2026-08-02 were weighed on an uncalibrated intake scale, so those
+    // weight values themselves are unusable as either endpoint of a gain calc — not just
+    // their derived ADG. Without this, "Full Cycle" mode (first-ever log → latest) would
+    // silently anchor on a bad weight for any animal whose earliest log lands on one of
+    // these dates, producing a number that disagrees with the Dashboard's herd ADG for
+    // the same animals. 2026-08-08 is the valid baseline going forward and is NOT
+    // excluded here — it's fine to anchor on, just excluded from Dashboard's separate
+    // log-level averaging of that one transition.
+    const isCorruptedWeighDate = (d) => {
+        if (!d) return false;
+        const str = String(d);
+        return str.startsWith('2026-07-29') || str.startsWith('2026-08-02');
+    };
+
     const weightReportRows = (() => {
         const pool = reportPen === 'all' ? animals : animals.filter(a => a.pen === reportPen);
         return pool.map(animal => {
             const logs = weightLogs
-                .filter(w => w.animalId === animal.id)
+                .filter(w => w.animalId === animal.id && !isCorruptedWeighDate(w.date))
                 .sort((a, b) => new Date(a.date) - new Date(b.date));
             if (logs.length < 2) return null;
 

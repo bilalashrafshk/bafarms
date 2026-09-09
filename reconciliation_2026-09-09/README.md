@@ -51,3 +51,26 @@ If `backup.json` is missing, it's already been undone (or never applied).
 - AB: 29 animals with prior history, pooled ADG **0.180 kg/day** (dragged down by the
   65→22 forced pairing above)
 - CD: 32 animals with prior history, pooled ADG **0.185 kg/day**
+
+## Things to keep in mind
+
+- **Two physical checks still open, on-site:**
+  - The 65→22 animal (AB) — the -3.98 kg/day implied by that pairing (see above) is now
+    baked into the live AB pooled ADG (0.180). If it's illness, flag it; if the 08-20
+    system entry was mis-keyed instead, that's a separate correction to make later.
+  - Tag 46 (pen D) — doesn't match your written 35-tag CD roster. Left untouched in the
+    DB; whatever it should actually be renamed to needs confirming on the animal itself
+    before anyone edits it.
+- **The portal's ADG formula itself was changed** (not just this batch of data) —
+  `WeightTracker.jsx`'s Weight & Gain Report and `FeedGrowthReport.jsx`'s pen/herd
+  averages now pool total gain ÷ total animal-days instead of averaging each animal's
+  individual ADG. This applies to *every* pen going forward (E, G included), not just
+  A/B/C/D. Committed and pushed separately from this data reconciliation — git commit
+  `17ba693` on `main`. **`undo.js` does NOT touch this** — it only reverts the database
+  rows from `apply.js`, never the app's source code. If you ever revert the DB with
+  `undo.js`, the portal will still compute ADG the pooled way; that's independent and
+  intentional.
+- **`backup.json` reflects the CURRENT live DB state** — it's the one `undo.js` reads.
+  `backup.reverted.json` is a leftover from a mid-process revert-and-redo cycle earlier
+  in this same reconciliation; it's already been consumed and isn't usable for anything
+  — ignore it, it's kept only as a paper trail.
