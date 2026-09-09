@@ -254,8 +254,9 @@ export default function WeightTracker() {
     const reportTotals = weightReportRows.reduce((acc, r) => ({
         before: acc.before + r.beforeLog.weight,
         after: acc.after + r.afterLog.weight,
-        gain: acc.gain + r.totalGain
-    }), { before: 0, after: 0, gain: 0 });
+        gain: acc.gain + r.totalGain,
+        days: acc.days + r.days
+    }), { before: 0, after: 0, gain: 0, days: 0 });
 
     const reportKpis = (() => {
         const n = weightReportRows.length;
@@ -264,7 +265,13 @@ export default function WeightTracker() {
         const beforeAvg = parseFloat((reportTotals.before / n).toFixed(1));
         const afterAvg = parseFloat((reportTotals.after / n).toFixed(1));
         const totalGain = parseFloat(reportTotals.gain.toFixed(1));
-        const avgAdg = parseFloat((weightReportRows.reduce((sum, r) => sum + r.periodAdg, 0) / n).toFixed(2));
+        // Pooled ADG: total kg gained ÷ total animal-days, NOT a plain average of each
+        // animal's own periodAdg. A simple average weights every animal's interval
+        // equally regardless of its length or gain — one short/noisy/outlier interval
+        // (e.g. a forced tag reassignment with an implausible reading) can swing the
+        // whole pen's headline number far more than it should. Pooling by animal-days
+        // is the standard feedlot convention for a herd/pen-wide ADG figure.
+        const avgAdg = reportTotals.days > 0 ? parseFloat((reportTotals.gain / reportTotals.days).toFixed(2)) : 0;
 
         // Uniformity Score: Standard Deviation & Coefficient of Variation (CV%)
         const variance = weightReportRows.reduce((sum, r) => sum + Math.pow(r.afterLog.weight - afterAvg, 2), 0) / n;

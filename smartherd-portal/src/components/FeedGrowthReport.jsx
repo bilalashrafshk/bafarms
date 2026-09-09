@@ -238,9 +238,39 @@ export default function FeedGrowthReport() {
         [weightLogs, penFilter, dateFrom, dateTo, rosterCache]
     );
 
-    const avgAdg = relevantWeightLogs.length > 0
-        ? relevantWeightLogs.reduce((sum, w) => sum + w.adg, 0) / relevantWeightLogs.length
-        : null;
+    // Full (unfiltered) per-animal weigh-in history, sorted — needed to find each
+    // qualifying log's immediately-preceding weigh-in so we can pool by animal-days
+    // instead of averaging each log's own already-computed adg ratio.
+    const weightLogsByAnimal = useMemo(() => {
+        const map = new Map();
+        weightLogs.forEach(w => {
+            if (!map.has(w.animalId)) map.set(w.animalId, []);
+            map.get(w.animalId).push(w);
+        });
+        map.forEach(list => list.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id)));
+        return map;
+    }, [weightLogs]);
+
+    // Pooled ADG: total kg gained ÷ total animal-days across the qualifying logs, NOT a
+    // plain average of each log's own adg. A simple average weights every weigh-in
+    // equally regardless of the interval it covers, so one short/outlier interval (e.g.
+    // a forced tag reassignment with an implausible reading) can swing the reported
+    // average far more than it should. Pooling by animal-days is the standard
+    // feedlot convention for a herd/pen-wide ADG figure.
+    const pooledAdg = (logs) => {
+        let totalGain = 0, totalDays = 0;
+        logs.forEach(w => {
+            const history = weightLogsByAnimal.get(w.animalId) || [];
+            const idx = history.findIndex(h => h.id === w.id);
+            if (idx <= 0) return; // no prior weigh-in to pool against (shouldn't happen post adg!==0 filter)
+            const prev = history[idx - 1];
+            totalGain += (w.weight - prev.weight);
+            totalDays += Math.max(1, daysBetween(w.date, prev.date));
+        });
+        return totalDays > 0 ? totalGain / totalDays : null;
+    };
+
+    const avgAdg = pooledAdg(relevantWeightLogs);
 
     // When a single pen is selected, resolve its assigned Ration Plan's target ADG for
     // the current week so actual-vs-plan can be compared directly, not just against the
@@ -265,9 +295,7 @@ export default function FeedGrowthReport() {
             const penHeadDays = sumHeadDays(buildHeadDaysMap(penLogs, penIssues));
             const penCostPerAnimalPerDay = penHeadDays > 0 ? penCost / penHeadDays : null;
             const penWeightLogs = weightLogs.filter(w => w.adg !== 0 && inRange(w.date) && rosterIdsOnDate(pen, w.date).has(w.animalId));
-            const penAdg = penWeightLogs.length > 0
-                ? penWeightLogs.reduce((sum, w) => sum + w.adg, 0) / penWeightLogs.length
-                : null;
+            const penAdg = pooledAdg(penWeightLogs);
             const planRow = getPenRationRow(pen);
             return {
                 pen,

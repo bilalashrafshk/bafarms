@@ -1,0 +1,762 @@
+{
+  "createdAt": "2026-09-09T10:30:51.322Z",
+  "updatedAnimals": [
+    {
+      "id": 21,
+      "before": {
+        "rfid": "14",
+        "previous_tags": "[]",
+        "current_weight": "223.5",
+        "pen": "B",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 23,
+      "before": {
+        "rfid": "16",
+        "previous_tags": "[]",
+        "current_weight": "181.5",
+        "pen": "B",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 29,
+      "before": {
+        "rfid": "29",
+        "previous_tags": "[]",
+        "current_weight": "146",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 7,
+      "before": {
+        "rfid": "30",
+        "previous_tags": "[]",
+        "current_weight": "179",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 31,
+      "before": {
+        "rfid": "31",
+        "previous_tags": "[]",
+        "current_weight": "177.5",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 20,
+      "before": {
+        "rfid": "34",
+        "previous_tags": "[]",
+        "current_weight": "204.5",
+        "pen": "B",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 12,
+      "before": {
+        "rfid": "35",
+        "previous_tags": "[]",
+        "current_weight": "209.5",
+        "pen": "B",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 18,
+      "before": {
+        "rfid": "36",
+        "previous_tags": "[]",
+        "current_weight": "165.5",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 27,
+      "before": {
+        "rfid": "37",
+        "previous_tags": "[]",
+        "current_weight": "165",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 24,
+      "before": {
+        "rfid": "38",
+        "previous_tags": "[]",
+        "current_weight": "159",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 5,
+      "before": {
+        "rfid": "42",
+        "previous_tags": "[]",
+        "current_weight": "163.5",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 19,
+      "before": {
+        "rfid": "47",
+        "previous_tags": "[]",
+        "current_weight": "189.5",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 36,
+      "before": {
+        "rfid": "50",
+        "previous_tags": "[]",
+        "current_weight": "159.5",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 25,
+      "before": {
+        "rfid": "53",
+        "previous_tags": "[\"83\"]",
+        "current_weight": "178.5",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 9,
+      "before": {
+        "rfid": "57",
+        "previous_tags": "[]",
+        "current_weight": "175.5",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 26,
+      "before": {
+        "rfid": "60",
+        "previous_tags": "[]",
+        "current_weight": "186.5",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 17,
+      "before": {
+        "rfid": "61",
+        "previous_tags": "[]",
+        "current_weight": "207",
+        "pen": "B",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 35,
+      "before": {
+        "rfid": "72",
+        "previous_tags": "[]",
+        "current_weight": "228.5",
+        "pen": "B",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 32,
+      "before": {
+        "rfid": "73",
+        "previous_tags": "[]",
+        "current_weight": "159",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 15,
+      "before": {
+        "rfid": "86",
+        "previous_tags": "[\"12\"]",
+        "current_weight": "164",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 14,
+      "before": {
+        "rfid": "02",
+        "previous_tags": "[]",
+        "current_weight": "202.5",
+        "pen": "B",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 30,
+      "before": {
+        "rfid": "67",
+        "previous_tags": "[]",
+        "current_weight": "160",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 11,
+      "before": {
+        "rfid": "98",
+        "previous_tags": "[]",
+        "current_weight": "137.5",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 16,
+      "before": {
+        "rfid": "52",
+        "previous_tags": "[\"07\"]",
+        "current_weight": "216.5",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 33,
+      "before": {
+        "rfid": "90",
+        "previous_tags": "[]",
+        "current_weight": "186.5",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 22,
+      "before": {
+        "rfid": "28",
+        "previous_tags": "[]",
+        "current_weight": "189.5",
+        "pen": "B",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 13,
+      "before": {
+        "rfid": "05",
+        "previous_tags": "[]",
+        "current_weight": "214.5",
+        "pen": "B",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 28,
+      "before": {
+        "rfid": "65",
+        "previous_tags": "[]",
+        "current_weight": "223.5",
+        "pen": "B",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 34,
+      "before": {
+        "rfid": "93",
+        "previous_tags": "[]",
+        "current_weight": "172",
+        "pen": "A",
+        "status": "Fattening"
+      }
+    },
+    {
+      "id": 54,
+      "before": {
+        "rfid": "20",
+        "previous_tags": "[]",
+        "current_weight": "223",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 60,
+      "before": {
+        "rfid": "21",
+        "previous_tags": "[]",
+        "current_weight": "188",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 50,
+      "before": {
+        "rfid": "24",
+        "previous_tags": "[]",
+        "current_weight": "183",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 56,
+      "before": {
+        "rfid": "26",
+        "previous_tags": "[]",
+        "current_weight": "182",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 42,
+      "before": {
+        "rfid": "39",
+        "previous_tags": "[]",
+        "current_weight": "171",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 71,
+      "before": {
+        "rfid": "40",
+        "previous_tags": "[]",
+        "current_weight": "176",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 59,
+      "before": {
+        "rfid": "43",
+        "previous_tags": "[]",
+        "current_weight": "205",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 44,
+      "before": {
+        "rfid": "44",
+        "previous_tags": "[]",
+        "current_weight": "183",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 64,
+      "before": {
+        "rfid": "48",
+        "previous_tags": "[]",
+        "current_weight": "137",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 53,
+      "before": {
+        "rfid": "49",
+        "previous_tags": "[]",
+        "current_weight": "268",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 38,
+      "before": {
+        "rfid": "51",
+        "previous_tags": "[]",
+        "current_weight": "151.5",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 51,
+      "before": {
+        "rfid": "54",
+        "previous_tags": "[]",
+        "current_weight": "183.5",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 68,
+      "before": {
+        "rfid": "62",
+        "previous_tags": "[]",
+        "current_weight": "156",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 63,
+      "before": {
+        "rfid": "69",
+        "previous_tags": "[]",
+        "current_weight": "141",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 65,
+      "before": {
+        "rfid": "77",
+        "previous_tags": "[]",
+        "current_weight": "214",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 62,
+      "before": {
+        "rfid": "78",
+        "previous_tags": "[]",
+        "current_weight": "192",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 61,
+      "before": {
+        "rfid": "80",
+        "previous_tags": "[]",
+        "current_weight": "161",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 67,
+      "before": {
+        "rfid": "81",
+        "previous_tags": "[]",
+        "current_weight": "146",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 66,
+      "before": {
+        "rfid": "82",
+        "previous_tags": "[]",
+        "current_weight": "195",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 46,
+      "before": {
+        "rfid": "92",
+        "previous_tags": "[]",
+        "current_weight": "224",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 43,
+      "before": {
+        "rfid": "98",
+        "previous_tags": "[]",
+        "current_weight": "153",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 49,
+      "before": {
+        "rfid": "91",
+        "previous_tags": "[]",
+        "current_weight": "163",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 40,
+      "before": {
+        "rfid": "13",
+        "previous_tags": "[]",
+        "current_weight": "133",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 47,
+      "before": {
+        "rfid": "17",
+        "previous_tags": "[]",
+        "current_weight": "133.5",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 55,
+      "before": {
+        "rfid": "79",
+        "previous_tags": "[]",
+        "current_weight": "201",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 37,
+      "before": {
+        "rfid": "55",
+        "previous_tags": "[]",
+        "current_weight": "153.5",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 45,
+      "before": {
+        "rfid": "68",
+        "previous_tags": "[]",
+        "current_weight": "181.5",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 57,
+      "before": {
+        "rfid": "22",
+        "previous_tags": "[]",
+        "current_weight": "160",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 41,
+      "before": {
+        "rfid": "03",
+        "previous_tags": "[]",
+        "current_weight": "142",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 52,
+      "before": {
+        "rfid": "76",
+        "previous_tags": "[]",
+        "current_weight": "148.5",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 69,
+      "before": {
+        "rfid": "85",
+        "previous_tags": "[]",
+        "current_weight": "148",
+        "pen": "D",
+        "status": "Quarantined"
+      }
+    },
+    {
+      "id": 48,
+      "before": {
+        "rfid": "87",
+        "previous_tags": "[]",
+        "current_weight": "219",
+        "pen": "C",
+        "status": "Quarantined"
+      }
+    }
+  ],
+  "insertedWeightIds": [
+    303,
+    304,
+    305,
+    306,
+    307,
+    308,
+    309,
+    310,
+    311,
+    312,
+    313,
+    314,
+    315,
+    316,
+    317,
+    318,
+    319,
+    320,
+    321,
+    322,
+    323,
+    324,
+    325,
+    326,
+    327,
+    328,
+    329,
+    330,
+    331,
+    332,
+    333,
+    334,
+    335,
+    336,
+    337,
+    338,
+    339,
+    340,
+    341,
+    342,
+    343,
+    344,
+    345,
+    346,
+    347,
+    348,
+    349,
+    350,
+    351,
+    352,
+    353,
+    354,
+    355,
+    356,
+    357,
+    358,
+    359,
+    360,
+    361,
+    362,
+    363
+  ],
+  "insertedEventIds": [
+    3012,
+    3013,
+    3014,
+    3015,
+    3016,
+    3017,
+    3018,
+    3019,
+    3020,
+    3021,
+    3022,
+    3023,
+    3024,
+    3025,
+    3026,
+    3027,
+    3028,
+    3029
+  ],
+  "insertedAnimalIds": [],
+  "log": [
+    "AB direct   14  231kg  adg=0.38",
+    "AB direct   16  199kg  adg=0.88",
+    "AB direct   29  139.5kg  adg=-0.81",
+    "AB direct   30  181kg  adg=0.1",
+    "AB direct   31  189.5kg  adg=0.6",
+    "AB direct   34  209kg  adg=0.23",
+    "AB direct   35  219.5kg  adg=0.5",
+    "AB direct   36  164kg  adg=-0.07",
+    "AB direct   37  177kg  adg=0.6",
+    "AB direct   38  146kg  adg=-1.63",
+    "AB direct   42  179.5kg  adg=0.8",
+    "AB direct   47  197kg  adg=0.38",
+    "AB direct   50  164kg  adg=0.23",
+    "AB direct   53  184.5kg  adg=0.3",
+    "AB direct   57  181kg  adg=0.28",
+    "AB direct   60  196kg  adg=0.47",
+    "AB direct   61  207.5kg  adg=0.03",
+    "AB direct   72  227.5kg  adg=-0.05",
+    "AB direct   73  170kg  adg=0.55",
+    "AB direct   86  156kg  adg=-0.4",
+    "AB direct   02  204.5kg  adg=0.1",
+    "AB reassign 67->17  187.5kg  adg=1.38  (animal id 30)",
+    "AB reassign 98->85  149.5kg  adg=0.6  (animal id 11)",
+    "AB reassign 52->68  227.5kg  adg=0.55  (animal id 16)",
+    "AB reassign 90->87  196kg  adg=0.47  (animal id 33)",
+    "AB reassign 28->10  193.5kg  adg=0.2  (animal id 22)",
+    "AB reassign 05->55  215kg  adg=0.03  (animal id 13)",
+    "AB reassign 65->22  144kg  adg=-3.98  (animal id 28)",
+    "Tag93 weight-only  id=34  pen A  184kg  adg=0.6",
+    "CD direct   20  229kg  adg=1.2",
+    "CD direct   21  182.5kg  adg=-0.34",
+    "CD direct   24  201.5kg  adg=0.8",
+    "CD direct   26  177kg  adg=-0.31",
+    "CD direct   39  168kg  adg=-0.6",
+    "CD direct   40  174kg  adg=-0.13",
+    "CD direct   43  194.5kg  adg=-0.66",
+    "CD direct   44  183kg  adg=0",
+    "CD direct   48  141.75kg  adg=0.3",
+    "CD direct   49  272.5kg  adg=0.9",
+    "CD direct   51  153.5kg  adg=0.4",
+    "CD direct   54  168.5kg  adg=-0.65",
+    "CD direct   62  161.25kg  adg=0.33",
+    "CD direct   69  135.5kg  adg=-0.34",
+    "CD direct   77  204kg  adg=-0.63",
+    "CD direct   78  206kg  adg=0.88",
+    "CD direct   80  159.5kg  adg=-0.09",
+    "CD direct   81  142.5kg  adg=-0.22",
+    "CD direct   82  193kg  adg=-0.13",
+    "CD direct   92  220kg  adg=-0.17",
+    "CD direct   98  163kg  adg=0.43",
+    "CD reassign 91->70  183.5kg  adg=0.89  (animal id 49)",
+    "CD reassign 13->75  147.5kg  adg=0.63  (animal id 40)",
+    "CD reassign 17->96  147.5kg  adg=0.61  (animal id 47)",
+    "CD reassign 79->52  208kg  adg=0.44  (animal id 55)",
+    "CD reassign 55->45  163.5kg  adg=0.43  (animal id 37)",
+    "CD reassign 68->66  191kg  adg=0.41  (animal id 45)",
+    "CD reassign 22->99  165.5kg  adg=0.34  (animal id 57)",
+    "CD reassign 03->23  148kg  adg=0.26  (animal id 41)",
+    "CD reassign 76->64  154.5kg  adg=0.26  (animal id 52)",
+    "CD reassign 85->100  151.5kg  adg=0.22  (animal id 69)",
+    "CD reassign 87->91  219kg  adg=0  (animal id 48)"
+  ]
+}
