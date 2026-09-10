@@ -27,7 +27,7 @@ const SORT_ACCESSORS = {
     status: (a) => a.status
 };
 
-export default function HerdRegistry({ onViewHistory } = {}) {
+export default function HerdRegistry({ onViewHistory, onViewPassport } = {}) {
     const { animals, addAnimal, updateAnimal, deleteAnimal, recordDeath, transitionAnimalStatus, breedsConfig, updateBreedsConfig, staffUser, myRequests, weightLogs, systemParams } = useContext(FarmContext);
 
     // Strictly the DB-backed Super Admin flag — non-admins can add animals freely
@@ -1070,7 +1070,31 @@ export default function HerdRegistry({ onViewHistory } = {}) {
                                 <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center' }}>{idx + 1}</td>
                                 <td style={{ fontFamily: 'var(--font-heading)', fontWeight: '700', color: 'var(--text-pure)' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                                        <span>{animal.rfid}</span>
+                                        <span
+                                            onClick={onViewPassport ? () => onViewPassport(animal.rfid) : undefined}
+                                            style={onViewPassport ? { cursor: 'pointer', borderBottom: '1px dashed var(--accent-gold)' } : {}}
+                                            title={onViewPassport ? "Click to open Animal Tag Passport & Dossier" : undefined}
+                                        >
+                                            {animal.rfid}
+                                        </span>
+                                        {onViewPassport && (
+                                            <button
+                                                type="button"
+                                                onClick={() => onViewPassport(animal.rfid)}
+                                                title="View Animal Tag Passport & Dossier"
+                                                style={{
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    color: 'var(--accent-gold)',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.78rem',
+                                                    padding: '2px 3px',
+                                                    lineHeight: 1
+                                                }}
+                                            >
+                                                <i className="fa-solid fa-id-card-clip"></i>
+                                            </button>
+                                        )}
                                         {onViewHistory && (
                                             <button
                                                 type="button"

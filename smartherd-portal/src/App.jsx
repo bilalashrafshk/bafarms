@@ -20,6 +20,7 @@ import SalesManager from './components/SalesManager';
 import ListingsManager from './components/ListingsManager';
 import EnquiriesManager from './components/EnquiriesManager';
 import AdminApprovals from './components/AdminApprovals';
+import TagDetailLookup from './components/TagDetailLookup';
 import { formatDate } from './utils/formatDate';
 import { todayPKT } from './utils/dateOnly';
 import { renderSettingsDiff } from './utils/renderSettingsDiff';
@@ -34,6 +35,11 @@ function AppContent() {
         setActivityTagFilter(rfid);
         setActiveTab('activity');
     };
+    const [selectedTagForDossier, setSelectedTagForDossier] = useState(null);
+    const openTagDossier = (rfid) => {
+        setSelectedTagForDossier(rfid);
+        setActiveTab('tagDetail');
+    };
     const {
         animals, logWeight, addTreatment, addAnimal, transitionAnimalStatus, fetchLoading, dbUnconfigured, dbSyncError, fetchFarmData,
         isLoggedIn, staffUser, handleLoginSuccess, handleLogout, breedsConfig, medCategories, systemParams, quarantineProtocols,
@@ -47,7 +53,7 @@ function AppContent() {
     const isPermissionsAdmin = isSuperAdmin;
 
     useEffect(() => {
-        const herdTabs = ['rotation', 'herd', 'weights', 'vet', 'tmr', 'rationPlans', 'feedStock', 'feedReport', 'overhead', 'costOfGain', 'activity'];
+        const herdTabs = ['rotation', 'herd', 'tagDetail', 'weights', 'vet', 'tmr', 'rationPlans', 'feedStock', 'feedReport', 'overhead', 'costOfGain', 'activity'];
         if (herdTabs.includes(activeTab) && !canAccessHerd) {
             setActiveTab('dashboard');
         }
@@ -189,7 +195,9 @@ function AppContent() {
             case 'listings':
                 return <ListingsManager />;
             case 'herd':
-                return <HerdRegistry onViewHistory={viewAnimalHistory} />;
+                return <HerdRegistry onViewHistory={viewAnimalHistory} onViewPassport={openTagDossier} />;
+            case 'tagDetail':
+                return <TagDetailLookup initialTag={selectedTagForDossier} onTagSelect={setSelectedTagForDossier} />;
             case 'weights':
                 return <WeightTracker />;
             case 'vet':
@@ -228,6 +236,7 @@ function AppContent() {
             case 'enquiries': return "Export Enquiries (B2B)";
             case 'listings': return "Commercial Store Listings";
             case 'herd': return "Herd Registry Ledger";
+            case 'tagDetail': return "Animal Tag Passport & Dossier";
             case 'weights': return "Weight & Gain Tracker";
             case 'vet': return "Medical & Vet Compliance";
             case 'tmr': return "TMR Moisture Optimizer";
@@ -307,6 +316,9 @@ function AppContent() {
                             </button>
                             <button class={`menu-item ${activeTab === 'herd' ? 'active' : ''}`} onClick={() => setActiveTab('herd')}>
                                 <i class="fa-solid fa-cow"></i> Herd Registry
+                            </button>
+                            <button class={`menu-item ${activeTab === 'tagDetail' ? 'active' : ''}`} onClick={() => setActiveTab('tagDetail')}>
+                                <i class="fa-solid fa-id-card-clip"></i> Tag Passport
                             </button>
                             <button class={`menu-item ${activeTab === 'weights' ? 'active' : ''}`} onClick={() => setActiveTab('weights')}>
                                 <i class="fa-solid fa-weight-scale"></i> Weight Logs
@@ -446,9 +458,14 @@ function AppContent() {
                                 </div>
                             </div>
                         )}
-                        <div class="farm-badge rfid-badge-glow">
-                            <span class="rfid-ping-dot"></span>
-                            <i class="fa-solid fa-tower-broadcast" style={{ color: 'var(--accent-gold)' }}></i>
+                        <div
+                            className="farm-badge rfid-badge-glow"
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => setActiveTab('tagDetail')}
+                            title="Click to open Animal Tag Passport & Dossier"
+                        >
+                            <span className="rfid-ping-dot"></span>
+                            <i className="fa-solid fa-tower-broadcast" style={{ color: 'var(--accent-gold)' }}></i>
                             <span>RFID Wand: Linked</span>
                         </div>
                         <div class="farm-badge">
@@ -536,6 +553,9 @@ function AppContent() {
                             {canAccessHerd && (
                                 <>
                                     <div className="sidebar-group-label">Herd Management</div>
+                                    <button className="menu-item" onClick={() => { setActiveTab('tagDetail'); setShowMobileMore(false); }}>
+                                        <i className="fa-solid fa-id-card-clip"></i> Tag Passport
+                                    </button>
                                     <button className="menu-item" onClick={() => { setActiveTab('penCheck'); setShowMobileMore(false); }}>
                                         <i className="fa-solid fa-person-walking-arrow-right"></i> Pen Check
                                     </button>
