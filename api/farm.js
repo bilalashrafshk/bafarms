@@ -375,6 +375,8 @@ async function ensureColumns(client) {
             id SERIAL PRIMARY KEY,
             date DATE NOT NULL,
             pen VARCHAR(50) NOT NULL,
+            session VARCHAR(20) DEFAULT 'Morning',
+            check_time VARCHAR(10) DEFAULT '06:00',
             head_count INTEGER NOT NULL DEFAULT 0,
             head_pulled INTEGER NOT NULL DEFAULT 0,
             bunk_score INTEGER,
@@ -382,6 +384,8 @@ async function ensureColumns(client) {
             created_by VARCHAR(150),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE ba_pen_checks ADD COLUMN IF NOT EXISTS session VARCHAR(20) DEFAULT 'Morning';
+        ALTER TABLE ba_pen_checks ADD COLUMN IF NOT EXISTS check_time VARCHAR(10) DEFAULT '06:00';
     `);
 
     // Group 4 — Approval queue for sensitive herd changes made by non-super-admin staff:
@@ -1736,6 +1740,8 @@ module.exports = async (req, res) => {
                 id: row.id,
                 date: formatDate(row.date),
                 pen: row.pen,
+                session: row.session || 'Morning',
+                checkTime: row.check_time || '06:00',
                 headCount: parseInt(row.head_count || 0),
                 headPulled: parseInt(row.head_pulled || 0),
                 bunkScore: row.bunk_score !== null && row.bunk_score !== undefined ? parseInt(row.bunk_score) : null,
@@ -2186,12 +2192,22 @@ module.exports = async (req, res) => {
             // Feed) rather than a full treatment record, which only gets created later if the
             // flagged animal actually needs one.
             if (action === 'LOG_PEN_CHECK') {
-                const { date, pen, headCount, headPulled, bunkScore, notes, flags } = payload;
+                const { date, pen, session, checkTime, headCount, headPulled, bunkScore, notes, flags } = payload;
                 const checkRes = await client.query(`
-                    INSERT INTO ba_pen_checks (date, pen, head_count, head_pulled, bunk_score, notes, created_by)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    INSERT INTO ba_pen_checks (date, pen, session, check_time, head_count, head_pulled, bunk_score, notes, created_by)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     RETURNING id
-                `, [date, pen, headCount || 0, headPulled || 0, (bunkScore === undefined || bunkScore === null || bunkScore === '') ? null : parseInt(bunkScore), notes || null, userEmail]);
+                `, [
+                    date,
+                    pen,
+                    session || 'Morning',
+                    checkTime || '06:00',
+                    headCount || 0,
+                    headPulled || 0,
+                    (bunkScore === undefined || bunkScore === null || bunkScore === '') ? null : parseInt(bunkScore),
+                    notes || null,
+                    userEmail
+                ]);
 
                 if (Array.isArray(flags)) {
                     for (const f of flags) {

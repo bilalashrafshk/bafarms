@@ -2148,14 +2148,18 @@ export const FarmProvider = ({ children }) => {
     // the same 'pen_check_flag' events already synced into `events` above, so nothing
     // needs a separate read path — HerdRegistry's history link and ActivityFeed pick it
     // up automatically once the mutation round-trips.
-    const logPenCheck = async (pen, { headCount, headPulled, bunkScore, notes, flags } = {}) => {
-        const today = todayPKT();
+    const logPenCheck = async (pen, { date, session, checkTime, headCount, headPulled, bunkScore, notes, flags } = {}) => {
+        const checkDate = date || todayPKT();
+        const checkSession = session || 'Morning';
+        const timeVal = checkTime || (checkSession === 'Morning' ? '06:00' : '16:30');
         const currentUser = staffUserRef.current?.email || staffUserRef.current?.name || null;
         const id = penChecks.length > 0 ? Math.max(...penChecks.map(p => p.id)) + 1 : 1;
         const newCheck = {
             id,
-            date: today,
+            date: checkDate,
             pen,
+            session: checkSession,
+            checkTime: timeVal,
             headCount: parseInt(headCount) || 0,
             headPulled: parseInt(headPulled) || 0,
             bunkScore: (bunkScore === undefined || bunkScore === null || bunkScore === '') ? null : parseInt(bunkScore),
@@ -2171,7 +2175,7 @@ export const FarmProvider = ({ children }) => {
                 ...flags.filter(f => f && f.animalId).map(f => ({
                     id: Date.now() + Math.random(),
                     animalId: parseInt(f.animalId),
-                    date: today,
+                    date: checkDate,
                     eventType: 'pen_check_flag',
                     note: f.note || 'Flagged during pen check',
                     toPen: pen,
@@ -2182,7 +2186,8 @@ export const FarmProvider = ({ children }) => {
 
         // 2. Queue database transaction durably
         persistMutation('LOG_PEN_CHECK', {
-            date: today, pen,
+            date: checkDate, pen,
+            session: checkSession, checkTime: timeVal,
             headCount: newCheck.headCount, headPulled: newCheck.headPulled,
             bunkScore: newCheck.bunkScore, notes: newCheck.notes,
             flags: Array.isArray(flags) ? flags.filter(f => f && f.animalId).map(f => ({ animalId: parseInt(f.animalId), note: f.note || '' })) : []
