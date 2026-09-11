@@ -22,9 +22,12 @@ const COMMON_NOTES = [
 ];
 
 export default function PenCheck() {
-    const { animals, pens, penChecks, logPenCheck, staffUser } = useContext(FarmContext);
+    const { animals, pens, penChecks, logPenCheck, deletePenCheck, staffUser } = useContext(FarmContext);
 
-    const activePens = [...new Set(animals.filter(a => a.status !== 'Sold' && a.status !== 'Deceased' && a.pen).map(a => a.pen))].sort();
+    // Filter active pens to only legitimate farm pens (A, B, C, D, E, G), strictly excluding any mock or malformed pen names
+    const activePens = (pens && pens.length > 0)
+        ? pens.map(p => (typeof p === 'object' ? p.id : p)).filter(p => p && !String(p).includes('-') && p !== 'ALL').sort()
+        : ['A', 'B', 'C', 'D', 'E', 'G'];
 
     // Form states
     const [checkDate, setCheckDate] = useState(todayPKT());
@@ -85,6 +88,14 @@ export default function PenCheck() {
     const handleSessionChange = (nextSession) => {
         setSession(nextSession);
         setCheckTime(nextSession === 'Morning' ? '06:00' : '16:30');
+    };
+
+    const handleDeleteCheck = async (id, checkPen, checkDate, checkSession) => {
+        if (window.confirm(`Delete pen check for Pen ${checkPen} (${checkSession || 'Walk'}) on ${formatDate(checkDate)}?`)) {
+            if (deletePenCheck) {
+                await deletePenCheck(id);
+            }
+        }
     };
 
     const handleSubmit = async (e) => {
@@ -520,6 +531,7 @@ export default function PenCheck() {
                                     <th>Bunk Reading</th>
                                     <th>Observations &amp; Notes</th>
                                     <th>Logged By</th>
+                                    <th style={{ textAlign: 'center' }}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -578,6 +590,23 @@ export default function PenCheck() {
                                             </td>
                                             <td style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
                                                 {c.createdBy || 'Staff'}
+                                            </td>
+                                            <td style={{ textAlign: 'center' }}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDeleteCheck(c.id, c.pen, c.date, sess)}
+                                                    title="Delete this pen check record"
+                                                    style={{
+                                                        background: 'none',
+                                                        border: 'none',
+                                                        color: 'hsl(0, 75%, 65%)',
+                                                        cursor: 'pointer',
+                                                        padding: '4px 6px',
+                                                        fontSize: '0.85rem'
+                                                    }}
+                                                >
+                                                    <i className="fa-solid fa-trash-can"></i>
+                                                </button>
                                             </td>
                                         </tr>
                                     );

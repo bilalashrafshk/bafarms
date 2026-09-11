@@ -599,136 +599,19 @@ export const FarmProvider = ({ children }) => {
     };
 
     // ─── INITIAL LOCAL SEEDS ───
-    const initialAnimals = [
-        {
-            id: 1,
-            rfid: 'BA-BULL-101',
-            breed: 'Sahiwal',
-            entryDate: '2026-04-10',
-            entryWeight: 380,
-            currentWeight: 420,
-            targetWeight: 420,
-            purchasePrice: 150000,
-            source: 'Ashraf Zia Agro-Complex',
-            status: 'Ready',
-            pen: 'B-4',
-            price: 285000,
-            desc: 'Purebred Sahiwal bull with excellent physical structure, deep red coat, and verified teeth age compliance. Raised on organic feeds.',
-            images: ['/assets/sahiwal_bull.png']
-        },
-        {
-            id: 2,
-            rfid: 'BA-COW-202',
-            breed: 'Cholistani',
-            entryDate: '2026-04-15',
-            entryWeight: 320,
-            currentWeight: 360,
-            targetWeight: 360,
-            purchasePrice: 130000,
-            source: 'Ashraf Zia Agro-Complex',
-            status: 'Ready',
-            pen: 'C-1',
-            price: 245000,
-            desc: 'Beautiful Cholistani heifer featuring signature spot markings. Active health log, fully vaccinated against FMD.',
-            images: ['/assets/cholistani_cow.png']
-        },
-        {
-            id: 3,
-            rfid: 'BA-BULL-505',
-            breed: 'Sahiwal',
-            entryDate: '2026-03-20',
-            entryWeight: 500,
-            currentWeight: 580,
-            targetWeight: 580,
-            purchasePrice: 280000,
-            source: 'Ashraf Zia Agro-Complex',
-            status: 'Ready',
-            pen: 'F-2',
-            price: 480000,
-            desc: 'Heavyweight Sahiwal show bull. Unmatched muscle mass, clean posture, and active veterinary passport. Ideal for family shared booking.',
-            images: ['/assets/sahiwal_bull.png']
-        },
-        {
-            id: 4,
-            rfid: 'BA-GOAT-303',
-            breed: 'Beetal',
-            entryDate: '2026-05-01',
-            entryWeight: 60,
-            currentWeight: 75,
-            targetWeight: 75,
-            purchasePrice: 65000,
-            source: 'Ashraf Zia Agro-Complex',
-            status: 'Ready',
-            pen: 'G-2',
-            price: 95000,
-            desc: 'Purebred Rajanpuri Beetal goat with long floppy ears and clean pink nose. Complies with Islamic Qurbani requirements.',
-            images: ['/assets/beetal_goat.png']
-        },
-        {
-            id: 5,
-            rfid: 'BA-SHP-404',
-            breed: 'Kajla',
-            entryDate: '2026-05-05',
-            entryWeight: 55,
-            currentWeight: 65,
-            targetWeight: 65,
-            purchasePrice: 55000,
-            source: 'Ashraf Zia Agro-Complex',
-            status: 'Ready',
-            pen: 'S-1',
-            price: 85000,
-            desc: 'Signature Kajla sheep with deep dark circle eye markings. Reared in Faisalabad complex with automated grain rations.',
-            images: ['/assets/kajla_sheep.png']
-        },
-        {
-            id: 6,
-            rfid: 'BA-GOAT-606',
-            breed: 'Teddy',
-            entryDate: '2026-05-10',
-            entryWeight: 35,
-            currentWeight: 45,
-            targetWeight: 45,
-            purchasePrice: 35000,
-            source: 'Ashraf Zia Agro-Complex',
-            status: 'Ready',
-            pen: 'G-1',
-            price: 55000,
-            desc: 'Healthy and active compact Teddy goat. Raised on natural grain feeds. Islamic compliance verified.',
-            images: ['/assets/teddy_goat.png']
-        }
-    ];
-
-    const initialWeights = [
-        { id: 1, animalId: 1, date: '2026-04-10', weight: 380, adg: 0 },
-        { id: 2, animalId: 1, date: '2026-06-10', weight: 420, adg: 0.66 },
-        { id: 3, animalId: 2, date: '2026-04-15', weight: 320, adg: 0 },
-        { id: 4, animalId: 2, date: '2026-06-15', weight: 360, adg: 0.66 },
-        { id: 5, animalId: 3, date: '2026-03-20', weight: 500, adg: 0 },
-        { id: 6, animalId: 3, date: '2026-06-20', weight: 580, adg: 0.87 },
-        { id: 7, animalId: 4, date: '2026-05-01', weight: 60, adg: 0 },
-        { id: 8, animalId: 4, date: '2026-06-01', weight: 75, adg: 0.48 },
-        { id: 9, animalId: 5, date: '2026-05-05', weight: 55, adg: 0 },
-        { id: 10, animalId: 5, date: '2026-06-05', weight: 65, adg: 0.32 },
-        { id: 11, animalId: 6, date: '2026-05-10', weight: 35, adg: 0 },
-        { id: 12, animalId: 6, date: '2026-06-10', weight: 45, adg: 0.32 }
-    ];
-
+    const initialAnimals = [];
+    const initialWeights = [];
     const initialTreatments = [];
-
-    const initialEvents = [
-        { id: 1, animalId: 1, date: '2026-04-10', eventType: 'registered', note: 'Registered — Sahiwal, 380kg, Ready' },
-        { id: 2, animalId: 2, date: '2026-04-15', eventType: 'registered', note: 'Registered — Cholistani, 320kg, Ready' },
-        { id: 3, animalId: 3, date: '2026-03-20', eventType: 'registered', note: 'Registered — Sahiwal, 500kg, Ready' },
-        { id: 4, animalId: 4, date: '2026-05-01', eventType: 'registered', note: 'Registered — Beetal, 60kg, Ready' },
-        { id: 5, animalId: 5, date: '2026-05-05', eventType: 'registered', note: 'Registered — Kajla, 55kg, Ready' },
-        { id: 6, animalId: 6, date: '2026-05-10', eventType: 'registered', note: 'Registered — Teddy, 35kg, Ready' }
-    ];
+    const initialEvents = [];
 
     // Core state pools loaded first from LocalStorage (animals/weights/treatments/events as cache)
-    const [animals, setAnimals] = useState(() => loadStoredData('ba_animals', initialAnimals));
-    const [weightLogs, setWeightLogs] = useState(() => loadStoredData('ba_weights', initialWeights));
-    const [treatments, setTreatments] = useState(() => loadStoredData('ba_treatments', initialTreatments));
-    const [events, setEvents] = useState(() => loadStoredData('ba_events', initialEvents));
+    const [animals, setAnimals] = useState(() => {
+        const stored = loadStoredData('ba_animals', []);
+        return Array.isArray(stored) ? stored.filter(a => a && !String(a.rfid || '').startsWith('BA-') && a.pen !== 'B-4') : [];
+    });
+    const [weightLogs, setWeightLogs] = useState(() => loadStoredData('ba_weights', []));
+    const [treatments, setTreatments] = useState(() => loadStoredData('ba_treatments', []));
+    const [events, setEvents] = useState(() => loadStoredData('ba_events', []));
     const [penChecks, setPenChecks] = useState(() => loadStoredData('ba_pen_checks', []));
     // Orders, enquiries and meatCuts start empty — authoritative source is DB
     const [orders, setOrders] = useState([]);
@@ -2192,6 +2075,11 @@ export const FarmProvider = ({ children }) => {
             bunkScore: newCheck.bunkScore, notes: newCheck.notes,
             flags: Array.isArray(flags) ? flags.filter(f => f && f.animalId).map(f => ({ animalId: parseInt(f.animalId), note: f.note || '' })) : []
         });
+    };
+
+    const deletePenCheck = async (id) => {
+        setPenChecks(prev => prev.filter(c => c.id !== id));
+        persistMutation('DELETE_PEN_CHECK', { id });
     };
 
     const transitionAnimalStatus = async (animalId, nextStatus) => {
@@ -3841,6 +3729,7 @@ export const FarmProvider = ({ children }) => {
             events,
             penChecks,
             logPenCheck,
+            deletePenCheck,
             feedRecipe,
             feedPrices,
             feedIngredients,

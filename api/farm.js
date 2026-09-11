@@ -1179,7 +1179,7 @@ async function resolvePermissions(client, session) {
 // actions (ADD_ORDER, RECORD_SALE) are intentionally excluded — they must keep working
 // for unauthenticated shoppers and for RotationPlanner's staff-initiated sale flow.
 const HERD_ACTIONS = new Set([
-    'ADD_ANIMAL', 'LOG_WEIGHT', 'LOG_TREATMENT', 'TRANSITION_STATUS', 'LOG_EVENT', 'LOG_PEN_CHECK',
+    'ADD_ANIMAL', 'LOG_WEIGHT', 'LOG_TREATMENT', 'TRANSITION_STATUS', 'LOG_EVENT', 'LOG_PEN_CHECK', 'DELETE_PEN_CHECK',
     'DELETE_ANIMAL', 'UPDATE_ANIMAL', 'RECORD_DEATH', 'DELETE_WEIGHT_LOG', 'DELETE_TREATMENT',
     'LOG_FEED', 'DELETE_FEED_LOG', 'UPDATE_WEIGHT_LOGS_BATCH',
     'SAVE_RATION_PLAN', 'DELETE_RATION_PLAN', 'SAVE_PEN', 'DELETE_PEN',
@@ -2220,6 +2220,13 @@ module.exports = async (req, res) => {
                 }
 
                 return res.status(200).json({ success: true, id: checkRes.rows[0].id });
+            }
+
+            if (action === 'DELETE_PEN_CHECK') {
+                const { id } = payload;
+                if (!id) return res.status(400).json({ success: false, error: 'Missing pen check id.' });
+                await client.query(`DELETE FROM ba_pen_checks WHERE id = $1`, [id]);
+                return res.status(200).json({ success: true });
             }
 
             if (action === 'DELETE_ANIMAL') {
