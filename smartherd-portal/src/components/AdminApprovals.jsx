@@ -9,7 +9,9 @@ export default function AdminApprovals() {
         approvePendingChange,
         rejectPendingChange,
         feedStockItems,
-        staffUser
+        staffUser,
+        aiRequireApproval,
+        updateAiRequireApproval
     } = useContext(FarmContext);
 
     const isSuperAdmin = staffUser?.isAdmin === true;
@@ -65,6 +67,9 @@ export default function AdminApprovals() {
                 if (actionFilter === 'EXPENSES' && item.action !== 'ADD_OVERHEAD_EXPENSE' && item.action !== 'DELETE_OVERHEAD_EXPENSE') return false;
                 if (actionFilter === 'SETTINGS' && item.action !== 'SAVE_SETTINGS') return false;
                 if (actionFilter === 'WEIGHTS' && item.action !== 'LOG_WEIGHT' && item.action !== 'DELETE_WEIGHT_LOG' && item.action !== 'UPDATE_WEIGHT_LOGS_BATCH') return false;
+                if (actionFilter === 'FEED' && item.action !== 'ADD_FEED_LOG' && item.action !== 'OVERWRITE_FEED_LOG' && item.action !== 'DELETE_FEED_LOG') return false;
+                if (actionFilter === 'TREATMENTS' && item.action !== 'LOG_TREATMENT' && item.action !== 'DELETE_TREATMENT') return false;
+                if (actionFilter === 'AI_ONLY' && !String(item.requestedBy || '').toLowerCase().includes('api:') && !String(item.requestedBy || '').toLowerCase().includes('spark') && !String(item.requestedBy || '').toLowerCase().includes('ai')) return false;
                 if (actionFilter === 'DELETIONS' && !item.action.startsWith('DELETE_')) return false;
             }
             if (!searchTerm.trim()) return true;
@@ -245,11 +250,14 @@ export default function AdminApprovals() {
                         style={{ fontSize: '0.8rem', height: '36px', width: '160px' }}
                     >
                         <option value="ALL">All Actions</option>
+                        <option value="FEED">Feed Logs</option>
                         <option value="WEIGHTS">Weight Logs</option>
+                        <option value="TREATMENTS">Treatments</option>
                         <option value="PURCHASES">Feed Purchases</option>
                         <option value="ISSUES">Stock Issues</option>
                         <option value="EXPENSES">Overhead Expenses</option>
                         <option value="SETTINGS">Setting Changes</option>
+                        <option value="AI_ONLY">🤖 AI Agent Requests Only</option>
                         <option value="DELETIONS">Deletions Only</option>
                     </select>
 
@@ -258,6 +266,82 @@ export default function AdminApprovals() {
                     </div>
                 </div>
             </div>
+
+            {/* AI Assistant Governance Switch (Super Admin only) */}
+            {isSuperAdmin && (
+                <div style={{
+                    background: aiRequireApproval
+                        ? 'linear-gradient(135deg, rgba(255, 193, 7, 0.12) 0%, rgba(33, 37, 41, 0.9) 100%)'
+                        : 'linear-gradient(135deg, rgba(40, 167, 69, 0.12) 0%, rgba(33, 37, 41, 0.9) 100%)',
+                    border: `1px solid ${aiRequireApproval ? 'var(--accent-gold)' : 'var(--primary-green-light)'}`,
+                    borderRadius: '10px',
+                    padding: '0.9rem 1.25rem',
+                    marginBottom: '1rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '1rem',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.25)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                        <div style={{
+                            width: '38px',
+                            height: '38px',
+                            borderRadius: '8px',
+                            background: aiRequireApproval ? 'rgba(255,193,7,0.2)' : 'rgba(40,167,69,0.2)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '1.15rem',
+                            color: aiRequireApproval ? 'var(--accent-gold)' : 'var(--primary-green-light)'
+                        }}>
+                            <i className={`fa-solid ${aiRequireApproval ? 'fa-user-shield' : 'fa-robot'}`}></i>
+                        </div>
+                        <div>
+                            <div style={{ fontWeight: '700', color: 'var(--text-pure)', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                <span>AI Assistant Governance:</span>
+                                <span className="badge" style={{
+                                    background: aiRequireApproval ? 'rgba(255,193,7,0.25)' : 'rgba(40,167,69,0.25)',
+                                    color: aiRequireApproval ? 'var(--accent-gold)' : 'var(--primary-green-light)',
+                                    border: `1px solid ${aiRequireApproval ? 'rgba(255,193,7,0.5)' : 'rgba(40,167,69,0.5)'}`,
+                                    fontSize: '0.75rem',
+                                    padding: '0.2rem 0.6rem'
+                                }}>
+                                    {aiRequireApproval ? 'JUNIOR EMPLOYEE (APPROVAL REQUIRED)' : 'NORMAL HERD STAFF (DIRECT EXECUTION)'}
+                                </span>
+                            </div>
+                            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                                {aiRequireApproval
+                                    ? 'All tasks submitted by the AI (daily feeding, scale weigh-ins, health treatments, purchases, and custom mixing) are parked here for your review and approval.'
+                                    : 'The AI operates with normal herd staff permissions. Valid entries commit directly to active herd databases while protected by biological sanity clamps.'}
+                            </div>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <button
+                            type="button"
+                            className={`btn btn-sm ${aiRequireApproval ? 'btn-warning' : 'btn-outline-secondary'}`}
+                            onClick={() => updateAiRequireApproval(true)}
+                            style={{ fontSize: '0.78rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                            title="Require admin approval for every action"
+                        >
+                            <i className="fa-solid fa-lock"></i>
+                            Junior Employee
+                        </button>
+                        <button
+                            type="button"
+                            className={`btn btn-sm ${!aiRequireApproval ? 'btn-success' : 'btn-outline-secondary'}`}
+                            onClick={() => updateAiRequireApproval(false)}
+                            style={{ fontSize: '0.78rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                            title="Allow direct commits like normal staff"
+                        >
+                            <i className="fa-solid fa-bolt"></i>
+                            Normal Staff
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Bulk Actions Toolbar */}
             {currentSelectedIds.length > 0 && (
@@ -425,6 +509,14 @@ export default function AdminApprovals() {
                                                 return <span className="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i className="fa-solid fa-pen-to-square"></i> Edit Weight Log</span>;
                                             case 'OVERWRITE_FEED_LOG':
                                                 return <span className="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i className="fa-solid fa-rotate"></i> Overwrite Feed Log</span>;
+                                            case 'ADD_FEED_LOG':
+                                                return <span className="badge" style={{ background: 'rgba(40,167,69,0.15)', color: 'var(--primary-green-light)', border: '1px solid rgba(40,167,69,0.3)' }}><i className="fa-solid fa-wheat-awn"></i> Add Feed Log</span>;
+                                            case 'LOG_TREATMENT':
+                                                return <span className="badge" style={{ background: 'rgba(23,162,184,0.15)', color: '#17a2b8', border: '1px solid rgba(23,162,184,0.3)' }}><i className="fa-solid fa-syringe"></i> Health Treatment</span>;
+                                            case 'LOG_PEN_CHECK':
+                                                return <span className="badge" style={{ background: 'rgba(255,193,7,0.15)', color: 'var(--accent-gold)', border: '1px solid rgba(255,193,7,0.3)' }}><i className="fa-solid fa-clipboard-check"></i> Pen Check</span>;
+                                            case 'ADD_ANIMAL':
+                                                return <span className="badge" style={{ background: 'rgba(40,167,69,0.15)', color: 'var(--primary-green-light)', border: '1px solid rgba(40,167,69,0.3)' }}><i className="fa-solid fa-plus-circle"></i> Add Cattle Intake</span>;
                                             default:
                                                 if (item.action.startsWith('DELETE_')) {
                                                     return <span className="badge" style={{ background: 'rgba(220,53,69,0.15)', color: 'hsl(0,75%,65%)', border: '1px solid rgba(220,53,69,0.3)' }}><i className="fa-solid fa-trash-can"></i> {item.action.replace('DELETE_', 'Delete ')}</span>;
@@ -453,8 +545,17 @@ export default function AdminApprovals() {
                                             case 'LOG_WEIGHT':
                                             case 'DELETE_WEIGHT_LOG':
                                             case 'UPDATE_WEIGHT_LOGS_BATCH':
+                                            case 'LOG_TREATMENT':
                                             case 'DELETE_TREATMENT':
                                                 return `${item.animalRfid || 'Animal #' + item.animalId}${item.animalBreed ? ' (' + item.animalBreed + ')' : ''}`;
+                                            case 'ADD_FEED_LOG':
+                                            case 'OVERWRITE_FEED_LOG':
+                                            case 'DELETE_FEED_LOG':
+                                                return `Pen ${payload.pen || snap.pen || 'ALL'} (${payload.date || snap.date || '—'})`;
+                                            case 'LOG_PEN_CHECK':
+                                                return `Pen ${payload.pen || snap.pen || '—'} (${payload.session || snap.session || 'Morning'})`;
+                                            case 'ADD_ANIMAL':
+                                                return `${payload.tag || payload.rfid || 'New Cattle'} (${payload.breed || 'Cross'})`;
                                             default:
                                                 return snap.title || snap.name || payload.title || payload.id || 'Record';
                                         }
@@ -580,6 +681,41 @@ export default function AdminApprovals() {
                                                                 return (
                                                                     <div style={{ fontSize: '0.78rem', color: 'var(--text-pure)' }}>
                                                                         Date: {formatDate(payload?.date || snap?.date)} · Pen: {payload?.pen || snap?.pen || 'ALL'} · Total Batch: <strong>{oldKg.toFixed(2)} kg</strong> → <strong style={{ color: 'var(--accent-gold)' }}>{newKg.toFixed(2)} kg</strong>
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            case 'ADD_FEED_LOG': {
+                                                                const kg = Number(payload?.totalBatchKg || payload?.total_batch_kg || 0) || 0;
+                                                                const ingCount = Array.isArray(payload?.ingredients) ? payload.ingredients.length : 0;
+                                                                return (
+                                                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-pure)' }}>
+                                                                        Date: {formatDate(payload?.date)} · Pen: <strong>{payload?.pen || 'ALL'}</strong> · Batch: <strong style={{ color: 'var(--primary-green-light)' }}>{kg.toFixed(2)} kg</strong> ({ingCount} ingredients, #{payload?.feedingIndex || 1}/{payload?.numFeedings || 1})
+                                                                        {payload?.notes && <span> · Notes: {payload.notes}</span>}
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            case 'LOG_TREATMENT': {
+                                                                return (
+                                                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-pure)' }}>
+                                                                        Medicine: <strong style={{ color: 'var(--accent-gold)' }}>{payload?.medicine}</strong> ({payload?.type || 'Curative'}) · Dosage: <strong>{payload?.dosage}</strong> · Withholding: <strong>{payload?.withholding || 0} days</strong>
+                                                                        {payload?.notes && <span> · Notes: {payload.notes}</span>}
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            case 'LOG_PEN_CHECK': {
+                                                                const score = payload?.bunkScore !== undefined ? payload.bunkScore : (payload?.bunk_score !== undefined ? payload.bunk_score : payload?.bunk_score_pct);
+                                                                return (
+                                                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-pure)' }}>
+                                                                        Pen: <strong>{payload?.pen}</strong> ({payload?.session || 'Morning'}) · Bunk Score: <strong style={{ color: 'var(--accent-gold)' }}>{score !== null && score !== undefined ? score + '%' : 'Clean'}</strong>
+                                                                        {Array.isArray(payload?.flags) && payload.flags.length > 0 && <span> · Flagged: {payload.flags.length} head</span>}
+                                                                        {payload?.notes && <span> · Notes: {payload.notes}</span>}
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            case 'ADD_ANIMAL': {
+                                                                return (
+                                                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-pure)' }}>
+                                                                        Tag: <strong style={{ color: 'var(--accent-gold)' }}>{payload?.tag || payload?.rfid}</strong> · Breed: <strong>{payload?.breed || 'Cross'}</strong> · Entry Wt: <strong>{payload?.entryWeight} kg</strong> · Cost: <strong>PKR {Number(payload?.purchasePrice || 0).toLocaleString()}</strong> · Pen: <strong>{payload?.pen || 'Quarantine'}</strong>
                                                                     </div>
                                                                 );
                                                             }

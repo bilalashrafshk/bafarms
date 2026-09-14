@@ -4,23 +4,41 @@ This specification defines the programmatic REST and Webhook interface for **BA 
 
 ---
 
-## 1. Core Principles & Safeguards
+## 1. Core Principles & Governance Safeguards
 
-1. **Zero-Cost Footprint:**
-   * Runs as a consolidated lightweight serverless handler (`/api/v1.js`) on Vercel.
-   * Single-table targeted queries execute in **10–25ms** consuming <40MB RAM.
-2. **Strict Append-Only (Anti-Corruption):**
-   * The AI API **prohibits destructive updates and in-place deletions**.
-   * Historical feed logs, scale weights, and medication records cannot be silently overwritten.
-   * If a record for the same entity/session already exists, the API returns `409 Conflict`.
-3. **High-Precision Domain Sanity Checks:**
-   * **Dates:** Strictly formatted as `YYYY-MM-DD`. Future dates ($>1$ day) and distant past ($>30$ days) are automatically rejected.
-   * **Weights:** Biologically bounded ($40\text{ kg} - 1200\text{ kg}$). Any sudden jump ($>60\%$) or drop ($>50\%$) from an animal's previous recorded weight triggers a `422 SANITY_CHECK_FAILED` to catch OCR dropped/extra zero errors.
-   * **Feed Batches:** Ingredient sum must match `total_batch_kg` within $\pm 1.0\text{ kg}$.
-   * **Bunks:** Bunk scores must be $0 - 100\%$.
-   * **Herd Status:** Operations cannot be performed on animals marked `Sold` or `Deceased`.
+### 1.1 Dual Governance Architecture (Junior Employee vs. Normal Staff Mode)
+To eliminate any risk of an AI agent "going rogue" or corrupting farm records, the API implements a **two-tier governance model** controlled by an Admin Switch:
+
+1. **Junior Employee Mode (`ai_require_approval = true`, Default):**
+   * The AI functions strictly like a newly onboarded junior employee.
+   * Every action submitted by the AI (daily feeding logs, bunk checks, scale weigh-ins, health treatments, feed/medicine purchases, animal intakes, and custom mixing batches) is validated by mathematical and biological guards, then **queued into the SmartHerd Admin Approval queue (`ba_pending_approvals`)** with HTTP `202 Accepted` (`status: "pending_approval"`).
+   * Nothing touches the live active herd or feed database until the Admin (Bilal) reviews and approves it in the SmartHerd portal.
+2. **Normal SmartHerd Staff Mode (`ai_require_approval = false`):**
+   * Once you observe that the AI extracts and logs data reliably, you can toggle the switch to "Normal Staff".
+   * Valid entries commit directly to the live production database with HTTP `201 Created` (`status: "committed"`), tagged with `created_by: 'api:gemini-spark'`.
+   * Even in this mode, the hard biological sanity clamps remain fully active (it is physically impossible to drop tables, delete records, or enter absurd values).
+
+### 1.2 The Admin Autonomy Switch
+The Admin can toggle between Junior Employee Mode and Normal Staff Mode at any time via:
+* **SmartHerd Portal UI:** A dedicated **AI Assistant Governance Switch** banner is rendered at the top of the **Admin Approvals** dashboard for superadmins.
+* **API Endpoints:**
+  * `GET /api/v1/system/approval-mode` — Inspect the current mode.
+  * `POST /api/v1/system/approval-mode` — Update the mode (`{"require_approval": false}`).
+* **Per-Request Override:**
+  * HTTP Header: `x-require-approval: true` or `false`
+  * JSON Body: `"require_approval": true` or `false`
+
+### 1.3 Zero-Cost & Anti-Corruption Safeguards
+1. **Zero Added Vercel Cost:** Single-table pooled queries execute in **10–25ms** using <40MB RAM.
+2. **Strict Append-Only (No Overwrites or Deletes):** Historical records cannot be deleted or wiped out over the AI API. Existing records on the same key return `409 Conflict`.
+3. **High-Precision Biological Sanity Clamps:**
+   * **Dates:** Format `YYYY-MM-DD`. Future dates ($>1$ day) and distant past ($>30$ days) are blocked.
+   * **Weights:** Clamped between $40\text{ kg} - 1200\text{ kg}$. Weight drops $>50\%$ or spikes $>60\%$ trigger `422 SANITY_CHECK_FAILED` to catch OCR dropped/extra zero errors.
+   * **Feed Batches:** Ingredient mass balance must sum to `total_batch_kg` within $\pm 1.0\text{ kg}$. Daily cumulative feeding cannot exceed $100\%$.
+   * **Bunk Scores:** Must be between $0 - 100\%$.
+   * **Anti-Ghost Feeding:** Feeds cannot be logged to a pen with 0 active animals.
 4. **Dry-Run Simulation Mode (`dry_run: true`):**
-   * AI agents can pass `"dry_run": true` (or `?dry_run=true`) to simulate any operation. The server runs all validation, resolves tags, and returns the computed preview without committing anything to PostgreSQL.
+   * Pass `"dry_run": true` (or `?dry_run=true`) to simulate any payload without writing to the database.
 
 ---
 
@@ -37,13 +55,12 @@ This specification defines the programmatic REST and Webhook interface for **BA 
 
 ---
 
-## 3. GET Endpoints (Data Fetching)
+## 3. GET Endpoints (Data Fetching & Verification)
 
 ### 3.1 Live Compliance Summary
 Fetch real-time daily operational compliance for feed sessions, bunk checks, and urgent health alerts.
 * **Route:** `GET /api/v1/compliance/summary`
-* **Query Parameters:**
-  * `date` *(optional, string YYYY-MM-DD, defaults to today)*
+* **Query Parameters:** `date` *(optional YYYY-MM-DD, defaults to today)*
 * **Response Example (`200 OK`):**
 ```json
 {
@@ -85,121 +102,27 @@ Fetch real-time daily operational compliance for feed sessions, bunk checks, and
 ### 3.2 Cattle Herd Roster
 List all active cattle with pens, current weights, and Days on Feed (DOF).
 * **Route:** `GET /api/v1/cattle/roster`
-* **Query Parameters:**
-  * `pen` *(optional, e.g. `?pen=C`)*
-* **Response Example (`200 OK`):**
-```json
-{
-  "success": true,
-  "count": 16,
-  "pen_filter": "C",
-  "animals": [
-    {
-      "animal_id": 18,
-      "tag": "36",
-      "pen": "C",
-      "breed": "Cholistani",
-      "status": "Active",
-      "weight_kg": 164.0,
-      "entry_weight_kg": 142.0,
-      "entry_date": "2026-08-15",
-      "dof": 30,
-      "target_weight_kg": 350.0
-    }
-  ]
-}
-```
+* **Query Parameters:** `pen` *(optional, e.g. `?pen=C`)*
 
 ---
 
-### 3.3 Animal Passport & Full Dossier
-Query complete biometric profile, weigh-in timeline, ADG history, treatments, active withholding, and pen transfer audit trail.
-* **Route:** `GET /api/v1/cattle/passport?tag=36`
-* **Query Parameters:**
-  * `tag` *(required, e.g. `36` or `Tag 36`)*
-* **Response Example (`200 OK`):**
-```json
-{
-  "success": true,
-  "animal": {
-    "animal_id": 18,
-    "tag": "36",
-    "pen": "C",
-    "breed": "Cholistani",
-    "status": "Active",
-    "current_weight_kg": 164.0,
-    "entry_weight_kg": 142.0,
-    "entry_date": "2026-08-15",
-    "dof": 30,
-    "under_withholding": false,
-    "active_withholdings": []
-  },
-  "weight_history": [
-    { "date": "2026-08-15", "weight_kg": 142.0, "adg": null },
-    { "date": "2026-09-01", "weight_kg": 164.0, "adg": 1.29 }
-  ],
-  "treatments": [
-    {
-      "date": "2026-08-16",
-      "type": "Vaccine",
-      "medicine": "Panacur 10%",
-      "dosage": "15 ml",
-      "withholding": 14,
-      "notes": "Intake Deworming"
-    }
-  ],
-  "lifecycle_events": [
-    {
-      "date": "2026-09-10",
-      "event_type": "pen_transfer",
-      "from_pen": "E",
-      "to_pen": "C",
-      "note": "Moved Pen E → Pen C"
-    }
-  ]
-}
-```
+### 3.3 Cattle Passport / Dossier
+* **Route:** `GET /api/v1/cattle/passport?tag=<TAG>`
 
 ---
 
-### 3.4 Feed Logs & History
-* **Route:** `GET /api/v1/feed/logs`
-* **Query Parameters:**
-  * `date` *(optional YYYY-MM-DD, defaults to today)*
-  * `pen` *(optional, e.g. `?pen=C`)*
+### 3.4 Daily Feed Distribution Logs
+* **Route:** `GET /api/v1/feed/logs?date=<YYYY-MM-DD>`
 
 ---
 
-### 3.5 Pen Bunk Checks
-* **Route:** `GET /api/v1/pen-checks`
-* **Query Parameters:**
-  * `date` *(optional YYYY-MM-DD, defaults to today)*
+### 3.5 Daily Pen Checks & Bunk Scores
+* **Route:** `GET /api/v1/pen-checks?date=<YYYY-MM-DD>`
 
 ---
 
-### 3.6 Active Medication Withholding Status
-Returns all cattle currently under food-safety withholding. Critical check before scheduling slaughter or sale.
+### 3.6 Active Medical Withholding Alerts
 * **Route:** `GET /api/v1/health/withholding`
-* **Response Example (`200 OK`):**
-```json
-{
-  "success": true,
-  "as_of_date": "2026-09-14",
-  "count": 1,
-  "withholding_active": [
-    {
-      "animal_id": 41,
-      "tag": "23",
-      "pen": "Sick",
-      "treatment_date": "2026-09-08",
-      "medicine": "Oxytetracycline 20%",
-      "dosage": "20 ml",
-      "withholding": 21,
-      "safe_date": "2026-09-29"
-    }
-  ]
-}
-```
 
 ---
 
@@ -217,34 +140,19 @@ Returns quarantine protocol tasks due in the next 7 days.
 ### 3.9 Wanda & Premix Formulas Directory
 Returns active in-house Wanda recipes, inclusion percentages, and available raw materials.
 * **Route:** `GET /api/v1/premix/formulas`
+
+---
+
+### 3.10 AI Governance Status
+Check whether the AI is currently operating in Junior Employee mode or Normal Staff mode.
+* **Route:** `GET /api/v1/system/approval-mode`
 * **Response Example (`200 OK`):**
 ```json
 {
   "success": true,
-  "wanda_recipes": [
-    {
-      "premix_type_id": "premix_1787943334876",
-      "name": "Potato Max Wanda",
-      "ingredients": [
-        { "name": "Maize", "stock_item_id": "maizeGrain", "percentage": 51.02 },
-        { "name": "Gluten Feed", "stock_item_id": "glutenFeed", "percentage": 34.78 },
-        { "name": "Molasses", "stock_item_id": "item_1786402466074", "percentage": 6.95 },
-        { "name": "Sodium bicarbonate (Meetha Soda)", "stock_item_id": "item_1785360083150", "percentage": 2.0 },
-        { "name": "Limestone", "stock_item_id": "limestone", "percentage": 2.53 },
-        { "name": "Urea", "stock_item_id": "urea", "percentage": 1.39 },
-        { "name": "Mineral Pack", "stock_item_id": "mineralPack", "percentage": 0.8 },
-        { "name": "Toxin Binder", "stock_item_id": "item_1785360204915", "percentage": 0.5 },
-        { "name": "Monensin", "stock_item_id": "item_1787682319547", "percentage": 0.025 }
-      ]
-    }
-  ],
-  "available_raw_materials": [
-    { "id": "maizeGrain", "name": "Maize" },
-    { "id": "glutenFeed", "name": "Gluten Feed" },
-    { "id": "urea", "name": "Urea" },
-    { "id": "limestone", "name": "Limestone" },
-    { "id": "mineralPack", "name": "Mineral Pack" }
-  ]
+  "ai_require_approval": true,
+  "mode": "junior_employee",
+  "description": "Junior Employee Mode active. All AI tasks (feed logs, cattle weights, treatments, purchases, wanda mixing) are held in ba_pending_approvals for Admin review."
 }
 ```
 
@@ -252,13 +160,15 @@ Returns active in-house Wanda recipes, inclusion percentages, and available raw 
 
 ## 4. POST Endpoints (Append-Only Actions)
 
-Every POST endpoint supports `"dry_run": true` in the JSON body. If set, the server validates everything and returns a simulation without writing to the database.
+Every POST endpoint supports `"dry_run": true` for simulation. When `dry_run: false`:
+* In **Junior Employee Mode (`ai_require_approval = true`)**, the endpoint returns **HTTP 202 Accepted** with `"status": "pending_approval"` and an `"approval_id"` matching the row in the SmartHerd portal's Admin Approvals dashboard.
+* In **Normal Staff Mode (`ai_require_approval = false`)**, the endpoint returns **HTTP 201 Created** with `"status": "committed"`.
 
 ---
 
 ### 4.1 Ingest Feed Log (TMR Batch Distribution)
 * **Route:** `POST /api/v1/feed/logs`
-* **Payload Format:**
+* **Payload:**
 ```json
 {
   "date": "2026-09-14",
@@ -277,16 +187,40 @@ Every POST endpoint supports `"dry_run": true` in the JSON body. If set, the ser
   "dry_run": false
 }
 ```
-* **Sanity Rules:**
-  * `feeding_index` must be 1, 2, or 3.
-  * Sum of ingredients must equal `total_batch_kg` within $\pm 1.0\text{ kg}$.
-  * If a log for `(date, pen, feeding_index)` already exists, returns `409 Conflict`.
+* **Junior Employee Response (`202 Accepted`):**
+```json
+{
+  "success": true,
+  "status": "pending_approval",
+  "approval_id": 867,
+  "mode": "junior_employee",
+  "action": "ADD_FEED_LOG",
+  "message": "Feed log for Pen C on 2026-09-14 submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.",
+  "details": {
+    "pen": "C",
+    "date": "2026-09-14",
+    "feeding_index": 1,
+    "num_feedings": 2,
+    "total_batch_kg": 180.0
+  }
+}
+```
+* **Normal Staff Response (`201 Created`):**
+```json
+{
+  "success": true,
+  "status": "committed",
+  "mode": "normal_staff",
+  "id": 1420,
+  "message": "Feed logged successfully for Pen C on 2026-09-14 (#1/2)."
+}
+```
 
 ---
 
 ### 4.2 Ingest Pen Bunk Check & Flagged Animals
 * **Route:** `POST /api/v1/pen-checks`
-* **Payload Format:**
+* **Payload:**
 ```json
 {
   "date": "2026-09-14",
@@ -303,16 +237,23 @@ Every POST endpoint supports `"dry_run": true` in the JSON body. If set, the ser
   "dry_run": false
 }
 ```
-* **Sanity Rules:**
-  * `session` must be `"Morning"` or `"Evening"`.
-  * `bunk_score_pct` must be $0 - 100$ ($0\% = \text{slick bunk}$, $100\% = \text{untouched}$).
-  * Flagged tags automatically create a `pen_check_flag` event on that calf's dossier.
+* **Junior Employee Response (`202 Accepted`):**
+```json
+{
+  "success": true,
+  "status": "pending_approval",
+  "approval_id": 868,
+  "mode": "junior_employee",
+  "action": "LOG_PEN_CHECK",
+  "message": "Pen check for Pen C (Morning) submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal."
+}
+```
 
 ---
 
 ### 4.3 Log Health Treatment / Vaccine
 * **Route:** `POST /api/v1/health/treatments`
-* **Payload Format:**
+* **Payload:**
 ```json
 {
   "tag": "36",
@@ -326,16 +267,23 @@ Every POST endpoint supports `"dry_run": true` in the JSON body. If set, the ser
   "dry_run": false
 }
 ```
-* **Sanity Rules:**
-  * Animal must exist in active herd (`status != 'Sold'` and `status != 'Deceased'`).
-  * `dosage` string is required.
-  * `withholding` must be an integer $\ge 0$.
+* **Junior Employee Response (`202 Accepted`):**
+```json
+{
+  "success": true,
+  "status": "pending_approval",
+  "approval_id": 869,
+  "mode": "junior_employee",
+  "action": "LOG_TREATMENT",
+  "message": "Treatment for Tag 36 (Flunixin Meglumine) submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal."
+}
+```
 
 ---
 
 ### 4.4 Log Scale Weigh-In
 * **Route:** `POST /api/v1/cattle/weights`
-* **Payload Format:**
+* **Payload:**
 ```json
 {
   "tag": "36",
@@ -345,16 +293,32 @@ Every POST endpoint supports `"dry_run": true` in the JSON body. If set, the ser
   "dry_run": false
 }
 ```
-* **Sanity Rules:**
-  * Weight must be between $40\text{ kg}$ and $1200\text{ kg}$.
-  * Anti-OCR-error check: If weight drops by $>50\%$ or increases by $>60\%$ compared to previous recorded weight, the call is rejected with `422 SANITY_CHECK_FAILED` unless `bypass_weight_sanity: true` is explicitly provided.
-  * Automatically updates current weight on the animal and recalculates ADG.
+* **Junior Employee Response (`202 Accepted`):**
+```json
+{
+  "success": true,
+  "status": "pending_approval",
+  "approval_id": 870,
+  "mode": "junior_employee",
+  "action": "LOG_WEIGHT",
+  "message": "Weight entry of 172.5 kg for Tag 36 submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.",
+  "details": {
+    "animal_id": 18,
+    "tag": "36",
+    "weight_kg": 172.5,
+    "previous_weight_kg": 160.0,
+    "weight_delta_kg": 12.5,
+    "adg": 1.25,
+    "date": "2026-09-14"
+  }
+}
+```
 
 ---
 
 ### 4.5 Execute Pen Transfer
 * **Route:** `POST /api/v1/cattle/pen-transfer`
-* **Payload Format:**
+* **Payload:**
 ```json
 {
   "tags": ["36", "08"],
@@ -363,15 +327,23 @@ Every POST endpoint supports `"dry_run": true` in the JSON body. If set, the ser
   "dry_run": false
 }
 ```
-* **Sanity Rules:**
-  * Moves cattle to `to_pen`.
-  * Logs an immutable `pen_transfer` audit record in `ba_events` with previous pen, new pen, timestamp, and actor.
+* **Junior Employee Response (`202 Accepted`):**
+```json
+{
+  "success": true,
+  "status": "pending_approval",
+  "approval_ids": [871, 872],
+  "mode": "junior_employee",
+  "action": "UPDATE_ANIMAL",
+  "message": "Pen transfer for 2 animal(s) to Pen E submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal."
+}
+```
 
 ---
 
-### 4.6 Ingest Feed Purchase Delivery
-* **Route:** `POST /api/v1/purchasing/feed`
-* **Payload Format:**
+### 4.6 Ingest Feed or Medicine Purchase
+* **Routes:** `POST /api/v1/purchasing/feed` or `POST /api/v1/purchasing/medicine`
+* **Feed Purchase Payload:**
 ```json
 {
   "date": "2026-09-14",
@@ -383,25 +355,68 @@ Every POST endpoint supports `"dry_run": true` in the JSON body. If set, the ser
   "dry_run": false
 }
 ```
-
----
-
-### 4.7 Log In-House Wanda Batch (Standard or Custom Formulation)
-Supports both pre-defined standard recipes and ad-hoc employee variations (e.g. 1.0% urea instead of 1.39%).
-* **Route:** `POST /api/v1/premix/batches`
-* **Option A: By Standard Formula**
+* **Medicine Purchase Payload:**
 ```json
 {
   "date": "2026-09-14",
-  "premix_name": "Potato Max Wanda",
-  "total_kg": 240.0,
-  "bag_weight": 48.0,
-  "bag_count": 5,
-  "notes": "Standard morning mixing batch",
+  "item_name": "Amovet Inj 100ml",
+  "quantity": 10,
+  "unit": "vials",
+  "rate": 1850,
+  "supplier": "Ghazi Vet Pharmacy",
+  "notes": "Batch #AM-2026-09",
   "dry_run": false
 }
 ```
-* **Option B: By Custom Ingredient Breakdown (e.g. 1.0% Urea adjustment)**
+* **Junior Employee Response (`202 Accepted`):**
+```json
+{
+  "success": true,
+  "status": "pending_approval",
+  "approval_id": 873,
+  "mode": "junior_employee",
+  "action": "ADD_FEED_PURCHASE",
+  "message": "Purchase receipt for 5000 kg Corn Silage submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal."
+}
+```
+
+---
+
+### 4.7 Ingest New Cattle Arrival / Intake
+* **Route:** `POST /api/v1/cattle/intake` (or `/api/v1/purchasing/animal`)
+* **Payload:**
+```json
+{
+  "tag": "145",
+  "rfid": "982000421098145",
+  "breed": "Cholistani Cross",
+  "entry_date": "2026-09-14",
+  "entry_weight": 195.0,
+  "purchase_price": 95000,
+  "source": "Multan Mandi",
+  "target_adg": 1.3,
+  "pen": "Quarantine",
+  "notes": "Arrived in good health, intake deworming given.",
+  "dry_run": false
+}
+```
+* **Junior Employee Response (`202 Accepted`):**
+```json
+{
+  "success": true,
+  "status": "pending_approval",
+  "approval_id": 874,
+  "mode": "junior_employee",
+  "action": "ADD_ANIMAL",
+  "message": "Cattle intake for Tag 145 submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal."
+}
+```
+
+---
+
+### 4.8 Log In-House Wanda Batch (Standard or Custom Formulation)
+* **Route:** `POST /api/v1/premix/batches`
+* **Custom Breakdown Payload (e.g. 1.0% Urea adjustment):**
 ```json
 {
   "date": "2026-09-14",
@@ -422,10 +437,38 @@ Supports both pre-defined standard recipes and ad-hoc employee variations (e.g. 
   "dry_run": false
 }
 ```
-* **Sanity Rules:**
-  * Sum of `custom_ingredients` must equal `total_kg` ($\pm 1.0\text{ kg}$).
-  * Deducts raw materials from inventory with `pen: 'PRODUCTION'`.
-  * Automatically calculates FIFO cost and credits finished Wanda to stock under `supplier: 'In-house production'`.
+* **Junior Employee Response (`202 Accepted`):**
+```json
+{
+  "success": true,
+  "status": "pending_approval",
+  "approval_id": 875,
+  "mode": "junior_employee",
+  "action": "SAVE_SETTINGS",
+  "message": "Wanda mixing batch (240 kg of Potato Max Wanda) submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal."
+}
+```
+
+---
+
+### 4.9 Toggle AI Governance Mode (Admin Switch)
+Allows switching the AI between Junior Employee Mode and Normal Staff Mode.
+* **Route:** `POST /api/v1/system/approval-mode`
+* **Payload:**
+```json
+{
+  "require_approval": false
+}
+```
+* **Response Example (`200 OK`):**
+```json
+{
+  "success": true,
+  "ai_require_approval": false,
+  "mode": "normal_staff",
+  "message": "AI governance switched to Normal SmartHerd Staff (Direct Execution)."
+}
+```
 
 ---
 
@@ -435,80 +478,37 @@ Supports both pre-defined standard recipes and ad-hoc employee variations (e.g. 
 | :--- | :--- | :--- | :--- |
 | `401 Unauthorized` | `UNAUTHORIZED` | Invalid or missing `BA_API_KEY`. | Check environment variable and header configuration. |
 | `409 Conflict` | `RECORD_ALREADY_EXISTS` | Record already exists for this pen/date/session. | Do NOT retry. Alert the user that this session was already logged. If it is an additional feeding, increment `feeding_index`. |
-| `422 Unprocessable` | `SANITY_CHECK_FAILED` | Input failed domain rules (e.g. ingredient sum mismatch, weight delta $>50\%$, bunk $>100\%$). | Inspect the error message, verify OCR/document numbers, fix the fields, or ask the user for confirmation. |
-| `422 Unprocessable` | `ANIMAL_NOT_FOUND` | Tag ID is not recognized in active herd. | Check if tag has a typo or if calf is registered under a previous tag. |
+| `409 Conflict` | `DUPLICATE_TREATMENT_BLOCKED` | Same medicine already administered to animal on this date. | Pass `allow_duplicate_dose: true` if an intentional repeat dose (e.g. BID). |
+| `422 Unprocessable` | `SANITY_CHECK_FAILED` | Input failed domain rules (e.g. ingredient sum mismatch, weight delta $>50\%$, bunk $>100\%$). | Inspect error details, verify numbers against photo, fix fields, or ask user for confirmation. |
+| `422 Unprocessable` | `ANIMAL_NOT_FOUND` | Tag ID is not recognized in active herd. | Check if tag has a typo or was registered under an RFID tag. |
 | `422 Unprocessable` | `ANIMAL_INACTIVE` | Calf is marked Sold or Deceased. | Abort logging; notify user that the animal is no longer in the active herd. |
 | `500 Server Error` | `CONFIG_ERROR` | Database connection issue. | Retry once after a 2-second delay. |
 
 ---
 
-## 6. Testing with cURL
-
-### Test 1: Fetch Live Compliance
-```bash
-curl -s -H "Authorization: Bearer YOUR_API_KEY" \
-  "https://bafoods.pk/api/v1/compliance/summary"
-```
-
-### Test 2: Dry-Run Feed Log
-```bash
-curl -s -X POST -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "date": "2026-09-14",
-    "pen": "C",
-    "feeding_index": 1,
-    "num_feedings": 2,
-    "total_batch_kg": 100.0,
-    "ingredients": [{"name": "Silage", "kg": 100.0}],
-    "dry_run": true
-  }' \
-  "https://bafoods.pk/api/v1/feed/logs"
-```
-
----
-
-## 7. Gemini Spark Autonomous Daily Workflow Blueprint
-
-This section provides the end-to-end operational instructions for configuring **Google / Gemini Spark** to automate daily farm logs from employee photos.
+## 6. Gemini Spark Autonomous Daily Workflow Blueprint
 
 ```mermaid
 graph TD
-    Photo["1. Employee uploads Urdu photo (Drive / WhatsApp)"] --> SparkOCR["2. Gemini Spark reads slip (Multimodal Vision)"]
+    Photo["1. Employee sends Urdu photo"] --> SparkOCR["2. Gemini Spark reads slip (Multimodal Vision)"]
     SparkOCR --> RecipeCheck["3. Recipe & Herd Lookups via GET /api/v1"]
     RecipeCheck --> DryRun["4. Pre-Flight Test with dry_run: true"]
     DryRun --> Evaluation{"Passes all Sanity Checks?"}
-    Evaluation -- Yes --> Commit["5. POST to SmartHerd API (dry_run: false)"]
+    Evaluation -- Yes --> Submit["5. POST to /api/v1 (dry_run: false)"]
     Evaluation -- No or Ambiguous --> Escalate["6. STOP & Send Email to Bilal for Confirmation"]
-    Commit --> EveningReport["7. 8:00 PM Daily Compliance Digest Email"]
+    Submit --> CheckMode{"Mode: Junior vs Normal?"}
+    CheckMode -- Junior Employee (202) --> Queued["Queued in SmartHerd Admin Approvals"]
+    CheckMode -- Normal Staff (201) --> Committed["Committed to Production DB"]
+    Queued --> EveningReport["7. 8:00 PM Daily Compliance Digest Email"]
+    Committed --> EveningReport
     Escalate --> AwaitReply["Wait for Bilal's confirmation reply before committing"]
 ```
 
-### Spark Operational Rules:
-1. **Multimodal Extraction:**
-   * When an employee uploads an Urdu clipboard photo (feed slip, bunk reading, weigh ticket, or Wanda mixing sheet):
-   * Translate Urdu feed names to canonical API names (e.g. مکئی $\rightarrow$ `Maize`, چوکر $\rightarrow$ `Chokar`, سائلیج $\rightarrow$ `Corn Silage`, یوریا $\rightarrow$ `Urea`).
-2. **Pre-flight via `dry_run: true`:**
-   * Never push unverified data. Spark must first execute a dry-run call (`dry_run: true`).
-3. **The Stop & Confirm Escalation Rule (Zero Blind Guesses):**
-   * If:
-     - Handwriting is smudged (e.g., Tag 38 vs 39).
-     - Ingredient sum doesn't match total batch kg.
-     - A Wanda formula has an unexpected variation (e.g. Urea is 1% instead of 1.39%) that wasn't approved.
-     - A bunk reading is missing or illegible.
-   * **Spark must STOP immediately and email you:**
-     * **Subject:** `[BA Foods Alert] Action Required: Ambiguity in Daily Feed Slip`
-     * **Body:** Embeds the cropped image snippet, describes what it extracted, and provides concrete multiple-choice options for you to reply to.
-4. **Daily 8:00 PM Evening Digest Report:**
-   * Every evening at 8:00 PM, Spark queries:
-     * `GET /api/v1/compliance/summary`
-     * `GET /api/v1/feed/logs`
-     * `GET /api/v1/pen-checks`
-     * `GET /api/v1/tasks/upcoming`
-   * Spark emails you a concise executive summary:
-     * Feed compliance (all pens covered or list of missed sessions).
-     * Bunk readings (slick bunks vs carryover).
-     * In-house Wanda produced (batches, kg, and cost/kg).
-     * Cattle health & active withholding alerts.
-     * Scheduled protocol tasks due tomorrow.
-
+### Spark Operational Blueprint:
+1. **Multimodal Extraction:** Read Urdu paper slips and map them to canonical names (`مکئی` $\rightarrow$ `Maize`, `چوکر` $\rightarrow$ `Chokar`, `سائلیج` $\rightarrow$ `Corn Silage`, `یوریا` $\rightarrow$ `Urea`).
+2. **Pre-Flight Test:** Always run `dry_run: true` first to verify that pen animal counts, date ranges, and mass balances pass.
+3. **Submit Entry:** Push the verified entry.
+   * If the API returns `202 Accepted` (`status: "pending_approval"`), Spark notes: *"Logged #867 — Queued in SmartHerd Admin Approvals for your sign-off."*
+   * If the API returns `201 Created` (`status: "committed"`), Spark notes: *"Committed directly to live herd database."*
+4. **The Stop & Confirm Escalation Rule:** If a tag or number is smudged, or ingredient mass doesn't balance, Spark stops immediately and emails Bilal with a cropped snippet of the slip and clear options.
+5. **Daily 8:00 PM Evening Digest Email:** Summarizes feed compliance, bunk scores, health alerts, and any pending approvals waiting in the portal.

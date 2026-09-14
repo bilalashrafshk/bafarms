@@ -1309,7 +1309,7 @@ async function refreshPenCache(client, penId) {
 const SETTINGS_KEYS = new Set([
     'breeds_config', 'med_categories', 'system_params', 'quarantine_protocols',
     'feed_ingredients', 'feed_stock_items', 'feed_opening_stock', 'mineral_split_ratio',
-    'premix_types', 'premix_formulas', 'premix_batches'
+    'premix_types', 'premix_formulas', 'premix_batches', 'ai_require_approval'
 ]);
 const SALES_ACTIONS = new Set([
     'UPDATE_ORDER_STATUS', 'DELETE_ORDER', 'UPDATE_ENQUIRY_STATUS', 'DELETE_ENQUIRY',
@@ -2469,7 +2469,7 @@ module.exports = async (req, res) => {
                     } else {
                         await client.query('DELETE FROM ba_feed_logs WHERE date = $1 AND pen = $2 AND feeding_index = $3', [changes.date, changes.pen || 'ALL', changes.feedingIndex]);
                     }
-                } else if (approval.action === 'OVERWRITE_FEED_LOG') {
+                } else if (approval.action === 'OVERWRITE_FEED_LOG' || approval.action === 'ADD_FEED_LOG') {
                     const { date, pen, animalCount, ingredients, totalDmKg, totalBatchKg, totalCost, costPerAnimal, notes, dietDiffered, feedingIndex, numFeedings, feedingPct, feedingTime } = changes;
                     await client.query(`
                         INSERT INTO ba_feed_logs (date, pen, animal_count, ingredients, total_dm_kg, total_batch_kg, total_cost, cost_per_animal, notes, diet_differed, feeding_index, num_feedings, feeding_pct, feeding_time, created_by, created_at)
@@ -2638,6 +2638,55 @@ module.exports = async (req, res) => {
                             }
                         }
                     }
+                } else if (approval.action === 'LOG_TREATMENT') {
+                    const { animalId, date, type, medicine, dosage, withholding, protocolTaskId, stockIssueId, notes } = changes;
+                    const targetAnimalId = animalId || approval.animal_id;
+                    await client.query(`
+                        INSERT INTO ba_treatments (animal_id, date, type, medicine, dosage, withholding, protocol_task_id, stock_issue_id, created_by, notes)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    `, [targetAnimalId, date, type, medicine, dosage, withholding || 0, protocolTaskId || null, stockIssueId || null, approval.requested_by, notes || null]);
+                } else if (approval.action === 'LOG_PEN_CHECK') {
+                    const { date, pen, session: checkSession, checkTime, bunkScore, headCount, headPulled, flags, notes } = changes;
+                    await client.query(`
+                        INSERT INTO ba_pen_checks (date, pen, session, check_time, bunk_score, head_count, head_pulled, flags, notes, created_by)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                        ON CONFLICT (date, pen, session) DO UPDATE SET
+                            check_time = EXCLUDED.check_time,
+                            bunk_score = EXCLUDED.bunk_score,
+                            head_count = EXCLUDED.head_count,
+                            head_pulled = EXCLUDED.head_pulled,
+                            flags = EXCLUDED.flags,
+                            notes = EXCLUDED.notes,
+                            created_by = EXCLUDED.created_by
+                    `, [
+                        date, pen, checkSession || 'Morning', checkTime || null,
+                        bunkScore !== undefined ? bunkScore : null, headCount || null, headPulled || 0,
+                        JSON.stringify(flags || []), notes || null, approval.requested_by
+                    ]);
+                } else if (approval.action === 'ADD_ANIMAL') {
+                    const { tag, rfid, breed, entryDate, entryWeight, purchasePrice, source, targetAdg, status, pen, notes, image } = changes;
+                    const finalTag = tag || rfid;
+                    const finalRfid = rfid || tag;
+                    const insertRes = await client.query(`
+                        INSERT INTO ba_animals (tag, rfid, breed, entry_date, entry_weight, current_weight, purchase_price, source, target_adg, status, pen, notes, image, created_by)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                        RETURNING id
+                    `, [
+                        finalTag, finalRfid, breed || 'Cross', entryDate || today, entryWeight,
+                        entryWeight, purchasePrice || 0, source || 'Direct Purchase',
+                        targetAdg || 1.2, status || 'Quarantined', pen || 'Quarantine',
+                        notes || null, image || null, approval.requested_by
+                    ]);
+                    const newAnimalId = insertRes.rows[0].id;
+                    await client.query(`
+                        INSERT INTO ba_weights (animal_id, date, weight, created_by)
+                        VALUES ($1, $2, $3, $4)
+                    `, [newAnimalId, entryDate || today, entryWeight, approval.requested_by]);
+                    await client.query(`
+                        INSERT INTO ba_events (animal_id, date, event_type, note, created_by)
+                        VALUES ($1, $2, 'arrival', $3, $4)
+                    `, [newAnimalId, entryDate || today, `Entered herd into ${pen || 'Quarantine'} (approved)`, userEmail]);
+                    await refreshPenCache(client, pen || null);
                 }
 
                 await client.query(

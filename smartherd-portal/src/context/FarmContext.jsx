@@ -598,6 +598,18 @@ export const FarmProvider = ({ children }) => {
         persistMutation('SAVE_SETTINGS', { key: 'quarantine_protocols', value: newProtocols });
     };
 
+    const [aiRequireApproval, setAiRequireApproval] = useState(() => {
+        const stored = loadStoredData('ba_ai_require_approval', null);
+        return stored !== null ? !!stored : true; // Default true (junior employee probation mode)
+    });
+
+    const updateAiRequireApproval = (enabled) => {
+        const val = !!enabled;
+        setAiRequireApproval(val);
+        safeSetItem('ba_ai_require_approval', val);
+        persistMutation('SAVE_SETTINGS', { key: 'ai_require_approval', value: val });
+    };
+
     // ─── INITIAL LOCAL SEEDS ───
     const initialAnimals = [];
     const initialWeights = [];
@@ -1744,6 +1756,7 @@ export const FarmProvider = ({ children }) => {
                             if (s.premix_types) setIfChanged(setPremixTypes, s.premix_types, 'ba_premix_types');
                             if (s.premix_formulas) setIfChanged(setPremixFormulas, s.premix_formulas, 'ba_premix_formulas');
                             if (s.premix_batches) setIfChanged(setPremixBatches, s.premix_batches, 'ba_premix_batches');
+                            if (s.ai_require_approval !== undefined) setIfChanged(setAiRequireApproval, !!s.ai_require_approval, 'ba_ai_require_approval');
                         }
                         const currentMyRequests = data.myRequests || [];
                         if (data.feedPurchases) {
@@ -3848,7 +3861,9 @@ export const FarmProvider = ({ children }) => {
             myRequests,
             allApprovals,
             approvePendingChange,
-            rejectPendingChange
+            rejectPendingChange,
+            aiRequireApproval,
+            updateAiRequireApproval
         }}>
             {children}
         </FarmContext.Provider>

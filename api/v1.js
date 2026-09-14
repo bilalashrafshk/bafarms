@@ -145,10 +145,30 @@ function calcDof(entryDateStr) {
     return Math.max(0, Math.round((today - entry) / (1000 * 60 * 60 * 24)));
 }
 
+// Check whether AI entries are currently in "Junior Employee" mode (subject to approval)
+// or "Normal Staff" mode (direct commit). Defaults to true (Junior Employee).
+async function isAiApprovalRequired(client, req, bodyOverride) {
+    if (req.headers['x-require-approval'] === 'true') return true;
+    if (req.headers['x-require-approval'] === 'false') return false;
+    if (bodyOverride?.require_approval === true) return true;
+    if (bodyOverride?.require_approval === false) return false;
+    try {
+        const res = await client.query("SELECT value FROM ba_settings WHERE key = 'ai_require_approval'");
+        if (res.rows.length > 0) {
+            const raw = res.rows[0].value;
+            const val = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return val !== false; // If explicitly false, then false; otherwise true.
+        }
+    } catch (e) {
+        console.warn('Unable to query ai_require_approval setting:', e.message);
+    }
+    return true; // Default to true (junior employee probation mode)
+}
+
 module.exports = async (req, res) => {
     // 1. CORS Headers
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization, x-api-key, Content-Type, x-agent-name');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, x-api-key, Content-Type, x-agent-name, x-require-approval');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
 
     if (req.method === 'OPTIONS') {
@@ -508,6 +528,22 @@ module.exports = async (req, res) => {
                 });
             }
 
+            // -------------------------------------------------------------
+            // GET /api/v1/system/approval-mode
+            // Query whether AI is in Junior Employee (Approval Required) or Normal Staff mode
+            // -------------------------------------------------------------
+            if (route === 'system/approval-mode' || route === 'approval-mode') {
+                const isRequired = await isAiApprovalRequired(client, req, query);
+                return res.status(200).json({
+                    success: true,
+                    ai_require_approval: isRequired,
+                    mode: isRequired ? 'junior_employee' : 'normal_staff',
+                    description: isRequired
+                        ? 'Junior Employee Mode active. All AI tasks (feed logs, cattle weights, treatments, purchases, wanda mixing) are held in ba_pending_approvals for Admin review.'
+                        : 'Normal SmartHerd Staff Mode active. Valid AI entries commit directly to production records with active biological sanity clamps.'
+                });
+            }
+
             return res.status(200).json({
                 success: true,
                 message: 'BA Foods M2M & AI Integration API (v1) Online.',
@@ -519,7 +555,8 @@ module.exports = async (req, res) => {
                     '/api/v1/pen-checks?date=<YYYY-MM-DD>',
                     '/api/v1/health/withholding',
                     '/api/v1/tasks/upcoming',
-                    '/api/v1/inventory/summary'
+                    '/api/v1/inventory/summary',
+                    '/api/v1/system/approval-mode'
                 ],
                 available_post_routes: [
                     '/api/v1/feed/logs',
@@ -527,7 +564,11 @@ module.exports = async (req, res) => {
                     '/api/v1/health/treatments',
                     '/api/v1/cattle/weights',
                     '/api/v1/cattle/pen-transfer',
-                    '/api/v1/purchasing/feed'
+                    '/api/v1/purchasing/feed',
+                    '/api/v1/purchasing/medicine',
+                    '/api/v1/cattle/intake',
+                    '/api/v1/premix/batches',
+                    '/api/v1/system/approval-mode'
                 ]
             });
         }
@@ -537,6 +578,29 @@ module.exports = async (req, res) => {
         // ════════════════════════════════════════════════════════════════
         if (req.method === 'POST') {
             const body = req.body || {};
+
+            // -------------------------------------------------------------
+            // POST /api/v1/system/approval-mode
+            // Admin Switch to toggle AI Governance Mode
+            // -------------------------------------------------------------
+            if (route === 'system/approval-mode' || route === 'approval-mode') {
+                const { require_approval } = body;
+                if (typeof require_approval !== 'boolean') {
+                    throw new Error('CONFIG_ERROR: "require_approval" boolean (true or false) is required.');
+                }
+                await client.query(`
+                    INSERT INTO ba_settings (key, value, updated_by, updated_at)
+                    VALUES ('ai_require_approval', $1, $2, NOW())
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+                `, [JSON.stringify(require_approval), agentActor]);
+
+                return res.status(200).json({
+                    success: true,
+                    ai_require_approval: require_approval,
+                    mode: require_approval ? 'junior_employee' : 'normal_staff',
+                    message: `AI governance switched to ${require_approval ? 'Junior Employee (Approval Required)' : 'Normal SmartHerd Staff (Direct Execution)'}.`
+                });
+            }
 
             // -------------------------------------------------------------
             // POST /api/v1/feed/logs
@@ -639,6 +703,44 @@ module.exports = async (req, res) => {
                     });
                 }
 
+                const requireApproval = await isAiApprovalRequired(client, req, body);
+                if (requireApproval) {
+                    const approvalRes = await client.query(`
+                        INSERT INTO ba_pending_approvals (action, payload, requested_by)
+                        VALUES ('ADD_FEED_LOG', $1, $2)
+                        RETURNING id
+                    `, [
+                        JSON.stringify({
+                            date: validDate,
+                            pen: targetPen,
+                            feedingIndex: fIndex,
+                            numFeedings: nFeedings,
+                            feedingPct: feeding_pct || (100 / nFeedings),
+                            totalBatchKg: totalKg,
+                            animalCount,
+                            ingredients: ingredients || [],
+                            notes: notes || null
+                        }),
+                        agentActor
+                    ]);
+
+                    return res.status(202).json({
+                        success: true,
+                        status: 'pending_approval',
+                        approval_id: approvalRes.rows[0].id,
+                        mode: 'junior_employee',
+                        action: 'ADD_FEED_LOG',
+                        message: `Feed log for Pen ${targetPen} on ${validDate} submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.`,
+                        details: {
+                            pen: targetPen,
+                            date: validDate,
+                            feeding_index: fIndex,
+                            num_feedings: nFeedings,
+                            total_batch_kg: totalKg
+                        }
+                    });
+                }
+
                 const insertRes = await client.query(`
                     INSERT INTO ba_feed_logs (
                         date, pen, feeding_index, num_feedings, feeding_pct,
@@ -654,6 +756,8 @@ module.exports = async (req, res) => {
 
                 return res.status(201).json({
                     success: true,
+                    status: 'committed',
+                    mode: 'normal_staff',
                     id: insertRes.rows[0].id,
                     message: `Feed logged successfully for Pen ${targetPen} on ${validDate} (#${fIndex}/${nFeedings}).`
                 });
@@ -732,6 +836,44 @@ module.exports = async (req, res) => {
                     });
                 }
 
+                const requireApproval = await isAiApprovalRequired(client, req, body);
+                if (requireApproval) {
+                    const approvalRes = await client.query(`
+                        INSERT INTO ba_pending_approvals (action, payload, requested_by)
+                        VALUES ('LOG_PEN_CHECK', $1, $2)
+                        RETURNING id
+                    `, [
+                        JSON.stringify({
+                            date: validDate,
+                            pen: targetPen,
+                            session: validSession,
+                            checkTime: check_time || (validSession === 'Morning' ? '06:00' : '17:00'),
+                            headCount: parseInt(head_count || 0, 10),
+                            headPulled: parseInt(head_pulled || 0, 10),
+                            bunkScore: scoreToStore,
+                            notes: notes || null,
+                            flags: resolvedFlags
+                        }),
+                        agentActor
+                    ]);
+
+                    return res.status(202).json({
+                        success: true,
+                        status: 'pending_approval',
+                        approval_id: approvalRes.rows[0].id,
+                        mode: 'junior_employee',
+                        action: 'LOG_PEN_CHECK',
+                        message: `Pen check for Pen ${targetPen} (${validSession}) submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.`,
+                        details: {
+                            pen: targetPen,
+                            date: validDate,
+                            session: validSession,
+                            bunk_score: scoreToStore,
+                            flagged_count: resolvedFlags.length
+                        }
+                    });
+                }
+
                 const insertRes = await client.query(`
                     INSERT INTO ba_pen_checks (
                         date, pen, session, check_time, head_count, head_pulled,
@@ -753,6 +895,8 @@ module.exports = async (req, res) => {
 
                 return res.status(201).json({
                     success: true,
+                    status: 'committed',
+                    mode: 'normal_staff',
                     id: insertRes.rows[0].id,
                     message: `Pen check logged for Pen ${targetPen} on ${validDate} (${validSession}).`
                 });
@@ -816,6 +960,47 @@ module.exports = async (req, res) => {
                     });
                 }
 
+                const requireApproval = await isAiApprovalRequired(client, req, body);
+                if (requireApproval) {
+                    const approvalRes = await client.query(`
+                        INSERT INTO ba_pending_approvals (action, animal_id, animal_rfid, animal_breed, payload, previous_snapshot, requested_by)
+                        VALUES ('LOG_TREATMENT', $1, $2, $3, $4, $5, $6)
+                        RETURNING id
+                    `, [
+                        animal.id,
+                        animal.rfid,
+                        animal.breed,
+                        JSON.stringify({
+                            animalId: animal.id,
+                            date: validDate,
+                            type: type || 'Curative',
+                            medicine: medicine.trim(),
+                            dosage: dosage.trim(),
+                            withholding: withholdingDays,
+                            notes: notes || (diagnosis ? `Diagnosis: ${diagnosis}` : null)
+                        }),
+                        JSON.stringify(animal),
+                        agentActor
+                    ]);
+
+                    return res.status(202).json({
+                        success: true,
+                        status: 'pending_approval',
+                        approval_id: approvalRes.rows[0].id,
+                        mode: 'junior_employee',
+                        action: 'LOG_TREATMENT',
+                        message: `Treatment for Tag ${animal.rfid} (${medicine.trim()}) submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.`,
+                        details: {
+                            animal_id: animal.id,
+                            tag: animal.rfid,
+                            medicine: medicine.trim(),
+                            dosage: dosage.trim(),
+                            date: validDate,
+                            withholding_days: withholdingDays
+                        }
+                    });
+                }
+
                 const insertRes = await client.query(`
                     INSERT INTO ba_treatments (
                         animal_id, date, type, medicine, dosage, withholding,
@@ -830,6 +1015,8 @@ module.exports = async (req, res) => {
 
                 return res.status(201).json({
                     success: true,
+                    status: 'committed',
+                    mode: 'normal_staff',
                     id: insertRes.rows[0].id,
                     message: `Treatment recorded for Tag ${animal.rfid} (${medicine.trim()} - ${dosage.trim()}).`
                 });
@@ -897,6 +1084,45 @@ module.exports = async (req, res) => {
                     }
                 }
 
+                const requireApproval = await isAiApprovalRequired(client, req, body);
+                if (requireApproval) {
+                    const approvalRes = await client.query(`
+                        INSERT INTO ba_pending_approvals (action, animal_id, animal_rfid, animal_breed, payload, previous_snapshot, requested_by)
+                        VALUES ('LOG_WEIGHT', $1, $2, $3, $4, $5, $6)
+                        RETURNING id
+                    `, [
+                        animal.id,
+                        animal.rfid,
+                        animal.breed,
+                        JSON.stringify({
+                            animalId: animal.id,
+                            date: validDate,
+                            weight: weightNum,
+                            adg: adg
+                        }),
+                        JSON.stringify(animal),
+                        agentActor
+                    ]);
+
+                    return res.status(202).json({
+                        success: true,
+                        status: 'pending_approval',
+                        approval_id: approvalRes.rows[0].id,
+                        mode: 'junior_employee',
+                        action: 'LOG_WEIGHT',
+                        message: `Weight entry of ${weightNum} kg for Tag ${animal.rfid} submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.`,
+                        details: {
+                            animal_id: animal.id,
+                            tag: animal.rfid,
+                            weight_kg: weightNum,
+                            previous_weight_kg: prevWeight,
+                            weight_delta_kg: +(weightNum - prevWeight).toFixed(2),
+                            adg: adg,
+                            date: validDate
+                        }
+                    });
+                }
+
                 const insertRes = await client.query(`
                     INSERT INTO ba_weights (animal_id, date, weight, adg, created_by)
                     VALUES ($1, $2, $3, $4, $5)
@@ -909,6 +1135,8 @@ module.exports = async (req, res) => {
 
                 return res.status(201).json({
                     success: true,
+                    status: 'committed',
+                    mode: 'normal_staff',
                     id: insertRes.rows[0].id,
                     message: `Weight of ${weightNum} kg logged for Tag ${animal.rfid} (ADG: ${adg !== null ? adg + ' kg/day' : 'N/A'}).`
                 });
@@ -959,6 +1187,40 @@ module.exports = async (req, res) => {
                     });
                 }
 
+                const requireApproval = await isAiApprovalRequired(client, req, body);
+                if (requireApproval) {
+                    const approvalIds = [];
+                    for (const a of resolvedAnimals) {
+                        const appRes = await client.query(`
+                            INSERT INTO ba_pending_approvals (action, animal_id, animal_rfid, animal_breed, payload, previous_snapshot, requested_by)
+                            VALUES ('UPDATE_ANIMAL', $1, $2, $3, $4, $5, $6)
+                            RETURNING id
+                        `, [
+                            a.id,
+                            a.rfid,
+                            a.breed,
+                            JSON.stringify({ id: a.id, pen: targetPen, note: reason || `Pen transfer to ${targetPen}` }),
+                            JSON.stringify(a),
+                            agentActor
+                        ]);
+                        approvalIds.push(appRes.rows[0].id);
+                    }
+
+                    return res.status(202).json({
+                        success: true,
+                        status: 'pending_approval',
+                        approval_ids: approvalIds,
+                        mode: 'junior_employee',
+                        action: 'UPDATE_ANIMAL',
+                        message: `Pen transfer for ${resolvedAnimals.length} animal(s) to Pen ${targetPen} submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.`,
+                        details: {
+                            destination_pen: targetPen,
+                            transferred_count: resolvedAnimals.length,
+                            transferred_tags: resolvedAnimals.map(a => a.rfid)
+                        }
+                    });
+                }
+
                 for (const a of resolvedAnimals) {
                     const oldPen = a.pen;
                     if (oldPen !== targetPen) {
@@ -972,6 +1234,8 @@ module.exports = async (req, res) => {
 
                 return res.status(200).json({
                     success: true,
+                    status: 'committed',
+                    mode: 'normal_staff',
                     message: `Successfully transferred ${resolvedAnimals.length} animals to Pen ${targetPen}.`,
                     transferred_tags: resolvedAnimals.map(a => a.rfid)
                 });
@@ -1024,6 +1288,46 @@ module.exports = async (req, res) => {
                 }
 
                 const purchaseId = 'pur_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+                const requireApproval = await isAiApprovalRequired(client, req, body);
+                if (requireApproval) {
+                    const approvalRes = await client.query(`
+                        INSERT INTO ba_pending_approvals (action, payload, requested_by)
+                        VALUES ('ADD_FEED_PURCHASE', $1, $2)
+                        RETURNING id
+                    `, [
+                        JSON.stringify({
+                            id: purchaseId,
+                            date: validDate,
+                            itemId,
+                            itemName: matchedStock ? matchedStock.name : item_name.trim(),
+                            itemUnit: finalUnit,
+                            quantity: qty,
+                            rate: unitRate,
+                            supplier: supplier || null,
+                            notes: notes || null
+                        }),
+                        agentActor
+                    ]);
+
+                    return res.status(202).json({
+                        success: true,
+                        status: 'pending_approval',
+                        approval_id: approvalRes.rows[0].id,
+                        mode: 'junior_employee',
+                        action: 'ADD_FEED_PURCHASE',
+                        message: `Purchase receipt for ${qty} ${finalUnit} ${matchedStock ? matchedStock.name : item_name.trim()} submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.`,
+                        details: {
+                            id: purchaseId,
+                            date: validDate,
+                            item_name: matchedStock ? matchedStock.name : item_name.trim(),
+                            quantity: qty,
+                            unit: finalUnit,
+                            rate: unitRate,
+                            total_cost: +(qty * unitRate).toFixed(2)
+                        }
+                    });
+                }
+
                 await client.query(`
                     INSERT INTO ba_feed_purchases (
                         id, date, item_id, item_name, item_unit, quantity, rate, supplier, notes, created_by, created_at
@@ -1032,8 +1336,109 @@ module.exports = async (req, res) => {
 
                 return res.status(201).json({
                     success: true,
+                    status: 'committed',
+                    mode: 'normal_staff',
                     id: purchaseId,
                     message: `Purchase of ${qty} ${finalUnit} ${matchedStock ? matchedStock.name : item_name.trim()} recorded successfully.`
+                });
+            }
+
+            // -------------------------------------------------------------
+            // POST /api/v1/cattle/intake or /api/v1/purchasing/animal
+            // Ingest new animal arrival / purchase records
+            // -------------------------------------------------------------
+            if (route === 'cattle/intake' || route === 'purchasing/animal') {
+                const {
+                    tag, rfid, breed, entry_date, entry_weight, purchase_price,
+                    source, target_adg, status, pen, notes, image, allow_historical
+                } = body;
+
+                const finalTag = String(tag || rfid || '').trim().toUpperCase();
+                const finalRfid = String(rfid || tag || '').trim().toUpperCase();
+                if (!finalTag) throw new Error('INTAKE_ERROR: "tag" or "rfid" is required.');
+
+                const validDate = validateDateStr(entry_date || getTodayStr(), allow_historical);
+                const weightNum = parseFloat(entry_weight);
+                if (isNaN(weightNum) || weightNum < 40 || weightNum > 1200) {
+                    throw new Error(`INTAKE_ERROR: "entry_weight" must be between 40kg and 1200kg (received ${entry_weight}).`);
+                }
+
+                // Check for duplicate active tag
+                const dupCheck = await client.query(
+                    `SELECT id FROM ba_animals WHERE (tag = $1 OR rfid = $2) AND status NOT IN ('Sold', 'Deceased')`,
+                    [finalTag, finalRfid]
+                );
+                if (dupCheck.rows.length > 0) {
+                    throw new Error(`INTAKE_ERROR: An active animal with tag/RFID "${finalTag}" already exists in the herd.`);
+                }
+
+                if (isDryRun) {
+                    return res.status(200).json({
+                        success: true,
+                        dry_run: true,
+                        message: 'SANITY_CHECKS_PASSED: Cattle intake record is valid and ready to commit.',
+                        simulated_record: { tag: finalTag, rfid: finalRfid, breed: breed || 'Cross', entry_weight: weightNum, pen: pen || 'Quarantine' }
+                    });
+                }
+
+                const requireApproval = await isAiApprovalRequired(client, req, body);
+                if (requireApproval) {
+                    const approvalRes = await client.query(`
+                        INSERT INTO ba_pending_approvals (action, animal_rfid, animal_breed, payload, requested_by)
+                        VALUES ('ADD_ANIMAL', $1, $2, $3, $4)
+                        RETURNING id
+                    `, [
+                        finalRfid,
+                        breed || 'Cross',
+                        JSON.stringify({
+                            tag: finalTag,
+                            rfid: finalRfid,
+                            breed: breed || 'Cross',
+                            entryDate: validDate,
+                            entryWeight: weightNum,
+                            purchasePrice: parseFloat(purchase_price || 0),
+                            source: source || 'Direct Purchase',
+                            targetAdg: parseFloat(target_adg || 1.2),
+                            status: status || 'Quarantined',
+                            pen: (pen || 'Quarantine').toUpperCase(),
+                            notes: notes || null,
+                            image: image || null
+                        }),
+                        agentActor
+                    ]);
+
+                    return res.status(202).json({
+                        success: true,
+                        status: 'pending_approval',
+                        approval_id: approvalRes.rows[0].id,
+                        mode: 'junior_employee',
+                        action: 'ADD_ANIMAL',
+                        message: `Cattle intake for Tag ${finalTag} submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.`,
+                        details: { tag: finalTag, breed: breed || 'Cross', entry_weight: weightNum, pen: pen || 'Quarantine' }
+                    });
+                }
+
+                const insertRes = await client.query(`
+                    INSERT INTO ba_animals (tag, rfid, breed, entry_date, entry_weight, current_weight, purchase_price, source, target_adg, status, pen, notes, image, created_by)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    RETURNING id
+                `, [
+                    finalTag, finalRfid, breed || 'Cross', validDate, weightNum, weightNum,
+                    parseFloat(purchase_price || 0), source || 'Direct Purchase',
+                    parseFloat(target_adg || 1.2), status || 'Quarantined', (pen || 'Quarantine').toUpperCase(),
+                    notes || null, image || null, agentActor
+                ]);
+                const newId = insertRes.rows[0].id;
+                await client.query(`INSERT INTO ba_weights (animal_id, date, weight, created_by) VALUES ($1, $2, $3, $4)`, [newId, validDate, weightNum, agentActor]);
+                await client.query(`INSERT INTO ba_events (animal_id, date, event_type, note, created_by) VALUES ($1, $2, 'arrival', $3, $4)`, [newId, validDate, `Arrived into ${(pen || 'Quarantine').toUpperCase()}`, agentActor]);
+
+                return res.status(201).json({
+                    success: true,
+                    status: 'committed',
+                    mode: 'normal_staff',
+                    id: newId,
+                    tag: finalTag,
+                    message: `Animal ${finalTag} added to herd successfully.`
                 });
             }
 
@@ -1128,6 +1533,47 @@ module.exports = async (req, res) => {
                     });
                 }
 
+                const requireApproval = await isAiApprovalRequired(client, req, body);
+                if (requireApproval) {
+                    const batchId = 'pb-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+                    const approvalRes = await client.query(`
+                        INSERT INTO ba_pending_approvals (action, payload, requested_by)
+                        VALUES ('SAVE_SETTINGS', $1, $2)
+                        RETURNING id
+                    `, [
+                        JSON.stringify({
+                            key: 'premix_batches',
+                            batchId,
+                            premixTypeId: targetType.id,
+                            premixTypeName: targetType.name,
+                            date: validDate,
+                            totalKg,
+                            bagWeight: parseFloat(bag_weight || 0),
+                            bagCount: parseFloat(bag_count || 0),
+                            costPerKg,
+                            consumed,
+                            notes: notes || `Batch of ${targetType.name}`
+                        }),
+                        agentActor
+                    ]);
+
+                    return res.status(202).json({
+                        success: true,
+                        status: 'pending_approval',
+                        approval_id: approvalRes.rows[0].id,
+                        mode: 'junior_employee',
+                        action: 'SAVE_SETTINGS',
+                        message: `Wanda mixing batch (${totalKg} kg of ${targetType.name}) submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.`,
+                        details: {
+                            premix_type: targetType.name,
+                            total_kg: totalKg,
+                            cost_per_kg: costPerKg,
+                            raw_materials_count: consumed.length,
+                            date: validDate
+                        }
+                    });
+                }
+
                 // COMMIT: Deduct raw materials to pen PRODUCTION
                 const issueIds = [];
                 for (const c of consumed) {
@@ -1171,6 +1617,8 @@ module.exports = async (req, res) => {
 
                 return res.status(201).json({
                     success: true,
+                    status: 'committed',
+                    mode: 'normal_staff',
                     batch_id: newBatchRecord.id,
                     message: `Produced ${totalKg} kg of ${targetType.name} at Rs. ${costPerKg}/kg. Deducted ${consumed.length} raw materials.`
                 });
