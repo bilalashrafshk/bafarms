@@ -1318,45 +1318,187 @@ module.exports = async (req, res) => {
             }
 
             // -------------------------------------------------------------
-            // GET /api/v1/tasks/upcoming
+            // GET /api/v1/tasks/upcoming (Aliases: /api/v1/tasks/overdue, /api/v1/tasks)
+            // Upcoming & Overdue Operations: Weigh-ins, Pen Schedules, Quarantine Protocols, Market Ready Calves
             // -------------------------------------------------------------
-            if (route === 'tasks/upcoming' || route === 'tasks') {
-                const today = getTodayStr();
-                const quarantined = await client.query(`
-                    SELECT id, rfid, pen, entry_date 
+            if (route === 'tasks/upcoming' || route === 'tasks/overdue' || route === 'tasks') {
+                const asOfDate = query.date || getTodayStr();
+                const weighIntervalDays = parseInt(query.weigh_interval_days || query.interval || 14);
+                const penFilter = query.pen ? query.pen.toUpperCase().trim() : null;
+
+                const animalsRes = await client.query(`
+                    SELECT id, rfid as tag, breed, pen, status, current_weight, entry_weight, 
+                           to_char(entry_date, 'YYYY-MM-DD') as entry_date, target_weight 
                     FROM ba_animals 
-                    WHERE status = 'Quarantined'
-                    ORDER BY entry_date ASC
+                    WHERE status NOT IN ('Sold', 'Deceased')
+                    ORDER BY pen ASC, rfid ASC
                 `);
 
-                const protocolTasks = [];
-                for (const q of quarantined.rows) {
-                    const dof = calcDof(q.entry_date);
-                    const milestones = [
-                        { day: 1, title: 'Intake Deworming & Multivitamin' },
-                        { day: 7, title: 'Primary Clostridial / HS Vaccine' },
-                        { day: 14, title: 'Booster Dose & Ear Tag Check' },
-                        { day: 21, title: 'Quarantine Exit Scale Weigh-in' }
-                    ];
+                const weightsRes = await client.query(`
+                    SELECT animal_id, to_char(date, 'YYYY-MM-DD') as date, weight 
+                    FROM ba_weights 
+                    ORDER BY animal_id, date DESC
+                `);
 
-                    for (const m of milestones) {
-                        if (dof <= m.day && m.day - dof <= 7) {
-                            protocolTasks.push({
-                                tag: q.rfid,
-                                pen: q.pen,
-                                dof,
-                                scheduled_day: m.day,
-                                task_title: m.title,
-                                due_in_days: m.day - dof
-                            });
+                const treatmentsRes = await client.query(`
+                    SELECT t.id, t.animal_id, a.rfid as tag, a.pen, to_char(t.date, 'YYYY-MM-DD') as treatment_date, 
+                           t.medicine, t.dosage, t.withholding, 
+                           to_char((t.date + (t.withholding || ' days')::interval)::date, 'YYYY-MM-DD') as safe_date 
+                    FROM ba_treatments t 
+                    JOIN ba_animals a ON a.id = t.animal_id 
+                    WHERE t.withholding > 0 
+                      AND (t.date + (t.withholding || ' days')::interval)::date >= $1::date
+                    ORDER BY safe_date ASC
+                `, [asOfDate]);
+
+                let activeAnimals = animalsRes.rows;
+                if (penFilter) {
+                    activeAnimals = activeAnimals.filter(a => a.pen && a.pen.toUpperCase() === penFilter);
+                }
+
+                // Map clean calibrated weights per animal
+                const weighByAnimal = new Map();
+                weightsRes.rows.forEach(w => {
+                    if (isCorruptedWeighDate(w.date)) return;
+                    if (!weighByAnimal.has(w.animal_id)) weighByAnimal.set(w.animal_id, []);
+                    weighByAnimal.get(w.animal_id).push(w);
+                });
+
+                const overdueWeighIns = [];
+                const upcomingWeighIns = [];
+                const penWeighMap = {};
+
+                activeAnimals.forEach(a => {
+                    const logs = weighByAnimal.get(a.id) || [];
+                    const lastDate = logs.length > 0 ? logs[0].date : a.entry_date;
+                    const lastWeight = logs.length > 0 ? parseFloat(logs[0].weight) : parseFloat(a.entry_weight || 0);
+                    if (!lastDate) return;
+
+                    const d1 = new Date(lastDate);
+                    const d2 = new Date(asOfDate);
+                    const daysSince = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+                    const nextDate = new Date(d1);
+                    nextDate.setDate(nextDate.getDate() + weighIntervalDays);
+                    const nextDateStr = nextDate.toISOString().split('T')[0];
+                    const daysUntil = Math.round((nextDate - d2) / (1000 * 60 * 60 * 24));
+
+                    if (daysSince > weighIntervalDays) {
+                        overdueWeighIns.push({
+                            tag: a.tag,
+                            pen: a.pen || 'Unassigned',
+                            breed: a.breed,
+                            last_weighed_date: lastDate,
+                            last_weight_kg: lastWeight,
+                            current_weight_kg: parseFloat(a.current_weight || 0),
+                            days_since_last_weigh: daysSince,
+                            days_overdue: daysSince - weighIntervalDays,
+                            urgency: daysSince >= (weighIntervalDays + 10) ? 'CRITICAL' : 'HIGH'
+                        });
+                    } else {
+                        upcomingWeighIns.push({
+                            tag: a.tag,
+                            pen: a.pen || 'Unassigned',
+                            breed: a.breed,
+                            last_weighed_date: lastDate,
+                            last_weight_kg: lastWeight,
+                            next_scheduled_weigh: nextDateStr,
+                            days_until: daysUntil
+                        });
+
+                        const penKey = a.pen || 'Unassigned';
+                        if (!penWeighMap[penKey]) {
+                            penWeighMap[penKey] = {
+                                pen: penKey,
+                                head_count: 0,
+                                next_scheduled_weigh: nextDateStr,
+                                days_until: daysUntil,
+                                tags: []
+                            };
+                        }
+                        penWeighMap[penKey].head_count++;
+                        penWeighMap[penKey].tags.push(a.tag);
+                        if (nextDateStr < penWeighMap[penKey].next_scheduled_weigh) {
+                            penWeighMap[penKey].next_scheduled_weigh = nextDateStr;
+                            penWeighMap[penKey].days_until = daysUntil;
                         }
                     }
-                }
+                });
+
+                // Quarantine protocol milestones & graduations
+                const quarantineGraduationsOverdue = [];
+                const quarantineMilestonesUpcoming = [];
+                const quarantined = activeAnimals.filter(a => a.status === 'Quarantined');
+
+                quarantined.forEach(q => {
+                    const dof = calcDof(q.entry_date);
+                    if (dof >= 14) {
+                        quarantineGraduationsOverdue.push({
+                            tag: q.tag,
+                            pen: q.pen || 'Quarantine Pen',
+                            entry_date: q.entry_date,
+                            days_in_quarantine: dof,
+                            days_overdue: dof - 14,
+                            action: '14-Day Quarantine Completed — Move to Fattening Pen'
+                        });
+                    } else {
+                        const milestones = [
+                            { day: 1, title: 'Intake Deworming & Multivitamin' },
+                            { day: 7, title: 'Primary Clostridial / HS Vaccine' },
+                            { day: 14, title: 'Booster Dose & Quarantine Exit Scale Weigh-in' }
+                        ];
+                        for (const m of milestones) {
+                            if (dof <= m.day && (m.day - dof) <= 7) {
+                                quarantineMilestonesUpcoming.push({
+                                    tag: q.tag,
+                                    pen: q.pen || 'Quarantine Pen',
+                                    dof,
+                                    scheduled_day: m.day,
+                                    task_title: m.title,
+                                    due_in_days: m.day - dof
+                                });
+                            }
+                        }
+                    }
+                });
+
+                // Market-ready harvest alerts
+                const marketReadyCalves = activeAnimals
+                    .filter(a => parseFloat(a.current_weight || 0) >= parseFloat(a.target_weight || 999999))
+                    .map(a => ({
+                        tag: a.tag,
+                        pen: a.pen,
+                        breed: a.breed,
+                        current_weight_kg: parseFloat(a.current_weight),
+                        target_weight_kg: parseFloat(a.target_weight),
+                        surplus_weight_kg: +(parseFloat(a.current_weight) - parseFloat(a.target_weight)).toFixed(1),
+                        status: 'Target Weight Achieved — Ready for Sale/Harvest'
+                    }));
+
+                const totalOverdue = overdueWeighIns.length + quarantineGraduationsOverdue.length;
+                const totalUpcoming = upcomingWeighIns.length + quarantineMilestonesUpcoming.length + treatmentsRes.rows.length;
 
                 return res.status(200).json({
                     success: true,
-                    today,
-                    upcoming_protocol_tasks: protocolTasks
+                    as_of_date: asOfDate,
+                    configured_weigh_interval_days: weighIntervalDays,
+                    summary: {
+                        total_overdue_tasks_count: totalOverdue,
+                        total_upcoming_tasks_count: totalUpcoming,
+                        overdue_weigh_ins_count: overdueWeighIns.length,
+                        upcoming_weigh_ins_count: upcomingWeighIns.length,
+                        active_medical_withholdings_count: treatmentsRes.rows.length,
+                        market_ready_cattle_count: marketReadyCalves.length
+                    },
+                    overdue_tasks: {
+                        weigh_ins: overdueWeighIns.sort((a, b) => b.days_overdue - a.days_overdue),
+                        quarantine_graduations: quarantineGraduationsOverdue.sort((a, b) => b.days_overdue - a.days_overdue)
+                    },
+                    upcoming_schedule: {
+                        pen_weigh_in_schedule: Object.values(penWeighMap).sort((a, b) => a.days_until - b.days_until),
+                        quarantine_milestones: quarantineMilestonesUpcoming.sort((a, b) => a.due_in_days - b.due_in_days),
+                        medical_withholding_clearances: treatmentsRes.rows,
+                        market_ready_pipeline: marketReadyCalves
+                    }
                 });
             }
 

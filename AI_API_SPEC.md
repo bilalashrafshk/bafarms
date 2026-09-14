@@ -362,9 +362,127 @@ Returns all animals currently under slaughter withholding, days remaining, and s
 
 ---
 
-### 3.9 Upcoming Protocol Tasks
-Returns quarantine and intake protocol tasks due in the next 7 days (Day 1, 7, 14, 21 vaccines/deworming).
-* **Route:** `GET /api/v1/tasks/upcoming`
+### 3.9 Upcoming & Overdue Operations Schedule
+Returns all upcoming operations, overdue weigh-ins, scheduled pen weigh dates, quarantine protocols, medical withholding clearances, and market-ready calves across the feedlot.
+* **Route:** `GET /api/v1/tasks/upcoming` (Aliases: `/api/v1/tasks/overdue`, `/api/v1/tasks`)
+* **MCP Tool:** `get_tasks_upcoming`
+* **Query Parameters:**
+  * `date` *(optional YYYY-MM-DD, defaults to today)*
+  * `pen` *(optional string, e.g. `?pen=D` to filter by pen)*
+  * `weigh_interval_days` *(optional integer, defaults to 14 days)*
+* **Response Example (`200 OK`):**
+```json
+{
+  "success": true,
+  "as_of_date": "2026-09-10",
+  "configured_weigh_interval_days": 14,
+  "summary": {
+    "total_overdue_tasks_count": 3,
+    "total_upcoming_tasks_count": 100,
+    "overdue_weigh_ins_count": 3,
+    "upcoming_weigh_ins_count": 100,
+    "active_medical_withholdings_count": 0,
+    "market_ready_cattle_count": 1
+  },
+  "overdue_tasks": {
+    "weigh_ins": [
+      {
+        "tag": "08",
+        "pen": "E",
+        "breed": "Cross",
+        "last_weighed_date": "2026-08-15",
+        "last_weight_kg": 135.0,
+        "current_weight_kg": 135.0,
+        "days_since_last_weigh": 26,
+        "days_overdue": 12,
+        "urgency": "CRITICAL"
+      },
+      {
+        "tag": "46",
+        "pen": "D",
+        "breed": "Cross",
+        "last_weighed_date": "2026-08-22",
+        "last_weight_kg": 201.0,
+        "current_weight_kg": 201.0,
+        "days_since_last_weigh": 19,
+        "days_overdue": 5,
+        "urgency": "HIGH"
+      },
+      {
+        "tag": "58",
+        "pen": "D",
+        "breed": "Cross",
+        "last_weighed_date": "2026-08-22",
+        "last_weight_kg": 226.0,
+        "current_weight_kg": 226.0,
+        "days_since_last_weigh": 19,
+        "days_overdue": 5,
+        "urgency": "HIGH"
+      }
+    ],
+    "quarantine_graduations": []
+  },
+  "upcoming_schedule": {
+    "pen_weigh_in_schedule": [
+      {
+        "pen": "C",
+        "head_count": 16,
+        "next_scheduled_weigh": "2026-09-12",
+        "days_until": 2,
+        "tags": ["19", "24", "44", "45", "49", "54", "63", "64", "66", "70", "74", "88", "91", "92", "97", "98"]
+      },
+      {
+        "pen": "D",
+        "head_count": 15,
+        "next_scheduled_weigh": "2026-09-12",
+        "days_until": 2,
+        "tags": ["09", "20", "21", "26", "32", "40", "43", "52", "56", "62", "77", "78", "82", "89", "99"]
+      },
+      {
+        "pen": "E",
+        "head_count": 13,
+        "next_scheduled_weigh": "2026-09-12",
+        "days_until": 2,
+        "tags": ["100", "18", "23", "33", "39", "48", "51", "59", "69", "75", "80", "81", "96"]
+      },
+      {
+        "pen": "G",
+        "head_count": 27,
+        "next_scheduled_weigh": "2026-09-19",
+        "days_until": 9,
+        "tags": ["101", "102", "103", "105", "106", "107", "108", "109", "112", "116", "119", "155", "..."]
+      },
+      {
+        "pen": "A",
+        "head_count": 19,
+        "next_scheduled_weigh": "2026-09-23",
+        "days_until": 13,
+        "tags": ["17", "29", "30", "31", "36", "37", "38", "42", "47", "50", "53", "57", "60", "..."]
+      },
+      {
+        "pen": "B",
+        "head_count": 10,
+        "next_scheduled_weigh": "2026-09-23",
+        "days_until": 13,
+        "tags": ["02", "10", "14", "16", "22", "34", "35", "55", "61", "72"]
+      }
+    ],
+    "quarantine_milestones": [],
+    "medical_withholding_clearances": [],
+    "market_ready_pipeline": [
+      {
+        "tag": "49",
+        "pen": "C",
+        "breed": "Cross",
+        "current_weight_kg": 272.5,
+        "target_weight_kg": 250.0,
+        "surplus_weight_kg": 22.5,
+        "status": "Target Weight Achieved — Ready for Sale/Harvest"
+      }
+    ]
+  }
+}
+```
 
 ---
 

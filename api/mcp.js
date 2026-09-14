@@ -113,10 +113,13 @@ const TOOLS = [
     },
     {
         name: 'get_tasks_upcoming',
-        description: 'Get intake and quarantine protocol tasks due in the next 7 days (vaccinations and deworming milestones for Day 1, 7, 14, 21).',
+        description: 'Get all upcoming and overdue tasks across the feedlot: overdue weigh-ins (>14 days), upcoming pen-by-pen weigh-in schedules (next 7-14 days), quarantine protocol milestones & graduations, active medical withholding clearance dates, and market-ready harvest cattle.',
         inputSchema: {
             type: 'object',
-            properties: {}
+            properties: {
+                pen: { type: 'string', description: 'Filter tasks by pen (e.g. "A", "C", "D")' },
+                weigh_interval_days: { type: 'number', description: 'Weigh interval threshold in days (default 14)' }
+            }
         }
     },
     {
@@ -370,7 +373,7 @@ async function executeToolCall(toolName, args, apiKey) {
             return res.data;
         }
         case 'get_tasks_upcoming': {
-            const res = await dispatchToV1('GET', 'tasks/upcoming', {}, null, apiKey);
+            const res = await dispatchToV1('GET', 'tasks/upcoming', args || {}, null, apiKey);
             return res.data;
         }
         case 'get_purchasing_history': {
