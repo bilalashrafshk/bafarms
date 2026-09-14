@@ -6,6 +6,8 @@
     }
   },
   "rewrites": [
+    { "source": "/mcp", "destination": "/api/mcp.js" },
+    { "source": "/api/mcp", "destination": "/api/mcp.js" },
     { "source": "/api/v1/:path*", "destination": "/api/v1.js" },
     { "source": "/enquiry", "destination": "/index.html" },
     { "source": "/farm", "destination": "/farm.html" },
