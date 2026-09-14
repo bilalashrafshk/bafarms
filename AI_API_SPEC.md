@@ -966,17 +966,34 @@ Every POST endpoint supports `"dry_run": true` for simulation. When `dry_run: fa
 
 ---
 
-### 4.5 Execute Pen Transfer
-* **Route:** `POST /api/v1/cattle/pen-transfer`
-* **Payload:**
+### 4.5 Execute Pen Transfer & Rotation Shifts (e.g. Sick $\leftrightarrow$ Fattening $\leftrightarrow$ Quarantine)
+Allows AI agents (or Gemini Spark) to shift animals between pens, rotate cohorts, move sick calves to the hospital bay, graduate calves from Quarantine into Fattening, or return recovered animals to their feeding pens. Automatically updates the animal's physical pen location, synchronizes health status (`Fattening`, `Sick`, `Quarantined`, `Active`), and records an audit transfer event in `ba_events`.
+
+* **Route:** `POST /api/v1/cattle/pen-transfer` (Aliases: `/api/v1/cattle/transfer`, `/api/v1/pen-transfer`)
+* **MCP Tool:** `transfer_cattle_pen`
+* **Payload Examples:**
+
+**Shifting to Sick Bay:**
 ```json
 {
-  "tags": ["36", "08"],
-  "to_pen": "E",
-  "reason": "Weight sorting after 30-day weigh-in",
+  "tag": "36",
+  "to_pen": "SICK",
+  "reason": "Calf showing nasal discharge and elevated temperature, isolated to sick bay",
   "dry_run": false
 }
 ```
+
+**Graduating from Quarantine to Fattening (or Returning from Sick Bay):**
+```json
+{
+  "tags": ["36", "08"],
+  "to_pen": "C",
+  "status": "Fattening",
+  "reason": "14-day quarantine completed and cleared by vet; entering standard Fattening rotation in Pen C",
+  "dry_run": false
+}
+```
+
 * **Junior Employee Response (`202 Accepted`):**
 ```json
 {
@@ -985,7 +1002,29 @@ Every POST endpoint supports `"dry_run": true` for simulation. When `dry_run: fa
   "approval_ids": [871, 872],
   "mode": "junior_employee",
   "action": "UPDATE_ANIMAL",
-  "message": "Pen transfer for 2 animal(s) to Pen E submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal."
+  "message": "Pen transfer / status shift for 2 animal(s) to Pen C submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.",
+  "details": {
+    "destination_pen": "C",
+    "transferred_count": 2,
+    "transfers": [
+      { "tag": "36", "from_pen": "SICK", "to_pen": "C", "from_status": "Sick", "to_status": "Fattening" },
+      { "tag": "08", "from_pen": "E", "to_pen": "C", "from_status": "Fattening", "to_status": "Fattening" }
+    ]
+  }
+}
+```
+
+* **Normal Staff Response (`200 OK`):**
+```json
+{
+  "success": true,
+  "status": "committed",
+  "mode": "normal_staff",
+  "message": "Successfully transferred 2 animal(s) to Pen C.",
+  "transfers": [
+    { "tag": "36", "from_pen": "SICK", "to_pen": "C", "from_status": "Sick", "to_status": "Fattening" },
+    { "tag": "08", "from_pen": "E", "to_pen": "C", "from_status": "Fattening", "to_status": "Fattening" }
+  ]
 }
 ```
 

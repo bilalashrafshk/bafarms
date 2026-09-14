@@ -288,6 +288,22 @@ const TOOLS = [
             },
             required: ['tag', 'entry_weight']
         }
+    },
+    {
+        name: 'transfer_cattle_pen',
+        description: 'Shift or rotate animals between pens and health stages (e.g. Sick bay back to Fattening, Quarantine to Fattening Pen C, or Pen A to Pen B). Automatically updates pen location, health status ("Fattening", "Sick", "Quarantined"), and logs an audit transfer event in the portal.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                tags: { type: 'array', items: { type: 'string' }, description: 'Array of ear tag IDs to transfer (e.g. ["36", "08"])' },
+                tag: { type: 'string', description: 'Single ear tag ID (if transferring one animal)' },
+                to_pen: { type: 'string', description: 'Destination pen ID (e.g. "A", "B", "C", "D", "E", "F", "G", "SICK", "HOSPITAL", "QUARANTINE")' },
+                status: { type: 'string', description: 'Optional status override: "Fattening", "Active", "Sick", "Hospital", "Quarantined"' },
+                reason: { type: 'string', description: 'Reason for transfer (e.g. "Graduated from quarantine", "Moved to sick bay for treatment", "Recovered from illness")' },
+                dry_run: { type: 'boolean', description: 'Simulate without committing (default false)' }
+            },
+            required: ['to_pen']
+        }
     }
 ];
 
@@ -433,6 +449,11 @@ async function executeToolCall(toolName, args, apiKey) {
         case 'register_animal':
         case 'intake_animal': {
             const res = await dispatchToV1('POST', 'cattle/intake', {}, args, apiKey);
+            return res.data;
+        }
+        case 'transfer_cattle_pen':
+        case 'pen_transfer': {
+            const res = await dispatchToV1('POST', 'cattle/pen-transfer', {}, args, apiKey);
             return res.data;
         }
         default:

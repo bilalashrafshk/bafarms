@@ -2177,13 +2177,24 @@ module.exports = async (req, res) => {
             // -------------------------------------------------------------
             // POST /api/v1/cattle/pen-transfer
             // -------------------------------------------------------------
-            if (route === 'cattle/pen-transfer' || route === 'pen-transfer') {
-                const { tags, to_pen, reason } = body;
+            // -------------------------------------------------------------
+            // POST /api/v1/cattle/pen-transfer (or /api/v1/cattle/transfer or /api/v1/pen-transfer)
+            // Shift or rotate animals between pens and health stages (e.g. Sick -> Fattening, Quarantine -> Pen C)
+            // -------------------------------------------------------------
+            if (route === 'cattle/pen-transfer' || route === 'cattle/transfer' || route === 'pen-transfer') {
+                const { to_pen, reason } = body;
+                let tags = body.tags;
+                if (!tags && body.tag) {
+                    tags = [body.tag];
+                } else if (typeof tags === 'string') {
+                    tags = [tags];
+                }
+
                 if (!Array.isArray(tags) || tags.length === 0) {
-                    throw new Error('TRANSFER_ERROR: "tags" must be an array of tag IDs (e.g. ["36", "08"]).');
+                    throw new Error('TRANSFER_ERROR: "tags" must be an array of tag IDs (e.g. ["36", "08"]) or "tag": "36".');
                 }
                 if (!to_pen || typeof to_pen !== 'string') {
-                    throw new Error('TRANSFER_ERROR: "to_pen" destination pen ID is required (e.g. "C", "E").');
+                    throw new Error('TRANSFER_ERROR: "to_pen" destination pen ID is required (e.g. "C", "E", "SICK", "QUARANTINE").');
                 }
                 const targetPen = to_pen.trim().toUpperCase();
                 const today = getTodayStr();
@@ -2191,29 +2202,54 @@ module.exports = async (req, res) => {
                 // Validate destination pen
                 const validPensRes = await client.query('SELECT id FROM ba_pens');
                 const validPenSet = new Set(validPensRes.rows.map(p => p.id.toUpperCase()));
-                ['SICK', 'HOSPITAL', 'QUARANTINE'].forEach(p => validPenSet.add(p));
+                ['SICK', 'HOSPITAL', 'QUARANTINE', 'RECOVERY'].forEach(p => validPenSet.add(p));
                 if (!validPenSet.has(targetPen)) {
                     throw new Error(`TRANSFER_ERROR: Destination pen "${targetPen}" is not a recognized pen on the farm (Valid pens: ${Array.from(validPenSet).join(', ')}).`);
+                }
+
+                // Status deduction or override
+                let statusOverride = body.status ? body.status.trim() : null;
+                if (statusOverride) {
+                    const validStatuses = ['Active', 'Fattening', 'Quarantined', 'Sick', 'Hospital', 'Sold', 'Deceased'];
+                    const matched = validStatuses.find(s => s.toLowerCase() === statusOverride.toLowerCase());
+                    if (!matched) {
+                        throw new Error(`TRANSFER_ERROR: Status "${statusOverride}" is invalid. Allowed: ${validStatuses.join(', ')}.`);
+                    }
+                    statusOverride = matched;
                 }
 
                 const resolvedAnimals = [];
                 for (const t of tags) {
                     const a = await resolveAnimal(client, t);
-                    resolvedAnimals.push(a);
+                    let finalStatus = a.status;
+                    if (statusOverride) {
+                        finalStatus = statusOverride;
+                    } else if (targetPen === 'SICK' || targetPen === 'HOSPITAL') {
+                        finalStatus = 'Sick';
+                    } else if (targetPen === 'QUARANTINE') {
+                        finalStatus = 'Quarantined';
+                    } else if (a.status === 'Sick' || a.status === 'Quarantined' || a.status === 'Hospital') {
+                        // Recovering or graduating into standard fattening pen
+                        finalStatus = 'Fattening';
+                    }
+                    resolvedAnimals.push({ ...a, next_pen: targetPen, next_status: finalStatus });
                 }
 
                 if (isDryRun) {
                     return res.status(200).json({
                         success: true,
                         dry_run: true,
-                        message: 'SANITY_CHECKS_PASSED: Pen transfer is valid and ready to commit.',
+                        message: 'SANITY_CHECKS_PASSED: Pen transfer and rotation shift is valid and ready to commit.',
                         simulated_transfer: {
                             destination_pen: targetPen,
                             count: resolvedAnimals.length,
                             transfers: resolvedAnimals.map(a => ({
                                 tag: a.rfid,
                                 from_pen: a.pen,
-                                to_pen: targetPen
+                                to_pen: a.next_pen,
+                                from_status: a.status,
+                                to_status: a.next_status,
+                                reason: reason || `Transfer to ${targetPen}`
                             }))
                         }
                     });
@@ -2231,7 +2267,7 @@ module.exports = async (req, res) => {
                             a.id,
                             a.rfid,
                             a.breed,
-                            JSON.stringify({ id: a.id, pen: targetPen, note: reason || `Pen transfer to ${targetPen}` }),
+                            JSON.stringify({ id: a.id, pen: a.next_pen, status: a.next_status, note: reason || `Pen transfer to ${targetPen}` }),
                             JSON.stringify(a),
                             agentActor
                         ]);
@@ -2244,23 +2280,42 @@ module.exports = async (req, res) => {
                         approval_ids: approvalIds,
                         mode: 'junior_employee',
                         action: 'UPDATE_ANIMAL',
-                        message: `Pen transfer for ${resolvedAnimals.length} animal(s) to Pen ${targetPen} submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.`,
+                        message: `Pen transfer / status shift for ${resolvedAnimals.length} animal(s) to Pen ${targetPen} submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.`,
                         details: {
                             destination_pen: targetPen,
                             transferred_count: resolvedAnimals.length,
-                            transferred_tags: resolvedAnimals.map(a => a.rfid)
+                            transfers: resolvedAnimals.map(a => ({
+                                tag: a.rfid,
+                                from_pen: a.pen,
+                                to_pen: a.next_pen,
+                                from_status: a.status,
+                                to_status: a.next_status
+                            }))
                         }
                     });
                 }
 
                 for (const a of resolvedAnimals) {
                     const oldPen = a.pen;
-                    if (oldPen !== targetPen) {
-                        await client.query(`UPDATE ba_animals SET pen = $1 WHERE id = $2`, [targetPen, a.id]);
+                    const oldStatus = a.status;
+                    const newPen = a.next_pen;
+                    const newStatus = a.next_status;
+
+                    if (oldPen !== newPen || oldStatus !== newStatus) {
+                        await client.query(`UPDATE ba_animals SET pen = $1, status = $2, updated_at = NOW() WHERE id = $3`, [newPen, newStatus, a.id]);
                         await client.query(`
                             INSERT INTO ba_events (animal_id, date, event_type, note, from_pen, to_pen, created_by)
                             VALUES ($1, $2, 'pen_transfer', $3, $4, $5, $6)
-                        `, [a.id, today, reason || `Transferred from Pen ${oldPen} to Pen ${targetPen}`, oldPen, targetPen, agentActor]);
+                        `, [
+                            a.id,
+                            today,
+                            reason || (oldStatus !== newStatus
+                                ? `Shifted from Pen ${oldPen} (${oldStatus}) to Pen ${newPen} (${newStatus})`
+                                : `Transferred from Pen ${oldPen} to Pen ${newPen}`),
+                            oldPen,
+                            newPen,
+                            agentActor
+                        ]);
                     }
                 }
 
@@ -2268,8 +2323,14 @@ module.exports = async (req, res) => {
                     success: true,
                     status: 'committed',
                     mode: 'normal_staff',
-                    message: `Successfully transferred ${resolvedAnimals.length} animals to Pen ${targetPen}.`,
-                    transferred_tags: resolvedAnimals.map(a => a.rfid)
+                    message: `Successfully transferred ${resolvedAnimals.length} animal(s) to Pen ${targetPen}.`,
+                    transfers: resolvedAnimals.map(a => ({
+                        tag: a.rfid,
+                        from_pen: a.pen,
+                        to_pen: a.next_pen,
+                        from_status: a.status,
+                        to_status: a.next_status
+                    }))
                 });
             }
 
