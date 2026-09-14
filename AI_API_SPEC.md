@@ -74,42 +74,64 @@ While mutating actions (`POST`) are protected by the Junior Employee approval qu
 
 All GET endpoints are unrestricted and provide deep historical and real-time visibility across the entire farm.
 
-### 3.1 Live Compliance Summary
-Fetch real-time daily operational compliance for feed sessions, bunk checks, and urgent health alerts.
+### 3.1 Live Compliance Summary & Multi-Day Fallback
+Fetch real-time daily operational compliance for feed sessions, bunk checks, and urgent health alerts. If the target date (today) does not have logs recorded yet (e.g. morning shift underway), the endpoint provides a non-destructive fallback with yesterday's complete compliance and the rolling 7-day trend history.
 * **Route:** `GET /api/v1/compliance/summary`
 * **Query Parameters:** `date` *(optional YYYY-MM-DD, defaults to today)*
 * **Response Example (`200 OK`):**
 ```json
 {
   "success": true,
-  "date": "2026-09-14",
+  "date": "2026-09-10",
+  "has_today_data": true,
+  "note": null,
   "compliance": {
+    "date": "2026-09-10",
+    "has_data": true,
     "feed": {
-      "is_fully_compliant": false,
-      "completion_pct": 50,
-      "completed_pens": 3,
-      "total_active_pens": 6,
+      "is_fully_compliant": true,
+      "completion_pct": 100,
+      "completed_pens": 5,
+      "total_active_pens": 5,
       "pen_details": {
         "A": { "complete": true, "logged_pct": 100, "feedings_recorded": 2 },
         "B": { "complete": true, "logged_pct": 100, "feedings_recorded": 2 },
-        "C": { "complete": false, "logged_pct": 50, "feedings_recorded": 1 },
-        "D": { "complete": false, "logged_pct": 50, "feedings_recorded": 1 },
-        "E": { "complete": false, "logged_pct": 0, "feedings_recorded": 0 },
-        "G": { "complete": true, "logged_pct": 100, "feedings_recorded": 2 }
+        "C": { "complete": true, "logged_pct": 100, "feedings_recorded": 2 },
+        "D": { "complete": true, "logged_pct": 100, "feedings_recorded": 2 },
+        "E": { "complete": true, "logged_pct": 100, "feedings_recorded": 2 }
       }
     },
     "bunk_checks": {
-      "completed_pens": 6,
-      "total_active_pens": 6,
+      "completed_pens": 5,
+      "total_active_pens": 5,
       "pen_details": {
-        "A": { "checked": true, "sessions": ["Morning"], "latest_bunk_score": 0 },
-        "B": { "checked": true, "sessions": ["Morning"], "latest_bunk_score": 5 }
+        "A": { "checked": true, "sessions": ["Morning", "Evening"], "latest_bunk_score": 0 }
       }
-    },
-    "health_alerts": {
-      "sick_animals_count": 1,
-      "sick_animal_tags": ["36"]
     }
+  },
+  "yesterday_compliance": {
+    "date": "2026-09-09",
+    "has_data": true,
+    "feed": {
+      "is_fully_compliant": true,
+      "completion_pct": 100,
+      "completed_pens": 5,
+      "total_active_pens": 5
+    }
+  },
+  "last_7_days_trend": [
+    { "date": "2026-09-09", "feed_completion_pct": 100, "completed_pens": "5/5", "bunk_checks_completed": "5/5", "has_logs": true },
+    { "date": "2026-09-08", "feed_completion_pct": 100, "completed_pens": "5/5", "bunk_checks_completed": "5/5", "has_logs": true },
+    { "date": "2026-09-07", "feed_completion_pct": 100, "completed_pens": "5/5", "bunk_checks_completed": "5/5", "has_logs": true },
+    { "date": "2026-09-06", "feed_completion_pct": 100, "completed_pens": "5/5", "bunk_checks_completed": "5/5", "has_logs": true },
+    { "date": "2026-09-05", "feed_completion_pct": 100, "completed_pens": "5/5", "bunk_checks_completed": "5/5", "has_logs": true },
+    { "date": "2026-09-04", "feed_completion_pct": 100, "completed_pens": "5/5", "bunk_checks_completed": "5/5", "has_logs": true },
+    { "date": "2026-09-03", "feed_completion_pct": 100, "completed_pens": "5/5", "bunk_checks_completed": "5/5", "has_logs": true }
+  ],
+  "seven_day_avg_feed_compliance_pct": 85,
+  "health_alerts": {
+    "sick_animals_count": 0,
+    "sick_animal_tags": []
   }
 }
 ```
@@ -465,33 +487,115 @@ Returns the comprehensive macro and micro growth performance of the feedlot: poo
 
 ---
 
-### 3.15 All-In Feedlot Financials & Cost of Gain Economics
-Returns comprehensive capital, expenditure, and unit economics across the feedlot: total purchase capital, cumulative feed spend, overhead expenses, blended feed cost per kg gain, and daily feed cost per head.
-* **Route:** `GET /api/v1/analytics/financials` (or `/api/v1/analytics/cost-of-gain`)
+### 3.15 All-In Feedlot Financials, Multi-Day Feed Costs & Diet Comparisons
+Returns comprehensive capital, expenditure, and unit economics across the feedlot: total purchase capital, cumulative feed spend, overhead expenses, blended feed cost per kg gain, and portal-calibrated daily feed cost per head. Crucially, provides a complete **Multi-Day Feed Cost Breakdown** (today, yesterday, day before, 7 days ago, rolling 7-day average) and an **Itemized Diet Comparison** detailing commodity changes (kg differences, percentage swings, and price impact).
+* **Route:** `GET /api/v1/analytics/financials` (Aliases: `/api/v1/analytics/cost-of-gain`, `/api/v1/feed/diet-comparison`)
+* **Query Parameters:** `date` *(optional YYYY-MM-DD, defaults to latest recorded date or today)*
 * **Response Example (`200 OK`):**
 ```json
 {
   "success": true,
+  "one_off_filter": {
+    "applied": true,
+    "pre_baseline_feed_excluded": "date < 2026-08-08",
+    "uncalibrated_intake_dates_excluded": ["2026-07-29", "2026-08-02"]
+  },
   "financial_summary": {
     "total_active_head": 103,
     "total_procurement_cost_pkr": 11298539.0,
     "avg_procurement_cost_per_head_pkr": 109694.55,
-    "total_feed_cost_pkr": 668418.96,
+    "total_feed_cost_pkr": 618652.59,
     "total_overhead_cost_pkr": 0.0,
-    "total_invested_capital_pkr": 11966957.96,
-    "cost_per_head_all_in_pkr": 116184.06
+    "total_invested_capital_pkr": 11917191.59,
+    "cost_per_head_all_in_pkr": 115700.89
   },
   "gain_and_efficiency_economics": {
     "total_measured_weight_gain_kg": 670.0,
-    "feed_cost_per_kg_gain_pkr": 997.64,
-    "all_in_cost_per_kg_gain_pkr": 997.64,
-    "daily_feed_cost_per_head_pkr": 44.47
+    "feed_cost_per_kg_gain_pkr": 923.36,
+    "all_in_cost_per_kg_gain_pkr": 923.36,
+    "daily_feed_cost_per_head_pkr": 302.52
+  },
+  "daily_feed_cost_trend": {
+    "report_date": "2026-09-10",
+    "has_report_date_data": true,
+    "note": null,
+    "today_cost_per_head_pkr": 267.70,
+    "yesterday_cost_per_head_pkr": 294.13,
+    "day_before_yesterday_cost_per_head_pkr": 267.57,
+    "seven_days_ago_cost_per_head_pkr": 490.06,
+    "last_7_days_rolling_avg_pkr": 283.37,
+    "overall_baseline_avg_pkr": 302.52,
+    "details": {
+      "today": {
+        "date": "2026-09-10",
+        "has_data": true,
+        "total_cost_pkr": 27573.08,
+        "total_animal_days": 103.0,
+        "cost_per_head_pkr": 267.70,
+        "total_batch_kg": 1149.5,
+        "total_dm_kg": 65.3,
+        "sessions_count": 12
+      },
+      "yesterday": {
+        "date": "2026-09-09",
+        "has_data": true,
+        "total_cost_pkr": 30295.55,
+        "total_animal_days": 103.0,
+        "cost_per_head_pkr": 294.13,
+        "total_batch_kg": 1132.1,
+        "total_dm_kg": 65.7,
+        "sessions_count": 12
+      },
+      "day_before": {
+        "date": "2026-09-08",
+        "has_data": true,
+        "total_cost_pkr": 23947.69,
+        "total_animal_days": 89.5,
+        "cost_per_head_pkr": 267.57,
+        "total_batch_kg": 740.6,
+        "total_dm_kg": 46.7,
+        "sessions_count": 11
+      },
+      "seven_days_ago": {
+        "date": "2026-09-03",
+        "has_data": true,
+        "total_cost_pkr": 37244.49,
+        "total_animal_days": 76.0,
+        "cost_per_head_pkr": 490.06,
+        "total_batch_kg": 1394.4,
+        "total_dm_kg": 113.4,
+        "sessions_count": 12
+      }
+    }
+  },
+  "diet_comparison": {
+    "base_date": "2026-09-10",
+    "today_vs_yesterday": {
+      "compared_with_date": "2026-09-09",
+      "items": [
+        { "ingredient": "Chari (Green Fodder)", "today_kg": 295.0, "previous_kg": 153.2, "diff_kg": 141.8, "pct_change": 92.6, "trend": "INCREASED", "price_per_kg_pkr": 11.45, "cost_diff_pkr": 1613.77 },
+        { "ingredient": "Maize Silage", "today_kg": 495.0, "previous_kg": 576.1, "diff_kg": -81.1, "pct_change": -14.1, "trend": "DECREASED", "price_per_kg_pkr": 16.25, "cost_diff_pkr": -1318.43 },
+        { "ingredient": "Potato (Aloo)", "today_kg": 140.0, "previous_kg": 140.0, "diff_kg": 0.0, "pct_change": 0.0, "trend": "UNCHANGED", "price_per_kg_pkr": 11.50, "cost_diff_pkr": 0.03 },
+        { "ingredient": "Wanda (Potato Max Wanda)", "today_kg": 16.0, "previous_kg": 0.0, "diff_kg": 16.0, "pct_change": 100.0, "trend": "NEW_ADDITION", "price_per_kg_pkr": 73.84, "cost_diff_pkr": 1181.66 },
+        { "ingredient": "Wanda (Single Bag Wanda)", "today_kg": 166.0, "previous_kg": 221.2, "diff_kg": -55.2, "pct_change": -25.0, "trend": "DECREASED", "price_per_kg_pkr": 73.74, "cost_diff_pkr": -4070.84 },
+        { "ingredient": "Wheat Straw (Toori)", "today_kg": 37.5, "previous_kg": 41.6, "diff_kg": -4.1, "pct_change": -9.9, "trend": "DECREASED", "price_per_kg_pkr": 31.25, "cost_diff_pkr": -128.67 }
+      ]
+    },
+    "today_vs_7_days_ago": {
+      "compared_with_date": "2026-09-03",
+      "items": [
+        { "ingredient": "Chari (Green Fodder)", "today_kg": 295.0, "previous_kg": 0.0, "diff_kg": 295.0, "pct_change": 100.0, "trend": "NEW_ADDITION", "price_per_kg_pkr": 11.45, "cost_diff_pkr": 3325.55 },
+        { "ingredient": "Maize Silage", "today_kg": 495.0, "previous_kg": 769.4, "diff_kg": -274.4, "pct_change": -35.7, "trend": "DECREASED", "price_per_kg_pkr": 16.25, "cost_diff_pkr": -4459.0 },
+        { "ingredient": "Potato (Aloo)", "today_kg": 140.0, "previous_kg": 241.0, "diff_kg": -101.0, "pct_change": -41.9, "trend": "DECREASED", "price_per_kg_pkr": 11.50, "cost_diff_pkr": -1161.5 },
+        { "ingredient": "Wanda (Single Bag Wanda)", "today_kg": 166.0, "previous_kg": 344.0, "diff_kg": -178.0, "pct_change": -51.7, "trend": "DECREASED", "price_per_kg_pkr": 73.74, "cost_diff_pkr": -13125.72 }
+      ]
+    }
   },
   "valuation_and_margin": {
     "total_herd_biomass_kg": 18182.0,
     "assumed_live_rate_per_kg_pkr": 850,
     "estimated_herd_market_value_pkr": 15454700.0,
-    "unrealized_gross_margin_pkr": 3487742.04,
+    "unrealized_gross_margin_pkr": 3537508.41,
     "margin_status": "Profitable"
   }
 }

@@ -248,66 +248,113 @@ module.exports = async (req, res) => {
             // Live daily compliance for feed, bunk checks, and critical health
             // -------------------------------------------------------------
             if (route === 'compliance/summary' || route === 'compliance') {
-                const today = query.date || getTodayStr();
-                validateDateStr(today, true);
+                const targetDate = query.date || getTodayStr();
+                validateDateStr(targetDate, true);
+
+                // Compute yesterday and 7-days-ago dates
+                const tDateObj = new Date(targetDate);
+                const yestObj = new Date(tDateObj);
+                yestObj.setDate(yestObj.getDate() - 1);
+                const yesterdayStr = yestObj.toISOString().split('T')[0];
+
+                const sevenDaysAgoObj = new Date(tDateObj);
+                sevenDaysAgoObj.setDate(sevenDaysAgoObj.getDate() - 7);
+                const sevenDaysAgoStr = sevenDaysAgoObj.toISOString().split('T')[0];
 
                 const animalsRes = await client.query(`SELECT id, rfid, pen, status, current_weight FROM ba_animals WHERE status NOT IN ('Sold', 'Deceased')`);
-                const feedLogsRes = await client.query(`SELECT pen, feeding_index, num_feedings, feeding_pct, total_batch_kg FROM ba_feed_logs WHERE date = $1`, [today]);
-                const penChecksRes = await client.query(`SELECT pen, session, bunk_score, head_count, head_pulled FROM ba_pen_checks WHERE date = $1`, [today]);
-
                 const activeAnimals = animalsRes.rows;
                 const activePens = Array.from(new Set(activeAnimals.filter(a => a.pen).map(a => a.pen))).sort();
-
-                // Feed coverage per active pen
-                const penFeedCoverage = {};
-                for (const penId of activePens) {
-                    const logs = feedLogsRes.rows.filter(l => l.pen === penId || l.pen === 'ALL');
-                    const loggedPct = logs.reduce((sum, l) => sum + parseFloat(l.feeding_pct || 0), 0);
-                    const isComplete = logs.some(l => (l.feeding_index === 0 || l.num_feedings <= 1 || parseFloat(l.feeding_pct) >= 99.5)) || loggedPct >= 99.5;
-                    penFeedCoverage[penId] = {
-                        complete: isComplete,
-                        logged_pct: Math.min(100, Math.round(loggedPct)),
-                        feedings_recorded: logs.length
-                    };
-                }
-
                 const totalPens = activePens.length;
-                const completedPens = activePens.filter(p => penFeedCoverage[p].complete).length;
-                const overallFeedPct = totalPens > 0 ? Math.round((completedPens / totalPens) * 100) : 100;
+                const sickCalves = activeAnimals.filter(a => a.status === 'Sick' || a.status === 'Hospital');
 
-                // Pen check coverage
-                const penCheckCoverage = {};
-                for (const penId of activePens) {
-                    const checks = penChecksRes.rows.filter(c => c.pen === penId);
-                    penCheckCoverage[penId] = {
-                        checked: checks.length > 0,
-                        sessions: checks.map(c => c.session),
-                        latest_bunk_score: checks.length > 0 ? checks[checks.length - 1].bunk_score : null
+                // Query multi-day feed logs and bunk checks (last 7 days through targetDate)
+                const [feedLogsRes, penChecksRes] = await Promise.all([
+                    client.query(`SELECT date, pen, feeding_index, num_feedings, feeding_pct, total_batch_kg FROM ba_feed_logs WHERE date >= $1 AND date <= $2`, [sevenDaysAgoStr, targetDate]),
+                    client.query(`SELECT date, pen, session, bunk_score, head_count, head_pulled FROM ba_pen_checks WHERE date >= $1 AND date <= $2`, [sevenDaysAgoStr, targetDate])
+                ]);
+
+                function calcComplianceForDay(dStr) {
+                    const dayLogs = feedLogsRes.rows.filter(l => l.date === dStr);
+                    const dayChecks = penChecksRes.rows.filter(c => c.date === dStr);
+
+                    const penFeed = {};
+                    for (const penId of activePens) {
+                        const logs = dayLogs.filter(l => l.pen === penId || l.pen === 'ALL');
+                        const loggedPct = logs.reduce((sum, l) => sum + parseFloat(l.feeding_pct || 0), 0);
+                        const isComplete = logs.some(l => (l.feeding_index === 0 || l.num_feedings <= 1 || parseFloat(l.feeding_pct) >= 99.5)) || loggedPct >= 99.5;
+                        penFeed[penId] = {
+                            complete: isComplete,
+                            logged_pct: Math.min(100, Math.round(loggedPct)),
+                            feedings_recorded: logs.length
+                        };
+                    }
+                    const compPens = activePens.filter(p => penFeed[p].complete).length;
+                    const overallPct = totalPens > 0 ? Math.round((compPens / totalPens) * 100) : 100;
+
+                    const penChecks = {};
+                    for (const penId of activePens) {
+                        const checks = dayChecks.filter(c => c.pen === penId);
+                        penChecks[penId] = {
+                            checked: checks.length > 0,
+                            sessions: checks.map(c => c.session),
+                            latest_bunk_score: checks.length > 0 ? checks[checks.length - 1].bunk_score : null
+                        };
+                    }
+
+                    return {
+                        date: dStr,
+                        has_data: dayLogs.length > 0 || dayChecks.length > 0,
+                        feed: {
+                            is_fully_compliant: compPens === totalPens && totalPens > 0,
+                            completion_pct: overallPct,
+                            completed_pens: compPens,
+                            total_active_pens: totalPens,
+                            pen_details: penFeed
+                        },
+                        bunk_checks: {
+                            completed_pens: activePens.filter(p => penChecks[p].checked).length,
+                            total_active_pens: totalPens,
+                            pen_details: penChecks
+                        }
                     };
                 }
 
-                const sickCalves = activeAnimals.filter(a => a.status === 'Sick' || a.status === 'Hospital');
+                const todayReport = calcComplianceForDay(targetDate);
+                const yesterdayReport = calcComplianceForDay(yesterdayStr);
+
+                // Build 7-day trend
+                const last7DaysTrend = [];
+                for (let i = 1; i <= 7; i++) {
+                    const d = new Date(tDateObj);
+                    d.setDate(d.getDate() - i);
+                    const ds = d.toISOString().split('T')[0];
+                    const rep = calcComplianceForDay(ds);
+                    last7DaysTrend.push({
+                        date: ds,
+                        feed_completion_pct: rep.feed.completion_pct,
+                        completed_pens: `${rep.feed.completed_pens}/${rep.feed.total_active_pens}`,
+                        bunk_checks_completed: `${rep.bunk_checks.completed_pens}/${rep.bunk_checks.total_active_pens}`,
+                        has_logs: rep.has_data
+                    });
+                }
+
+                const trendWithData = last7DaysTrend.filter(t => t.has_logs);
+                const sevenDayAvgFeedPct = trendWithData.length > 0
+                    ? Math.round(trendWithData.reduce((sum, t) => sum + t.feed_completion_pct, 0) / trendWithData.length)
+                    : null;
 
                 return res.status(200).json({
                     success: true,
-                    date: today,
-                    compliance: {
-                        feed: {
-                            is_fully_compliant: completedPens === totalPens,
-                            completion_pct: overallFeedPct,
-                            completed_pens: completedPens,
-                            total_active_pens: totalPens,
-                            pen_details: penFeedCoverage
-                        },
-                        bunk_checks: {
-                            completed_pens: activePens.filter(p => penCheckCoverage[p].checked).length,
-                            total_active_pens: totalPens,
-                            pen_details: penCheckCoverage
-                        },
-                        health_alerts: {
-                            sick_animals_count: sickCalves.length,
-                            sick_animal_tags: sickCalves.map(c => c.rfid)
-                        }
+                    date: targetDate,
+                    has_today_data: todayReport.has_data,
+                    note: !todayReport.has_data ? `No logs recorded for ${targetDate} yet (e.g. shift in progress). Displaying yesterday (${yesterdayStr}) and last 7-day compliance history.` : null,
+                    compliance: todayReport,
+                    yesterday_compliance: yesterdayReport,
+                    last_7_days_trend: last7DaysTrend,
+                    seven_day_avg_feed_compliance_pct: sevenDayAvgFeedPct,
+                    health_alerts: {
+                        sick_animals_count: sickCalves.length,
+                        sick_animal_tags: sickCalves.map(c => c.rfid)
                     }
                 });
             }
@@ -777,19 +824,48 @@ module.exports = async (req, res) => {
             }
 
             // -------------------------------------------------------------
-            // GET /api/v1/analytics/financials (or /api/v1/analytics/cost-of-gain)
+            // GET /api/v1/analytics/financials (or /api/v1/analytics/cost-of-gain or /api/v1/feed/diet-comparison)
             // All-in Feedlot Financials: Procurement, Feed Spend, Overheads, Cost per kg Gain, Daily Feed/Head
             // Enforces portal baseline filter: feed logs date >= 2026-08-08 & uncalibrated weights excluded
             // -------------------------------------------------------------
-            if (route === 'analytics/financials' || route === 'analytics/cost-of-gain') {
+            if (route === 'analytics/financials' || route === 'analytics/cost-of-gain' || route === 'feed/diet-comparison') {
                 const animalsRes = await client.query(`SELECT id, purchase_price, current_weight, entry_weight FROM ba_animals WHERE status NOT IN ('Sold', 'Deceased')`);
-                const feedRes = await client.query(`SELECT COALESCE(SUM(total_cost), 0) as total_feed_cost, COALESCE(SUM(total_dm_kg), 0) as total_dm_kg, COALESCE(SUM(total_batch_kg), 0) as total_batch_kg, COUNT(*) as feed_sessions FROM ba_feed_logs WHERE date >= '2026-08-08' AND total_cost > 0`);
                 const expRes = await client.query(`SELECT COALESCE(SUM(amount), 0) as total_overhead FROM ba_overhead_expenses`);
                 const weightsRes = await client.query(`SELECT animal_id, date, weight FROM ba_weights ORDER BY animal_id, date`);
 
+                // Query all valid baseline feed logs with sessions and ingredients
+                const feedRes = await client.query(`
+                    SELECT to_char(date, 'YYYY-MM-DD') as date_str, pen, feeding_index, num_feedings, feeding_pct,
+                           total_batch_kg, total_dm_kg, total_cost, animal_count, ingredients
+                    FROM ba_feed_logs
+                    WHERE date >= '2026-08-08' AND total_cost > 0
+                    ORDER BY date DESC, pen ASC
+                `);
+
                 const totalPurchaseCost = animalsRes.rows.reduce((sum, a) => sum + parseFloat(a.purchase_price || 0), 0);
-                const totalFeedCost = parseFloat(feedRes.rows[0].total_feed_cost || 0);
                 const totalOverhead = parseFloat(expRes.rows[0].total_overhead || 0);
+
+                // Group feed logs by date and calculate weighted animal-days (mirrors Dashboard.jsx logic)
+                const logsByDate = new Map();
+                let totalFeedCost = 0;
+                let totalAnimalDays = 0;
+                let totalFeedBatchKg = 0;
+                let totalFeedDmKg = 0;
+
+                feedRes.rows.forEach(r => {
+                    const cost = parseFloat(r.total_cost || 0);
+                    const pct = (r.feeding_pct !== null && r.feeding_pct !== undefined) ? parseFloat(r.feeding_pct) : 100;
+                    const aDays = (parseInt(r.animal_count) || 0) * (pct / 100);
+
+                    totalFeedCost += cost;
+                    totalAnimalDays += aDays;
+                    totalFeedBatchKg += parseFloat(r.total_batch_kg || 0);
+                    totalFeedDmKg += parseFloat(r.total_dm_kg || 0);
+
+                    if (!logsByDate.has(r.date_str)) logsByDate.set(r.date_str, []);
+                    logsByDate.get(r.date_str).push(r);
+                });
+
                 const totalAllInCost = totalPurchaseCost + totalFeedCost + totalOverhead;
 
                 // Net weight gain across calibrated post-baseline transitions
@@ -813,11 +889,124 @@ module.exports = async (req, res) => {
                 const feedCostPerKgGain = totalGainKg > 0 ? +(totalFeedCost / totalGainKg).toFixed(2) : null;
                 const allInCostPerKgGain = totalGainKg > 0 ? +((totalFeedCost + totalOverhead) / totalGainKg).toFixed(2) : null;
 
-                // Animal feeding head-days approximation
+                // Head count and true weighted daily feed cost per head
                 const headCount = Math.max(1, animalsRes.rows.length);
-                const feedSessions = parseInt(feedRes.rows[0].feed_sessions || 0);
-                const estimatedDays = Math.max(1, Math.round(feedSessions / 2));
-                const dailyFeedCostPerHead = estimatedDays > 0 ? +(totalFeedCost / (headCount * estimatedDays)).toFixed(2) : null;
+                const overallDailyFeedCostPerHead = totalAnimalDays > 0 ? +(totalFeedCost / totalAnimalDays).toFixed(2) : null;
+
+                // Determine target date and multi-day breakdown
+                const recordedDates = Array.from(logsByDate.keys()).sort().reverse();
+                const targetDate = query.date || recordedDates[0] || getTodayStr();
+
+                function offsetDateStr(baseStr, days) {
+                    const d = new Date(baseStr);
+                    d.setDate(d.getDate() + days);
+                    return d.toISOString().split('T')[0];
+                }
+
+                function getDailyFeedStats(dStr) {
+                    const logs = logsByDate.get(dStr) || [];
+                    const cost = logs.reduce((sum, l) => sum + parseFloat(l.total_cost || 0), 0);
+                    const animalDays = logs.reduce((sum, l) => {
+                        const pct = (l.feeding_pct !== null && l.feeding_pct !== undefined) ? parseFloat(l.feeding_pct) : 100;
+                        return sum + (parseInt(l.animal_count) || 0) * (pct / 100);
+                    }, 0);
+                    const batchKg = logs.reduce((sum, l) => sum + parseFloat(l.total_batch_kg || 0), 0);
+                    const dmKg = logs.reduce((sum, l) => sum + parseFloat(l.total_dm_kg || 0), 0);
+                    return {
+                        date: dStr,
+                        has_data: logs.length > 0,
+                        total_cost_pkr: +cost.toFixed(2),
+                        total_animal_days: +animalDays.toFixed(1),
+                        cost_per_head_pkr: animalDays > 0 ? +(cost / animalDays).toFixed(2) : null,
+                        total_batch_kg: +batchKg.toFixed(1),
+                        total_dm_kg: +dmKg.toFixed(1),
+                        sessions_count: logs.length
+                    };
+                }
+
+                const yesterdayDateStr = offsetDateStr(targetDate, -1);
+                const dayBeforeDateStr = offsetDateStr(targetDate, -2);
+                const sevenDaysAgoDateStr = offsetDateStr(targetDate, -7);
+
+                const todayFeedStats = getDailyFeedStats(targetDate);
+                const yesterdayFeedStats = getDailyFeedStats(yesterdayDateStr);
+                const dayBeforeFeedStats = getDailyFeedStats(dayBeforeDateStr);
+                const sevenDaysAgoFeedStats = getDailyFeedStats(sevenDaysAgoDateStr);
+
+                // 7-day rolling window preceding or inclusive of targetDate
+                let rollCost = 0;
+                let rollAnimalDays = 0;
+                const last7DaysTrend = [];
+                for (let i = 0; i < 7; i++) {
+                    const dStr = offsetDateStr(targetDate, -i);
+                    const s = getDailyFeedStats(dStr);
+                    last7DaysTrend.push(s);
+                    if (s.has_data) {
+                        rollCost += s.total_cost_pkr;
+                        rollAnimalDays += s.total_animal_days;
+                    }
+                }
+                const rolling7DayAvgCostPerHead = rollAnimalDays > 0 ? +(rollCost / rollAnimalDays).toFixed(2) : null;
+
+                // Diet comparison helper
+                function getDietAggregate(dStr) {
+                    const logs = logsByDate.get(dStr) || [];
+                    const map = {};
+                    logs.forEach(r => {
+                        const count = parseInt(r.animal_count) || 0;
+                        (r.ingredients || []).forEach(ing => {
+                            const name = (ing.name || 'Unknown').trim();
+                            const kg = parseFloat(ing.wetBatch || ing.kg || 0);
+                            const price = parseFloat(ing.price || 0);
+                            const cost = (parseFloat(ing.costSingle || 0) * count) || (kg * price);
+                            if (!map[name]) map[name] = { kg: 0, cost: 0, price: price };
+                            map[name].kg += kg;
+                            map[name].cost += cost;
+                            if (price > 0) map[name].price = price;
+                        });
+                    });
+                    return map;
+                }
+
+                function buildDietComparison(baseDateStr, compDateStr) {
+                    const baseDiet = getDietAggregate(baseDateStr);
+                    const compDiet = getDietAggregate(compDateStr);
+                    const allKeys = Array.from(new Set([...Object.keys(baseDiet), ...Object.keys(compDiet)])).sort();
+                    return allKeys.map(name => {
+                        const bItem = baseDiet[name] || { kg: 0, cost: 0, price: 0 };
+                        const cItem = compDiet[name] || { kg: 0, cost: 0, price: 0 };
+                        const diffKg = +(bItem.kg - cItem.kg).toFixed(1);
+                        const diffCost = +(bItem.cost - cItem.cost).toFixed(2);
+                        const pctChange = cItem.kg > 0 ? +((diffKg / cItem.kg) * 100).toFixed(1) : (bItem.kg > 0 ? 100 : 0);
+                        let trend = 'UNCHANGED';
+                        if (diffKg > 0.1) trend = 'INCREASED';
+                        else if (diffKg < -0.1) trend = 'DECREASED';
+                        if (cItem.kg === 0 && bItem.kg > 0) trend = 'NEW_ADDITION';
+                        if (bItem.kg === 0 && cItem.kg > 0) trend = 'REMOVED';
+
+                        return {
+                            ingredient: name,
+                            today_kg: +bItem.kg.toFixed(1),
+                            previous_kg: +cItem.kg.toFixed(1),
+                            diff_kg: diffKg,
+                            pct_change: pctChange,
+                            trend,
+                            price_per_kg_pkr: +(bItem.price || cItem.price).toFixed(2),
+                            today_cost_pkr: +bItem.cost.toFixed(2),
+                            previous_cost_pkr: +cItem.cost.toFixed(2),
+                            cost_diff_pkr: diffCost
+                        };
+                    }).filter(i => i.today_kg > 0 || i.previous_kg > 0);
+                }
+
+                // If today has data, compare today vs yesterday and today vs 7 days ago.
+                // If today has no data yet (e.g. current day shift in progress), fallback to yesterday vs day before.
+                const baseComparisonDate = todayFeedStats.has_data ? targetDate : yesterdayDateStr;
+                const yesterdayCompDate = todayFeedStats.has_data ? yesterdayDateStr : dayBeforeDateStr;
+                const sevenDayCompDate = todayFeedStats.has_data ? sevenDaysAgoDateStr : offsetDateStr(yesterdayDateStr, -7);
+
+                const todayVsYesterdayDiet = buildDietComparison(baseComparisonDate, yesterdayCompDate);
+                const todayVs7DaysAgoDiet = buildDietComparison(baseComparisonDate, sevenDayCompDate);
 
                 // Estimated live cattle valuation (assuming market meat rate ~PKR 850/kg live weight)
                 const totalBiomassKg = animalsRes.rows.reduce((sum, a) => sum + parseFloat(a.current_weight || 0), 0);
@@ -845,7 +1034,36 @@ module.exports = async (req, res) => {
                         total_measured_weight_gain_kg: +totalGainKg.toFixed(1),
                         feed_cost_per_kg_gain_pkr: feedCostPerKgGain,
                         all_in_cost_per_kg_gain_pkr: allInCostPerKgGain,
-                        daily_feed_cost_per_head_pkr: dailyFeedCostPerHead
+                        daily_feed_cost_per_head_pkr: overallDailyFeedCostPerHead
+                    },
+                    daily_feed_cost_trend: {
+                        report_date: targetDate,
+                        has_report_date_data: todayFeedStats.has_data,
+                        note: !todayFeedStats.has_data ? `No feed logs logged for ${targetDate} yet. Falling back to latest available baseline data.` : null,
+                        today_cost_per_head_pkr: todayFeedStats.cost_per_head_pkr,
+                        yesterday_cost_per_head_pkr: yesterdayFeedStats.cost_per_head_pkr,
+                        day_before_yesterday_cost_per_head_pkr: dayBeforeFeedStats.cost_per_head_pkr,
+                        seven_days_ago_cost_per_head_pkr: sevenDaysAgoFeedStats.cost_per_head_pkr,
+                        last_7_days_rolling_avg_pkr: rolling7DayAvgCostPerHead,
+                        overall_baseline_avg_pkr: overallDailyFeedCostPerHead,
+                        details: {
+                            today: todayFeedStats,
+                            yesterday: yesterdayFeedStats,
+                            day_before: dayBeforeFeedStats,
+                            seven_days_ago: sevenDaysAgoFeedStats,
+                            last_7_days: last7DaysTrend
+                        }
+                    },
+                    diet_comparison: {
+                        base_date: baseComparisonDate,
+                        today_vs_yesterday: {
+                            compared_with_date: yesterdayCompDate,
+                            items: todayVsYesterdayDiet
+                        },
+                        today_vs_7_days_ago: {
+                            compared_with_date: sevenDayCompDate,
+                            items: todayVs7DaysAgoDiet
+                        }
                     },
                     valuation_and_margin: {
                         total_herd_biomass_kg: +totalBiomassKg.toFixed(1),
