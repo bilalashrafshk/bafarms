@@ -19,19 +19,26 @@ const path = require('path');
 types.setTypeParser(1082, (val) => val);
 
 // Load .env locally if needed
-if (!process.env.DATABASE_URL) {
+if (!process.env.DATABASE_URL || !process.env.BA_API_KEY) {
     try {
-        const envPath = path.resolve(process.cwd(), '.env');
-        if (fs.existsSync(envPath)) {
-            const envConfig = fs.readFileSync(envPath, 'utf8');
-            envConfig.split('\n').forEach(line => {
-                const parts = line.split('=');
-                if (parts.length >= 2) {
-                    const key = parts[0].trim();
-                    const val = parts.slice(1).join('=').trim().replace(/^['"]|['"]$/g, '');
-                    if (key && !process.env[key]) process.env[key] = val;
-                }
-            });
+        const candidates = [
+            path.resolve(process.cwd(), '.env'),
+            path.resolve(__dirname, '.env'),
+            path.resolve(__dirname, '..', '.env')
+        ];
+        for (const envPath of candidates) {
+            if (fs.existsSync(envPath)) {
+                const envConfig = fs.readFileSync(envPath, 'utf8');
+                envConfig.split('\n').forEach(line => {
+                    const parts = line.split('=');
+                    if (parts.length >= 2) {
+                        const key = parts[0].trim();
+                        const val = parts.slice(1).join('=').trim().replace(/^['"]|['"]$/g, '');
+                        if (key && !process.env[key]) process.env[key] = val;
+                    }
+                });
+                break;
+            }
         }
     } catch (e) {
         console.warn('Unable to load local .env in v1 api:', e.message);
@@ -361,6 +368,146 @@ module.exports = async (req, res) => {
             }
 
             // -------------------------------------------------------------
+            // GET /api/v1/cattle/weights
+            // Complete historical weight logs across the herd (filterable by tag, pen, date)
+            // -------------------------------------------------------------
+            if (route === 'cattle/weights' || route === 'cattle/weight') {
+                let sql = `
+                    SELECT w.id, w.animal_id, a.rfid as tag, a.pen, a.breed, w.date, w.weight, w.adg, w.created_by
+                    FROM ba_weights w
+                    JOIN ba_animals a ON a.id = w.animal_id
+                    WHERE 1=1
+                `;
+                const params = [];
+
+                if (query.tag || query.rfid) {
+                    const cleanTag = String(query.tag || query.rfid).replace(/^(tag|tag\s*#|#)\s*/i, '').trim();
+                    params.push(cleanTag);
+                    params.push(`%"${cleanTag}"%`);
+                    sql += ` AND (a.rfid = $${params.length - 1} OR a.previous_tags ILIKE $${params.length})`;
+                }
+                if (query.pen) {
+                    params.push(query.pen.toUpperCase().trim());
+                    sql += ` AND UPPER(a.pen) = $${params.length}`;
+                }
+                if (query.start_date) {
+                    params.push(query.start_date);
+                    sql += ` AND w.date >= $${params.length}`;
+                }
+                if (query.end_date) {
+                    params.push(query.end_date);
+                    sql += ` AND w.date <= $${params.length}`;
+                }
+
+                sql += ` ORDER BY w.date DESC, a.rfid ASC LIMIT 500`;
+
+                const result = await client.query(sql, params);
+                return res.status(200).json({
+                    success: true,
+                    count: result.rows.length,
+                    filters: {
+                        tag: query.tag || query.rfid || 'ALL',
+                        pen: query.pen || 'ALL',
+                        start_date: query.start_date || null,
+                        end_date: query.end_date || null
+                    },
+                    weight_logs: result.rows.map(w => ({
+                        id: w.id,
+                        animal_id: w.animal_id,
+                        tag: w.tag,
+                        pen: w.pen,
+                        breed: w.breed,
+                        date: w.date,
+                        weight_kg: parseFloat(w.weight),
+                        adg: w.adg ? parseFloat(w.adg) : null,
+                        logged_by: w.created_by
+                    }))
+                });
+            }
+
+            // -------------------------------------------------------------
+            // GET /api/v1/pens
+            // Roster of all pens with head counts, average weights, and total biomass
+            // -------------------------------------------------------------
+            if (route === 'pens' || route === 'pens/roster') {
+                const [pensRes, animalsRes] = await Promise.all([
+                    client.query(`SELECT id, ration_plan_id, forage_type, current_target_adg, notes FROM ba_pens ORDER BY id ASC`),
+                    client.query(`SELECT pen, current_weight FROM ba_animals WHERE status NOT IN ('Sold', 'Deceased')`)
+                ]);
+
+                const animalMap = {};
+                for (const a of animalsRes.rows) {
+                    const penKey = (a.pen || 'UNASSIGNED').toUpperCase();
+                    if (!animalMap[penKey]) animalMap[penKey] = { count: 0, totalWeight: 0 };
+                    animalMap[penKey].count++;
+                    animalMap[penKey].totalWeight += parseFloat(a.current_weight || 0);
+                }
+
+                const pens = pensRes.rows.map(p => {
+                    const stats = animalMap[p.id.toUpperCase()] || { count: 0, totalWeight: 0 };
+                    return {
+                        pen: p.id,
+                        head_count: stats.count,
+                        avg_weight_kg: stats.count > 0 ? +(stats.totalWeight / stats.count).toFixed(1) : 0,
+                        total_biomass_kg: +stats.totalWeight.toFixed(1),
+                        forage_type: p.forage_type || 'silage',
+                        target_adg: p.current_target_adg ? parseFloat(p.current_target_adg) : null,
+                        notes: p.notes || null
+                    };
+                });
+
+                return res.status(200).json({
+                    success: true,
+                    total_pens: pens.length,
+                    total_active_cattle: animalsRes.rows.length,
+                    pens
+                });
+            }
+
+            // -------------------------------------------------------------
+            // GET /api/v1/purchasing/history
+            // History of feed deliveries and veterinary medicines
+            // -------------------------------------------------------------
+            if (route === 'purchasing/history' || route === 'purchasing') {
+                let sql = `SELECT id, date, item_id, item_name, item_unit, quantity, rate, (quantity * rate) as total_amount, supplier, notes, created_by, created_at FROM ba_feed_purchases WHERE 1=1`;
+                const params = [];
+
+                if (query.start_date) {
+                    params.push(query.start_date);
+                    sql += ` AND date >= $${params.length}`;
+                }
+                if (query.end_date) {
+                    params.push(query.end_date);
+                    sql += ` AND date <= $${params.length}`;
+                }
+                if (query.item_name) {
+                    params.push(`%${query.item_name.trim()}%`);
+                    sql += ` AND item_name ILIKE $${params.length}`;
+                }
+
+                sql += ` ORDER BY date DESC, created_at DESC LIMIT 100`;
+                const purchases = await client.query(sql, params);
+
+                return res.status(200).json({
+                    success: true,
+                    count: purchases.rows.length,
+                    purchases: purchases.rows.map(p => ({
+                        id: p.id,
+                        date: p.date,
+                        item_id: p.item_id,
+                        item_name: p.item_name,
+                        unit: p.item_unit || 'kg',
+                        quantity: parseFloat(p.quantity),
+                        rate_per_unit: parseFloat(p.rate),
+                        total_cost_pkr: p.total_amount ? +parseFloat(p.total_amount).toFixed(2) : 0,
+                        supplier: p.supplier,
+                        notes: p.notes,
+                        logged_by: p.created_by
+                    }))
+                });
+            }
+
+            // -------------------------------------------------------------
             // GET /api/v1/feed/logs
             // -------------------------------------------------------------
             if (route === 'feed/logs' || route === 'feed') {
@@ -551,11 +698,15 @@ module.exports = async (req, res) => {
                     '/api/v1/compliance/summary',
                     '/api/v1/cattle/roster',
                     '/api/v1/cattle/passport?tag=<TAG>',
-                    '/api/v1/feed/logs?date=<YYYY-MM-DD>',
+                    '/api/v1/cattle/weights?tag=<TAG>&pen=<PEN>&start_date=<YYYY-MM-DD>&end_date=<YYYY-MM-DD>',
+                    '/api/v1/pens',
+                    '/api/v1/feed/logs?date=<YYYY-MM-DD>&pen=<PEN>',
                     '/api/v1/pen-checks?date=<YYYY-MM-DD>',
                     '/api/v1/health/withholding',
                     '/api/v1/tasks/upcoming',
                     '/api/v1/inventory/summary',
+                    '/api/v1/purchasing/history?start_date=<YYYY-MM-DD>&item_name=<NAME>',
+                    '/api/v1/premix/formulas',
                     '/api/v1/system/approval-mode'
                 ],
                 available_post_routes: [

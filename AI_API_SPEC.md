@@ -40,6 +40,12 @@ The Admin can toggle between Junior Employee Mode and Normal Staff Mode at any t
 4. **Dry-Run Simulation Mode (`dry_run: true`):**
    * Pass `"dry_run": true` (or `?dry_run=true`) to simulate any payload without writing to the database.
 
+### 1.4 Unrestricted, Zero-Friction Read Access (GET Operations)
+While mutating actions (`POST`) are protected by the Junior Employee approval queue and biological sanity clamps, **all data fetching (`GET`) operations are 100% unrestricted**:
+* **Zero Approvals or Delays:** Read operations never require human approval and execute immediately.
+* **Complete Minute Granularity:** The AI has full access to the entire farm state down to individual tags, weight logs since intake, daily ADG calculations, pen biomasses, raw material recipes, bunk scores, and purchasing invoices.
+* **Safe & Read-Only:** Queries use pooled, indexed SQL lookups with zero risk of database mutation.
+
 ---
 
 ## 2. Authentication & Base URL
@@ -55,7 +61,9 @@ The Admin can toggle between Junior Employee Mode and Normal Staff Mode at any t
 
 ---
 
-## 3. GET Endpoints (Data Fetching & Verification)
+## 3. GET Endpoints (Unrestricted Data Fetching & Verification)
+
+All GET endpoints are unrestricted and provide deep historical and real-time visibility across the entire farm.
 
 ### 3.1 Live Compliance Summary
 Fetch real-time daily operational compliance for feed sessions, bunk checks, and urgent health alerts.
@@ -100,50 +108,238 @@ Fetch real-time daily operational compliance for feed sessions, bunk checks, and
 ---
 
 ### 3.2 Cattle Herd Roster
-List all active cattle with pens, current weights, and Days on Feed (DOF).
+List all active cattle with pens, current weights, entry dates, and Days on Feed (DOF).
 * **Route:** `GET /api/v1/cattle/roster`
 * **Query Parameters:** `pen` *(optional, e.g. `?pen=C`)*
+* **Response Example (`200 OK`):**
+```json
+{
+  "success": true,
+  "total_active_cattle": 128,
+  "animals": [
+    {
+      "tag": "101",
+      "pen": "A",
+      "breed": "Sahiwal Cross",
+      "current_weight_kg": 245.5,
+      "entry_weight_kg": 180.0,
+      "entry_date": "2026-06-01",
+      "days_on_feed": 105,
+      "target_adg": 1.25,
+      "status": "Active"
+    }
+  ]
+}
+```
 
 ---
 
-### 3.3 Cattle Passport / Dossier
+### 3.3 Individual Cattle Passport / Full Dossier
+Fetches every single detail about an individual calf: full weight history since intake, ADG progression, every veterinary treatment administered, active withdrawal countdowns, and pen transfers.
 * **Route:** `GET /api/v1/cattle/passport?tag=<TAG>`
+* **Response Example (`200 OK`):**
+```json
+{
+  "success": true,
+  "animal": {
+    "tag": "36",
+    "pen": "B",
+    "breed": "Cholistani",
+    "entry_date": "2026-05-15",
+    "entry_weight": 190.0,
+    "current_weight": 268.0,
+    "total_gain_kg": 78.0,
+    "days_on_feed": 122,
+    "lifetime_adg": 0.64,
+    "weights": [
+      { "date": "2026-09-10", "weight": 268.0, "adg": 1.14 },
+      { "date": "2026-08-10", "weight": 234.0, "adg": 1.10 },
+      { "date": "2026-07-10", "weight": 201.0, "adg": 0.37 },
+      { "date": "2026-05-15", "weight": 190.0, "adg": null }
+    ],
+    "treatments": [
+      {
+        "date": "2026-09-08",
+        "treatment_type": "Antibiotic",
+        "medicine_name": "Amovet 20%",
+        "dosage": "15 ml",
+        "withdrawal_days": 14,
+        "withdrawal_clear_date": "2026-09-22",
+        "is_under_withholding": true,
+        "administered_by": "Dr. Tariq"
+      }
+    ]
+  }
+}
+```
 
 ---
 
-### 3.4 Daily Feed Distribution Logs
-* **Route:** `GET /api/v1/feed/logs?date=<YYYY-MM-DD>`
+### 3.4 Complete Herd Weight Log History
+Fetches granular weight logs across the entire herd or filtered by tag, pen, or date window. Returns exact weight, ADG between weigh-ins, and who logged it.
+* **Route:** `GET /api/v1/cattle/weights`
+* **Query Parameters:**
+  * `tag` *(optional, e.g. `?tag=36`)*
+  * `pen` *(optional, e.g. `?pen=C`)*
+  * `start_date` *(optional YYYY-MM-DD)*
+  * `end_date` *(optional YYYY-MM-DD)*
+* **Response Example (`200 OK`):**
+```json
+{
+  "success": true,
+  "count": 2,
+  "filters": { "tag": "36", "pen": "ALL", "start_date": null, "end_date": null },
+  "weight_logs": [
+    {
+      "id": 412,
+      "tag": "36",
+      "pen": "B",
+      "breed": "Cholistani",
+      "date": "2026-09-10",
+      "weight_kg": 268.0,
+      "adg": 1.14,
+      "logged_by": "Scale Operator"
+    },
+    {
+      "id": 310,
+      "tag": "36",
+      "pen": "B",
+      "breed": "Cholistani",
+      "date": "2026-08-10",
+      "weight_kg": 234.0,
+      "adg": 1.10,
+      "logged_by": "Scale Operator"
+    }
+  ]
+}
+```
 
 ---
 
-### 3.5 Daily Pen Checks & Bunk Scores
+### 3.5 Pen Roster & Biomass Summary
+Returns all active pens with exact head count, average calf weight, total biomass (kg), active ration, and target ADG.
+* **Route:** `GET /api/v1/pens`
+* **Response Example (`200 OK`):**
+```json
+{
+  "success": true,
+  "total_pens": 6,
+  "total_active_cattle": 128,
+  "pens": [
+    {
+      "pen": "A",
+      "head_count": 22,
+      "avg_weight_kg": 235.4,
+      "total_biomass_kg": 5178.8,
+      "forage_type": "corn_silage",
+      "target_adg": 1.30,
+      "notes": "Transition group 2"
+    },
+    {
+      "pen": "B",
+      "head_count": 24,
+      "avg_weight_kg": 272.1,
+      "total_biomass_kg": 6530.4,
+      "forage_type": "corn_silage",
+      "target_adg": 1.40,
+      "notes": "Finishing group"
+    }
+  ]
+}
+```
+
+---
+
+### 3.6 Daily Feed Distribution Logs
+Returns exact TMR split-feedings logged on a given date, including kg-by-kg ingredient breakdown.
+* **Route:** `GET /api/v1/feed/logs?date=<YYYY-MM-DD>&pen=<PEN>`
+* **Response Example (`200 OK`):**
+```json
+{
+  "success": true,
+  "date": "2026-09-14",
+  "feed_logs": [
+    {
+      "pen": "C",
+      "feeding_index": 1,
+      "num_feedings": 2,
+      "feeding_pct": 50,
+      "total_batch_kg": 180.0,
+      "ingredients": [
+        { "name": "Corn Silage", "kg": 120.0 },
+        { "name": "Wheat Straw", "kg": 20.0 },
+        { "name": "Chokar", "kg": 25.0 },
+        { "name": "Corn Grain Ground", "kg": 15.0 }
+      ],
+      "logged_by": "TMR Mixer Operator",
+      "created_at": "2026-09-14T07:15:00Z"
+    }
+  ]
+}
+```
+
+---
+
+### 3.7 Daily Pen Checks & Bunk Scores
+Returns morning and evening feed bunk scores ($0-100\%$) and health observation flags.
 * **Route:** `GET /api/v1/pen-checks?date=<YYYY-MM-DD>`
 
 ---
 
-### 3.6 Active Medical Withholding Alerts
+### 3.8 Active Medical Withholding Alerts
+Returns all animals currently under slaughter withholding, days remaining, and safe release dates.
 * **Route:** `GET /api/v1/health/withholding`
 
 ---
 
-### 3.7 Upcoming Protocol Tasks
-Returns quarantine protocol tasks due in the next 7 days.
+### 3.9 Upcoming Protocol Tasks
+Returns quarantine and intake protocol tasks due in the next 7 days (Day 1, 7, 14, 21 vaccines/deworming).
 * **Route:** `GET /api/v1/tasks/upcoming`
 
 ---
 
-### 3.8 Feed Stock Inventory Summary
+### 3.10 Feed & Medicine Purchasing History
+Returns receipts of feed deliveries and veterinary medicines purchased, including unit rates, quantities, and suppliers.
+* **Route:** `GET /api/v1/purchasing/history`
+* **Query Parameters:** `start_date`, `end_date`, `item_name`
+* **Response Example (`200 OK`):**
+```json
+{
+  "success": true,
+  "count": 1,
+  "purchases": [
+    {
+      "id": 88,
+      "date": "2026-09-12",
+      "item_id": "silage_bunker_1",
+      "item_name": "Corn Silage",
+      "unit": "kg",
+      "quantity": 15000.0,
+      "rate_per_unit": 12.5,
+      "total_cost_pkr": 187500.0,
+      "supplier": "Al-Rehman Agri",
+      "notes": "32% DM silage batch 4",
+      "logged_by": "Bilal Ashraf"
+    }
+  ]
+}
+```
+
+---
+
+### 3.11 Feed Stock Inventory Summary
+Returns warehouse and bunker inventory levels for all commodities.
 * **Route:** `GET /api/v1/inventory/summary`
 
 ---
 
-### 3.9 Wanda & Premix Formulas Directory
-Returns active in-house Wanda recipes, inclusion percentages, and available raw materials.
+### 3.12 Wanda & Premix Formulas Directory
+Returns active in-house Wanda recipes, exact inclusion percentages, and available raw materials.
 * **Route:** `GET /api/v1/premix/formulas`
 
 ---
 
-### 3.10 AI Governance Status
+### 3.13 AI Governance Status
 Check whether the AI is currently operating in Junior Employee mode or Normal Staff mode.
 * **Route:** `GET /api/v1/system/approval-mode`
 * **Response Example (`200 OK`):**
