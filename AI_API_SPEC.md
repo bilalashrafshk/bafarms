@@ -852,3 +852,93 @@ https://www.bafoods.pk/api/mcp?key=ba_live_4ad74dc4971ed32e6454ea51aea9f3dfab943
 | `log_treatment` | Mutation | Record veterinary medication with slaughter withholding days. | `tag`, `date`, `type`, `medicine`, `dosage`, `withholding_days` |
 | `add_purchase` | Mutation | Record delivery of feed commodities or veterinary medicines. | `date`, `item_name`, `quantity`, `rate`, `supplier` |
 
+---
+
+## 8. Real-World Farm Operations & Practical Safeguards
+
+This section defines how the AI agent must handle practical edge cases arising from real Pakistani cattle feedlot operations, handwritten Urdu slips, and human staff errors.
+
+### 8.1 Pakistani Agricultural Unit Conversions
+Farm labor frequently notes weights in traditional Punjabi/Urdu agricultural units rather than kilograms. Spark must automatically convert these to canonical kilograms (`kg`) before sending payloads to the API, while noting the original unit in the `notes` field.
+
+| Traditional Unit | Urdu Name | Canonical Conversion | Example on Worker Slip | Transmitted to API |
+| :--- | :--- | :--- | :--- | :--- |
+| **Maund / Mund** | `من` | **$1\text{ Mund} = 40.0\text{ kg}$** | `مکئی 10 من` | `{"name": "Maize", "kg": 400.0}` |
+| **Bag (Wanda / Urea)** | `بوری` / `تھیلا` | **$1\text{ Bag} = 50.0\text{ kg}$** | `وانڈا 4 بوری` | `{"name": "Wanda", "kg": 200.0}` |
+| **Dhari** | `دھڑی` | **$1\text{ Dhari} = 5.0\text{ kg}$** | `نمک 2 دھڑی` | `{"name": "Salt", "kg": 10.0}` |
+| **Gram** | `گرام` | **$1\text{ Gram} = 0.001\text{ kg}$** | `بائنڈر 500 گرام` | `{"name": "Toxin Binder", "kg": 0.5}` |
+| **Veterinary cc / ml** | `سی سی` / `ملی` | **$1\text{ cc} = 1.0\text{ ml}$** | `ایمووٹ 15 سی سی` | `{"dosage": "15 ml"}` |
+| **Trolley (Silage)** | `ٹرالی` | **Weighbridge Net Weight** | `سائلیج 1 ٹرالی` | Must use gross-minus-tare scale slip kg |
+
+---
+
+### 8.2 Urdu Feed Ingredient Lexicon & Normalization Map
+Farm workers use colloquial, phonetically varied Urdu spellings for commodities. Spark must map these colloquialisms to canonical SmartHerd database names:
+
+| Worker Urdu Slip Text | Transliteration | Canonical SmartHerd Ingredient Name |
+| :--- | :--- | :--- |
+| `سائلیج` / `سائیلج` / `سیلج` | Silage | `Corn Silage` |
+| `مکئی` / `دلیہ` / `مکئی دانہ` | Makai / Dalia | `Maize Grain Ground` |
+| `چوکر` / `چوکر گندم` | Chokar | `Chokar` |
+| `گلوٹن ۳۰٪` / `گلوٹن` | Gluten | `Gluten Feed 30%` |
+| `توڑی` / `تھوڑی` / `بھوسہ` | Toori / Bhoosa | `Wheat Straw` |
+| `شیرہ` / `راب` | Sheera / Raab | `Molasses` |
+| `میٹھا سوڈا` / `سوڈا بائی کارب` | Meetha Soda | `Sodium Bicarbonate` |
+| `چونا` / `چونا پتھر` | Choona | `Limestone` |
+| `یوریا` / `کھاد` | Urea | `Urea` |
+| `منرل` / `منرل مکسچر` / `پیک` | Mineral | `Mineral Pack` |
+| `ٹوکسن بائنڈر` / `بائنڈر` | Toxin Binder | `Toxin Binder` |
+| `نمک` / `لاہوری نمک` | Namak | `Feed Salt` |
+
+---
+
+### 8.3 Pen Residency Cross-Check (Anti-Tag Misread Guard)
+Physical ear tags often become muddy, torn, or faded. Handwritten slips frequently confuse similar digits (e.g. reading Western `3` vs `8`, `1` vs `7`, or Urdu numerals `۴` vs `۷`, `۵` vs `۰`).
+
+**The Safety Rule:**
+Before logging an individual weight or treatment for Tag $X$ in Pen $Y$:
+1. Spark calls `get_cattle_roster(pen=Y)`.
+2. **If Tag $X$ is actively assigned to Pen $Y$:** Confidence is high $\rightarrow$ proceed.
+3. **If Tag $X$ is NOT in Pen $Y$ (e.g. Tag 57 is in Pen E, but the slip says Pen A):**
+   * Spark does **NOT** log the entry blindly.
+   * Spark searches Pen A's roster for visually similar tags (e.g. `17`, `37`, `51`).
+   * Spark raises an urgent escalation: *"Worker slip specifies Pen A for Tag 57, but Tag 57 lives in Pen E. Did the worker mean Tag 17 in Pen A, or was the calf moved?"*
+
+---
+
+### 8.4 Feeding Shift Time Inference
+If a slip does not explicitly write "Morning" or "Evening":
+* **Before 1:00 PM:** If 0 feedings recorded today $\rightarrow$ set `feeding_index: 1` (Morning).
+* **After 1:00 PM:** If 1 feeding recorded today $\rightarrow$ set `feeding_index: 2` (Evening).
+* **If 2 feedings already recorded today:** Do NOT overwrite. Flag to Bilal: *"Both morning and evening feeds already logged for Pen C today. Is this an extra emergency feeding?"*
+
+---
+
+### 8.5 Veterinary Maximum Dosage Sanity Clamps
+Potent injectable pharmaceuticals have narrow therapeutic margins. An OCR error misreading `40 ml` instead of `4.0 ml` for Ivermectin could be fatal. 
+
+Spark must reject any medication payload that exceeds these physiological maximum single-dose limits:
+
+| Medication | Common Farm Indication | Absolute Max Single Dose | Action if Exceeded |
+| :--- | :--- | :--- | :--- |
+| **Ivermectin / Ivotec** | Parasite deworming | **$10\text{ ml}$** | Block submission; alert Bilal immediately |
+| **Amovet 20% (Amoxicillin)** | Respiratory / bacterial | **$30\text{ ml}$** | Block submission; verify bodyweight split |
+| **Flunixin Meglumine** | Anti-inflammatory / fever | **$10\text{ ml}$** | Block submission; verify tag |
+| **Oxytetracycline LA** | Broad-spectrum antibiotic | **$30\text{ ml}$** | Block submission; verify injection sites |
+| **Pulmovac / HS Vaccine** | Haemorrhagic Septicaemia | **$5\text{ ml}$** | Block submission; standard dose is 2 ml |
+
+---
+
+### 8.6 Physical Slip Date vs Message Transmission Time
+Farm mobile connectivity is often intermittent. Staff may upload photos of Sunday's feed logs on Monday morning.
+* **The Rule:** The date written on the physical paper slip **always overrides** the message transmission timestamp.
+* If a photo uploaded on `2026-09-14 08:30 AM` shows a handwritten date of `13/09/2026`, Spark must submit the record with `"date": "2026-09-13"`.
+
+---
+
+### 8.7 Critical Event Manual Freeze (Mortality & Emergency Slaughter)
+If a slip or worker message states an animal died (`بچھڑا مر گیا`), was emergency slaughtered (`ذبح کیا`), or was sold (`بیچ دیا`):
+* Spark is **strictly forbidden** from unilaterally changing the animal's status in the database.
+* Spark immediately flags the event as an **Urgent High-Priority Alert** to Bilal with the tag number, pen, timestamp, and slip photo, requesting one-click manual confirmation before marking the animal off the active registry.
+
+
