@@ -2664,29 +2664,45 @@ module.exports = async (req, res) => {
                         JSON.stringify(flags || []), notes || null, approval.requested_by
                     ]);
                 } else if (approval.action === 'ADD_ANIMAL') {
-                    const { tag, rfid, breed, entryDate, entryWeight, purchasePrice, source, targetAdg, status, pen, notes, image } = changes;
-                    const finalTag = tag || rfid;
-                    const finalRfid = rfid || tag;
+                    const finalTag = changes.tag || changes.rfid;
+                    const weightNum = parseFloat(changes.entryWeight || changes.weight || 0);
                     const insertRes = await client.query(`
-                        INSERT INTO ba_animals (tag, rfid, breed, entry_date, entry_weight, current_weight, purchase_price, source, target_adg, status, pen, notes, image, created_by)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                        INSERT INTO ba_animals (
+                            rfid, breed, entry_date, entry_weight, current_weight, target_weight,
+                            purchase_price, source, status, pen, description, images,
+                            mandi_price, mandi_weight, mandi_tax, carriage, misc_expense
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
                         RETURNING id
                     `, [
-                        finalTag, finalRfid, breed || 'Cross', entryDate || today, entryWeight,
-                        entryWeight, purchasePrice || 0, source || 'Direct Purchase',
-                        targetAdg || 1.2, status || 'Quarantined', pen || 'Quarantine',
-                        notes || null, image || null, approval.requested_by
+                        finalTag,
+                        changes.breed || 'Cross',
+                        changes.entryDate || today,
+                        weightNum,
+                        weightNum,
+                        parseFloat(changes.targetWeight || 380),
+                        parseFloat(changes.purchasePrice || 0),
+                        changes.source || 'Direct Purchase',
+                        changes.status || 'Quarantined',
+                        (changes.pen || 'Quarantine').toUpperCase(),
+                        changes.description || changes.notes || null,
+                        changes.images || changes.image || null,
+                        parseFloat(changes.mandiPrice || changes.purchasePrice || 0),
+                        parseFloat(changes.mandiWeight || weightNum),
+                        parseFloat(changes.mandiTax || 0),
+                        parseFloat(changes.carriage || 0),
+                        parseFloat(changes.miscExpense || 0)
                     ]);
                     const newAnimalId = insertRes.rows[0].id;
                     await client.query(`
                         INSERT INTO ba_weights (animal_id, date, weight, created_by)
                         VALUES ($1, $2, $3, $4)
-                    `, [newAnimalId, entryDate || today, entryWeight, approval.requested_by]);
+                    `, [newAnimalId, changes.entryDate || today, weightNum, approval.requested_by]);
                     await client.query(`
                         INSERT INTO ba_events (animal_id, date, event_type, note, created_by)
                         VALUES ($1, $2, 'arrival', $3, $4)
-                    `, [newAnimalId, entryDate || today, `Entered herd into ${pen || 'Quarantine'} (approved)`, userEmail]);
-                    await refreshPenCache(client, pen || null);
+                    `, [newAnimalId, changes.entryDate || today, `Entered herd into ${changes.pen || 'Quarantine'} (approved)`, userEmail]);
+                    await refreshPenCache(client, changes.pen || null);
                 }
 
                 await client.query(

@@ -266,6 +266,25 @@ const TOOLS = [
             },
             required: ['date', 'item_name', 'quantity', 'rate', 'supplier']
         }
+    },
+    {
+        name: 'register_animal',
+        description: 'Register a new animal into the herd (intake / purchase). Records tag/RFID, breed, arrival weight, initial pen (e.g. Quarantine), landed purchase price, and Mandi procurement breakdown. Automatically initializes initial scale weight and arrival event. Subject to biological sanity clamps (40-1200kg) and Admin Approval in Junior Employee mode.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                tag: { type: 'string', description: 'Visual ear tag or RFID number (e.g. "105", "106")' },
+                breed: { type: 'string', description: 'Cattle breed (e.g. "Sahiwal", "Cholistani", "Cross", "Desi", "Friesian Cross")' },
+                entry_date: { type: 'string', description: 'Arrival date in YYYY-MM-DD (defaults to today)' },
+                entry_weight: { type: 'number', description: 'Arrival / scale weight in kg (between 40kg and 1200kg)' },
+                pen: { type: 'string', description: 'Assigned pen (defaults to "Quarantine" or "A", "B", etc.)' },
+                purchase_price: { type: 'number', description: 'Total landed purchase price in PKR' },
+                source: { type: 'string', description: 'Source Mandi or farm (e.g. "Multan Mandi", "Direct Farm Purchase")' },
+                target_weight: { type: 'number', description: 'Target slaughter weight in kg (defaults to 380)' },
+                notes: { type: 'string', description: 'Color, markings, health notes, or Mandi slip details' }
+            },
+            required: ['tag', 'entry_weight']
+        }
     }
 ];
 
@@ -406,6 +425,11 @@ async function executeToolCall(toolName, args, apiKey) {
         }
         case 'add_purchase': {
             const res = await dispatchToV1('POST', 'purchasing/feed', {}, args, apiKey);
+            return res.data;
+        }
+        case 'register_animal':
+        case 'intake_animal': {
+            const res = await dispatchToV1('POST', 'cattle/intake', {}, args, apiKey);
             return res.data;
         }
         default:

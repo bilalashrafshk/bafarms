@@ -1039,6 +1039,7 @@ https://www.bafoods.pk/api/mcp?key=ba_live_4ad74dc4971ed32e6454ea51aea9f3dfab943
 | `log_cattle_weight` | Mutation | Record a scale weigh-in ($40-1200\text{ kg}$). Protected by sanity checks & Admin Approval queue in Junior mode. | `tag`, `weight`, `date`, `pen` |
 | `log_treatment` | Mutation | Record veterinary medication with slaughter withholding days. | `tag`, `date`, `type`, `medicine`, `dosage`, `withholding_days` |
 | `add_purchase` | Mutation | Record delivery of feed commodities or veterinary medicines. | `date`, `item_name`, `quantity`, `rate`, `supplier` |
+| `register_animal` | Mutation | Register a new cattle arrival / purchase into the herd. Automatically initializes initial scale weight and arrival event. Protected by duplicate tag checks, biological weight bounds ($40-1200\text{ kg}$), and Admin Approval queue in Junior mode. | `tag`, `entry_weight`, `breed`, `entry_date`, `purchase_price`, `pen`, `source` |
 
 ---
 

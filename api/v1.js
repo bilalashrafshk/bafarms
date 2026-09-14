@@ -2037,8 +2037,8 @@ module.exports = async (req, res) => {
 
                 // Check for duplicate active tag
                 const dupCheck = await client.query(
-                    `SELECT id FROM ba_animals WHERE (tag = $1 OR rfid = $2) AND status NOT IN ('Sold', 'Deceased')`,
-                    [finalTag, finalRfid]
+                    `SELECT id FROM ba_animals WHERE rfid = $1 AND status NOT IN ('Sold', 'Deceased')`,
+                    [finalTag]
                 );
                 if (dupCheck.rows.length > 0) {
                     throw new Error(`INTAKE_ERROR: An active animal with tag/RFID "${finalTag}" already exists in the herd.`);
@@ -2049,7 +2049,7 @@ module.exports = async (req, res) => {
                         success: true,
                         dry_run: true,
                         message: 'SANITY_CHECKS_PASSED: Cattle intake record is valid and ready to commit.',
-                        simulated_record: { tag: finalTag, rfid: finalRfid, breed: breed || 'Cross', entry_weight: weightNum, pen: pen || 'Quarantine' }
+                        simulated_record: { tag: finalTag, rfid: finalTag, breed: breed || 'Cross', entry_weight: weightNum, pen: (pen || 'Quarantine').toUpperCase() }
                     });
                 }
 
@@ -2060,21 +2060,27 @@ module.exports = async (req, res) => {
                         VALUES ('ADD_ANIMAL', $1, $2, $3, $4)
                         RETURNING id
                     `, [
-                        finalRfid,
+                        finalTag,
                         breed || 'Cross',
                         JSON.stringify({
                             tag: finalTag,
-                            rfid: finalRfid,
+                            rfid: finalTag,
                             breed: breed || 'Cross',
                             entryDate: validDate,
                             entryWeight: weightNum,
-                            purchasePrice: parseFloat(purchase_price || 0),
+                            currentWeight: weightNum,
+                            targetWeight: parseFloat(body.target_weight || body.targetWeight || 380),
+                            purchasePrice: parseFloat(purchase_price || body.purchasePrice || 0),
                             source: source || 'Direct Purchase',
-                            targetAdg: parseFloat(target_adg || 1.2),
                             status: status || 'Quarantined',
                             pen: (pen || 'Quarantine').toUpperCase(),
-                            notes: notes || null,
-                            image: image || null
+                            description: notes || body.description || null,
+                            images: image || body.images || null,
+                            mandiPrice: parseFloat(body.mandi_price || body.mandiPrice || purchase_price || 0),
+                            mandiWeight: parseFloat(body.mandi_weight || body.mandiWeight || weightNum),
+                            mandiTax: parseFloat(body.mandi_tax || body.mandiTax || 0),
+                            carriage: parseFloat(body.carriage || 0),
+                            miscExpense: parseFloat(body.misc_expense || body.miscExpense || 0)
                         }),
                         agentActor
                     ]);
@@ -2086,19 +2092,36 @@ module.exports = async (req, res) => {
                         mode: 'junior_employee',
                         action: 'ADD_ANIMAL',
                         message: `Cattle intake for Tag ${finalTag} submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.`,
-                        details: { tag: finalTag, breed: breed || 'Cross', entry_weight: weightNum, pen: pen || 'Quarantine' }
+                        details: { tag: finalTag, breed: breed || 'Cross', entry_weight: weightNum, pen: (pen || 'Quarantine').toUpperCase() }
                     });
                 }
 
                 const insertRes = await client.query(`
-                    INSERT INTO ba_animals (tag, rfid, breed, entry_date, entry_weight, current_weight, purchase_price, source, target_adg, status, pen, notes, image, created_by)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    INSERT INTO ba_animals (
+                        rfid, breed, entry_date, entry_weight, current_weight, target_weight,
+                        purchase_price, source, status, pen, description, images,
+                        mandi_price, mandi_weight, mandi_tax, carriage, misc_expense
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
                     RETURNING id
                 `, [
-                    finalTag, finalRfid, breed || 'Cross', validDate, weightNum, weightNum,
-                    parseFloat(purchase_price || 0), source || 'Direct Purchase',
-                    parseFloat(target_adg || 1.2), status || 'Quarantined', (pen || 'Quarantine').toUpperCase(),
-                    notes || null, image || null, agentActor
+                    finalTag,
+                    breed || 'Cross',
+                    validDate,
+                    weightNum,
+                    weightNum,
+                    parseFloat(body.target_weight || body.targetWeight || 380),
+                    parseFloat(purchase_price || body.purchasePrice || 0),
+                    source || 'Direct Purchase',
+                    status || 'Quarantined',
+                    (pen || 'Quarantine').toUpperCase(),
+                    notes || body.description || null,
+                    image || body.images || null,
+                    parseFloat(body.mandi_price || body.mandiPrice || purchase_price || 0),
+                    parseFloat(body.mandi_weight || body.mandiWeight || weightNum),
+                    parseFloat(body.mandi_tax || body.mandiTax || 0),
+                    parseFloat(body.carriage || 0),
+                    parseFloat(body.misc_expense || body.miscExpense || 0)
                 ]);
                 const newId = insertRes.rows[0].id;
                 await client.query(`INSERT INTO ba_weights (animal_id, date, weight, created_by) VALUES ($1, $2, $3, $4)`, [newId, validDate, weightNum, agentActor]);
@@ -2110,7 +2133,7 @@ module.exports = async (req, res) => {
                     mode: 'normal_staff',
                     id: newId,
                     tag: finalTag,
-                    message: `Animal ${finalTag} added to herd successfully.`
+                    message: `Animal ${finalTag} registered and added to herd successfully.`
                 });
             }
 
@@ -2306,7 +2329,7 @@ module.exports = async (req, res) => {
 
     } catch (err) {
         console.error('API Error in /api/v1:', err.message);
-        const isSanity = err.message.startsWith('SANITY_CHECK_FAILED') || err.message.startsWith('DATE_') || err.message.startsWith('ANIMAL_') || err.message.startsWith('FEED_') || err.message.startsWith('WEIGHT_') || err.message.startsWith('PEN_') || err.message.startsWith('TRANSFER_') || err.message.startsWith('TREATMENT_') || err.message.startsWith('PURCHASE_') || err.message.startsWith('PREMIX_');
+        const isSanity = err.message.startsWith('SANITY_CHECK_FAILED') || err.message.startsWith('DATE_') || err.message.startsWith('ANIMAL_') || err.message.startsWith('INTAKE_') || err.message.startsWith('FEED_') || err.message.startsWith('WEIGHT_') || err.message.startsWith('PEN_') || err.message.startsWith('TRANSFER_') || err.message.startsWith('TREATMENT_') || err.message.startsWith('PURCHASE_') || err.message.startsWith('PREMIX_');
         return res.status(isSanity ? 422 : 500).json({
             success: false,
             error: err.message,
