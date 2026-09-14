@@ -100,8 +100,11 @@ function getTodayStr() {
 
 // Strict Date Validator (YYYY-MM-DD)
 function validateDateStr(dateStr, allowHistorical = false) {
-    if (!dateStr || typeof dateStr !== 'string') {
-        throw new Error('DATE_ERROR: "date" field is required and must be a string formatted as YYYY-MM-DD.');
+    if (!dateStr) {
+        return getTodayStr();
+    }
+    if (typeof dateStr !== 'string') {
+        throw new Error('DATE_ERROR: "date" must be a string formatted as YYYY-MM-DD.');
     }
     const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (!match) {
@@ -1939,118 +1942,205 @@ module.exports = async (req, res) => {
             // -------------------------------------------------------------
             if (route === 'health/treatments' || route === 'health') {
                 const {
-                    tag, date, type, medicine, dosage, withholding,
-                    diagnosis, notes, allow_historical
+                    date, type, medicine, dosage, withholding,
+                    diagnosis, notes, allow_historical, allow_duplicate_dose
                 } = body;
 
-                const animal = await resolveAnimal(client, tag);
-                if (animal.status === 'Sold' || animal.status === 'Deceased') {
-                    throw new Error(`ANIMAL_INACTIVE: Cannot log treatment for calf ${animal.rfid} because status is "${animal.status}".`);
+                let tags = body.tags;
+                if (!tags && body.tag) {
+                    if (typeof body.tag === 'string' && body.tag.includes(',')) {
+                        tags = body.tag.split(',').map(s => s.trim()).filter(Boolean);
+                    } else {
+                        tags = [body.tag];
+                    }
+                } else if (typeof tags === 'string') {
+                    tags = tags.split(',').map(s => s.trim()).filter(Boolean);
                 }
 
-                const validDate = validateDateStr(date, allow_historical);
+                if (!Array.isArray(tags) || tags.length === 0) {
+                    throw new Error('TREATMENT_ERROR: "tag" or "tags" is required (e.g. "02", "02, 03, 04", or ["02", "03", "04"]).');
+                }
 
                 if (!medicine || typeof medicine !== 'string') {
-                    throw new Error('TREATMENT_ERROR: "medicine" name is required.');
+                    throw new Error('TREATMENT_ERROR: "medicine" name is required (e.g. "HS Vaccine", "Ivermectin", "Oxafax").');
                 }
-                if (!dosage || typeof dosage !== 'string') {
-                    throw new Error('TREATMENT_ERROR: "dosage" is required (e.g. "10 ml", "1 bolus").');
+                const medName = medicine.trim();
+                const medLower = medName.toLowerCase();
+                const validDate = validateDateStr(date, allow_historical);
+
+                // Smart Protocol & Standard Dosage Fallback if caller omitted quantity
+                let effectiveDosage = dosage ? String(dosage).trim() : null;
+                let effectiveType = type ? String(type).trim() : null;
+                let effectiveWithholding = withholding !== undefined && withholding !== null ? parseInt(withholding, 10) : null;
+                let defaultAppliedNote = null;
+
+                if (!effectiveDosage) {
+                    if (medLower.includes('hs') || medLower.includes('haemorrhagic') || medLower.includes('hemorrhagic')) {
+                        effectiveDosage = '3 ml';
+                        if (!effectiveType) effectiveType = 'Vaccination';
+                        if (effectiveWithholding === null) effectiveWithholding = 0;
+                        defaultAppliedNote = 'Standard protocol dose (3 ml) applied automatically';
+                    } else if (medLower.includes('fmd') || medLower.includes('foot and mouth')) {
+                        effectiveDosage = '2 ml';
+                        if (!effectiveType) effectiveType = 'Vaccination';
+                        if (effectiveWithholding === null) effectiveWithholding = 0;
+                        defaultAppliedNote = 'Standard protocol dose (2 ml) applied automatically';
+                    } else if (medLower.includes('pulmovac') || medLower.includes('bvd') || medLower.includes('ibr')) {
+                        effectiveDosage = '2 ml';
+                        if (!effectiveType) effectiveType = 'Vaccination';
+                        if (effectiveWithholding === null) effectiveWithholding = 0;
+                        defaultAppliedNote = 'Standard vaccine dose (2 ml) applied automatically';
+                    } else if (medLower.includes('ivermectin') || medLower.includes('ivotec')) {
+                        effectiveDosage = '5 ml';
+                        if (!effectiveType) effectiveType = 'Deworming';
+                        if (effectiveWithholding === null) effectiveWithholding = 21;
+                        defaultAppliedNote = 'Standard deworming dose (5 ml, 21d withholding) applied automatically';
+                    } else if (medLower.includes('oxafax') || medLower.includes('albendazole') || medLower.includes('drench')) {
+                        effectiveDosage = '30 ml';
+                        if (!effectiveType) effectiveType = 'Deworming';
+                        if (effectiveWithholding === null) effectiveWithholding = 14;
+                        defaultAppliedNote = 'Standard oral drench dose (30 ml, 14d withholding) applied automatically';
+                    } else if (medLower.includes('vaccine') || medLower.includes('vac')) {
+                        effectiveDosage = '2 ml';
+                        if (!effectiveType) effectiveType = 'Vaccination';
+                        if (effectiveWithholding === null) effectiveWithholding = 0;
+                        defaultAppliedNote = 'Standard vaccine dose (2 ml) applied automatically';
+                    } else {
+                        effectiveDosage = '1 dose';
+                        defaultAppliedNote = 'Standard unit dose applied automatically (dosage omitted by caller)';
+                    }
                 }
 
-                const withholdingDays = parseInt(withholding || 0, 10);
-                if (isNaN(withholdingDays) || withholdingDays < 0) {
-                    throw new Error(`SANITY_CHECK_FAILED: "withholding" must be a non-negative number of days (received ${withholding}).`);
+                if (!effectiveType) effectiveType = 'Curative';
+                if (effectiveWithholding === null || isNaN(effectiveWithholding) || effectiveWithholding < 0) {
+                    effectiveWithholding = 0;
                 }
 
-                // Anti-Overdose Duplicate Check
-                const existingMeds = await client.query(`
-                    SELECT id, dosage FROM ba_treatments
-                    WHERE animal_id = $1 AND date = $2 AND LOWER(medicine) = LOWER($3)
-                `, [animal.id, validDate, medicine.trim()]);
-                if (existingMeds.rows.length > 0 && !body.allow_duplicate_dose) {
-                    return res.status(409).json({
-                        success: false,
-                        error: `DUPLICATE_TREATMENT_BLOCKED: Tag ${animal.rfid} was already administered "${medicine.trim()}" on ${validDate} (Log #${existingMeds.rows[0].id}). Accidental repeat dose blocked.`,
-                        hint: 'If this is an intentional second dose (e.g. BID administration), pass "allow_duplicate_dose": true.'
-                    });
+                const resolvedAnimals = [];
+                for (const t of tags) {
+                    const a = await resolveAnimal(client, t);
+                    if (a.status === 'Sold' || a.status === 'Deceased') {
+                        throw new Error(`ANIMAL_INACTIVE: Cannot log treatment for calf ${a.rfid} because status is "${a.status}".`);
+                    }
+                    resolvedAnimals.push(a);
                 }
+
+                // Anti-Overdose Duplicate Check for all resolved animals
+                for (const animal of resolvedAnimals) {
+                    const existingMeds = await client.query(`
+                        SELECT id, dosage FROM ba_treatments
+                        WHERE animal_id = $1 AND date = $2 AND LOWER(medicine) = LOWER($3)
+                    `, [animal.id, validDate, medName]);
+                    if (existingMeds.rows.length > 0 && !allow_duplicate_dose) {
+                        return res.status(409).json({
+                            success: false,
+                            error: `DUPLICATE_TREATMENT_BLOCKED: Tag ${animal.rfid} was already administered "${medName}" on ${validDate} (Log #${existingMeds.rows[0].id}). Accidental repeat dose blocked.`,
+                            hint: 'If this is an intentional second dose (e.g. BID administration), pass "allow_duplicate_dose": true.'
+                        });
+                    }
+                }
+
+                const treatmentNote = [
+                    diagnosis ? `Diagnosis: ${diagnosis}` : null,
+                    notes || null,
+                    defaultAppliedNote ? `[Note: ${defaultAppliedNote}]` : null
+                ].filter(Boolean).join(' · ') || null;
 
                 if (isDryRun) {
                     return res.status(200).json({
                         success: true,
                         dry_run: true,
                         message: 'SANITY_CHECKS_PASSED: Treatment is valid and ready to commit.',
-                        simulated_record: {
-                            animal_id: animal.id,
-                            tag: animal.rfid,
+                        simulated_records: resolvedAnimals.map(a => ({
+                            animal_id: a.id,
+                            tag: a.rfid,
+                            pen: a.pen,
                             date: validDate,
-                            type: type || 'Curative',
-                            medicine: medicine.trim(),
-                            dosage: dosage.trim(),
-                            withholding_days: withholdingDays
-                        }
+                            type: effectiveType,
+                            medicine: medName,
+                            dosage: effectiveDosage,
+                            withholding_days: effectiveWithholding,
+                            note: treatmentNote
+                        }))
                     });
                 }
 
                 const requireApproval = await isAiApprovalRequired(client, req, body);
                 if (requireApproval) {
-                    const approvalRes = await client.query(`
-                        INSERT INTO ba_pending_approvals (action, animal_id, animal_rfid, animal_breed, payload, previous_snapshot, requested_by)
-                        VALUES ('LOG_TREATMENT', $1, $2, $3, $4, $5, $6)
-                        RETURNING id
-                    `, [
-                        animal.id,
-                        animal.rfid,
-                        animal.breed,
-                        JSON.stringify({
-                            animalId: animal.id,
-                            date: validDate,
-                            type: type || 'Curative',
-                            medicine: medicine.trim(),
-                            dosage: dosage.trim(),
-                            withholding: withholdingDays,
-                            notes: notes || (diagnosis ? `Diagnosis: ${diagnosis}` : null)
-                        }),
-                        JSON.stringify(animal),
-                        agentActor
-                    ]);
+                    const approvalIds = [];
+                    for (const animal of resolvedAnimals) {
+                        const approvalRes = await client.query(`
+                            INSERT INTO ba_pending_approvals (action, animal_id, animal_rfid, animal_breed, payload, previous_snapshot, requested_by)
+                            VALUES ('LOG_TREATMENT', $1, $2, $3, $4, $5, $6)
+                            RETURNING id
+                        `, [
+                            animal.id,
+                            animal.rfid,
+                            animal.breed,
+                            JSON.stringify({
+                                animalId: animal.id,
+                                date: validDate,
+                                type: effectiveType,
+                                medicine: medName,
+                                dosage: effectiveDosage,
+                                withholding: effectiveWithholding,
+                                notes: treatmentNote
+                            }),
+                            JSON.stringify(animal),
+                            agentActor
+                        ]);
+                        approvalIds.push(approvalRes.rows[0].id);
+                    }
 
                     return res.status(202).json({
                         success: true,
                         status: 'pending_approval',
-                        approval_id: approvalRes.rows[0].id,
+                        approval_ids: approvalIds,
                         mode: 'junior_employee',
                         action: 'LOG_TREATMENT',
-                        message: `Treatment for Tag ${animal.rfid} (${medicine.trim()}) submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.`,
+                        message: `Treatment for ${resolvedAnimals.length} animal(s) (${medName} - ${effectiveDosage}) submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.`,
                         details: {
-                            animal_id: animal.id,
-                            tag: animal.rfid,
-                            medicine: medicine.trim(),
-                            dosage: dosage.trim(),
+                            count: resolvedAnimals.length,
+                            tags: resolvedAnimals.map(a => a.rfid),
+                            medicine: medName,
+                            dosage: effectiveDosage,
+                            default_dosage_applied: Boolean(defaultAppliedNote),
                             date: validDate,
-                            withholding_days: withholdingDays
+                            withholding_days: effectiveWithholding
                         }
                     });
                 }
 
-                const insertRes = await client.query(`
-                    INSERT INTO ba_treatments (
-                        animal_id, date, type, medicine, dosage, withholding,
-                        created_by, notes
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                    RETURNING id
-                `, [
-                    animal.id, validDate, type || 'Curative', medicine.trim(),
-                    dosage.trim(), withholdingDays, agentActor,
-                    notes || (diagnosis ? `Diagnosis: ${diagnosis}` : null)
-                ]);
+                const createdIds = [];
+                for (const animal of resolvedAnimals) {
+                    const insertRes = await client.query(`
+                        INSERT INTO ba_treatments (
+                            animal_id, date, type, medicine, dosage, withholding,
+                            created_by, notes
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        RETURNING id
+                    `, [
+                        animal.id, validDate, effectiveType, medName,
+                        effectiveDosage, effectiveWithholding, agentActor,
+                        treatmentNote
+                    ]);
+                    createdIds.push(insertRes.rows[0].id);
+                }
 
                 return res.status(201).json({
                     success: true,
                     status: 'committed',
                     mode: 'normal_staff',
-                    id: insertRes.rows[0].id,
-                    message: `Treatment recorded for Tag ${animal.rfid} (${medicine.trim()} - ${dosage.trim()}).`
+                    ids: createdIds,
+                    message: `Treatment recorded for ${resolvedAnimals.length} animal(s): Tag(s) ${resolvedAnimals.map(a => a.rfid).join(', ')} (${medName} - ${effectiveDosage}).`,
+                    default_dosage_applied: Boolean(defaultAppliedNote),
+                    records: resolvedAnimals.map((a, idx) => ({
+                        id: createdIds[idx],
+                        tag: a.rfid,
+                        medicine: medName,
+                        dosage: effectiveDosage,
+                        withholding_days: effectiveWithholding
+                    }))
                 });
             }
 

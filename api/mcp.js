@@ -238,19 +238,21 @@ const TOOLS = [
     },
     {
         name: 'log_treatment',
-        description: 'Record a veterinary treatment, antibiotic, or vaccination with slaughter withholding days. Subject to Admin Approval if in Junior Employee mode.',
+        description: 'Record a veterinary treatment, antibiotic, dewormer, or vaccination for one or more cattle. If dosage is omitted, standard protocol dosages are automatically applied (e.g. 3ml for HS Vaccine, 2ml for FMD/Pulmovac, 5ml for Ivermectin, 30ml for Oxafax). Automatically updates withholding clearance dates and quarantine checklist. Subject to Admin Approval in Junior Employee mode.',
         inputSchema: {
             type: 'object',
             properties: {
-                tag: { type: 'string', description: 'Cattle ear tag or RFID' },
-                date: { type: 'string', description: 'Date in YYYY-MM-DD' },
+                tags: { type: 'array', items: { type: 'string' }, description: 'Array of cattle ear tags or RFIDs (e.g. ["02", "03", "04"])' },
+                tag: { type: 'string', description: 'Single ear tag or comma-separated string (e.g. "02" or "2, 3, 4")' },
+                date: { type: 'string', description: 'Administration date in YYYY-MM-DD (defaults to today)' },
+                medicine: { type: 'string', description: 'Medicine or vaccine name (e.g. "HS Vaccine", "FMD Vaccine", "Ivermectin", "Pulmovac")' },
+                dosage: { type: 'string', description: 'Administered dosage (e.g. "3 ml", "10 ml"). Optional — defaults to standard protocol dose if omitted.' },
                 type: { type: 'string', description: 'Treatment, Vaccination, or Deworming' },
-                medicine: { type: 'string', description: 'Medicine or vaccine name' },
-                dosage: { type: 'string', description: 'Administered dosage (e.g. "15 ml")' },
-                withholding_days: { type: 'integer', description: 'Mandatory withdrawal period in days (e.g. 14, 21)' },
-                notes: { type: 'string', description: 'Clinical symptoms or diagnosis' }
+                withholding_days: { type: 'integer', description: 'Withdrawal period in days (e.g. 0 for vaccines, 14 for Oxafax, 21 for Ivermectin)' },
+                notes: { type: 'string', description: 'Clinical symptoms, diagnosis, or administration notes' },
+                dry_run: { type: 'boolean', description: 'Simulate without committing (default false)' }
             },
-            required: ['tag', 'date', 'type', 'medicine', 'dosage']
+            required: ['medicine']
         }
     },
     {

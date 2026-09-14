@@ -901,9 +901,33 @@ Every POST endpoint supports `"dry_run": true` for simulation. When `dry_run: fa
 
 ---
 
-### 4.3 Log Health Treatment / Vaccine
-* **Route:** `POST /api/v1/health/treatments`
-* **Payload:**
+### 4.3 Log Health Treatment / Vaccine & Smart Protocol Defaults
+Logs a veterinary treatment, antibiotic, dewormer, or vaccination. Supports single animal or batch administration across multiple tags.
+* **Smart Protocol Defaulting:** If quantity/dosage is omitted by the caller (e.g. *"HS vaccine was administered to tag 2, 3, 4"*), the system automatically defaults to the standard protocol dosage and withholding days established in the SmartHerd portal:
+  * **HS Vaccine (Haemorrhagic Septicaemia):** `3 ml` · Type: `Vaccination` · Withholding: `0` days
+  * **FMD Vaccine (Foot-and-Mouth Disease):** `2 ml` · Type: `Vaccination` · Withholding: `0` days
+  * **Pulmovac (Respiratory Vaccine):** `2 ml` · Type: `Vaccination` · Withholding: `0` days
+  * **Ivermectin / Ivotec (Parasiticide):** `5 ml` · Type: `Deworming` · Withholding: `21` days
+  * **Oxafax / Albendazole (Oral Drench):** `30 ml` · Type: `Deworming` · Withholding: `14` days
+  * **Other vaccines/medications:** `1 dose`
+* **Multi-Tag Support:** Accepts `tags: ["02", "14", "34"]`, `tag: "02, 14, 34"`, or `tag: "02"`.
+* **Date Default:** If `date` is omitted, defaults to current calendar day.
+
+* **Route:** `POST /api/v1/health/treatments` (Alias: `/api/v1/health`)
+* **MCP Tool:** `log_treatment`
+* **Payload Examples:**
+
+**Omitted Dosage (Standard Protocol Fallback):**
+```json
+{
+  "tags": ["02", "14", "34"],
+  "medicine": "HS Vaccine",
+  "notes": "Day 14 quarantine protocol vaccination",
+  "dry_run": false
+}
+```
+
+**Curative Treatment with Explicit Dosage:**
 ```json
 {
   "tag": "36",
@@ -917,15 +941,42 @@ Every POST endpoint supports `"dry_run": true` for simulation. When `dry_run: fa
   "dry_run": false
 }
 ```
+
 * **Junior Employee Response (`202 Accepted`):**
 ```json
 {
   "success": true,
   "status": "pending_approval",
-  "approval_id": 869,
+  "approval_ids": [869, 870, 871],
   "mode": "junior_employee",
   "action": "LOG_TREATMENT",
-  "message": "Treatment for Tag 36 (Flunixin Meglumine) submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal."
+  "message": "Treatment for 3 animal(s) (HS Vaccine - 3 ml) submitted in Junior Employee mode. Queued for Admin review in SmartHerd portal.",
+  "details": {
+    "count": 3,
+    "tags": ["02", "14", "34"],
+    "medicine": "HS Vaccine",
+    "dosage": "3 ml",
+    "default_dosage_applied": true,
+    "date": "2026-09-15",
+    "withholding_days": 0
+  }
+}
+```
+
+* **Normal Staff Response (`201 Created`):**
+```json
+{
+  "success": true,
+  "status": "committed",
+  "mode": "normal_staff",
+  "ids": [1051, 1052, 1053],
+  "message": "Treatment recorded for 3 animal(s): Tag(s) 02, 14, 34 (HS Vaccine - 3 ml).",
+  "default_dosage_applied": true,
+  "records": [
+    { "id": 1051, "tag": "02", "medicine": "HS Vaccine", "dosage": "3 ml", "withholding_days": 0 },
+    { "id": 1052, "tag": "14", "medicine": "HS Vaccine", "dosage": "3 ml", "withholding_days": 0 },
+    { "id": 1053, "tag": "34", "medicine": "HS Vaccine", "dosage": "3 ml", "withholding_days": 0 }
+  ]
 }
 ```
 
