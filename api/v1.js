@@ -978,32 +978,46 @@ module.exports = async (req, res) => {
             }
 
             // -------------------------------------------------------------
-            // POST /api/v1/purchasing/feed
+            // POST /api/v1/purchasing/feed or /api/v1/purchasing/medicine or /api/v1/purchasing
+            // Ingest feed commodities or veterinary medicine purchase receipts
             // -------------------------------------------------------------
-            if (route === 'purchasing/feed' || route === 'purchasing') {
-                const { date, item_name, quantity_kg, rate_per_kg, supplier, notes, allow_historical } = body;
+            if (route === 'purchasing/feed' || route === 'purchasing/medicine' || route === 'purchasing') {
+                const {
+                    date, item_name, quantity, quantity_kg, rate, rate_per_kg,
+                    unit, item_unit, supplier, notes, allow_historical
+                } = body;
                 const validDate = validateDateStr(date, allow_historical);
 
                 if (!item_name || typeof item_name !== 'string') {
-                    throw new Error('PURCHASE_ERROR: "item_name" is required (e.g. "Corn Silage", "Wheat Straw", "Chokar").');
+                    throw new Error('PURCHASE_ERROR: "item_name" is required (e.g. "Corn Silage", "Amovet inj 100ml", "Flunixin").');
                 }
-                const qty = parseFloat(quantity_kg);
+                const qty = parseFloat(quantity !== undefined ? quantity : quantity_kg);
                 if (isNaN(qty) || qty <= 0) {
-                    throw new Error('PURCHASE_ERROR: "quantity_kg" must be a positive number.');
+                    throw new Error('PURCHASE_ERROR: "quantity" must be a positive number.');
                 }
-                const rate = parseFloat(rate_per_kg || 0);
+                const unitRate = parseFloat(rate !== undefined ? rate : (rate_per_kg || 0));
+                const finalUnit = (unit || item_unit || (route === 'purchasing/medicine' ? 'vials' : 'kg')).trim();
+
+                // Look up matching item in feed_stock_items to link item_id if available
+                const stockRes = await client.query("SELECT value FROM ba_settings WHERE key = 'feed_stock_items'");
+                const parse = (v) => typeof v === 'string' ? JSON.parse(v) : v;
+                const stockItems = parse(stockRes.rows[0]?.value) || [];
+                const matchedStock = stockItems.find(s => s.name.toLowerCase() === item_name.toLowerCase().trim() || s.id === item_name.trim());
+                const itemId = matchedStock ? matchedStock.id : null;
 
                 if (isDryRun) {
                     return res.status(200).json({
                         success: true,
                         dry_run: true,
-                        message: 'SANITY_CHECKS_PASSED: Feed purchase is valid and ready to commit.',
+                        message: 'SANITY_CHECKS_PASSED: Purchase receipt is valid and ready to commit.',
                         simulated_record: {
                             date: validDate,
-                            item_name: item_name.trim(),
-                            quantity_kg: qty,
-                            rate_per_kg: rate,
-                            total_cost: +(qty * rate).toFixed(2),
+                            item_name: matchedStock ? matchedStock.name : item_name.trim(),
+                            item_id: itemId,
+                            quantity: qty,
+                            unit: finalUnit,
+                            rate: unitRate,
+                            total_cost: +(qty * unitRate).toFixed(2),
                             supplier: supplier || null
                         }
                     });
@@ -1012,14 +1026,14 @@ module.exports = async (req, res) => {
                 const purchaseId = 'pur_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
                 await client.query(`
                     INSERT INTO ba_feed_purchases (
-                        id, date, item_name, quantity, rate, supplier, notes, created_by, created_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-                `, [purchaseId, validDate, item_name.trim(), qty, rate, supplier || null, notes || null, agentActor]);
+                        id, date, item_id, item_name, item_unit, quantity, rate, supplier, notes, created_by, created_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+                `, [purchaseId, validDate, itemId, matchedStock ? matchedStock.name : item_name.trim(), finalUnit, qty, unitRate, supplier || null, notes || null, agentActor]);
 
                 return res.status(201).json({
                     success: true,
                     id: purchaseId,
-                    message: `Feed purchase of ${qty} kg ${item_name.trim()} recorded successfully.`
+                    message: `Purchase of ${qty} ${finalUnit} ${matchedStock ? matchedStock.name : item_name.trim()} recorded successfully.`
                 });
             }
 
