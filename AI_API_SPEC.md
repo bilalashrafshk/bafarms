@@ -747,3 +747,41 @@ graph TD
    * If the API returns `201 Created` (`status: "committed"`), Spark notes: *"Committed directly to live herd database."*
 4. **The Stop & Confirm Escalation Rule:** If a tag or number is smudged, or ingredient mass doesn't balance, Spark stops immediately and emails Bilal with a cropped snippet of the slip and clear options.
 5. **Daily 8:00 PM Evening Digest Email:** Summarizes feed compliance, bunk scores, health alerts, and any pending approvals waiting in the portal.
+
+---
+
+## 7. Model Context Protocol (MCP) Remote Server for Gemini Spark
+
+BA Foods exposes a native **Model Context Protocol (MCP)** server over Streamable HTTP / JSON-RPC 2.0. This allows **Gemini Spark** (and other MCP clients like Claude or cursor) to interact with SmartHerd using native function calling without needing command-line curl or shell execution.
+
+### 7.1 Connection URL
+```text
+https://www.bafoods.pk/api/mcp?key=ba_live_4ad74dc4971ed32e6454ea51aea9f3dfab943e9fb750146b
+```
+
+### 7.2 Setup in Gemini Spark ("Custom apps for Spark")
+1. Open Gemini Spark $\rightarrow$ **Settings & help** $\rightarrow$ **Connected Apps** $\rightarrow$ **Add a custom app**.
+2. **Add a custom app link:** Paste the connection URL above.
+3. **Advanced settings (Client ID & Client secret):** **LEAVE BLANK**. *(Manual OAuth credentials are not needed because authentication is embedded directly via the secure token parameter).*
+4. Click **Next / Connect**.
+
+### 7.3 Available Native Tools in Gemini Spark
+
+| Tool Name | Type | Description | Key Parameters |
+| :--- | :--- | :--- | :--- |
+| `get_animal_passport` | Query | Complete dossier for an animal: Mandi weight, landed arrival weight, purchase price, current weight, gain, lifetime ADG, cost of feed till yet, all weigh-ins, and all treatments. | `tag` (string, required) |
+| `get_cattle_weights` | Query | Historical weight logs across herd. Returns weights in kg, session ADG, dates, and recorders. | `tag`, `pen`, `start_date`, `end_date` |
+| `get_pens` | Query | Live pen roster: head count, average animal weight, total pen biomass in kg, forage type, target ADG. | *(none)* |
+| `get_feed_logs` | Query | Daily TMR split-feeding logs with exact kg-by-kg ingredient breakdown. | `date`, `pen` |
+| `get_pen_checks` | Query | Morning and evening feed bunk scores ($0-100\%$) and flagged sick cattle. | `date` |
+| `get_withholding_alerts` | Query | Animals currently under slaughter withholding for medications, days remaining, safe dates. | *(none)* |
+| `get_tasks_upcoming` | Query | Intake & quarantine tasks due in next 7 days (Day 1, 7, 14, 21 vaccines/deworming). | *(none)* |
+| `get_purchasing_history` | Query | Delivery receipts of feed commodities and veterinary medicines with rates, quantities, suppliers. | `start_date`, `end_date`, `item_name` |
+| `get_inventory_summary` | Query | Warehouse and bunker inventory stock levels for all feed ingredients. | *(none)* |
+| `get_premix_formulas` | Query | Active in-house Wanda recipes, exact ingredient percentages (e.g. Urea 1%), available raw commodities. | *(none)* |
+| `get_compliance_summary` | Query | Daily operational compliance overview (feed completion, bunk checks, sick alerts) for daily digest reports. | `date` |
+| `add_feed_log` | Mutation | Record a daily TMR split-feeding. Protected by sanity checks & Admin Approval queue in Junior mode. | `date`, `pen`, `feeding_index`, `total_batch_kg`, `ingredients` |
+| `log_cattle_weight` | Mutation | Record a scale weigh-in ($40-1200\text{ kg}$). Protected by sanity checks & Admin Approval queue in Junior mode. | `tag`, `weight`, `date`, `pen` |
+| `log_treatment` | Mutation | Record veterinary medication with slaughter withholding days. | `tag`, `date`, `type`, `medicine`, `dosage`, `withholding_days` |
+| `add_purchase` | Mutation | Record delivery of feed commodities or veterinary medicines. | `date`, `item_name`, `quantity`, `rate`, `supplier` |
+
