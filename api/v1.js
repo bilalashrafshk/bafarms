@@ -53,7 +53,7 @@ const DATABASE_URL = process.env.bafarms_DATABASE_URL ||
 
 const BA_API_KEY = process.env.BA_API_KEY ||
                    process.env.API_SECRET_KEY ||
-                   'ba_live_4ad74dc1280802c34d3bfa6144e54911';
+                   'ba_live_4ad74dc4971ed32e6454ea51aea9f3dfab943e9fb750146b';
 
 // Reusable connection pool across warm serverless invocations (saves TLS overhead)
 let pool = null;

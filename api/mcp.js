@@ -388,7 +388,7 @@ module.exports = async (req, res) => {
         apiKey = customHeader.trim();
     }
     if (!apiKey) {
-        apiKey = process.env.BA_API_KEY || process.env.API_SECRET_KEY || 'ba_live_4ad74dc1280802c34d3bfa6144e54911';
+        apiKey = process.env.BA_API_KEY || process.env.API_SECRET_KEY || 'ba_live_4ad74dc4971ed32e6454ea51aea9f3dfab943e9fb750146b';
     }
 
     // 3. GET /mcp — Server discovery or SSE handshake
