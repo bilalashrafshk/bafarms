@@ -402,6 +402,129 @@ Check whether the AI is currently operating in Junior Employee mode or Normal St
 
 ---
 
+### 3.14 Overall Herd ADG & Growth Performance Analytics
+Returns the comprehensive macro and micro growth performance of the feedlot: pooled herd average ADG, 30-day rolling ADG, pen-by-pen ADG and biomass, breed performance breakdown, Days on Feed (DOF) cohorts, and cattle currently ready for slaughter/sale.
+* **Route:** `GET /api/v1/analytics/performance` (or `/api/v1/analytics/adg`)
+* **Response Example (`200 OK`):**
+```json
+{
+  "success": true,
+  "as_of_date": "2026-09-14",
+  "herd_kpis": {
+    "total_active_cattle": 103,
+    "total_herd_biomass_kg": 18182.0,
+    "average_calf_weight_kg": 176.5,
+    "overall_herd_adg_kg_day": 0.46,
+    "rolling_30day_adg_kg_day": 0.46,
+    "total_monitored_animal_days": 1520,
+    "ready_for_sale_head_count": 4
+  },
+  "pen_performance": [
+    {
+      "pen": "A",
+      "head_count": 19,
+      "avg_weight_kg": 177.3,
+      "total_biomass_kg": 3369.5,
+      "target_adg": 1.10,
+      "actual_adg": 0.68,
+      "adg_variance": -0.42,
+      "performance_status": "Lagging Target"
+    },
+    {
+      "pen": "B",
+      "head_count": 10,
+      "avg_weight_kg": 205.1,
+      "total_biomass_kg": 2050.5,
+      "target_adg": 1.40,
+      "actual_adg": 0.40,
+      "adg_variance": -1.00,
+      "performance_status": "Lagging Target"
+    }
+  ],
+  "breed_breakdown": [
+    { "breed": "Sahiwal", "head_count": 8, "avg_weight_kg": 172.5, "achieved_adg": 0.61 },
+    { "breed": "Cross", "head_count": 93, "avg_weight_kg": 176.8, "achieved_adg": 0.41 }
+  ],
+  "dof_cohorts": [
+    { "cohort": "0-30 days (Intake/Quarantine)", "head_count": 27, "avg_weight_kg": 162.9, "achieved_adg": null },
+    { "cohort": "31-60 days (Growing)", "head_count": 31, "avg_weight_kg": 173.2, "achieved_adg": 0.48 }
+  ],
+  "ready_for_sale_pipeline": [
+    {
+      "tag": "12",
+      "pen": "B",
+      "breed": "Sahiwal",
+      "current_weight_kg": 285.0,
+      "target_weight_kg": 280.0,
+      "days_on_feed": 115,
+      "withholding_clear": true
+    }
+  ]
+}
+```
+
+---
+
+### 3.15 All-In Feedlot Financials & Cost of Gain Economics
+Returns comprehensive capital, expenditure, and unit economics across the feedlot: total purchase capital, cumulative feed spend, overhead expenses, blended feed cost per kg gain, and daily feed cost per head.
+* **Route:** `GET /api/v1/analytics/financials` (or `/api/v1/analytics/cost-of-gain`)
+* **Response Example (`200 OK`):**
+```json
+{
+  "success": true,
+  "financial_summary": {
+    "total_active_head": 103,
+    "total_procurement_cost_pkr": 11298539.0,
+    "avg_procurement_cost_per_head_pkr": 109694.55,
+    "total_feed_cost_pkr": 668418.96,
+    "total_overhead_cost_pkr": 0.0,
+    "total_invested_capital_pkr": 11966957.96,
+    "cost_per_head_all_in_pkr": 116184.06
+  },
+  "gain_and_efficiency_economics": {
+    "total_measured_weight_gain_kg": 670.0,
+    "feed_cost_per_kg_gain_pkr": 997.64,
+    "all_in_cost_per_kg_gain_pkr": 997.64,
+    "daily_feed_cost_per_head_pkr": 44.47
+  },
+  "valuation_and_margin": {
+    "total_herd_biomass_kg": 18182.0,
+    "assumed_live_rate_per_kg_pkr": 850,
+    "estimated_herd_market_value_pkr": 15454700.0,
+    "unrealized_gross_margin_pkr": 3487742.04,
+    "margin_status": "Profitable"
+  }
+}
+```
+
+---
+
+### 3.16 Nutritional Efficiency & Feed Conversion Ratio (FCR)
+Returns feed utilization efficiency: dry matter FCR (kg DMI per kg gain), total wet & dry matter tonnage fed, and cumulative commodity consumption breakdown.
+* **Route:** `GET /api/v1/analytics/feed-efficiency` (or `/api/v1/analytics/fcr`)
+* **Response Example (`200 OK`):**
+```json
+{
+  "success": true,
+  "feed_efficiency": {
+    "fcr_dry_matter_to_gain": 2.6,
+    "fcr_benchmark": "Excellent (<6.5)",
+    "total_wet_feed_tonnes": 25.15,
+    "total_dry_matter_tonnes": 1.74,
+    "total_weight_gain_measured_kg": 670.0,
+    "current_herd_biomass_kg": 18182.0
+  },
+  "commodity_consumption_kg": [
+    { "ingredient": "Corn Silage", "total_consumed_kg": 18500.0, "share_pct": 73.6 },
+    { "ingredient": "Wanda", "total_consumed_kg": 3200.0, "share_pct": 12.7 },
+    { "ingredient": "Wheat Straw", "total_consumed_kg": 2100.0, "share_pct": 8.3 },
+    { "ingredient": "Chokar", "total_consumed_kg": 1350.0, "share_pct": 5.4 }
+  ]
+}
+```
+
+---
+
 ## 4. POST Endpoints (Append-Only Actions)
 
 Every POST endpoint supports `"dry_run": true` for simulation. When `dry_run: false`:
@@ -838,6 +961,9 @@ https://www.bafoods.pk/api/mcp?key=ba_live_4ad74dc4971ed32e6454ea51aea9f3dfab943
 | :--- | :--- | :--- | :--- |
 | `get_animal_passport` | Query | Complete dossier for an animal: Mandi weight, landed arrival weight, purchase price, current weight, gain, lifetime ADG, cost of feed till yet, all weigh-ins, and all treatments. | `tag` (string, required) |
 | `get_cattle_weights` | Query | Historical weight logs across herd. Returns weights in kg, session ADG, dates, and recorders. | `tag`, `pen`, `start_date`, `end_date` |
+| `get_herd_analytics` | Query | Overall pooled herd ADG, 30-day rolling ADG, pen-by-pen ADG, breed breakdown, Days on Feed (DOF) cohorts, and slaughter-ready pipeline. | `days` (optional, default 30) |
+| `get_financial_analytics` | Query | Herd financial metrics: total procurement capital, feed expenses, overheads, total invested capital, blended feed cost of gain (PKR/kg), daily feed cost per head, and unrealized inventory valuation. | *(none)* |
+| `get_feed_efficiency` | Query | Herd Feed Conversion Ratio (FCR = dry matter intake ÷ weight gain), total wet/dry TMR tonnage fed, and cumulative commodity consumption breakdown. | `days` (optional, default 30) |
 | `get_pens` | Query | Live pen roster: head count, average animal weight, total pen biomass in kg, forage type, target ADG. | *(none)* |
 | `get_feed_logs` | Query | Daily TMR split-feeding logs with exact kg-by-kg ingredient breakdown. | `date`, `pen` |
 | `get_pen_checks` | Query | Morning and evening feed bunk scores ($0-100\%$) and flagged sick cattle. | `date` |

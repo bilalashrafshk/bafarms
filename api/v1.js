@@ -558,6 +558,299 @@ module.exports = async (req, res) => {
             }
 
             // -------------------------------------------------------------
+            // GET /api/v1/analytics/performance (or /api/v1/analytics/adg)
+            // Comprehensive Herd & Pen ADG, Breed breakdown, DOF Cohorts, and Sale-ready pipeline
+            // -------------------------------------------------------------
+            if (route === 'analytics/performance' || route === 'analytics/adg') {
+                const animalsRes = await client.query(`SELECT id, rfid, breed, pen, status, current_weight, entry_weight, entry_date, target_weight FROM ba_animals WHERE status NOT IN ('Sold', 'Deceased')`);
+                const weightsRes = await client.query(`SELECT animal_id, date, weight, adg FROM ba_weights ORDER BY animal_id ASC, date ASC`);
+                const pensRes = await client.query(`SELECT id, current_target_adg, forage_type FROM ba_pens`);
+                const withholdRes = await client.query(`
+                    SELECT DISTINCT a.rfid
+                    FROM ba_treatments t
+                    JOIN ba_animals a ON a.id = t.animal_id
+                    WHERE t.withholding > 0 AND (t.date + (t.withholding || ' days')::interval)::date >= CURRENT_DATE
+                `);
+
+                const animals = animalsRes.rows;
+                const weights = weightsRes.rows;
+                const activeWithholdingTags = new Set(withholdRes.rows.map(r => r.rfid));
+                const targetAdgMap = {};
+                pensRes.rows.forEach(p => { targetAdgMap[p.id.toUpperCase()] = p.current_target_adg ? parseFloat(p.current_target_adg) : null; });
+
+                const weightsByAnimal = new Map();
+                weights.forEach(w => {
+                    if (!weightsByAnimal.has(w.animal_id)) weightsByAnimal.set(w.animal_id, []);
+                    weightsByAnimal.get(w.animal_id).push(w);
+                });
+
+                let herdTotalGain = 0, herdTotalDays = 0;
+                let r30Gain = 0, r30Days = 0;
+                const thirtyDaysAgo = new Date();
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+                const penStats = {};
+                const breedStats = {};
+                const dofCohorts = {
+                    '0-30 days (Intake/Quarantine)': { count: 0, totalGain: 0, totalDays: 0, totalWeight: 0 },
+                    '31-60 days (Growing)': { count: 0, totalGain: 0, totalDays: 0, totalWeight: 0 },
+                    '61-90 days (Finishing)': { count: 0, totalGain: 0, totalDays: 0, totalWeight: 0 },
+                    '90+ days (Slaughter Ready)': { count: 0, totalGain: 0, totalDays: 0, totalWeight: 0 }
+                };
+
+                const readyForSale = [];
+
+                animals.forEach(a => {
+                    const penKey = (a.pen || 'UNASSIGNED').toUpperCase();
+                    const breedKey = a.breed || 'Cross';
+                    const curWeight = parseFloat(a.current_weight || 0);
+                    const entryWeight = parseFloat(a.entry_weight || 0);
+                    const targetWeight = a.target_weight ? parseFloat(a.target_weight) : 280;
+                    const dof = calcDof(a.entry_date);
+
+                    if (!penStats[penKey]) penStats[penKey] = { pen: penKey, head_count: 0, total_weight: 0, total_gain: 0, total_days: 0, target_adg: targetAdgMap[penKey] || null };
+                    if (!breedStats[breedKey]) breedStats[breedKey] = { breed: breedKey, head_count: 0, total_weight: 0, total_gain: 0, total_days: 0 };
+
+                    penStats[penKey].head_count++;
+                    penStats[penKey].total_weight += curWeight;
+                    breedStats[breedKey].head_count++;
+                    breedStats[breedKey].total_weight += curWeight;
+
+                    // Cohort assignment
+                    let cohortKey = '90+ days (Slaughter Ready)';
+                    if (dof <= 30) cohortKey = '0-30 days (Intake/Quarantine)';
+                    else if (dof <= 60) cohortKey = '31-60 days (Growing)';
+                    else if (dof <= 90) cohortKey = '61-90 days (Finishing)';
+                    dofCohorts[cohortKey].count++;
+                    dofCohorts[cohortKey].totalWeight += curWeight;
+
+                    // Check if ready for sale (weight reached and clear of withholding)
+                    if (curWeight >= targetWeight && !activeWithholdingTags.has(a.rfid)) {
+                        readyForSale.push({
+                            tag: a.rfid,
+                            pen: a.pen,
+                            breed: a.breed,
+                            current_weight_kg: curWeight,
+                            target_weight_kg: targetWeight,
+                            days_on_feed: dof,
+                            withholding_clear: true
+                        });
+                    }
+
+                    // ADG calculations across weigh-in intervals
+                    const history = weightsByAnimal.get(a.id) || [];
+                    for (let i = 1; i < history.length; i++) {
+                        const prev = history[i - 1];
+                        const cur = history[i];
+                        const d1 = new Date(prev.date);
+                        const d2 = new Date(cur.date);
+                        const days = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)));
+                        const gain = parseFloat(cur.weight) - parseFloat(prev.weight);
+
+                        // Skip pre-Aug-8 uncalibrated scale transition
+                        if (d2 < new Date('2026-08-08')) continue;
+
+                        herdTotalGain += gain;
+                        herdTotalDays += days;
+
+                        penStats[penKey].total_gain += gain;
+                        penStats[penKey].total_days += days;
+
+                        breedStats[breedKey].total_gain += gain;
+                        breedStats[breedKey].total_days += days;
+
+                        dofCohorts[cohortKey].totalGain += gain;
+                        dofCohorts[cohortKey].totalDays += days;
+
+                        if (d2 >= thirtyDaysAgo) {
+                            r30Gain += gain;
+                            r30Days += days;
+                        }
+                    }
+                });
+
+                const avgHerdAdg = herdTotalDays > 0 ? +(herdTotalGain / herdTotalDays).toFixed(2) : null;
+                const rolling30Adg = r30Days > 0 ? +(r30Gain / r30Days).toFixed(2) : avgHerdAdg;
+
+                return res.status(200).json({
+                    success: true,
+                    as_of_date: getTodayStr(),
+                    herd_kpis: {
+                        total_active_cattle: animals.length,
+                        total_herd_biomass_kg: +animals.reduce((sum, a) => sum + parseFloat(a.current_weight || 0), 0).toFixed(1),
+                        average_calf_weight_kg: animals.length > 0 ? +(animals.reduce((sum, a) => sum + parseFloat(a.current_weight || 0), 0) / animals.length).toFixed(1) : 0,
+                        overall_herd_adg_kg_day: avgHerdAdg,
+                        rolling_30day_adg_kg_day: rolling30Adg,
+                        total_monitored_animal_days: herdTotalDays,
+                        ready_for_sale_head_count: readyForSale.length
+                    },
+                    pen_performance: Object.values(penStats).map(p => {
+                        const actualAdg = p.total_days > 0 ? +(p.total_gain / p.total_days).toFixed(2) : null;
+                        const variance = (actualAdg !== null && p.target_adg !== null) ? +(actualAdg - p.target_adg).toFixed(2) : null;
+                        return {
+                            pen: p.pen,
+                            head_count: p.head_count,
+                            avg_weight_kg: p.head_count > 0 ? +(p.total_weight / p.head_count).toFixed(1) : 0,
+                            total_biomass_kg: +p.total_weight.toFixed(1),
+                            target_adg: p.target_adg,
+                            actual_adg: actualAdg,
+                            adg_variance: variance,
+                            performance_status: variance === null ? 'Pending Data' : variance >= 0 ? 'On/Ahead of Target' : 'Lagging Target'
+                        };
+                    }).sort((a, b) => a.pen.localeCompare(b.pen)),
+                    breed_breakdown: Object.values(breedStats).map(b => ({
+                        breed: b.breed,
+                        head_count: b.head_count,
+                        avg_weight_kg: b.head_count > 0 ? +(b.total_weight / b.head_count).toFixed(1) : 0,
+                        achieved_adg: b.total_days > 0 ? +(b.total_gain / b.total_days).toFixed(2) : null
+                    })),
+                    dof_cohorts: Object.entries(dofCohorts).map(([name, c]) => ({
+                        cohort: name,
+                        head_count: c.count,
+                        avg_weight_kg: c.count > 0 ? +(c.totalWeight / c.count).toFixed(1) : 0,
+                        achieved_adg: c.totalDays > 0 ? +(c.totalGain / c.totalDays).toFixed(2) : null
+                    })),
+                    ready_for_sale_pipeline: readyForSale
+                });
+            }
+
+            // -------------------------------------------------------------
+            // GET /api/v1/analytics/financials (or /api/v1/analytics/cost-of-gain)
+            // All-in Feedlot Financials: Procurement, Feed Spend, Overheads, Cost per kg Gain, Daily Feed/Head
+            // -------------------------------------------------------------
+            if (route === 'analytics/financials' || route === 'analytics/cost-of-gain') {
+                const animalsRes = await client.query(`SELECT id, purchase_price, current_weight, entry_weight FROM ba_animals WHERE status NOT IN ('Sold', 'Deceased')`);
+                const feedRes = await client.query(`SELECT COALESCE(SUM(total_cost), 0) as total_feed_cost, COALESCE(SUM(total_dm_kg), 0) as total_dm_kg, COALESCE(SUM(total_batch_kg), 0) as total_batch_kg, COUNT(*) as feed_sessions FROM ba_feed_logs`);
+                const expRes = await client.query(`SELECT COALESCE(SUM(amount), 0) as total_overhead FROM ba_overhead_expenses`);
+                const weightsRes = await client.query(`SELECT animal_id, date, weight FROM ba_weights ORDER BY animal_id, date`);
+
+                const totalPurchaseCost = animalsRes.rows.reduce((sum, a) => sum + parseFloat(a.purchase_price || 0), 0);
+                const totalFeedCost = parseFloat(feedRes.rows[0].total_feed_cost || 0);
+                const totalOverhead = parseFloat(expRes.rows[0].total_overhead || 0);
+                const totalAllInCost = totalPurchaseCost + totalFeedCost + totalOverhead;
+
+                // Net weight gain across all cattle
+                const weightsByAnimal = new Map();
+                weightsRes.rows.forEach(w => {
+                    if (!weightsByAnimal.has(w.animal_id)) weightsByAnimal.set(w.animal_id, []);
+                    weightsByAnimal.get(w.animal_id).push(w);
+                });
+
+                let totalGainKg = 0;
+                weightsByAnimal.forEach(list => {
+                    for (let i = 1; i < list.length; i++) {
+                        if (new Date(list[i].date) >= new Date('2026-08-08')) {
+                            totalGainKg += (parseFloat(list[i].weight) - parseFloat(list[i - 1].weight));
+                        }
+                    }
+                });
+
+                const feedCostPerKgGain = totalGainKg > 0 ? +(totalFeedCost / totalGainKg).toFixed(2) : null;
+                const allInCostPerKgGain = totalGainKg > 0 ? +((totalFeedCost + totalOverhead) / totalGainKg).toFixed(2) : null;
+
+                // Animal feeding head-days approximation
+                const headCount = Math.max(1, animalsRes.rows.length);
+                const feedSessions = parseInt(feedRes.rows[0].feed_sessions || 0);
+                const estimatedDays = Math.max(1, Math.round(feedSessions / 2));
+                const dailyFeedCostPerHead = estimatedDays > 0 ? +(totalFeedCost / (headCount * estimatedDays)).toFixed(2) : null;
+
+                // Estimated live cattle valuation (assuming market meat rate ~PKR 850/kg live weight)
+                const totalBiomassKg = animalsRes.rows.reduce((sum, a) => sum + parseFloat(a.current_weight || 0), 0);
+                const estimatedMarketRatePerKg = 850;
+                const estimatedHerdValuation = +(totalBiomassKg * estimatedMarketRatePerKg).toFixed(2);
+                const unrealizedPnL = +(estimatedHerdValuation - totalAllInCost).toFixed(2);
+
+                return res.status(200).json({
+                    success: true,
+                    financial_summary: {
+                        total_active_head: headCount,
+                        total_procurement_cost_pkr: +totalPurchaseCost.toFixed(2),
+                        avg_procurement_cost_per_head_pkr: +(totalPurchaseCost / headCount).toFixed(2),
+                        total_feed_cost_pkr: +totalFeedCost.toFixed(2),
+                        total_overhead_cost_pkr: +totalOverhead.toFixed(2),
+                        total_invested_capital_pkr: +totalAllInCost.toFixed(2),
+                        cost_per_head_all_in_pkr: +(totalAllInCost / headCount).toFixed(2)
+                    },
+                    gain_and_efficiency_economics: {
+                        total_measured_weight_gain_kg: +totalGainKg.toFixed(1),
+                        feed_cost_per_kg_gain_pkr: feedCostPerKgGain,
+                        all_in_cost_per_kg_gain_pkr: allInCostPerKgGain,
+                        daily_feed_cost_per_head_pkr: dailyFeedCostPerHead
+                    },
+                    valuation_and_margin: {
+                        total_herd_biomass_kg: +totalBiomassKg.toFixed(1),
+                        assumed_live_rate_per_kg_pkr: estimatedMarketRatePerKg,
+                        estimated_herd_market_value_pkr: estimatedHerdValuation,
+                        unrealized_gross_margin_pkr: unrealizedPnL,
+                        margin_status: unrealizedPnL >= 0 ? 'Profitable' : 'Investment Phase'
+                    }
+                });
+            }
+
+            // -------------------------------------------------------------
+            // GET /api/v1/analytics/feed-efficiency (or /api/v1/analytics/fcr)
+            // FCR, Dry Matter Intake % of Biomass, and Cumulative Commodity Consumption
+            // -------------------------------------------------------------
+            if (route === 'analytics/feed-efficiency' || route === 'analytics/fcr') {
+                const feedRes = await client.query(`SELECT total_batch_kg, total_dm_kg, ingredients FROM ba_feed_logs`);
+                const animalsRes = await client.query(`SELECT current_weight FROM ba_animals WHERE status NOT IN ('Sold', 'Deceased')`);
+                const weightsRes = await client.query(`SELECT animal_id, date, weight FROM ba_weights ORDER BY animal_id, date`);
+
+                let totalWetKg = 0;
+                let totalDmKg = 0;
+                const ingredientTotals = {};
+
+                feedRes.rows.forEach(f => {
+                    totalWetKg += parseFloat(f.total_batch_kg || 0);
+                    totalDmKg += parseFloat(f.total_dm_kg || 0);
+                    const ings = Array.isArray(f.ingredients) ? f.ingredients : [];
+                    ings.forEach(ing => {
+                        const name = ing.name || 'Other';
+                        const kg = parseFloat(ing.kg || 0);
+                        ingredientTotals[name] = (ingredientTotals[name] || 0) + kg;
+                    });
+                });
+
+                // Weight gain
+                const weightsByAnimal = new Map();
+                weightsRes.rows.forEach(w => {
+                    if (!weightsByAnimal.has(w.animal_id)) weightsByAnimal.set(w.animal_id, []);
+                    weightsByAnimal.get(w.animal_id).push(w);
+                });
+
+                let totalGainKg = 0;
+                weightsByAnimal.forEach(list => {
+                    for (let i = 1; i < list.length; i++) {
+                        if (new Date(list[i].date) >= new Date('2026-08-08')) {
+                            totalGainKg += (parseFloat(list[i].weight) - parseFloat(list[i - 1].weight));
+                        }
+                    }
+                });
+
+                const fcr = (totalGainKg > 0 && totalDmKg > 0) ? +(totalDmKg / totalGainKg).toFixed(2) : null;
+                const totalBiomass = animalsRes.rows.reduce((sum, a) => sum + parseFloat(a.current_weight || 0), 0);
+
+                return res.status(200).json({
+                    success: true,
+                    feed_efficiency: {
+                        fcr_dry_matter_to_gain: fcr,
+                        fcr_benchmark: fcr === null ? 'Pending Data' : fcr <= 6.5 ? 'Excellent (<6.5)' : fcr <= 8.5 ? 'Normal (6.5-8.5)' : 'High Feed Intake (>8.5)',
+                        total_wet_feed_tonnes: +(totalWetKg / 1000).toFixed(2),
+                        total_dry_matter_tonnes: +(totalDmKg / 1000).toFixed(2),
+                        total_weight_gain_measured_kg: +totalGainKg.toFixed(1),
+                        current_herd_biomass_kg: +totalBiomass.toFixed(1)
+                    },
+                    commodity_consumption_kg: Object.entries(ingredientTotals)
+                        .map(([name, kg]) => ({
+                            ingredient: name,
+                            total_consumed_kg: +kg.toFixed(1),
+                            share_pct: totalWetKg > 0 ? +((kg / totalWetKg) * 100).toFixed(1) : 0
+                        }))
+                        .sort((a, b) => b.total_consumed_kg - a.total_consumed_kg)
+                });
+            }
+
+            // -------------------------------------------------------------
             // GET /api/v1/feed/logs
             // -------------------------------------------------------------
             if (route === 'feed/logs' || route === 'feed') {
@@ -757,6 +1050,9 @@ module.exports = async (req, res) => {
                     '/api/v1/inventory/summary',
                     '/api/v1/purchasing/history?start_date=<YYYY-MM-DD>&item_name=<NAME>',
                     '/api/v1/premix/formulas',
+                    '/api/v1/analytics/performance',
+                    '/api/v1/analytics/financials',
+                    '/api/v1/analytics/feed-efficiency',
                     '/api/v1/system/approval-mode'
                 ],
                 available_post_routes: [

@@ -158,6 +158,30 @@ const TOOLS = [
         }
     },
     {
+        name: 'get_herd_analytics',
+        description: 'Get comprehensive feedlot growth & performance analytics: Overall Herd Average ADG (kg/day), 30-day rolling ADG, Pen-by-pen ADG and biomass, breed performance, Days on Feed (DOF) cohorts, and cattle currently ready for slaughter/sale.',
+        inputSchema: {
+            type: 'object',
+            properties: {}
+        }
+    },
+    {
+        name: 'get_financial_analytics',
+        description: 'Get feedlot economics & financial KPIs: Total cattle procurement capital, cumulative feed spend, overhead expenses, total invested capital, blended feed cost per kg gain (PKR/kg), and daily feed cost per head.',
+        inputSchema: {
+            type: 'object',
+            properties: {}
+        }
+    },
+    {
+        name: 'get_feed_efficiency',
+        description: 'Get nutritional efficiency analytics: Feed Conversion Ratio (FCR = dry matter intake ÷ weight gain), total wet/dry TMR tonnage fed, and cumulative commodity consumption breakdown (Silage, Maize, Gluten, Chokar, Urea, etc.).',
+        inputSchema: {
+            type: 'object',
+            properties: {}
+        }
+    },
+    {
         name: 'add_feed_log',
         description: 'Record a daily TMR split-feeding for a pen. Subject to biological sanity clamps and Admin Approval if in Junior Employee mode.',
         inputSchema: {
@@ -342,6 +366,18 @@ async function executeToolCall(toolName, args, apiKey) {
             const query = {};
             if (args.date) query.date = args.date;
             const res = await dispatchToV1('GET', 'compliance/summary', query, null, apiKey);
+            return res.data;
+        }
+        case 'get_herd_analytics': {
+            const res = await dispatchToV1('GET', 'analytics/performance', {}, null, apiKey);
+            return res.data;
+        }
+        case 'get_financial_analytics': {
+            const res = await dispatchToV1('GET', 'analytics/financials', {}, null, apiKey);
+            return res.data;
+        }
+        case 'get_feed_efficiency': {
+            const res = await dispatchToV1('GET', 'analytics/feed-efficiency', {}, null, apiKey);
             return res.data;
         }
         case 'add_feed_log': {
