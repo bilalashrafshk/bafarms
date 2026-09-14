@@ -159,6 +159,26 @@ function calcDof(entryDateStr) {
     return Math.max(0, Math.round((today - entry) / (1000 * 60 * 60 * 24)));
 }
 
+// =========================================================================
+// DOMAIN FILTERS: One-Off Corrupted Intake Window Exclusion & Baseline Rules
+// Mirrored 1-to-1 with SmartHerd Portal (Dashboard.jsx, WeightTracker.jsx, CostOfGainReport.jsx, laggers.js)
+// 08-Aug-2026 is the valid calibrated baseline starting date across the herd.
+// 2026-07-29 and 2026-08-02 entries were recorded on an uncalibrated intake scale.
+// =========================================================================
+const isCorruptedWeighDate = (d) => {
+    if (!d) return false;
+    const str = String(d);
+    return str.startsWith('2026-07-29') || str.startsWith('2026-08-02');
+};
+
+const isCorruptedAdgDate = (d) => isCorruptedWeighDate(d) || (d && String(d).startsWith('2026-08-08'));
+
+const isPreBaselineFeedDate = (d) => {
+    if (!d) return false;
+    const str = String(d);
+    return str < '2026-08-08';
+};
+
 // Check whether AI entries are currently in "Junior Employee" mode (subject to approval)
 // or "Normal Staff" mode (direct commit). Defaults to true (Junior Employee).
 async function isAiApprovalRequired(client, req, bodyOverride) {
@@ -335,6 +355,7 @@ module.exports = async (req, res) => {
             if (route === 'cattle/passport') {
                 const tag = query.tag || query.rfid || query.id;
                 const animal = await resolveAnimal(client, tag);
+                const includeUncalibrated = query.include_uncalibrated === 'true' || query.include_corrupted === 'true';
 
                 const weightsRes = await client.query(`SELECT date, weight, adg FROM ba_weights WHERE animal_id = $1 ORDER BY date ASC`, [animal.id]);
                 const treatmentsRes = await client.query(`SELECT date, type, medicine, dosage, withholding, notes FROM ba_treatments WHERE animal_id = $1 ORDER BY date DESC`, [animal.id]);
@@ -349,11 +370,16 @@ module.exports = async (req, res) => {
                     return safeDate >= today;
                 });
 
+                // Post-baseline feed logs (08-Aug-2026 onwards) matching portal filter
                 const feedCostRes = await client.query(`
                     SELECT COALESCE(SUM(cost_per_animal), 0) as total_feed_cost, COUNT(*) as feed_sessions
                     FROM ba_feed_logs
-                    WHERE UPPER(pen) = UPPER($1) AND date >= $2
+                    WHERE UPPER(pen) = UPPER($1) AND date >= $2 AND date >= '2026-08-08'
                 `, [animal.pen || 'A', animal.entry_date || '2000-01-01']);
+
+                const cleanWeights = includeUncalibrated
+                    ? weightsRes.rows
+                    : weightsRes.rows.filter(w => !isCorruptedWeighDate(w.date));
 
                 const dof = calcDof(animal.entry_date);
                 const currentWeight = parseFloat(animal.current_weight || 0);
@@ -361,6 +387,20 @@ module.exports = async (req, res) => {
                 const mandiWeight = animal.mandi_weight ? parseFloat(animal.mandi_weight) : null;
                 const gainKg = (currentWeight > 0 && entryWeight > 0) ? +(currentWeight - entryWeight).toFixed(1) : 0;
                 const lifetimeAdg = (dof > 0 && gainKg !== null) ? +(gainKg / dof).toFixed(2) : null;
+
+                // Calibrated baseline gain & ADG (from 2026-08-08 onwards)
+                let calibratedGain = null;
+                let calibratedAdg = null;
+                if (cleanWeights.length >= 2) {
+                    const firstW = cleanWeights[0];
+                    const lastW = cleanWeights[cleanWeights.length - 1];
+                    const d1 = new Date(firstW.date);
+                    const d2 = new Date(lastW.date);
+                    const cDays = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)));
+                    calibratedGain = +(parseFloat(lastW.weight) - parseFloat(firstW.weight)).toFixed(1);
+                    calibratedAdg = +(calibratedGain / cDays).toFixed(2);
+                }
+
                 const feedCostToDate = parseFloat(feedCostRes.rows[0]?.total_feed_cost || 0);
                 const purchasePrice = animal.purchase_price ? parseFloat(animal.purchase_price) : null;
                 const mandiPrice = animal.mandi_price ? parseFloat(animal.mandi_price) : null;
@@ -383,6 +423,8 @@ module.exports = async (req, res) => {
                         entry_date: animal.entry_date,
                         days_on_feed: dof,
                         lifetime_adg: lifetimeAdg,
+                        calibrated_baseline_adg: calibratedAdg,
+                        calibrated_gain_kg: calibratedGain,
                         mandi_price_pkr: mandiPrice,
                         landed_purchase_price_pkr: purchasePrice,
                         procurement_breakdown: {
@@ -399,10 +441,11 @@ module.exports = async (req, res) => {
                         under_withholding: activeWithholding.length > 0,
                         active_withholdings: activeWithholding
                     },
-                    weight_history: weightsRes.rows.map(w => ({
+                    weight_history: cleanWeights.map(w => ({
                         date: w.date,
                         weight_kg: parseFloat(w.weight),
-                        adg: w.adg ? parseFloat(w.adg) : null
+                        adg: isCorruptedAdgDate(w.date) ? null : (w.adg ? parseFloat(w.adg) : null),
+                        is_uncalibrated_intake: isCorruptedWeighDate(w.date)
                     })),
                     treatments: treatmentsRes.rows.map(t => ({
                         id: t.id,
@@ -410,18 +453,26 @@ module.exports = async (req, res) => {
                         type: t.type,
                         medicine: t.medicine,
                         dosage: t.dosage,
-                        withholding_days: t.withholding,
-                        notes: t.notes
+                        withholding_days: t.withholding || 0,
+                        notes: t.notes || null
                     })),
-                    lifecycle_events: eventsRes.rows
+                    events: eventsRes.rows.map(e => ({
+                        date: e.date,
+                        event_type: e.event_type,
+                        from_pen: e.from_pen,
+                        to_pen: e.to_pen,
+                        note: e.note
+                    }))
                 });
             }
 
             // -------------------------------------------------------------
             // GET /api/v1/cattle/weights
             // Complete historical weight logs across the herd (filterable by tag, pen, date)
+            // Enforces portal one-off corrupted intake filter (2026-07-29 & 2026-08-02 excluded by default)
             // -------------------------------------------------------------
             if (route === 'cattle/weights' || route === 'cattle/weight') {
+                const includeUncalibrated = query.include_uncalibrated === 'true' || query.include_corrupted === 'true';
                 let sql = `
                     SELECT w.id, w.animal_id, a.rfid as tag, a.pen, a.breed, w.date, w.weight, w.adg, w.created_by
                     FROM ba_weights w
@@ -429,6 +480,10 @@ module.exports = async (req, res) => {
                     WHERE 1=1
                 `;
                 const params = [];
+
+                if (!includeUncalibrated) {
+                    sql += ` AND w.date NOT IN ('2026-07-29', '2026-08-02')`;
+                }
 
                 if (query.tag || query.rfid) {
                     const cleanTag = String(query.tag || query.rfid).replace(/^(tag|tag\s*#|#)\s*/i, '').trim();
@@ -459,7 +514,9 @@ module.exports = async (req, res) => {
                         tag: query.tag || query.rfid || 'ALL',
                         pen: query.pen || 'ALL',
                         start_date: query.start_date || null,
-                        end_date: query.end_date || null
+                        end_date: query.end_date || null,
+                        include_uncalibrated: includeUncalibrated,
+                        one_off_intake_filter_applied: !includeUncalibrated
                     },
                     weight_logs: result.rows.map(w => ({
                         id: w.id,
@@ -469,7 +526,8 @@ module.exports = async (req, res) => {
                         breed: w.breed,
                         date: w.date,
                         weight_kg: parseFloat(w.weight),
-                        adg: w.adg ? parseFloat(w.adg) : null,
+                        adg: isCorruptedAdgDate(w.date) ? null : (w.adg ? parseFloat(w.adg) : null),
+                        is_uncalibrated_intake: isCorruptedWeighDate(w.date),
                         logged_by: w.created_by
                     }))
                 });
@@ -580,6 +638,7 @@ module.exports = async (req, res) => {
 
                 const weightsByAnimal = new Map();
                 weights.forEach(w => {
+                    if (isCorruptedWeighDate(w.date)) return; // Exclude pre-08-Aug uncalibrated intake scale entries
                     if (!weightsByAnimal.has(w.animal_id)) weightsByAnimal.set(w.animal_id, []);
                     weightsByAnimal.get(w.animal_id).push(w);
                 });
@@ -642,13 +701,11 @@ module.exports = async (req, res) => {
                     for (let i = 1; i < history.length; i++) {
                         const prev = history[i - 1];
                         const cur = history[i];
+                        if (isCorruptedWeighDate(prev.date) || isCorruptedWeighDate(cur.date)) continue;
                         const d1 = new Date(prev.date);
                         const d2 = new Date(cur.date);
                         const days = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)));
                         const gain = parseFloat(cur.weight) - parseFloat(prev.weight);
-
-                        // Skip pre-Aug-8 uncalibrated scale transition
-                        if (d2 < new Date('2026-08-08')) continue;
 
                         herdTotalGain += gain;
                         herdTotalDays += days;
@@ -675,6 +732,11 @@ module.exports = async (req, res) => {
                 return res.status(200).json({
                     success: true,
                     as_of_date: getTodayStr(),
+                    one_off_filter: {
+                        applied: true,
+                        uncalibrated_intake_dates_excluded: ['2026-07-29', '2026-08-02'],
+                        calibrated_baseline_date: '2026-08-08'
+                    },
                     herd_kpis: {
                         total_active_cattle: animals.length,
                         total_herd_biomass_kg: +animals.reduce((sum, a) => sum + parseFloat(a.current_weight || 0), 0).toFixed(1),
@@ -717,10 +779,11 @@ module.exports = async (req, res) => {
             // -------------------------------------------------------------
             // GET /api/v1/analytics/financials (or /api/v1/analytics/cost-of-gain)
             // All-in Feedlot Financials: Procurement, Feed Spend, Overheads, Cost per kg Gain, Daily Feed/Head
+            // Enforces portal baseline filter: feed logs date >= 2026-08-08 & uncalibrated weights excluded
             // -------------------------------------------------------------
             if (route === 'analytics/financials' || route === 'analytics/cost-of-gain') {
                 const animalsRes = await client.query(`SELECT id, purchase_price, current_weight, entry_weight FROM ba_animals WHERE status NOT IN ('Sold', 'Deceased')`);
-                const feedRes = await client.query(`SELECT COALESCE(SUM(total_cost), 0) as total_feed_cost, COALESCE(SUM(total_dm_kg), 0) as total_dm_kg, COALESCE(SUM(total_batch_kg), 0) as total_batch_kg, COUNT(*) as feed_sessions FROM ba_feed_logs`);
+                const feedRes = await client.query(`SELECT COALESCE(SUM(total_cost), 0) as total_feed_cost, COALESCE(SUM(total_dm_kg), 0) as total_dm_kg, COALESCE(SUM(total_batch_kg), 0) as total_batch_kg, COUNT(*) as feed_sessions FROM ba_feed_logs WHERE date >= '2026-08-08' AND total_cost > 0`);
                 const expRes = await client.query(`SELECT COALESCE(SUM(amount), 0) as total_overhead FROM ba_overhead_expenses`);
                 const weightsRes = await client.query(`SELECT animal_id, date, weight FROM ba_weights ORDER BY animal_id, date`);
 
@@ -729,9 +792,10 @@ module.exports = async (req, res) => {
                 const totalOverhead = parseFloat(expRes.rows[0].total_overhead || 0);
                 const totalAllInCost = totalPurchaseCost + totalFeedCost + totalOverhead;
 
-                // Net weight gain across all cattle
+                // Net weight gain across calibrated post-baseline transitions
                 const weightsByAnimal = new Map();
                 weightsRes.rows.forEach(w => {
+                    if (isCorruptedWeighDate(w.date)) return;
                     if (!weightsByAnimal.has(w.animal_id)) weightsByAnimal.set(w.animal_id, []);
                     weightsByAnimal.get(w.animal_id).push(w);
                 });
@@ -739,9 +803,10 @@ module.exports = async (req, res) => {
                 let totalGainKg = 0;
                 weightsByAnimal.forEach(list => {
                     for (let i = 1; i < list.length; i++) {
-                        if (new Date(list[i].date) >= new Date('2026-08-08')) {
-                            totalGainKg += (parseFloat(list[i].weight) - parseFloat(list[i - 1].weight));
-                        }
+                        const prev = list[i - 1];
+                        const cur = list[i];
+                        if (isCorruptedWeighDate(prev.date) || isCorruptedWeighDate(cur.date)) continue;
+                        totalGainKg += (parseFloat(cur.weight) - parseFloat(prev.weight));
                     }
                 });
 
@@ -762,6 +827,11 @@ module.exports = async (req, res) => {
 
                 return res.status(200).json({
                     success: true,
+                    one_off_filter: {
+                        applied: true,
+                        pre_baseline_feed_excluded: 'date < 2026-08-08',
+                        uncalibrated_intake_dates_excluded: ['2026-07-29', '2026-08-02']
+                    },
                     financial_summary: {
                         total_active_head: headCount,
                         total_procurement_cost_pkr: +totalPurchaseCost.toFixed(2),
@@ -790,9 +860,10 @@ module.exports = async (req, res) => {
             // -------------------------------------------------------------
             // GET /api/v1/analytics/feed-efficiency (or /api/v1/analytics/fcr)
             // FCR, Dry Matter Intake % of Biomass, and Cumulative Commodity Consumption
+            // Enforces portal baseline filter: feed logs date >= 2026-08-08 & uncalibrated weights excluded
             // -------------------------------------------------------------
             if (route === 'analytics/feed-efficiency' || route === 'analytics/fcr') {
-                const feedRes = await client.query(`SELECT total_batch_kg, total_dm_kg, ingredients FROM ba_feed_logs`);
+                const feedRes = await client.query(`SELECT date, total_batch_kg, total_dm_kg, ingredients FROM ba_feed_logs WHERE date >= '2026-08-08'`);
                 const animalsRes = await client.query(`SELECT current_weight FROM ba_animals WHERE status NOT IN ('Sold', 'Deceased')`);
                 const weightsRes = await client.query(`SELECT animal_id, date, weight FROM ba_weights ORDER BY animal_id, date`);
 
@@ -811,9 +882,10 @@ module.exports = async (req, res) => {
                     });
                 });
 
-                // Weight gain
+                // Weight gain across valid calibrated transitions
                 const weightsByAnimal = new Map();
                 weightsRes.rows.forEach(w => {
+                    if (isCorruptedWeighDate(w.date)) return;
                     if (!weightsByAnimal.has(w.animal_id)) weightsByAnimal.set(w.animal_id, []);
                     weightsByAnimal.get(w.animal_id).push(w);
                 });
@@ -821,9 +893,10 @@ module.exports = async (req, res) => {
                 let totalGainKg = 0;
                 weightsByAnimal.forEach(list => {
                     for (let i = 1; i < list.length; i++) {
-                        if (new Date(list[i].date) >= new Date('2026-08-08')) {
-                            totalGainKg += (parseFloat(list[i].weight) - parseFloat(list[i - 1].weight));
-                        }
+                        const prev = list[i - 1];
+                        const cur = list[i];
+                        if (isCorruptedWeighDate(prev.date) || isCorruptedWeighDate(cur.date)) continue;
+                        totalGainKg += (parseFloat(cur.weight) - parseFloat(prev.weight));
                     }
                 });
 
@@ -832,6 +905,11 @@ module.exports = async (req, res) => {
 
                 return res.status(200).json({
                     success: true,
+                    one_off_filter: {
+                        applied: true,
+                        pre_baseline_feed_excluded: 'date < 2026-08-08',
+                        uncalibrated_intake_dates_excluded: ['2026-07-29', '2026-08-02']
+                    },
                     feed_efficiency: {
                         fcr_dry_matter_to_gain: fcr,
                         fcr_benchmark: fcr === null ? 'Pending Data' : fcr <= 6.5 ? 'Excellent (<6.5)' : fcr <= 8.5 ? 'Normal (6.5-8.5)' : 'High Feed Intake (>8.5)',
@@ -847,6 +925,107 @@ module.exports = async (req, res) => {
                             share_pct: totalWetKg > 0 ? +((kg / totalWetKg) * 100).toFixed(1) : 0
                         }))
                         .sort((a, b) => b.total_consumed_kg - a.total_consumed_kg)
+                });
+            }
+
+            // -------------------------------------------------------------
+            // GET /api/v1/feed/items (or /api/v1/feed/catalog or /api/v1/inventory/items)
+            // Complete unified catalog of all unique feed items we have or have ever had
+            // -------------------------------------------------------------
+            if (route === 'feed/items' || route === 'feed/catalog' || route === 'inventory/items') {
+                const stockRes = await client.query("SELECT value FROM ba_settings WHERE key = 'feed_stock_items'");
+                const rawStock = stockRes.rows[0]?.value;
+                const stockItems = typeof rawStock === 'string' ? JSON.parse(rawStock) : (rawStock || []);
+
+                const purchasesRes = await client.query(`
+                    SELECT item_name, count(*) as purchase_count, sum(quantity) as total_quantity_purchased, 
+                           max(date) as last_purchased_date, max(supplier) as primary_supplier
+                    FROM ba_feed_purchases
+                    GROUP BY item_name
+                    ORDER BY purchase_count DESC
+                `);
+
+                const feedLogsRes = await client.query(`SELECT ingredients FROM ba_feed_logs WHERE ingredients IS NOT NULL`);
+                const fedMap = new Map();
+                feedLogsRes.rows.forEach(r => {
+                    const ings = Array.isArray(r.ingredients) ? r.ingredients : [];
+                    ings.forEach(i => {
+                        if (!i.name) return;
+                        const existing = fedMap.get(i.name) || { feeding_sessions: 0, total_kg_fed: 0 };
+                        existing.feeding_sessions++;
+                        existing.total_kg_fed += parseFloat(i.kg || 0);
+                        fedMap.set(i.name, existing);
+                    });
+                });
+
+                // Classification
+                const feedCommoditiesSet = new Set();
+                const wandaRecipesSet = new Set();
+                const supplementsAndMineralsSet = new Set();
+                const medicinesAndSuppliesSet = new Set();
+
+                // 1. Ingest stock items
+                stockItems.forEach(item => {
+                    const cat = (item.category || 'feed').toLowerCase();
+                    const name = item.name.trim();
+                    if (cat === 'medicine' || cat === 'supply') {
+                        medicinesAndSuppliesSet.add(name);
+                    } else if (item.isPremix) {
+                        wandaRecipesSet.add(name);
+                        feedCommoditiesSet.add(name);
+                    } else {
+                        feedCommoditiesSet.add(name);
+                    }
+                });
+
+                // 2. Ingest purchases
+                purchasesRes.rows.forEach(p => {
+                    const name = p.item_name.trim();
+                    // Check if matched in medicines
+                    const matchedStock = stockItems.find(s => s.name.toLowerCase() === name.toLowerCase());
+                    if (matchedStock && (matchedStock.category === 'medicine' || matchedStock.category === 'supply')) {
+                        medicinesAndSuppliesSet.add(name);
+                    } else {
+                        // Check common medicine keywords
+                        const isMed = /inj|syring|needle|drip|spray|bandage|drench|powder|thermometer|pydoine|panacort|oxafax|pulmovac|amovet|endectin|tribrisen|ivotec/i.test(name);
+                        if (isMed) {
+                            medicinesAndSuppliesSet.add(name);
+                        } else {
+                            feedCommoditiesSet.add(name);
+                        }
+                    }
+                });
+
+                // 3. Ingest fed items
+                fedMap.forEach((val, name) => {
+                    feedCommoditiesSet.add(name.trim());
+                });
+
+                return res.status(200).json({
+                    success: true,
+                    total_unique_feed_items: feedCommoditiesSet.size,
+                    feed_commodities_and_wanda: Array.from(feedCommoditiesSet).sort(),
+                    active_inventory_stock_items: stockItems
+                        .filter(i => (i.category || 'feed') === 'feed')
+                        .map(i => ({
+                            id: i.id,
+                            name: i.name,
+                            unit: i.unit || 'kg',
+                            is_inhouse_wanda_premix: !!i.isPremix
+                        })),
+                    historical_purchases_summary: purchasesRes.rows.map(p => ({
+                        item_name: p.item_name,
+                        total_receipts: parseInt(p.purchase_count),
+                        total_quantity: +parseFloat(p.total_quantity_purchased || 0).toFixed(1),
+                        last_purchased: p.last_purchased_date,
+                        supplier: p.primary_supplier
+                    })),
+                    historical_bunk_dispensed_summary: Array.from(fedMap.entries()).map(([name, stat]) => ({
+                        ingredient_name: name,
+                        feeding_sessions: stat.feeding_sessions,
+                        total_kg_dispensed: +stat.total_kg_fed.toFixed(1)
+                    })).sort((a, b) => b.total_kg_dispensed - a.total_kg_dispensed),
+                    veterinary_medicines_and_supplies: Array.from(medicinesAndSuppliesSet).sort()
                 });
             }
 
@@ -985,11 +1164,9 @@ module.exports = async (req, res) => {
             // Active Wanda recipes, inclusion rates, and raw material directory
             // -------------------------------------------------------------
             if (route === 'premix/formulas' || route === 'premix') {
-                const [typesRes, formulasRes, stockRes] = await Promise.all([
-                    client.query("SELECT value FROM ba_settings WHERE key = 'premix_types'"),
-                    client.query("SELECT value FROM ba_settings WHERE key = 'premix_formulas'"),
-                    client.query("SELECT value FROM ba_settings WHERE key = 'feed_stock_items'")
-                ]);
+                const typesRes = await client.query("SELECT value FROM ba_settings WHERE key = 'premix_types'");
+                const formulasRes = await client.query("SELECT value FROM ba_settings WHERE key = 'premix_formulas'");
+                const stockRes = await client.query("SELECT value FROM ba_settings WHERE key = 'feed_stock_items'");
 
                 const parse = (v) => typeof v === 'string' ? JSON.parse(v) : v;
                 const types = parse(typesRes.rows[0]?.value) || [];
@@ -1026,17 +1203,14 @@ module.exports = async (req, res) => {
                 const isRequired = await isAiApprovalRequired(client, req, query);
                 return res.status(200).json({
                     success: true,
-                    ai_require_approval: isRequired,
-                    mode: isRequired ? 'junior_employee' : 'normal_staff',
-                    description: isRequired
-                        ? 'Junior Employee Mode active. All AI tasks (feed logs, cattle weights, treatments, purchases, wanda mixing) are held in ba_pending_approvals for Admin review.'
-                        : 'Normal SmartHerd Staff Mode active. Valid AI entries commit directly to production records with active biological sanity clamps.'
+                    approval_required: isRequired,
+                    mode: isRequired ? 'Junior Employee (Pending Approval Queue)' : 'Normal Staff (Direct Commit)'
                 });
             }
 
-            return res.status(200).json({
-                success: true,
-                message: 'BA Foods M2M & AI Integration API (v1) Online.',
+            return res.status(404).json({
+                error: 'NOT_FOUND',
+                message: `Unknown GET route "/api/v1/${route}".`,
                 available_get_routes: [
                     '/api/v1/compliance/summary',
                     '/api/v1/cattle/roster',
@@ -1048,6 +1222,7 @@ module.exports = async (req, res) => {
                     '/api/v1/health/withholding',
                     '/api/v1/tasks/upcoming',
                     '/api/v1/inventory/summary',
+                    '/api/v1/feed/items',
                     '/api/v1/purchasing/history?start_date=<YYYY-MM-DD>&item_name=<NAME>',
                     '/api/v1/premix/formulas',
                     '/api/v1/analytics/performance',

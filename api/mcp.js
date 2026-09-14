@@ -182,6 +182,14 @@ const TOOLS = [
         }
     },
     {
+        name: 'get_feed_items',
+        description: 'Get the complete, unified directory of all unique feed commodities, Wanda recipes, forages, and supplements the farm currently has in inventory or has ever purchased/fed historically. Separates feed commodities from veterinary medicines.',
+        inputSchema: {
+            type: 'object',
+            properties: {}
+        }
+    },
+    {
         name: 'add_feed_log',
         description: 'Record a daily TMR split-feeding for a pen. Subject to biological sanity clamps and Admin Approval if in Junior Employee mode.',
         inputSchema: {
@@ -378,6 +386,10 @@ async function executeToolCall(toolName, args, apiKey) {
         }
         case 'get_feed_efficiency': {
             const res = await dispatchToV1('GET', 'analytics/feed-efficiency', {}, null, apiKey);
+            return res.data;
+        }
+        case 'get_feed_items': {
+            const res = await dispatchToV1('GET', 'feed/items', {}, null, apiKey);
             return res.data;
         }
         case 'add_feed_log': {

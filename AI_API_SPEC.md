@@ -525,6 +525,67 @@ Returns feed utilization efficiency: dry matter FCR (kg DMI per kg gain), total 
 
 ---
 
+### 3.17 Unified Feed Commodities & Historical Catalog
+Returns the complete, unified catalog of every unique feed commodity, manufactured Wanda recipe, forage, mineral/buffer, and supplement the farm currently stocks in active inventory or has ever purchased or bunk-dispensed historically. Automatically filters and categorizes feedstuffs away from veterinary medicines and clinic supplies.
+
+* **Route:** `GET /api/v1/feed/items` (Alias: `/api/v1/feed/catalog`, `/api/v1/inventory/items`)
+* **Gemini Spark Tool:** `get_feed_items`
+* **Response (`200 OK`):**
+```json
+{
+  "success": true,
+  "total_unique_feed_items": 30,
+  "feed_commodities_and_wanda": [
+    "Base Wanda",
+    "Chari",
+    "Chari (Green Fodder)",
+    "Choker",
+    "Corn Silage",
+    "Cottonseed Cake",
+    "Gluten Feed",
+    "Gur",
+    "Limestone",
+    "Maize Grain Ground",
+    "Mineral Pack",
+    "Molasses",
+    "Monensin",
+    "Potato",
+    "Potato Max Wanda",
+    "Single Bag Wanda (W MGF)",
+    "Sodium Bicarbonate (Meetha Soda)",
+    "Steady State Wanda",
+    "Toxin Binder",
+    "Urea",
+    "Wheat Straw (Toori)"
+  ],
+  "active_inventory_stock_items": [
+    { "id": "silage", "name": "Corn Silage", "unit": "kg", "is_inhouse_wanda_premix": false },
+    { "id": "premix_1787170372798", "name": "Single Bag Wanda (W MGF)", "unit": "kg", "is_inhouse_wanda_premix": true },
+    { "id": "premix_1787943334876", "name": "Potato Max Wanda", "unit": "kg", "is_inhouse_wanda_premix": true }
+  ],
+  "historical_purchases_summary": [
+    { "item_name": "Single Bag Wanda (W MGF)", "total_receipts": 12, "total_quantity": 600.0, "last_purchased": "2026-09-08", "supplier": "Al-Rehman Traders" },
+    { "item_name": "Corn Silage", "total_receipts": 4, "total_quantity": 25000.0, "last_purchased": "2026-08-28", "supplier": "Direct Farm Silo" }
+  ],
+  "historical_bunk_dispensed_summary": [
+    { "ingredient_name": "Corn Silage", "feeding_sessions": 210, "total_kg_dispensed": 18500.0 },
+    { "ingredient_name": "Single Bag Wanda (W MGF)", "feeding_sessions": 98, "total_kg_dispensed": 3200.0 }
+  ],
+  "veterinary_medicines_and_supplies": [
+    "Amivicom",
+    "Amovet inj 100ml",
+    "Atropine",
+    "B complex",
+    "BD 20ML",
+    "Endectin 100ML",
+    "Inj. Panacort 50",
+    "Needle 16 3/4"
+  ]
+}
+```
+
+---
+
 ## 4. POST Endpoints (Append-Only Actions)
 
 Every POST endpoint supports `"dry_run": true` for simulation. When `dry_run: false`:
@@ -964,6 +1025,7 @@ https://www.bafoods.pk/api/mcp?key=ba_live_4ad74dc4971ed32e6454ea51aea9f3dfab943
 | `get_herd_analytics` | Query | Overall pooled herd ADG, 30-day rolling ADG, pen-by-pen ADG, breed breakdown, Days on Feed (DOF) cohorts, and slaughter-ready pipeline. | `days` (optional, default 30) |
 | `get_financial_analytics` | Query | Herd financial metrics: total procurement capital, feed expenses, overheads, total invested capital, blended feed cost of gain (PKR/kg), daily feed cost per head, and unrealized inventory valuation. | *(none)* |
 | `get_feed_efficiency` | Query | Herd Feed Conversion Ratio (FCR = dry matter intake ÷ weight gain), total wet/dry TMR tonnage fed, and cumulative commodity consumption breakdown. | `days` (optional, default 30) |
+| `get_feed_items` | Query | Complete unified directory of all unique feed commodities, Wanda formulations, forages, and supplements ever stocked, purchased, or fed historically. Automatically separates feed commodities from veterinary medicines. | *(none)* |
 | `get_pens` | Query | Live pen roster: head count, average animal weight, total pen biomass in kg, forage type, target ADG. | *(none)* |
 | `get_feed_logs` | Query | Daily TMR split-feeding logs with exact kg-by-kg ingredient breakdown. | `date`, `pen` |
 | `get_pen_checks` | Query | Morning and evening feed bunk scores ($0-100\%$) and flagged sick cattle. | `date` |
@@ -1066,5 +1128,22 @@ Farm mobile connectivity is often intermittent. Staff may upload photos of Sunda
 If a slip or worker message states an animal died (`بچھڑا مر گیا`), was emergency slaughtered (`ذبح کیا`), or was sold (`بیچ دیا`):
 * Spark is **strictly forbidden** from unilaterally changing the animal's status in the database.
 * Spark immediately flags the event as an **Urgent High-Priority Alert** to Bilal with the tag number, pen, timestamp, and slip photo, requesting one-click manual confirmation before marking the animal off the active registry.
+
+---
+
+### 8.8 One-Off Corrupted Intake Filter & Calibrated Baseline Rules
+During farm setup, weigh-in entries recorded on **2026-07-29** and **2026-08-02** were conducted on an uncalibrated scale at intake. **2026-08-08** represents the calibrated starting baseline for the entire herd.
+
+To guarantee mathematical consistency with the SmartHerd Portal (`Dashboard.jsx`, `WeightTracker.jsx`, `CostOfGainReport.jsx`):
+1. **Weight Logs & Gain Calculations:**
+   * Entries from `2026-07-29` and `2026-08-02` are excluded by default from `GET /api/v1/cattle/weights` and `get_cattle_weights` (can be inspected via `?include_uncalibrated=true`).
+   * Any weight interval anchored on these dates is skipped in all gain and ADG calculations (`herdTotalGain`, pen ADG, breed ADG, lagger calves).
+2. **Derivative ADG Rate on 08-Aug-2026:**
+   * The `adg` value recorded on `2026-08-08` was calculated against an uncalibrated pre-baseline weight. Its `adg` rate is nullified in reporting, but the actual weight on `2026-08-08` is valid as the herd's calibrated starting anchor.
+3. **Pre-Baseline Feed Logs:**
+   * Feed logs dated `< 2026-08-08` were intake trial rations before baseline establishment. They are excluded from operational Feed Cost, Cost of Gain, and FCR analytics.
+4. **AI Mutation Protection:**
+   * Spark will reject any attempt to log or backfill scale weights or feed logs onto `2026-07-29` or `2026-08-02`, preventing historical data corruption.
+
 
 
