@@ -129,7 +129,7 @@ async function resolveAnimal(client, identifier) {
     const cleaned = raw.replace(/^(tag|tag\s*#|#)\s*/i, '').trim();
 
     const res = await client.query(`
-        SELECT id, rfid, breed, pen, status, current_weight, entry_weight, entry_date, previous_tags
+        SELECT *
         FROM ba_animals
         WHERE rfid = $1 
            OR rfid = $2
@@ -342,6 +342,22 @@ module.exports = async (req, res) => {
                     return safeDate >= today;
                 });
 
+                const feedCostRes = await client.query(`
+                    SELECT COALESCE(SUM(cost_per_animal), 0) as total_feed_cost, COUNT(*) as feed_sessions
+                    FROM ba_feed_logs
+                    WHERE UPPER(pen) = UPPER($1) AND date >= $2
+                `, [animal.pen || 'A', animal.entry_date || '2000-01-01']);
+
+                const dof = calcDof(animal.entry_date);
+                const currentWeight = parseFloat(animal.current_weight || 0);
+                const entryWeight = parseFloat(animal.entry_weight || 0);
+                const mandiWeight = animal.mandi_weight ? parseFloat(animal.mandi_weight) : null;
+                const gainKg = (currentWeight > 0 && entryWeight > 0) ? +(currentWeight - entryWeight).toFixed(1) : 0;
+                const lifetimeAdg = (dof > 0 && gainKg !== null) ? +(gainKg / dof).toFixed(2) : null;
+                const feedCostToDate = parseFloat(feedCostRes.rows[0]?.total_feed_cost || 0);
+                const purchasePrice = animal.purchase_price ? parseFloat(animal.purchase_price) : null;
+                const mandiPrice = animal.mandi_price ? parseFloat(animal.mandi_price) : null;
+
                 return res.status(200).json({
                     success: true,
                     animal: {
@@ -350,10 +366,29 @@ module.exports = async (req, res) => {
                         pen: animal.pen,
                         breed: animal.breed,
                         status: animal.status,
-                        current_weight_kg: parseFloat(animal.current_weight || 0),
-                        entry_weight_kg: parseFloat(animal.entry_weight || 0),
+                        source: animal.source || null,
+                        mandi_weight_kg: mandiWeight,
+                        landed_weight_kg: entryWeight,
+                        transit_shrink_pct: (mandiWeight && mandiWeight > entryWeight) ? +(((mandiWeight - entryWeight) / mandiWeight) * 100).toFixed(1) : null,
+                        current_weight_kg: currentWeight,
+                        total_weight_gain_kg: gainKg,
+                        target_weight_kg: animal.target_weight ? parseFloat(animal.target_weight) : null,
                         entry_date: animal.entry_date,
-                        dof: calcDof(animal.entry_date),
+                        days_on_feed: dof,
+                        lifetime_adg: lifetimeAdg,
+                        mandi_price_pkr: mandiPrice,
+                        landed_purchase_price_pkr: purchasePrice,
+                        procurement_breakdown: {
+                            mandi_price_pkr: mandiPrice,
+                            carriage_pkr: animal.carriage ? parseFloat(animal.carriage) : null,
+                            mandi_tax_pkr: animal.mandi_tax ? parseFloat(animal.mandi_tax) : null,
+                            misc_expense_pkr: animal.misc_expense ? parseFloat(animal.misc_expense) : null,
+                            source_market: animal.source || null
+                        },
+                        feed_cost_to_date_pkr: +feedCostToDate.toFixed(2),
+                        feed_sessions_count: parseInt(feedCostRes.rows[0]?.feed_sessions || 0),
+                        total_cost_to_date_pkr: +( (purchasePrice || 0) + feedCostToDate ).toFixed(2),
+                        cost_per_kg_gain_pkr: (gainKg > 0 && feedCostToDate > 0) ? +(feedCostToDate / gainKg).toFixed(2) : null,
                         under_withholding: activeWithholding.length > 0,
                         active_withholdings: activeWithholding
                     },
@@ -362,7 +397,15 @@ module.exports = async (req, res) => {
                         weight_kg: parseFloat(w.weight),
                         adg: w.adg ? parseFloat(w.adg) : null
                     })),
-                    treatments: treatmentsRes.rows,
+                    treatments: treatmentsRes.rows.map(t => ({
+                        id: t.id,
+                        date: t.date,
+                        type: t.type,
+                        medicine: t.medicine,
+                        dosage: t.dosage,
+                        withholding_days: t.withholding,
+                        notes: t.notes
+                    })),
                     lifecycle_events: eventsRes.rows
                 });
             }

@@ -135,41 +135,80 @@ List all active cattle with pens, current weights, entry dates, and Days on Feed
 ---
 
 ### 3.3 Individual Cattle Passport / Full Dossier
-Fetches every single detail about an individual calf: full weight history since intake, ADG progression, every veterinary treatment administered, active withdrawal countdowns, and pen transfers.
+Fetches every single detail about an individual calf: Mandi weight & purchase breakdown, landed weight, transit shrink %, current weight, total gain, lifetime ADG, feed cost to date, all weigh-ins with session ADG, and every medical treatment administered.
 * **Route:** `GET /api/v1/cattle/passport?tag=<TAG>`
 * **Response Example (`200 OK`):**
 ```json
 {
   "success": true,
   "animal": {
-    "tag": "36",
-    "pen": "B",
-    "breed": "Cholistani",
-    "entry_date": "2026-05-15",
-    "entry_weight": 190.0,
-    "current_weight": 268.0,
-    "total_gain_kg": 78.0,
-    "days_on_feed": 122,
-    "lifetime_adg": 0.64,
-    "weights": [
-      { "date": "2026-09-10", "weight": 268.0, "adg": 1.14 },
-      { "date": "2026-08-10", "weight": 234.0, "adg": 1.10 },
-      { "date": "2026-07-10", "weight": 201.0, "adg": 0.37 },
-      { "date": "2026-05-15", "weight": 190.0, "adg": null }
-    ],
-    "treatments": [
+    "animal_id": 9,
+    "tag": "57",
+    "pen": "A",
+    "breed": "Sahiwal",
+    "status": "Fattening",
+    "source": "Chiniot",
+    "mandi_weight_kg": 132.0,
+    "landed_weight_kg": 127.0,
+    "transit_shrink_pct": 3.8,
+    "current_weight_kg": 181.0,
+    "total_weight_gain_kg": 54.0,
+    "target_weight_kg": 280.0,
+    "entry_date": "2026-07-29",
+    "days_on_feed": 47,
+    "lifetime_adg": 1.15,
+    "mandi_price_pkr": 85000.0,
+    "landed_purchase_price_pkr": 88881.0,
+    "procurement_breakdown": {
+      "mandi_price_pkr": 85000.0,
+      "carriage_pkr": 2500.0,
+      "mandi_tax_pkr": 500.0,
+      "misc_expense_pkr": 881.0,
+      "source_market": "Chiniot"
+    },
+    "feed_cost_to_date_pkr": 12011.48,
+    "feed_sessions_count": 79,
+    "total_cost_to_date_pkr": 100892.48,
+    "cost_per_kg_gain_pkr": 222.43,
+    "under_withholding": true,
+    "active_withholdings": [
       {
-        "date": "2026-09-08",
-        "treatment_type": "Antibiotic",
-        "medicine_name": "Amovet 20%",
-        "dosage": "15 ml",
-        "withdrawal_days": 14,
-        "withdrawal_clear_date": "2026-09-22",
-        "is_under_withholding": true,
-        "administered_by": "Dr. Tariq"
+        "date": "2026-08-24",
+        "type": "Deworming",
+        "medicine": "Ivotec 100ml (4.893 ml)",
+        "dosage": "4.893 ml",
+        "withholding": 21,
+        "notes": null
       }
     ]
-  }
+  },
+  "weight_history": [
+    { "date": "2026-07-29", "weight_kg": 127.0, "adg": 0.0 },
+    { "date": "2026-08-08", "weight_kg": 164.0, "adg": 3.7 },
+    { "date": "2026-08-21", "weight_kg": 175.5, "adg": 0.88 },
+    { "date": "2026-09-09", "weight_kg": 181.0, "adg": 0.28 }
+  ],
+  "treatments": [
+    {
+      "date": "2026-09-03",
+      "type": "Vaccination",
+      "medicine": "Pulmovac 100ml (2 ml)",
+      "dosage": "2 ml",
+      "withholding_days": 0,
+      "notes": "H.S VACCINATION"
+    },
+    {
+      "date": "2026-08-24",
+      "type": "Deworming",
+      "medicine": "Oxafax Drench 1 ltr (35.945 ml)",
+      "dosage": "35.945 ml",
+      "withholding_days": 14,
+      "notes": null
+    }
+  ],
+  "lifecycle_events": [
+    { "date": "2026-08-07", "event_type": "pen_transfer", "from_pen": "B", "to_pen": "A", "note": "Moved B → A" }
+  ]
 }
 ```
 
