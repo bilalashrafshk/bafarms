@@ -634,9 +634,25 @@ Returns comprehensive capital, expenditure, and unit economics across the feedlo
     "daily_feed_cost_per_head_pkr": 302.52
   },
   "daily_feed_cost_trend": {
-    "report_date": "2026-09-10",
-    "has_report_date_data": true,
-    "note": null,
+    "report_date": "2026-09-13",
+    "has_report_date_data": false,
+    "portal_headline_metric": {
+      "metric_name": "Daily Feed Cost (SmartHerd Portal Dashboard)",
+      "cost_per_head_pkr": 302.52,
+      "portal_display_rounded_pkr": 303,
+      "portal_label": "Avg. of logged feedings",
+      "note": "Exact headline metric displayed on the SmartHerd portal dashboard (all-time weighted average of valid logged feedings)"
+    },
+    "sync_status": {
+      "status": "PENDING_FARM_SLIP_ENTRY",
+      "latest_verified_date": "2026-09-10",
+      "pending_sync_dates": ["2026-09-11", "2026-09-12", "2026-09-13"],
+      "guardrail_notice": "Feed logs for 2026-09-11, 2026-09-12, 2026-09-13 are awaiting entry from physical farm clipboards. AI models MUST NOT invent or simulate feeding slips. Report verified numbers from latest_verified_date (2026-09-10)."
+    },
+    "latest_verified_date": "2026-09-10",
+    "latest_verified_cost_per_head_pkr": 267.70,
+    "latest_verified_total_cost_pkr": 27573.08,
+    "latest_verified_batch_kg": 1149.5,
     "today_cost_per_head_pkr": 267.70,
     "yesterday_cost_per_head_pkr": 294.13,
     "day_before_yesterday_cost_per_head_pkr": 267.57,
@@ -644,7 +660,17 @@ Returns comprehensive capital, expenditure, and unit economics across the feedlo
     "last_7_days_rolling_avg_pkr": 283.37,
     "overall_baseline_avg_pkr": 302.52,
     "details": {
-      "today": {
+      "requested_target_date": {
+        "date": "2026-09-13",
+        "has_data": false,
+        "total_cost_pkr": 0,
+        "total_animal_days": 0,
+        "cost_per_head_pkr": null,
+        "total_batch_kg": 0,
+        "total_dm_kg": 0,
+        "sessions_count": 0
+      },
+      "latest_verified_day": {
         "date": "2026-09-10",
         "has_data": true,
         "total_cost_pkr": 27573.08,

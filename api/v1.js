@@ -898,7 +898,8 @@ module.exports = async (req, res) => {
 
                 // Determine target date and multi-day breakdown
                 const recordedDates = Array.from(logsByDate.keys()).sort().reverse();
-                const targetDate = query.date || recordedDates[0] || getTodayStr();
+                const latestRecordedDate = recordedDates[0] || getTodayStr();
+                const targetDate = query.date || latestRecordedDate;
 
                 function offsetDateStr(baseStr, days) {
                     const d = new Date(baseStr);
@@ -927,29 +928,49 @@ module.exports = async (req, res) => {
                     };
                 }
 
-                const yesterdayDateStr = offsetDateStr(targetDate, -1);
-                const dayBeforeDateStr = offsetDateStr(targetDate, -2);
-                const sevenDaysAgoDateStr = offsetDateStr(targetDate, -7);
-
                 const todayFeedStats = getDailyFeedStats(targetDate);
-                const yesterdayFeedStats = getDailyFeedStats(yesterdayDateStr);
-                const dayBeforeFeedStats = getDailyFeedStats(dayBeforeDateStr);
-                const sevenDaysAgoFeedStats = getDailyFeedStats(sevenDaysAgoDateStr);
+                const hasTargetData = todayFeedStats.has_data;
 
-                // 7-day rolling window preceding or inclusive of targetDate
+                // Active baseline date: If targetDate has data, use targetDate.
+                // If targetDate has NO data (e.g. today or future date awaiting physical clipboards),
+                // fall back to the latest verified recorded date in the database.
+                const activeBaselineDate = hasTargetData ? targetDate : latestRecordedDate;
+                const activeDateStats = getDailyFeedStats(activeBaselineDate);
+
+                const activeYesterdayStr = offsetDateStr(activeBaselineDate, -1);
+                const activeDayBeforeStr = offsetDateStr(activeBaselineDate, -2);
+                const activeSevenDaysAgoStr = offsetDateStr(activeBaselineDate, -7);
+
+                const activeYesterdayStats = getDailyFeedStats(activeYesterdayStr);
+                const activeDayBeforeStats = getDailyFeedStats(activeDayBeforeStr);
+                const activeSevenDaysAgoStats = getDailyFeedStats(activeSevenDaysAgoStr);
+
+                // 7-day rolling window preceding or inclusive of activeBaselineDate
                 let rollCost = 0;
                 let rollAnimalDays = 0;
-                const last7DaysTrend = [];
+                const active7DaysTrend = [];
                 for (let i = 0; i < 7; i++) {
-                    const dStr = offsetDateStr(targetDate, -i);
+                    const dStr = offsetDateStr(activeBaselineDate, -i);
                     const s = getDailyFeedStats(dStr);
-                    last7DaysTrend.push(s);
+                    active7DaysTrend.push(s);
                     if (s.has_data) {
                         rollCost += s.total_cost_pkr;
                         rollAnimalDays += s.total_animal_days;
                     }
                 }
                 const rolling7DayAvgCostPerHead = rollAnimalDays > 0 ? +(rollCost / rollAnimalDays).toFixed(2) : null;
+
+                // Detect missing dates between latestRecordedDate and targetDate
+                const pendingSyncDates = [];
+                if (!hasTargetData && targetDate > latestRecordedDate) {
+                    let cur = new Date(latestRecordedDate);
+                    cur.setDate(cur.getDate() + 1);
+                    const end = new Date(targetDate);
+                    while (cur <= end) {
+                        pendingSyncDates.push(cur.toISOString().split('T')[0]);
+                        cur.setDate(cur.getDate() + 1);
+                    }
+                }
 
                 // Diet comparison helper
                 function getDietAggregate(dStr) {
@@ -1002,14 +1023,8 @@ module.exports = async (req, res) => {
                     }).filter(i => i.today_kg > 0 || i.previous_kg > 0);
                 }
 
-                // If today has data, compare today vs yesterday and today vs 7 days ago.
-                // If today has no data yet (e.g. current day shift in progress), fallback to yesterday vs day before.
-                const baseComparisonDate = todayFeedStats.has_data ? targetDate : yesterdayDateStr;
-                const yesterdayCompDate = todayFeedStats.has_data ? yesterdayDateStr : dayBeforeDateStr;
-                const sevenDayCompDate = todayFeedStats.has_data ? sevenDaysAgoDateStr : offsetDateStr(yesterdayDateStr, -7);
-
-                const todayVsYesterdayDiet = buildDietComparison(baseComparisonDate, yesterdayCompDate);
-                const todayVs7DaysAgoDiet = buildDietComparison(baseComparisonDate, sevenDayCompDate);
+                const todayVsYesterdayDiet = buildDietComparison(activeBaselineDate, activeYesterdayStr);
+                const todayVs7DaysAgoDiet = buildDietComparison(activeBaselineDate, activeSevenDaysAgoStr);
 
                 // Estimated live cattle valuation (assuming market meat rate ~PKR 850/kg live weight)
                 const totalBiomassKg = animalsRes.rows.reduce((sum, a) => sum + parseFloat(a.current_weight || 0), 0);
@@ -1041,30 +1056,53 @@ module.exports = async (req, res) => {
                     },
                     daily_feed_cost_trend: {
                         report_date: targetDate,
-                        has_report_date_data: todayFeedStats.has_data,
-                        note: !todayFeedStats.has_data ? `No feed logs logged for ${targetDate} yet. Falling back to latest available baseline data.` : null,
-                        today_cost_per_head_pkr: todayFeedStats.cost_per_head_pkr,
-                        yesterday_cost_per_head_pkr: yesterdayFeedStats.cost_per_head_pkr,
-                        day_before_yesterday_cost_per_head_pkr: dayBeforeFeedStats.cost_per_head_pkr,
-                        seven_days_ago_cost_per_head_pkr: sevenDaysAgoFeedStats.cost_per_head_pkr,
+                        has_report_date_data: hasTargetData,
+                        portal_headline_metric: {
+                            metric_name: 'Daily Feed Cost (SmartHerd Portal Dashboard)',
+                            cost_per_head_pkr: overallDailyFeedCostPerHead,
+                            portal_display_rounded_pkr: overallDailyFeedCostPerHead !== null ? Math.round(overallDailyFeedCostPerHead) : null,
+                            portal_label: 'Avg. of logged feedings',
+                            note: 'Exact headline metric displayed on the SmartHerd portal dashboard (all-time weighted average of valid logged feedings)'
+                        },
+                        sync_status: {
+                            status: hasTargetData ? 'SYNCED' : 'PENDING_FARM_SLIP_ENTRY',
+                            latest_verified_date: latestRecordedDate,
+                            pending_sync_dates: pendingSyncDates,
+                            guardrail_notice: !hasTargetData
+                                ? `Feed logs for ${pendingSyncDates.join(', ') || targetDate} are awaiting entry from physical farm clipboards. AI models MUST NOT invent or simulate feeding slips. Report verified numbers from latest_verified_date (${latestRecordedDate}).`
+                                : 'Feed logs are verified and synced.'
+                        },
+                        latest_verified_date: latestRecordedDate,
+                        latest_verified_cost_per_head_pkr: activeDateStats.cost_per_head_pkr,
+                        latest_verified_total_cost_pkr: activeDateStats.total_cost_pkr,
+                        latest_verified_batch_kg: activeDateStats.total_batch_kg,
+                        today_cost_per_head_pkr: hasTargetData ? todayFeedStats.cost_per_head_pkr : activeDateStats.cost_per_head_pkr,
+                        yesterday_cost_per_head_pkr: activeYesterdayStats.cost_per_head_pkr,
+                        day_before_yesterday_cost_per_head_pkr: activeDayBeforeStats.cost_per_head_pkr,
+                        seven_days_ago_cost_per_head_pkr: activeSevenDaysAgoStats.cost_per_head_pkr,
                         last_7_days_rolling_avg_pkr: rolling7DayAvgCostPerHead,
                         overall_baseline_avg_pkr: overallDailyFeedCostPerHead,
                         details: {
-                            today: todayFeedStats,
-                            yesterday: yesterdayFeedStats,
-                            day_before: dayBeforeFeedStats,
-                            seven_days_ago: sevenDaysAgoFeedStats,
-                            last_7_days: last7DaysTrend
+                            requested_target_date: todayFeedStats,
+                            latest_verified_day: activeDateStats,
+                            yesterday_verified: activeYesterdayStats,
+                            day_before_verified: activeDayBeforeStats,
+                            seven_days_ago_verified: activeSevenDaysAgoStats,
+                            last_7_days_verified: active7DaysTrend
                         }
                     },
                     diet_comparison: {
-                        base_date: baseComparisonDate,
+                        base_date: activeBaselineDate,
+                        compared_with_yesterday_date: activeYesterdayStr,
+                        compared_with_7_days_ago_date: activeSevenDaysAgoStr,
+                        is_fallback_to_latest_verified: !hasTargetData,
+                        note: !hasTargetData ? `Target date ${targetDate} has no feed logs entered yet. Diet comparison shows latest verified feed date (${activeBaselineDate}) vs prior day (${activeYesterdayStr}) and 7 days prior (${activeSevenDaysAgoStr}).` : null,
                         today_vs_yesterday: {
-                            compared_with_date: yesterdayCompDate,
+                            compared_with_date: activeYesterdayStr,
                             items: todayVsYesterdayDiet
                         },
                         today_vs_7_days_ago: {
-                            compared_with_date: sevenDayCompDate,
+                            compared_with_date: activeSevenDaysAgoStr,
                             items: todayVs7DaysAgoDiet
                         }
                     },

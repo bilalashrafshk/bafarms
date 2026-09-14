@@ -173,7 +173,9 @@ const TOOLS = [
         description: 'Get feedlot economics & financial KPIs: Total cattle procurement capital, cumulative feed spend, overhead expenses, total invested capital, blended feed cost per kg gain (PKR/kg), and daily feed cost per head.',
         inputSchema: {
             type: 'object',
-            properties: {}
+            properties: {
+                date: { type: 'string', description: 'Target date (YYYY-MM-DD) for multi-day feed cost trend and diet comparison. Defaults to latest verified date in DB.' }
+            }
         }
     },
     {
@@ -421,7 +423,7 @@ async function executeToolCall(toolName, args, apiKey) {
             return res.data;
         }
         case 'get_financial_analytics': {
-            const res = await dispatchToV1('GET', 'analytics/financials', {}, null, apiKey);
+            const res = await dispatchToV1('GET', 'analytics/financials', args || {}, null, apiKey);
             return res.data;
         }
         case 'get_feed_efficiency': {
