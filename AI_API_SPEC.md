@@ -4,7 +4,16 @@ This specification defines the programmatic REST and Webhook interface for **BA 
 
 ---
 
-## 1. Core Principles & Governance Safeguards
+## 1. Executive Purpose & Governance Safeguards
+
+### 1.0 What This Integration Does
+This integration acts as an intelligent, automated bridge connecting physical farm operations to the **SmartHerd Management Portal** using **Gemini Spark**:
+1. **Urdu Paper Slip $\rightarrow$ Digital Ledger Translation:** Farm workers record daily feed mixtures, bunk checks, scale weigh-ins, and medicine doses on paper or whiteboards in Urdu. Staff photograph the slips $\rightarrow$ Gemini Spark extracts the data using multimodal vision $\rightarrow$ pushes structured records directly into SmartHerd.
+2. **Junior Employee Governance & Supervision:** Eliminates the risk of an AI agent corrupting live databases. Submissions are staged in the **SmartHerd Admin Approvals queue (`ba_pending_approvals`)** for Bilal's one-click review until the Admin toggles the AI to "Normal Staff" mode.
+3. **Conversational Farm Encyclopedia:** Enables Bilal and management to ask questions in plain English or Urdu (*"What was the landed weight and feed cost of tag 57?"*, *"What is Pen A's current biomass and ADG?"*) and receive exact figures in seconds via the live API / MCP connection.
+4. **Automated Daily Audit & Compliance:** Automatically queries daily operations at 8:00 PM to verify that all pens were fed, bunk scores recorded, and withdrawal periods observed, drafting an evening compliance report.
+
+---
 
 ### 1.1 Dual Governance Architecture (Junior Employee vs. Normal Staff Mode)
 To eliminate any risk of an AI agent "going rogue" or corrupting farm records, the API implements a **two-tier governance model** controlled by an Admin Switch:
@@ -739,14 +748,72 @@ graph TD
     Escalate --> AwaitReply["Wait for Bilal's confirmation reply before committing"]
 ```
 
-### Spark Operational Blueprint:
-1. **Multimodal Extraction:** Read Urdu paper slips and map them to canonical names (`مکئی` $\rightarrow$ `Maize`, `چوکر` $\rightarrow$ `Chokar`, `سائلیج` $\rightarrow$ `Corn Silage`, `یوریا` $\rightarrow$ `Urea`).
-2. **Pre-Flight Test:** Always run `dry_run: true` first to verify that pen animal counts, date ranges, and mass balances pass.
-3. **Submit Entry:** Push the verified entry.
-   * If the API returns `202 Accepted` (`status: "pending_approval"`), Spark notes: *"Logged #867 — Queued in SmartHerd Admin Approvals for your sign-off."*
-   * If the API returns `201 Created` (`status: "committed"`), Spark notes: *"Committed directly to live herd database."*
-4. **The Stop & Confirm Escalation Rule:** If a tag or number is smudged, or ingredient mass doesn't balance, Spark stops immediately and emails Bilal with a cropped snippet of the slip and clear options.
-5. **Daily 8:00 PM Evening Digest Email:** Summarizes feed compliance, bunk scores, health alerts, and any pending approvals waiting in the portal.
+### 6.1 The "Read Before Write" Protocol (Fetch-First Policy)
+
+**Rule for Gemini Spark:** When processing any worker slip, scale sheet, or medical log, Spark must **always query the portal first** (`GET` / MCP tool) before attempting to submit a new entry (`POST`).
+
+Because read queries execute in **<25ms** and cost **$0.00**, this fetch-first approach guarantees that:
+1. **No Accidental Duplicates:** If staff photographed a slip that was already recorded earlier in the day, Spark identifies it immediately instead of attempting duplicate inserts.
+2. **Contextual Biological Validation:** Spark verifies new numbers against historical baselines (e.g. comparing today's scale weight to the animal's previous intake weight).
+3. **Ghost Prevention:** Spark confirms that the target pen currently has active animals before logging feed.
+
+---
+
+### 6.2 Deduplication & Conflict Handling (When Data Is Already in the Portal)
+
+When Spark fetches existing records for a given date or animal, it evaluates the situation according to this decision matrix:
+
+| Scenario | What Spark Finds in the Portal | How Spark Behaves |
+| :--- | :--- | :--- |
+| **Identical Feed Log Already Present** | Pen A Morning feed on 2026-09-14 with matching ingredients is already recorded. | **SKIP INSERT.** Spark alerts: *"Notice: Pen A Morning feed (180 kg) is already recorded in SmartHerd. Skipping duplicate entry."* |
+| **Differing Feed Log Already Present** | Pen A Morning feed exists, but the slip has different ingredient weights (e.g., afternoon correction). | **ESCALATE.** Spark does NOT overwrite. It notifies Bilal: *"Conflict: Slip shows 190 kg for Pen A Morning, but portal has 180 kg. Please review in Admin Approvals."* |
+| **Weigh-In for Same Animal on Same Date** | Tag 57 already has a weight log on 2026-09-14. | **BLOCK.** If the new weight matches, skip. If different, alert Bilal of the conflicting weigh-in rather than corrupting the scale log. |
+| **Medical Treatment on Same Date** | Animal was already administered this medication today. | **BLOCK.** Prevents double-dosing of antibiotics or dewormers (`DUPLICATE_TREATMENT_BLOCKED`) unless explicit veterinary re-dose is specified. |
+
+---
+
+### 6.3 Domain-Specific Fetch-First Workflows
+
+#### 1. Daily Feeding Flow:
+1. Staff sends photo of morning feed slip for Pen C.
+2. Spark calls `get_feed_logs(date="2026-09-14", pen="C")`.
+3. If feeding index 1 is already recorded $\rightarrow$ Spark checks whether it's an exact match or an afternoon feeding (index 2).
+4. If not recorded $\rightarrow$ Spark runs `dry_run: true` $\rightarrow$ verifies ingredient sum $\rightarrow$ calls `add_feed_log`.
+
+#### 2. Scale Weigh-In Flow:
+1. Staff sends weigh-in slip: `"Tag 57 weight 181 kg"`.
+2. Spark calls `get_animal_passport(tag="57")` **FIRST**.
+3. Spark observes:
+   * Previous weight was `175.5 kg` on August 21 (24 days ago).
+   * Total gain: $+5.5\text{ kg}$ ($\approx 0.23\text{ kg/day}$ ADG).
+   * Sanity check passed (no dropped digits or impossible spikes).
+4. Spark calls `log_cattle_weight({ tag: "57", weight: 181, date: "2026-09-14" })`.
+5. If in Junior Employee mode $\rightarrow$ queued with ID `#882` for Bilal's review.
+
+#### 3. Veterinary Medical Flow:
+1. Staff sends photo: `"Tag 36 given 15 ml Amovet"`.
+2. Spark calls `get_withholding_alerts()` and `get_animal_passport(tag="36")`.
+3. Spark checks: Has Amovet already been logged today? What was the previous treatment?
+4. If valid $\rightarrow$ Spark calls `log_treatment` with the mandatory 14-day slaughter withholding period.
+
+---
+
+### 6.4 The Stop & Confirm Escalation Rule
+If an ear tag number is smudged, an ingredient name is ambiguous, or a weight drop exceeds biological limits, Spark **stops immediately**. It sends an email or WhatsApp alert to Bilal with:
+1. A cropped preview of the unclear slip.
+2. What the AI thinks it says vs. alternative interpretations.
+3. A direct link to confirm or correct the entry.
+
+---
+
+### 6.5 Daily 8:00 PM Evening Digest Email
+At 8:00 PM daily, Spark calls `get_compliance_summary(date=today)` to evaluate:
+* Total completed feed sessions vs planned pens.
+* Bunk clearance scores across all pens.
+* Active sick animals and withdrawal alerts.
+* Any pending entries waiting for Bilal's sign-off in the Staff Approvals queue.
+
+Drafts and delivers a concise executive report directly to Bilal's inbox.
 
 ---
 
