@@ -2487,8 +2487,114 @@ module.exports = async (req, res) => {
                 const stockRes = await client.query("SELECT value FROM ba_settings WHERE key = 'feed_stock_items'");
                 const parse = (v) => typeof v === 'string' ? JSON.parse(v) : v;
                 const stockItems = parse(stockRes.rows[0]?.value) || [];
-                const matchedStock = stockItems.find(s => s.name.toLowerCase() === item_name.toLowerCase().trim() || s.id === item_name.trim());
-                const itemId = matchedStock ? matchedStock.id : null;
+
+                function resolveStockItem(rawNameOrId, items = []) {
+                    if (!rawNameOrId) return null;
+                    const clean = String(rawNameOrId).trim().toLowerCase();
+
+                    // 1. Direct ID match
+                    const byId = items.find(s => s.id && s.id.toLowerCase() === clean);
+                    if (byId) return byId;
+
+                    // 2. Direct name match
+                    const byExactName = items.find(s => s.name && s.name.trim().toLowerCase() === clean);
+                    if (byExactName) return byExactName;
+
+                    // 3. Synonym and Alias Mapping
+                    // Makai Chara / Green Fodder / Chara / Chari / Green Maize are interchangeable
+                    const chariSynonyms = ['chari', 'makai chara', 'makai charra', 'makai', 'green maize', 'green fodder', 'chara', 'fodder', 'green maize fodder', 'maize fodder'];
+                    if (chariSynonyms.some(syn => clean === syn || clean.includes(syn))) {
+                        const chariItem = items.find(s => s.id === 'chari');
+                        if (chariItem) return chariItem;
+                    }
+
+                    // Silage synonyms
+                    const silageSynonyms = ['silage', 'corn silage', 'maize silage', 'corn-silage', 'makai silage'];
+                    if (silageSynonyms.some(syn => clean === syn || clean.includes(syn))) {
+                        const silageItem = items.find(s => s.id === 'silage');
+                        if (silageItem) return silageItem;
+                    }
+
+                    // Wheat Straw / Toori synonyms
+                    const strawSynonyms = ['toori', 'straw', 'wheat straw', 'toori (straw)', 'bhoosa', 'bhusa'];
+                    if (strawSynonyms.some(syn => clean === syn || clean.includes(syn))) {
+                        const strawItem = items.find(s => s.id === 'straw');
+                        if (strawItem) return strawItem;
+                    }
+
+                    // Potato synonyms
+                    const potatoSynonyms = ['potato', 'aloo', 'potatoes'];
+                    if (potatoSynonyms.some(syn => clean === syn || clean.includes(syn))) {
+                        const potatoItem = items.find(s => s.id === 'item_1787682901639' || (s.name && s.name.toLowerCase().includes('potato')));
+                        if (potatoItem) return potatoItem;
+                    }
+
+                    // Molasses / Sheera synonyms
+                    const molassesSynonyms = ['molasses', 'sheera', 'shira'];
+                    if (molassesSynonyms.some(syn => clean === syn || clean.includes(syn))) {
+                        const molassesItem = items.find(s => s.id === 'item_1786402466074' || (s.name && s.name.toLowerCase().includes('molasses')));
+                        if (molassesItem) return molassesItem;
+                    }
+
+                    // Choker / Wheat Bran synonyms
+                    const chokerSynonyms = ['choker', 'chokar', 'wheat bran', 'bran'];
+                    if (chokerSynonyms.some(syn => clean === syn || clean.includes(syn))) {
+                        const chokerItem = items.find(s => s.id === 'item_1785509065371' || (s.name && s.name.toLowerCase().includes('choker')));
+                        if (chokerItem) return chokerItem;
+                    }
+
+                    // Wanda variants
+                    if (clean.includes('single bag')) {
+                        const w = items.find(s => s.id === 'premix_1787170372798');
+                        if (w) return w;
+                    }
+                    if (clean.includes('potato max')) {
+                        const w = items.find(s => s.id === 'premix_1787943334876');
+                        if (w) return w;
+                    }
+                    if (clean.includes('base wanda')) {
+                        const w = items.find(s => s.id === 'premix_1786400918894');
+                        if (w) return w;
+                    }
+                    if (clean.includes('steady state')) {
+                        const w = items.find(s => s.id === 'premix_1785359297303');
+                        if (w) return w;
+                    }
+                    if (clean === 'wanda' || clean === 'concentrate') {
+                        const w = items.find(s => s.id === 'wanda');
+                        if (w) return w;
+                    }
+
+                    // 4. Substring / contains match
+                    const partialMatch = items.find(s => {
+                        const sName = (s.name || '').toLowerCase();
+                        return sName && (sName.includes(clean) || clean.includes(sName));
+                    });
+                    if (partialMatch) return partialMatch;
+
+                    return null;
+                }
+
+                const matchedStock = resolveStockItem(item_name, stockItems);
+                let itemId = matchedStock ? matchedStock.id : null;
+                const finalItemName = matchedStock ? matchedStock.name : item_name.trim();
+
+                // If completely new item, auto-generate ID and register in feed_stock_items so item_id is NEVER null
+                if (!itemId) {
+                    itemId = 'item_' + Date.now();
+                    stockItems.push({
+                        id: itemId,
+                        name: finalItemName,
+                        unit: finalUnit,
+                        category: route === 'purchasing/medicine' ? 'medicine' : 'feed',
+                        isDefault: false
+                    });
+                    await client.query(`
+                        INSERT INTO ba_settings (key, value, updated_by, updated_at)
+                        VALUES ('feed_stock_items', $1, $2, NOW())
+                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+                    `, [JSON.stringify(stockItems), agentActor]);
+                }
 
                 if (isDryRun) {
                     return res.status(200).json({
@@ -2497,7 +2603,7 @@ module.exports = async (req, res) => {
                         message: 'SANITY_CHECKS_PASSED: Purchase receipt is valid and ready to commit.',
                         simulated_record: {
                             date: validDate,
-                            item_name: matchedStock ? matchedStock.name : item_name.trim(),
+                            item_name: finalItemName,
                             item_id: itemId,
                             quantity: qty,
                             unit: finalUnit,
@@ -2520,7 +2626,7 @@ module.exports = async (req, res) => {
                             id: purchaseId,
                             date: validDate,
                             itemId,
-                            itemName: matchedStock ? matchedStock.name : item_name.trim(),
+                            itemName: finalItemName,
                             itemUnit: finalUnit,
                             quantity: qty,
                             rate: unitRate,

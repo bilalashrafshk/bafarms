@@ -1115,12 +1115,40 @@ async function resolveAndSyncFeedStockItemName(client, itemId, providedName, uni
         try { items = typeof settingsRes.rows[0].value === 'string' ? JSON.parse(settingsRes.rows[0].value) : settingsRes.rows[0].value; } catch (e) {}
     }
     if (!Array.isArray(items)) items = [];
-    const existing = items.find(i => i.id === itemId);
 
-    const resolvedName = isValidName(providedName) ? providedName : (isValidName(existing?.name) ? existing.name : (providedName || itemId));
+    let resolvedId = itemId;
+    const clean = String(providedName || '').trim().toLowerCase();
+
+    // If itemId is missing or null, resolve from synonyms or existing stock items
+    if (!resolvedId) {
+        // Makai Chara / Green Fodder / Chara / Chari / Green Maize are interchangeable
+        const chariSynonyms = ['chari', 'makai chara', 'makai charra', 'makai', 'green maize', 'green fodder', 'chara', 'fodder', 'green maize fodder', 'maize fodder'];
+        if (chariSynonyms.some(syn => clean === syn || clean.includes(syn))) {
+            const chariItem = items.find(s => s.id === 'chari');
+            if (chariItem) resolvedId = 'chari';
+        } else if (clean.includes('silage')) {
+            resolvedId = 'silage';
+        } else if (clean.includes('straw') || clean.includes('toori') || clean.includes('bhoosa')) {
+            resolvedId = 'straw';
+        } else if (clean.includes('potato') || clean.includes('aloo')) {
+            resolvedId = 'item_1787682901639';
+        } else if (clean.includes('molasses') || clean.includes('sheera')) {
+            resolvedId = 'item_1786402466074';
+        } else if (clean.includes('choker') || clean.includes('chokar') || clean.includes('bran')) {
+            resolvedId = 'item_1785509065371';
+        } else {
+            const matched = items.find(s => s.name && s.name.toLowerCase().trim() === clean) ||
+                            items.find(s => s.name && (s.name.toLowerCase().includes(clean) || clean.includes(s.name.toLowerCase())));
+            if (matched) resolvedId = matched.id;
+            else resolvedId = 'item_' + Date.now();
+        }
+    }
+
+    const existing = items.find(i => i.id === resolvedId);
+    const resolvedName = isValidName(providedName) ? providedName : (isValidName(existing?.name) ? existing.name : (providedName || resolvedId));
     const resolvedUnit = unit || existing?.unit || 'kg';
 
-    if (isValidName(resolvedName) && itemId) {
+    if (isValidName(resolvedName) && resolvedId) {
         let updated = false;
         if (existing) {
             if (existing.name !== resolvedName || (resolvedUnit && existing.unit !== resolvedUnit) || (category && existing.category !== category)) {
@@ -1130,7 +1158,7 @@ async function resolveAndSyncFeedStockItemName(client, itemId, providedName, uni
                 updated = true;
             }
         } else {
-            items.push({ id: itemId, name: resolvedName, category: category || 'medicine', unit: resolvedUnit });
+            items.push({ id: resolvedId, name: resolvedName, category: category || 'feed', unit: resolvedUnit });
             updated = true;
         }
         if (updated) {
@@ -1142,7 +1170,7 @@ async function resolveAndSyncFeedStockItemName(client, itemId, providedName, uni
         }
     }
 
-    return { name: resolvedName, unit: resolvedUnit };
+    return { id: resolvedId, name: resolvedName, unit: resolvedUnit };
 }
 
 // Resolve (and lazily bootstrap) a staff member's per-section access. Existing/new staff
@@ -2529,7 +2557,7 @@ module.exports = async (req, res) => {
                         INSERT INTO ba_feed_purchases (id, item_id, item_name, item_unit, date, quantity, rate, supplier, notes, created_by, created_at)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
                         ON CONFLICT (id) DO UPDATE SET item_id = EXCLUDED.item_id, item_name = EXCLUDED.item_name, item_unit = EXCLUDED.item_unit, date = EXCLUDED.date, quantity = EXCLUDED.quantity, rate = EXCLUDED.rate, supplier = EXCLUDED.supplier, notes = EXCLUDED.notes
-                    `, [changes.id, changes.itemId, resolved.name, resolved.unit, changes.date, changes.quantity || 0, changes.rate || 0, changes.supplier || null, changes.notes || null, approval.requested_by]);
+                    `, [changes.id, resolved.id, resolved.name, resolved.unit, changes.date, changes.quantity || 0, changes.rate || 0, changes.supplier || null, changes.notes || null, approval.requested_by]);
                 } else if (approval.action === 'SAVE_SETTINGS') {
                     // changes.value was computed by the requester's client at request time,
                     // which can now be stale relative to the DB (e.g. another premix batch
@@ -3592,7 +3620,7 @@ module.exports = async (req, res) => {
                         rate = EXCLUDED.rate,
                         supplier = EXCLUDED.supplier,
                         notes = EXCLUDED.notes
-                `, [id, itemId, resolved.name, resolved.unit, date, quantity || 0, rate || 0, supplier || null, notes || null, session ? session.email : null]);
+                `, [id, resolved.id, resolved.name, resolved.unit, date, quantity || 0, rate || 0, supplier || null, notes || null, session ? session.email : null]);
 
                 return res.status(200).json({ success: true });
             }
