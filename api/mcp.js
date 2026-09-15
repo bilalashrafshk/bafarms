@@ -251,8 +251,7 @@ const TOOLS = [
                 dosage: { type: 'string', description: 'Administered dosage (e.g. "3 ml", "10 ml"). Optional — defaults to standard protocol dose if omitted.' },
                 type: { type: 'string', description: 'Treatment, Vaccination, or Deworming' },
                 withholding_days: { type: 'integer', description: 'Withdrawal period in days (e.g. 0 for vaccines, 14 for Oxafax, 21 for Ivermectin)' },
-                notes: { type: 'string', description: 'Clinical symptoms, diagnosis, or administration notes' },
-                dry_run: { type: 'boolean', description: 'Simulate without committing (default false)' }
+                notes: { type: 'string', description: 'Clinical symptoms, diagnosis, or administration notes' }
             },
             required: ['medicine']
         }
@@ -317,8 +316,7 @@ const TOOLS = [
                 tag: { type: 'string', description: 'Single ear tag ID (if transferring one animal)' },
                 to_pen: { type: 'string', description: 'Destination pen ID (e.g. "A", "B", "C", "D", "E", "F", "G", "SICK", "HOSPITAL", "QUARANTINE")' },
                 status: { type: 'string', description: 'Optional status override: "Fattening", "Active", "Sick", "Hospital", "Quarantined"' },
-                reason: { type: 'string', description: 'Reason for transfer (e.g. "Graduated from quarantine", "Moved to sick bay for treatment", "Recovered from illness")' },
-                dry_run: { type: 'boolean', description: 'Simulate without committing (default false)' }
+                reason: { type: 'string', description: 'Reason for transfer (e.g. "Graduated from quarantine", "Moved to sick bay for treatment", "Recovered from illness")' }
             },
             required: ['to_pen']
         }
