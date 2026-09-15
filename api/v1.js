@@ -145,6 +145,7 @@ async function resolveAnimal(client, identifier) {
            OR rfid = $2
            OR CAST(id AS TEXT) = $1
            OR previous_tags ILIKE $3
+        ORDER BY (CASE WHEN rfid = $1 OR rfid = $2 THEN 1 WHEN previous_tags ILIKE $3 THEN 2 ELSE 3 END)
         LIMIT 1
     `, [raw, cleaned, `%"${cleaned}"%`]);
 
