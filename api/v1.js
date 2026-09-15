@@ -273,13 +273,72 @@ module.exports = async (req, res) => {
 
                 // Query multi-day feed logs and bunk checks (last 7 days through targetDate)
                 const [feedLogsRes, penChecksRes] = await Promise.all([
-                    client.query(`SELECT date, pen, feeding_index, num_feedings, feeding_pct, total_batch_kg FROM ba_feed_logs WHERE date >= $1 AND date <= $2`, [sevenDaysAgoStr, targetDate]),
+                    client.query(`SELECT date, pen, feeding_index, num_feedings, feeding_pct, total_batch_kg, ingredients, animal_count FROM ba_feed_logs WHERE date >= $1 AND date <= $2`, [sevenDaysAgoStr, targetDate]),
                     client.query(`SELECT date, pen, session, bunk_score, head_count, head_pulled FROM ba_pen_checks WHERE date >= $1 AND date <= $2`, [sevenDaysAgoStr, targetDate])
                 ]);
 
                 function calcComplianceForDay(dStr) {
                     const dayLogs = feedLogsRes.rows.filter(l => l.date === dStr);
                     const dayChecks = penChecksRes.rows.filter(c => c.date === dStr);
+
+                    // Replicate EXACT Dashboard Home Ration Compliance Formula (Dashboard.jsx)
+                    const ingMap = new Map();
+                    let totalActualKg = 0;
+                    let totalPlannedKg = 0;
+
+                    dayLogs.forEach(f => {
+                        const rawIngs = typeof f.ingredients === 'string' ? JSON.parse(f.ingredients || '[]') : (f.ingredients || []);
+                        const logAnimals = f.animal_count || 1;
+
+                        rawIngs.forEach(ing => {
+                            const name = ing.name || ing.id;
+                            const actualPerHead = parseFloat(ing.wetSingle || ing.qtyKg || 0);
+                            const plannedPerHead = ing.plannedQtyKg !== undefined && ing.plannedQtyKg !== null ? parseFloat(ing.plannedQtyKg) : actualPerHead;
+                            const actualBatch = ing.wetBatch !== undefined && ing.wetBatch !== null ? parseFloat(ing.wetBatch) : (actualPerHead * logAnimals);
+                            const plannedBatch = plannedPerHead * logAnimals;
+
+                            if (!ingMap.has(name)) {
+                                ingMap.set(name, { name, actualKg: 0, plannedKg: 0 });
+                            }
+                            const rec = ingMap.get(name);
+                            rec.actualKg += actualBatch;
+                            rec.plannedKg += plannedBatch;
+                            totalActualKg += actualBatch;
+                            totalPlannedKg += plannedBatch;
+                        });
+                    });
+
+                    // Asymmetric penalty matching Dashboard.jsx: underfed is full weight, overfed is half weight
+                    const complianceScore = (pct) => {
+                        const deviation = pct - 100;
+                        return deviation >= 0 ? Math.max(0, 100 - deviation * 0.5) : Math.max(0, 100 - Math.abs(deviation));
+                    };
+
+                    const isWanda = (name) => (name || '').toLowerCase().includes('wanda');
+                    let totalWandaPlanned = 0;
+                    let totalWandaActual = 0;
+
+                    ingMap.forEach((data, name) => {
+                        if (isWanda(name)) {
+                            totalWandaPlanned += data.plannedKg;
+                            totalWandaActual += data.actualKg;
+                        }
+                    });
+
+                    const nonWanda = Array.from(ingMap.values()).filter(i => !isWanda(i.name) && i.plannedKg > 0.1);
+                    let weightedSum = nonWanda.reduce((sum, i) => {
+                        const pct = (i.actualKg / i.plannedKg) * 100;
+                        return sum + i.plannedKg * complianceScore(pct);
+                    }, 0);
+                    let totalWeight = nonWanda.reduce((sum, i) => sum + i.plannedKg, 0);
+
+                    if (totalWandaPlanned > 0.1) {
+                        const wandaPct = Math.round((totalWandaActual / totalWandaPlanned) * 100);
+                        weightedSum += totalWandaPlanned * complianceScore(wandaPct);
+                        totalWeight += totalWandaPlanned;
+                    }
+
+                    const overallCompliancePct = totalWeight > 0 ? Math.round(weightedSum / totalWeight) : (dayLogs.length > 0 ? 100 : 0);
 
                     const penFeed = {};
                     for (const penId of activePens) {
@@ -293,8 +352,8 @@ module.exports = async (req, res) => {
                         };
                     }
                     const compPens = activePens.filter(p => penFeed[p].complete).length;
-                    const feedCompletionPct = totalPens > 0 ? Math.round((compPens / totalPens) * 100) : 100;
 
+                    // Bunk checks kept completely separate as requested
                     const penChecks = {};
                     for (const penId of activePens) {
                         const checks = dayChecks.filter(c => c.pen === penId);
@@ -305,35 +364,20 @@ module.exports = async (req, res) => {
                         };
                     }
                     const completedBunkPens = activePens.filter(p => penChecks[p].checked).length;
-                    const bunkCompletionPct = totalPens > 0 ? Math.round((completedBunkPens / totalPens) * 100) : 0;
-                    const compositeOperationalScore = Math.round((feedCompletionPct + bunkCompletionPct) / 2);
-
-                    let verdict = 'No operational data recorded for this day.';
-                    if (dayLogs.length > 0 || dayChecks.length > 0) {
-                        if (feedCompletionPct === 100 && bunkCompletionPct === 100) {
-                            verdict = 'FULL_COMPLIANCE: 100% feed sessions and 100% pen bunk checks completed.';
-                        } else if (feedCompletionPct === 100 && bunkCompletionPct === 0) {
-                            verdict = `PARTIAL_COMPLIANCE: 100% feed sessions completed (${compPens}/${totalPens} pens fed), but 0% bunk & health checks logged (0/${totalPens} pens checked).`;
-                        } else {
-                            verdict = `MODERATE: Feed delivery ${feedCompletionPct}% (${compPens}/${totalPens} pens), Bunk checks ${bunkCompletionPct}% (${completedBunkPens}/${totalPens} pens).`;
-                        }
-                    }
 
                     return {
                         date: dStr,
-                        has_data: dayLogs.length > 0 || dayChecks.length > 0,
-                        composite_operational_compliance_pct: compositeOperationalScore,
-                        verdict,
+                        has_data: dayLogs.length > 0,
+                        overall_compliance_pct: overallCompliancePct,
+                        total_actual_kg: Math.round(totalActualKg),
+                        total_planned_kg: Math.round(totalPlannedKg),
                         feed: {
-                            is_fully_compliant: compPens === totalPens && totalPens > 0,
-                            completion_pct: feedCompletionPct,
+                            compliance_pct: overallCompliancePct,
                             completed_pens: compPens,
                             total_active_pens: totalPens,
                             pen_details: penFeed
                         },
-                        bunk_checks: {
-                            is_fully_compliant: completedBunkPens === totalPens && totalPens > 0,
-                            completion_pct: bunkCompletionPct,
+                        bunk_checks_separate: {
                             completed_pens: completedBunkPens,
                             total_active_pens: totalPens,
                             pen_details: penChecks
@@ -353,9 +397,9 @@ module.exports = async (req, res) => {
                     const rep = calcComplianceForDay(ds);
                     last7DaysTrend.push({
                         date: ds,
-                        feed_completion_pct: rep.feed.completion_pct,
+                        feed_completion_pct: rep.feed.compliance_pct,
                         completed_pens: `${rep.feed.completed_pens}/${rep.feed.total_active_pens}`,
-                        bunk_checks_completed: `${rep.bunk_checks.completed_pens}/${rep.bunk_checks.total_active_pens}`,
+                        bunk_checks_completed: `${rep.bunk_checks_separate.completed_pens}/${rep.bunk_checks_separate.total_active_pens}`,
                         has_logs: rep.has_data
                     });
                 }
