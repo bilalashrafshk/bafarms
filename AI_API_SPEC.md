@@ -46,8 +46,8 @@ The Admin can toggle between Junior Employee Mode and Normal Staff Mode at any t
    * **Feed Batches:** Ingredient mass balance must sum to `total_batch_kg` within $\pm 1.0\text{ kg}$. Daily cumulative feeding cannot exceed $100\%$.
    * **Bunk Scores:** Must be between $0 - 100\%$.
    * **Anti-Ghost Feeding:** Feeds cannot be logged to a pen with 0 active animals.
-4. **Dry-Run Simulation Mode (`dry_run: true`):**
-   * Pass `"dry_run": true` (or `?dry_run=true`) to simulate any payload without writing to the database.
+4. **Live Database Mutations & Safe Staging:**
+   * All MCP write operations are live writes. In Junior Employee Mode, mutations are safely staged in `ba_pending_approvals` for Admin review. The AI agent must never use or assume simulated dry-run mode when instructed to record or register.
 
 ### 1.4 Unrestricted, Zero-Friction Read Access (GET Operations)
 While mutating actions (`POST`) are protected by the Junior Employee approval queue and biological sanity clamps, **all data fetching (`GET`) operations are 100% unrestricted**:
@@ -74,65 +74,34 @@ While mutating actions (`POST`) are protected by the Junior Employee approval qu
 
 All GET endpoints are unrestricted and provide deep historical and real-time visibility across the entire farm.
 
-### 3.1 Live Compliance Summary & Multi-Day Fallback
-Fetch real-time daily operational compliance for feed sessions, bunk checks, and urgent health alerts. If the target date (today) does not have logs recorded yet (e.g. morning shift underway), the endpoint provides a non-destructive fallback with yesterday's complete compliance and the rolling 7-day trend history.
+### 3.1 Live Feed & Ration Compliance Summary (Dashboard Home Metric)
+Fetch real-time daily feed and ration formulation compliance matching the exact **Dashboard Home** calculation (`overallCompliancePct`). Compares actual kg delivered vs planned kg per ingredient with asymmetric under/over-feed weighting. Bunk scores are kept in an independent section.
 * **Route:** `GET /api/v1/compliance/summary`
 * **Query Parameters:** `date` *(optional YYYY-MM-DD, defaults to today)*
 * **Response Example (`200 OK`):**
 ```json
 {
   "success": true,
-  "date": "2026-09-10",
-  "has_today_data": true,
-  "note": null,
-  "compliance": {
-    "date": "2026-09-10",
-    "has_data": true,
-    "feed": {
-      "is_fully_compliant": true,
-      "completion_pct": 100,
-      "completed_pens": 5,
-      "total_active_pens": 5,
-      "pen_details": {
-        "A": { "complete": true, "logged_pct": 100, "feedings_recorded": 2 },
-        "B": { "complete": true, "logged_pct": 100, "feedings_recorded": 2 },
-        "C": { "complete": true, "logged_pct": 100, "feedings_recorded": 2 },
-        "D": { "complete": true, "logged_pct": 100, "feedings_recorded": 2 },
-        "E": { "complete": true, "logged_pct": 100, "feedings_recorded": 2 }
-      }
-    },
-    "bunk_checks": {
-      "completed_pens": 5,
-      "total_active_pens": 5,
-      "pen_details": {
-        "A": { "checked": true, "sessions": ["Morning", "Evening"], "latest_bunk_score": 0 }
-      }
-    }
-  },
+  "date": "2026-09-15",
+  "has_today_data": false,
+  "note": "No logs recorded for 2026-09-15 yet (e.g. shift in progress). Displaying yesterday (2026-09-14) and last 7-day compliance history.",
   "yesterday_compliance": {
-    "date": "2026-09-09",
+    "date": "2026-09-14",
     "has_data": true,
+    "overall_compliance_pct": 79,
+    "total_actual_kg": 1227,
+    "total_planned_kg": 1360,
     "feed": {
-      "is_fully_compliant": true,
-      "completion_pct": 100,
-      "completed_pens": 5,
-      "total_active_pens": 5
+      "compliance_pct": 79,
+      "completed_pens": 6,
+      "total_active_pens": 6
+    },
+    "bunk_checks_separate": {
+      "completed_pens": 0,
+      "total_active_pens": 6
     }
   },
-  "last_7_days_trend": [
-    { "date": "2026-09-09", "feed_completion_pct": 100, "completed_pens": "5/5", "bunk_checks_completed": "5/5", "has_logs": true },
-    { "date": "2026-09-08", "feed_completion_pct": 100, "completed_pens": "5/5", "bunk_checks_completed": "5/5", "has_logs": true },
-    { "date": "2026-09-07", "feed_completion_pct": 100, "completed_pens": "5/5", "bunk_checks_completed": "5/5", "has_logs": true },
-    { "date": "2026-09-06", "feed_completion_pct": 100, "completed_pens": "5/5", "bunk_checks_completed": "5/5", "has_logs": true },
-    { "date": "2026-09-05", "feed_completion_pct": 100, "completed_pens": "5/5", "bunk_checks_completed": "5/5", "has_logs": true },
-    { "date": "2026-09-04", "feed_completion_pct": 100, "completed_pens": "5/5", "bunk_checks_completed": "5/5", "has_logs": true },
-    { "date": "2026-09-03", "feed_completion_pct": 100, "completed_pens": "5/5", "bunk_checks_completed": "5/5", "has_logs": true }
-  ],
-  "seven_day_avg_feed_compliance_pct": 85,
-  "health_alerts": {
-    "sick_animals_count": 0,
-    "sick_animal_tags": []
-  }
+  "seven_day_avg_feed_compliance_pct": 88
 }
 ```
 
@@ -1217,7 +1186,33 @@ Allows AI agents (or Gemini Spark) to shift animals between pens, rotate cohorts
 
 ---
 
-### 4.9 Toggle AI Governance Mode (Admin Switch)
+### 4.9 Create or Configure Pen
+Create a new feedlot pen (e.g. Pen H, Pen H1, Hospital Pen) or update an existing pen's target ADG and forage type.
+* **Route:** `POST /api/v1/pens` (or `/api/v1/pens/create`)
+* **Payload:**
+```json
+{
+  "pen": "H",
+  "forage_type": "mixed",
+  "target_adg": 1.2,
+  "notes": "New fattening pen for September Sheikhupura cohort"
+}
+```
+* **Response Example (`201 Created` / `200 OK`):**
+```json
+{
+  "success": true,
+  "action": "created",
+  "pen": "H",
+  "forage_type": "mixed",
+  "target_adg": 1.2,
+  "message": "Pen H successfully created in SmartHerd."
+}
+```
+
+---
+
+### 4.10 Toggle AI Governance Mode (Admin Switch)
 Allows switching the AI between Junior Employee Mode and Normal Staff Mode.
 * **Route:** `POST /api/v1/system/approval-mode`
 * **Payload:**
@@ -1258,14 +1253,13 @@ Allows switching the AI between Junior Employee Mode and Normal Staff Mode.
 graph TD
     Photo["1. Employee sends Urdu photo"] --> SparkOCR["2. Gemini Spark reads slip (Multimodal Vision)"]
     SparkOCR --> RecipeCheck["3. Recipe & Herd Lookups via GET /api/v1"]
-    RecipeCheck --> DryRun["4. Pre-Flight Test with dry_run: true"]
-    DryRun --> Evaluation{"Passes all Sanity Checks?"}
-    Evaluation -- Yes --> Submit["5. POST to /api/v1 (dry_run: false)"]
-    Evaluation -- No or Ambiguous --> Escalate["6. STOP & Send Email to Bilal for Confirmation"]
+    RecipeCheck --> Evaluation{"Passes all Sanity Checks?"}
+    Evaluation -- Yes --> Submit["4. POST to /api/v1 (Execute Mutation)"]
+    Evaluation -- No or Ambiguous --> Escalate["5. STOP & Send Email to Bilal for Confirmation"]
     Submit --> CheckMode{"Mode: Junior vs Normal?"}
     CheckMode -- Junior Employee (202) --> Queued["Queued in SmartHerd Admin Approvals"]
     CheckMode -- Normal Staff (201) --> Committed["Committed to Production DB"]
-    Queued --> EveningReport["7. 8:00 PM Daily Compliance Digest Email"]
+    Queued --> EveningReport["6. 8:00 PM Daily Compliance Digest Email"]
     Committed --> EveningReport
     Escalate --> AwaitReply["Wait for Bilal's confirmation reply before committing"]
 ```
@@ -1300,7 +1294,7 @@ When Spark fetches existing records for a given date or animal, it evaluates the
 1. Staff sends photo of morning feed slip for Pen C.
 2. Spark calls `get_feed_logs(date="2026-09-14", pen="C")`.
 3. If feeding index 1 is already recorded $\rightarrow$ Spark checks whether it's an exact match or an afternoon feeding (index 2).
-4. If not recorded $\rightarrow$ Spark runs `dry_run: true` $\rightarrow$ verifies ingredient sum $\rightarrow$ calls `add_feed_log`.
+4. If not recorded $\rightarrow$ Spark verifies ingredient sum $\rightarrow$ calls `add_feed_log`.
 
 #### 2. Scale Weigh-In Flow:
 1. Staff sends weigh-in slip: `"Tag 57 weight 181 kg"`.
@@ -1372,12 +1366,14 @@ https://www.bafoods.pk/api/mcp?key=ba_live_4ad74dc4971ed32e6454ea51aea9f3dfab943
 | `get_purchasing_history` | Query | Delivery receipts of feed commodities and veterinary medicines with rates, quantities, suppliers. | `start_date`, `end_date`, `item_name` |
 | `get_inventory_summary` | Query | Warehouse and bunker inventory stock levels for all feed ingredients. | *(none)* |
 | `get_premix_formulas` | Query | Active in-house Wanda recipes, exact ingredient percentages (e.g. Urea 1%), available raw commodities. | *(none)* |
-| `get_compliance_summary` | Query | Daily operational compliance overview (feed completion, bunk checks, sick alerts) for daily digest reports. | `date` |
+| `get_compliance_summary` | Query | Daily Feed & Ration Compliance (Planned vs Actual kg mass-weighted score matching Dashboard Home card) and separate pen bunk check history. | `date` |
 | `add_feed_log` | Mutation | Record a daily TMR split-feeding. Protected by sanity checks & Admin Approval queue in Junior mode. | `date`, `pen`, `feeding_index`, `total_batch_kg`, `ingredients` |
 | `log_cattle_weight` | Mutation | Record a scale weigh-in ($40-1200\text{ kg}$). Protected by sanity checks & Admin Approval queue in Junior mode. | `tag`, `weight`, `date`, `pen` |
 | `log_treatment` | Mutation | Record veterinary medication with slaughter withholding days. | `tag`, `date`, `type`, `medicine`, `dosage`, `withholding_days` |
 | `add_purchase` | Mutation | Record delivery of feed commodities or veterinary medicines. | `date`, `item_name`, `quantity`, `rate`, `supplier` |
-| `register_animal` | Mutation | Register a new cattle arrival / purchase into the herd. Automatically initializes initial scale weight and arrival event. Protected by duplicate tag checks, biological weight bounds ($40-1200\text{ kg}$), and Admin Approval queue in Junior mode. | `tag`, `entry_weight`, `breed`, `entry_date`, `purchase_price`, `pen`, `source` |
+| `register_animal` | Mutation | Register a new cattle arrival / purchase into the herd. Automatically initializes initial scale weight and arrival event. Always prompts user for assigned pen (e.g. Pen A-G or Quarantine). Staged in `ba_pending_approvals` in Junior mode, or directly committed. | `tag`, `entry_weight`, `breed`, `entry_date`, `purchase_price`, `pen`, `source` |
+| `create_pen` | Mutation | Create a new feedlot pen (e.g. "H", "H1", "Sick Bay", "Hospital") or update an existing pen's forage type and target ADG. | `pen`, `forage_type`, `target_adg`, `notes` |
+| `transfer_cattle_pen` | Mutation | Shift or rotate animals between pens and health stages (e.g. Quarantine to Pen C, Pen A to Pen B, or to Sick bay). | `to_pen`, `tag` (or `tags`), `status`, `reason` |
 
 ---
 
