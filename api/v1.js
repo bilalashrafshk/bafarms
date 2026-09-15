@@ -1516,6 +1516,93 @@ module.exports = async (req, res) => {
                         status: 'Target Weight Achieved — Ready for Sale/Harvest'
                     }));
 
+                // Operational Banner Alerts (Mirrors Dashboard Top Collapsible Banner)
+                // 1. Sick Calves Untreated for >7 days
+                const sickTreatmentsRes = await client.query(`
+                    SELECT animal_id, to_char(MAX(date), 'YYYY-MM-DD') as last_treatment_date
+                    FROM ba_treatments
+                    GROUP BY animal_id
+                `);
+                const sickTreatMap = new Map();
+                sickTreatmentsRes.rows.forEach(r => sickTreatMap.set(r.animal_id, r.last_treatment_date));
+
+                const sickUntreated = activeAnimals.filter(a => a.status === 'Sick').map(a => {
+                    const lastDate = sickTreatMap.get(a.id);
+                    let daysSince = null;
+                    if (lastDate) {
+                        daysSince = Math.round((new Date(asOfDate) - new Date(lastDate)) / (1000 * 60 * 60 * 24));
+                    }
+                    if (!lastDate || daysSince > 7) {
+                        return {
+                            tag: a.tag,
+                            pen: a.pen || 'Sick Pen',
+                            breed: a.breed,
+                            last_treatment_date: lastDate || 'Never',
+                            days_untreated: daysSince !== null ? daysSince : 'Never',
+                            urgency: 'CRITICAL — Requires Immediate Veterinary Attention'
+                        };
+                    }
+                    return null;
+                }).filter(Boolean);
+
+                // 2. Wide Pen Weight Spreads (>20% variance)
+                const penWeightMap = {};
+                activeAnimals.forEach(a => {
+                    if (!a.pen) return;
+                    const w = parseFloat(a.current_weight) || 0;
+                    if (w <= 0) return;
+                    if (!penWeightMap[a.pen]) penWeightMap[a.pen] = [];
+                    penWeightMap[a.pen].push(w);
+                });
+
+                const widePenSpreads = Object.entries(penWeightMap).map(([pen, weights]) => {
+                    if (weights.length < 2) return null;
+                    const min = Math.min(...weights);
+                    const max = Math.max(...weights);
+                    const avg = weights.reduce((s, x) => s + x, 0) / weights.length;
+                    if (avg <= 0) return null;
+                    const spreadPct = ((max - min) / avg) * 100;
+                    if (spreadPct > 20) {
+                        return {
+                            pen,
+                            head_count: weights.length,
+                            min_weight_kg: min,
+                            max_weight_kg: max,
+                            avg_weight_kg: +avg.toFixed(1),
+                            spread_pct: +spreadPct.toFixed(1),
+                            urgency: 'WARNING — Spread Exceeds 20% Uniformity Threshold (Re-sort Recommended)'
+                        };
+                    }
+                    return null;
+                }).filter(Boolean);
+
+                // 3. Missed Pen Checks (>2 days since last pen check)
+                const penChecksRes = await client.query(`
+                    SELECT pen, to_char(MAX(date), 'YYYY-MM-DD') as last_check_date
+                    FROM ba_pen_checks
+                    GROUP BY pen
+                `);
+                const penCheckMap = new Map();
+                penChecksRes.rows.forEach(r => penCheckMap.set(String(r.pen).toUpperCase(), r.last_check_date));
+
+                const activePensList = [...new Set(activeAnimals.map(a => a.pen).filter(Boolean))];
+                const missedPenChecks = activePensList.map(pen => {
+                    const lastCheck = penCheckMap.get(String(pen).toUpperCase());
+                    let daysSince = null;
+                    if (lastCheck) {
+                        daysSince = Math.round((new Date(asOfDate) - new Date(lastCheck)) / (1000 * 60 * 60 * 24));
+                    }
+                    if (!lastCheck || daysSince > 2) {
+                        return {
+                            pen,
+                            last_check_date: lastCheck || 'Never',
+                            days_since_last_check: daysSince,
+                            urgency: 'PEN CHECK DUE — Log routine bunk & health pen walk'
+                        };
+                    }
+                    return null;
+                }).filter(Boolean);
+
                 const totalOverdue = overdueWeighIns.length + quarantineGraduationsOverdue.length;
                 const totalUpcoming = upcomingWeighIns.length + quarantineMilestonesUpcoming.length + treatmentsRes.rows.length;
 
@@ -1529,7 +1616,15 @@ module.exports = async (req, res) => {
                         overdue_weigh_ins_count: overdueWeighIns.length,
                         upcoming_weigh_ins_count: upcomingWeighIns.length,
                         active_medical_withholdings_count: treatmentsRes.rows.length,
-                        market_ready_cattle_count: marketReadyCalves.length
+                        market_ready_cattle_count: marketReadyCalves.length,
+                        sick_untreated_count: sickUntreated.length,
+                        wide_pen_spreads_count: widePenSpreads.length,
+                        missed_pen_checks_count: missedPenChecks.length
+                    },
+                    operational_banner_alerts: {
+                        sick_untreated_calves: sickUntreated,
+                        wide_pen_weight_spreads: widePenSpreads,
+                        missed_pen_health_checks: missedPenChecks
                     },
                     overdue_tasks: {
                         weigh_ins: overdueWeighIns.sort((a, b) => b.days_overdue - a.days_overdue),
