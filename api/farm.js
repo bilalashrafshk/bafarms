@@ -1126,13 +1126,9 @@ async function resolveAndSyncFeedStockItemName(client, itemId, providedName, uni
         if (maizeGrainSynonyms.some(syn => clean === syn)) {
             const maizeItem = items.find(s => s.id === 'maizeGrain' || s.id === 'maize' || (s.name && s.name.toLowerCase() === 'maize'));
             if (maizeItem) resolvedId = maizeItem.id;
-        } else {
-            // Green Fodder / Chari / Makai Chara (Fresh green forage only - NOT dry grain)
-            const chariSynonyms = ['chari', 'makai chara', 'makai charra', 'green maize', 'green fodder', 'chara', 'green maize fodder', 'maize fodder', 'sorghum fodder'];
-            if (chariSynonyms.some(syn => clean === syn || clean.includes(syn))) {
-                const chariItem = items.find(s => s.id === 'chari');
-                if (chariItem) resolvedId = 'chari';
-            }
+        } else if (['chari', 'makai chara', 'makai charra', 'green maize', 'green fodder', 'chara', 'green maize fodder', 'maize fodder', 'sorghum fodder'].some(syn => clean === syn || clean.includes(syn))) {
+            const chariItem = items.find(s => s.id === 'chari');
+            if (chariItem) resolvedId = 'chari';
         } else if (clean.includes('silage')) {
             resolvedId = 'silage';
         } else if (clean.includes('straw') || clean.includes('toori') || clean.includes('bhoosa')) {
