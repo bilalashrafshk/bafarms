@@ -293,7 +293,7 @@ module.exports = async (req, res) => {
                         };
                     }
                     const compPens = activePens.filter(p => penFeed[p].complete).length;
-                    const overallPct = totalPens > 0 ? Math.round((compPens / totalPens) * 100) : 100;
+                    const feedCompletionPct = totalPens > 0 ? Math.round((compPens / totalPens) * 100) : 100;
 
                     const penChecks = {};
                     for (const penId of activePens) {
@@ -304,19 +304,37 @@ module.exports = async (req, res) => {
                             latest_bunk_score: checks.length > 0 ? checks[checks.length - 1].bunk_score : null
                         };
                     }
+                    const completedBunkPens = activePens.filter(p => penChecks[p].checked).length;
+                    const bunkCompletionPct = totalPens > 0 ? Math.round((completedBunkPens / totalPens) * 100) : 0;
+                    const compositeOperationalScore = Math.round((feedCompletionPct + bunkCompletionPct) / 2);
+
+                    let verdict = 'No operational data recorded for this day.';
+                    if (dayLogs.length > 0 || dayChecks.length > 0) {
+                        if (feedCompletionPct === 100 && bunkCompletionPct === 100) {
+                            verdict = 'FULL_COMPLIANCE: 100% feed sessions and 100% pen bunk checks completed.';
+                        } else if (feedCompletionPct === 100 && bunkCompletionPct === 0) {
+                            verdict = `PARTIAL_COMPLIANCE: 100% feed sessions completed (${compPens}/${totalPens} pens fed), but 0% bunk & health checks logged (0/${totalPens} pens checked).`;
+                        } else {
+                            verdict = `MODERATE: Feed delivery ${feedCompletionPct}% (${compPens}/${totalPens} pens), Bunk checks ${bunkCompletionPct}% (${completedBunkPens}/${totalPens} pens).`;
+                        }
+                    }
 
                     return {
                         date: dStr,
                         has_data: dayLogs.length > 0 || dayChecks.length > 0,
+                        composite_operational_compliance_pct: compositeOperationalScore,
+                        verdict,
                         feed: {
                             is_fully_compliant: compPens === totalPens && totalPens > 0,
-                            completion_pct: overallPct,
+                            completion_pct: feedCompletionPct,
                             completed_pens: compPens,
                             total_active_pens: totalPens,
                             pen_details: penFeed
                         },
                         bunk_checks: {
-                            completed_pens: activePens.filter(p => penChecks[p].checked).length,
+                            is_fully_compliant: completedBunkPens === totalPens && totalPens > 0,
+                            completion_pct: bunkCompletionPct,
+                            completed_pens: completedBunkPens,
                             total_active_pens: totalPens,
                             pen_details: penChecks
                         }
@@ -620,6 +638,52 @@ module.exports = async (req, res) => {
                     total_pens: pens.length,
                     total_active_cattle: animalsRes.rows.length,
                     pens
+                });
+            }
+
+            // -------------------------------------------------------------
+            // POST /api/v1/pens or /api/v1/pens/create
+            // Create or configure a new feedlot pen (e.g. Pen H, Pen H1, Sick Bay)
+            // -------------------------------------------------------------
+            if ((route === 'pens' || route === 'pens/create') && method === 'POST') {
+                const penId = String(body.id || body.pen || '').trim().toUpperCase();
+                if (!penId) throw new Error('PEN_ERROR: "pen" or "id" (e.g. "H", "H1", "SICK") is required.');
+
+                const forageType = (body.forage_type || body.forageType || 'mixed').toLowerCase();
+                const targetAdg = body.target_adg || body.targetAdg ? parseFloat(body.target_adg || body.targetAdg) : null;
+                const notes = body.notes ? String(body.notes).trim() : null;
+
+                const existing = await client.query(`SELECT id FROM ba_pens WHERE UPPER(id) = $1`, [penId]);
+                if (existing.rows.length > 0) {
+                    await client.query(`
+                        UPDATE ba_pens 
+                        SET forage_type = COALESCE($1, forage_type),
+                            current_target_adg = COALESCE($2, current_target_adg),
+                            notes = COALESCE($3, notes),
+                            updated_at = NOW()
+                        WHERE UPPER(id) = $4
+                    `, [forageType, targetAdg, notes, penId]);
+
+                    return res.status(200).json({
+                        success: true,
+                        action: 'updated',
+                        pen: penId,
+                        message: `Pen ${penId} updated successfully.`
+                    });
+                }
+
+                await client.query(`
+                    INSERT INTO ba_pens (id, forage_type, current_target_adg, notes, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, NOW(), NOW())
+                `, [penId, forageType, targetAdg, notes]);
+
+                return res.status(201).json({
+                    success: true,
+                    action: 'created',
+                    pen: penId,
+                    forage_type: forageType,
+                    target_adg: targetAdg,
+                    message: `Pen ${penId} successfully created in SmartHerd.`
                 });
             }
 

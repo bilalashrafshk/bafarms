@@ -276,7 +276,7 @@ const TOOLS = [
     },
     {
         name: 'register_animal',
-        description: 'Register a new animal into the herd (intake / purchase). Records tag/RFID, breed, arrival weight, initial pen (e.g. Quarantine), landed purchase price, and Mandi procurement breakdown. Automatically initializes initial scale weight and arrival event. Subject to biological sanity clamps (40-1200kg) and Admin Approval in Junior Employee mode.',
+        description: 'Register a new animal into the herd (intake / purchase). Records tag/RFID, breed, arrival weight, initial pen (e.g. Quarantine, A, B, etc.), landed purchase price, and Mandi procurement breakdown. Automatically initializes initial scale weight and arrival event. Subject to biological sanity clamps (40-1200kg) and Admin Approval in Junior Employee mode.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -284,13 +284,27 @@ const TOOLS = [
                 breed: { type: 'string', description: 'Cattle breed (e.g. "Sahiwal", "Cholistani", "Cross", "Desi", "Friesian Cross")' },
                 entry_date: { type: 'string', description: 'Arrival date in YYYY-MM-DD (defaults to today)' },
                 entry_weight: { type: 'number', description: 'Arrival / scale weight in kg (between 40kg and 1200kg)' },
-                pen: { type: 'string', description: 'Assigned pen (defaults to "Quarantine" or "A", "B", etc.)' },
+                pen: { type: 'string', description: 'Assigned pen (e.g. "A", "B", "C", "D", "E", "G", "Quarantine"). Always prompt the user for the pen, or confirm if they want Quarantine. If assigning to a brand new pen, create it first using create_pen.' },
                 purchase_price: { type: 'number', description: 'Total landed purchase price in PKR' },
                 source: { type: 'string', description: 'Source Mandi or farm (e.g. "Multan Mandi", "Direct Farm Purchase")' },
                 target_weight: { type: 'number', description: 'Target slaughter weight in kg (defaults to 380)' },
                 notes: { type: 'string', description: 'Color, markings, health notes, or Mandi slip details' }
             },
             required: ['tag', 'entry_weight']
+        }
+    },
+    {
+        name: 'create_pen',
+        description: 'Create a new feedlot pen (e.g. "H", "H1", "Sick Bay", "Hospital") or update an existing pen configuration (forage type, target ADG, notes).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                pen: { type: 'string', description: 'Unique pen identifier (e.g. "H", "H1", "F2")' },
+                forage_type: { type: 'string', description: 'Primary forage type: "silage", "mixed", "hay", "green fodder"' },
+                target_adg: { type: 'number', description: 'Target Average Daily Gain in kg/day (e.g. 1.2)' },
+                notes: { type: 'string', description: 'Capacity, location, or pen purpose notes' }
+            },
+            required: ['pen']
         }
     },
     {
@@ -453,6 +467,11 @@ async function executeToolCall(toolName, args, apiKey) {
         case 'register_animal':
         case 'intake_animal': {
             const res = await dispatchToV1('POST', 'cattle/intake', {}, args, apiKey);
+            return res.data;
+        }
+        case 'create_pen':
+        case 'add_pen': {
+            const res = await dispatchToV1('POST', 'pens', {}, args, apiKey);
             return res.data;
         }
         case 'transfer_cattle_pen':
