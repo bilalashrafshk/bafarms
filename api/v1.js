@@ -2501,8 +2501,15 @@ module.exports = async (req, res) => {
                     if (byExactName) return byExactName;
 
                     // 3. Synonym and Alias Mapping
-                    // Makai Chara / Green Fodder / Chara / Chari / Green Maize are interchangeable
-                    const chariSynonyms = ['chari', 'makai chara', 'makai charra', 'makai', 'green maize', 'green fodder', 'chara', 'fodder', 'green maize fodder', 'maize fodder'];
+                    // Maize Grain (Makai / Corn grain for Wanda manufacturing) - NOT green fodder!
+                    const maizeGrainSynonyms = ['maize', 'makai', 'corn', 'maize grain', 'makai grain', 'corn grain', 'cracked maize', 'whole maize'];
+                    if (maizeGrainSynonyms.some(syn => clean === syn)) {
+                        const maizeItem = items.find(s => s.id === 'maizeGrain' || s.id === 'maize' || (s.name && s.name.toLowerCase() === 'maize'));
+                        if (maizeItem) return maizeItem;
+                    }
+
+                    // Green Fodder / Chari / Makai Chara (Fresh green forage only - NOT dry grain)
+                    const chariSynonyms = ['chari', 'makai chara', 'makai charra', 'green maize', 'green fodder', 'chara', 'green maize fodder', 'maize fodder', 'sorghum fodder'];
                     if (chariSynonyms.some(syn => clean === syn || clean.includes(syn))) {
                         const chariItem = items.find(s => s.id === 'chari');
                         if (chariItem) return chariItem;

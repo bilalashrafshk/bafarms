@@ -1121,11 +1121,18 @@ async function resolveAndSyncFeedStockItemName(client, itemId, providedName, uni
 
     // If itemId is missing or null, resolve from synonyms or existing stock items
     if (!resolvedId) {
-        // Makai Chara / Green Fodder / Chara / Chari / Green Maize are interchangeable
-        const chariSynonyms = ['chari', 'makai chara', 'makai charra', 'makai', 'green maize', 'green fodder', 'chara', 'fodder', 'green maize fodder', 'maize fodder'];
-        if (chariSynonyms.some(syn => clean === syn || clean.includes(syn))) {
-            const chariItem = items.find(s => s.id === 'chari');
-            if (chariItem) resolvedId = 'chari';
+        // Maize Grain (Makai / Corn grain for Wanda manufacturing) - NOT green fodder!
+        const maizeGrainSynonyms = ['maize', 'makai', 'corn', 'maize grain', 'makai grain', 'corn grain', 'cracked maize', 'whole maize'];
+        if (maizeGrainSynonyms.some(syn => clean === syn)) {
+            const maizeItem = items.find(s => s.id === 'maizeGrain' || s.id === 'maize' || (s.name && s.name.toLowerCase() === 'maize'));
+            if (maizeItem) resolvedId = maizeItem.id;
+        } else {
+            // Green Fodder / Chari / Makai Chara (Fresh green forage only - NOT dry grain)
+            const chariSynonyms = ['chari', 'makai chara', 'makai charra', 'green maize', 'green fodder', 'chara', 'green maize fodder', 'maize fodder', 'sorghum fodder'];
+            if (chariSynonyms.some(syn => clean === syn || clean.includes(syn))) {
+                const chariItem = items.find(s => s.id === 'chari');
+                if (chariItem) resolvedId = 'chari';
+            }
         } else if (clean.includes('silage')) {
             resolvedId = 'silage';
         } else if (clean.includes('straw') || clean.includes('toori') || clean.includes('bhoosa')) {
